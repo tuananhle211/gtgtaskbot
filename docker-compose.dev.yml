@@ -1,0 +1,72 @@
+# Development overlay.
+#
+#   docker compose -f docker-compose.yml -f docker-compose.dev.yml up -d
+#
+# Differences from production:
+#   * source is bind-mounted, so edits take effect without a rebuild
+#   * the API reloads (with a polling watcher, because SSHFS/NFS does not
+#     deliver inotify events reliably)
+#   * logs are human-readable rather than JSON
+#   * the API port is still bound to 127.0.0.1 only
+#
+# The container's own /app/.venv is NEVER shadowed by the host: only ./src,
+# ./alembic and ./tests are mounted.
+
+services:
+  api:
+    command:
+      - uvicorn
+      - meobot.api.main:app
+      - --host
+      - 0.0.0.0
+      - --port
+      - "8000"
+      - --reload
+      - --reload-dir
+      - /app/src
+    environment:
+      APP_ENV: development
+      LOG_LEVEL: DEBUG
+      LOG_FORMAT: console
+      API_DOCS_ENABLED: "true"
+      # uvicorn's reloader honours WATCHFILES_FORCE_POLLING on network mounts.
+      WATCHFILES_FORCE_POLLING: "true"
+    volumes:
+      - ./src:/app/src:ro
+      - ./alembic:/app/alembic:ro
+      - ./tests:/app/tests:ro
+
+  bot:
+    environment:
+      APP_ENV: development
+      LOG_LEVEL: DEBUG
+      LOG_FORMAT: console
+    volumes:
+      - ./src:/app/src:ro
+
+  worker:
+    command:
+      - celery
+      - -A
+      - meobot.tasks.celery_app
+      - worker
+      - --queues
+      - q_default,q_integrations,q_reports
+      - --concurrency
+      - "1"
+      - --loglevel
+      - DEBUG
+    environment:
+      APP_ENV: development
+      LOG_LEVEL: DEBUG
+      LOG_FORMAT: console
+    volumes:
+      - ./src:/app/src:ro
+
+  beat:
+    environment:
+      APP_ENV: development
+      LOG_LEVEL: DEBUG
+      LOG_FORMAT: console
+    volumes:
+      - ./src:/app/src:ro

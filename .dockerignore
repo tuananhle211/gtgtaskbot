@@ -1,0 +1,33 @@
+# Keep the build context small - it travels over SSHFS/Docker API.
+.git/
+.gitignore
+.venv/
+venv/
+.uv/
+.uv-cache/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+coverage.xml
+tests/
+docs/
+scripts/
+# The web panel has its own build context (./frontend) and its own Dockerfile.
+# The Python image needs none of it, and node_modules would dominate this one.
+frontend/
+.env
+.env.*
+!.env.example
+*.log
+logs/
+data/
+tmp/
+docker-compose*.yml
+Makefile
+.idea/
+.vscode/
+@eaDir/

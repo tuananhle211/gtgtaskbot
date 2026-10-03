@@ -1,0 +1,94 @@
+@import "tailwindcss";
+
+/*
+ * One theme, both schemes. The panel is looked at all day, often on a NAS-hosted
+ * page in a browser somebody has already set to dark - so the colours follow the
+ * system rather than insisting.
+ *
+ * `--accent` arrived in Step 1E.2. Before it, the primary button was the text
+ * colour on the surface colour, which made "Tạo nội dung" and "Duyệt" look
+ * exactly like every other control on the page - a workspace where nothing is
+ * emphasised is a workspace where the next step has to be hunted for.
+ */
+:root {
+  --surface: #ffffff;
+  --surface-muted: #f6f7f9;
+  --border: #e3e6ea;
+  --text: #16191d;
+  --text-muted: #5d646d;
+  --accent: #1f6feb;
+  --accent-text: #ffffff;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --surface: #14171a;
+    --surface-muted: #1c2024;
+    --border: #2b3036;
+    --text: #e9ecef;
+    --text-muted: #9aa2ab;
+    --accent: #4c8dff;
+    --accent-text: #0b1220;
+  }
+}
+
+body {
+  background: var(--surface-muted);
+  color: var(--text);
+  font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  /*
+   * Nothing on this panel is wider than the viewport by design. Saying so here
+   * turns a layout mistake into a clipped element rather than a page that can be
+   * dragged sideways on a phone - which is how a Kanban board ruins every other
+   * screen it shares an app with.
+   */
+  overflow-x: hidden;
+}
+
+/*
+ * Dropdown options, in one rule for the whole panel.
+ *
+ * The bug this fixes: a native `<select>` popup is drawn by the operating
+ * system, on a light menu background on every platform the team uses, but the
+ * option *text* inherits the page's `color`. In dark mode that is
+ * `--text: #e9ecef` - near-white letters on a white menu, which is not "hard to
+ * read", it is invisible. Half the PR admin's dropdowns were unusable for
+ * anybody whose browser followed a dark system theme, which on a NAS-hosted
+ * panel is most people.
+ *
+ * So the option list gets explicit colours rather than inherited ones, and they
+ * are literals rather than tokens **on purpose**: the surface being painted is
+ * the OS menu, not the page, so it must not follow the page's scheme. One rule
+ * here instead of a `text-black` on every option in eight files - which is what
+ * the first attempt at this looked like, and it went stale the next time
+ * somebody added a picker.
+ *
+ * The closed field is untouched and still themed: `--text` on `--surface`, dark
+ * on light or light on dark, exactly as the rest of the page.
+ */
+select option,
+select optgroup {
+  color: #16191d;
+  background-color: #ffffff;
+}
+
+/*
+ * iOS zooms the whole page when a focused input's text is below 16px, and never
+ * zooms back out. A 14px filter box on the content board was enough to leave
+ * somebody stranded at 130% with a horizontal scrollbar, so form controls hold
+ * 16px on small screens and drop to the panel's usual 14px from `sm` upwards,
+ * where no browser does this.
+ */
+input,
+select,
+textarea {
+  font-size: 16px;
+}
+
+@media (min-width: 640px) {
+  input,
+  select,
+  textarea {
+    font-size: 0.875rem;
+  }
+}

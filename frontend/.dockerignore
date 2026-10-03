@@ -1,0 +1,11 @@
+# Keep the build context small. `npm ci` inside the builder stage installs from
+# the lockfile, so a host node_modules is not only unnecessary - it may hold
+# platform-specific binaries built for a different libc than the alpine image.
+node_modules/
+.next/
+out/
+tests/
+vitest.config.ts
+*.tsbuildinfo
+next-env.d.ts
+.env*.local

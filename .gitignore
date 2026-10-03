@@ -1,0 +1,56 @@
+# --- Secrets (never commit) -------------------------------------------------
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+secrets/
+credentials/
+google-service-account*.json
+
+# --- Python -----------------------------------------------------------------
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+dist/
+*.egg-info/
+.eggs/
+
+# --- Virtualenv / uv --------------------------------------------------------
+.venv/
+venv/
+env/
+.uv/
+.uv-cache/
+
+# --- Tooling caches ---------------------------------------------------------
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+.coverage.*
+htmlcov/
+coverage.xml
+.tox/
+
+# --- IDE / OS ---------------------------------------------------------------
+.idea/
+.vscode/
+*.swp
+.DS_Store
+Thumbs.db
+@eaDir/
+.Trash-*/
+
+# --- Runtime artifacts ------------------------------------------------------
+*.log
+logs/
+celerybeat-schedule*
+data/
+tmp/
+
+# --- Next.js (stray root traces; frontend/.next is covered by frontend/.gitignore)
+/.next/

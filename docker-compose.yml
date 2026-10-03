@@ -1,0 +1,346 @@
+# MeoBot - production compose file for Synology DS923+.
+# Nothing here touches /volume1/docker/content-factory.
+name: meobot
+
+x-app-env: &app-env
+  APP_ENV: ${APP_ENV:-production}
+  APP_NAME: ${APP_NAME:-MeoBot}
+  APP_TIMEZONE: ${APP_TIMEZONE:-Asia/Ho_Chi_Minh}
+  TZ: ${APP_TIMEZONE:-Asia/Ho_Chi_Minh}
+  LOG_LEVEL: ${LOG_LEVEL:-INFO}
+  LOG_FORMAT: ${LOG_FORMAT:-json}
+  DATABASE_URL: ${DATABASE_URL:?DATABASE_URL is required - copy .env.example to .env}
+  REDIS_URL: ${REDIS_URL:-redis://redis:6379/0}
+  CELERY_BROKER_URL: ${CELERY_BROKER_URL:-redis://redis:6379/1}
+  CELERY_RESULT_BACKEND: ${CELERY_RESULT_BACKEND:-redis://redis:6379/2}
+  TELEGRAM_BOT_TOKEN: ${TELEGRAM_BOT_TOKEN:-}
+  MEOBOT_OWNER_TELEGRAM_ID: ${MEOBOT_OWNER_TELEGRAM_ID:-}
+  LLM_PROVIDER: ${LLM_PROVIDER:-fake}
+  LLM_API_KEY: ${LLM_API_KEY:-}
+  LLM_MODEL: ${LLM_MODEL:-}
+  LLM_BASE_URL: ${LLM_BASE_URL:-}
+  LLM_TIMEOUT_SECONDS: ${LLM_TIMEOUT_SECONDS:-90}
+  GOOGLE_SERVICE_ACCOUNT_FILE: ${GOOGLE_SERVICE_ACCOUNT_FILE:-}
+  # Drive: all optional. Missing values disable Drive features only; the rest
+  # of MeoBot starts and runs normally.
+  GOOGLE_SHARED_DRIVE_ID: ${GOOGLE_SHARED_DRIVE_ID:-}
+  GOOGLE_DRIVE_ROOT_FOLDER_ID: ${GOOGLE_DRIVE_ROOT_FOLDER_ID:-}
+  GOOGLE_WORK_SHEET_TEMPLATE_ID: ${GOOGLE_WORK_SHEET_TEMPLATE_ID:-}
+  GOOGLE_SCRIPT_SHEET_TEMPLATE_ID: ${GOOGLE_SCRIPT_SHEET_TEMPLATE_ID:-}
+  CHAT_ENABLED: ${CHAT_ENABLED:-true}
+  CHAT_HISTORY_MAX_MESSAGES: ${CHAT_HISTORY_MAX_MESSAGES:-20}
+  CHAT_SUMMARY_TRIGGER_MESSAGES: ${CHAT_SUMMARY_TRIGGER_MESSAGES:-30}
+  CHAT_RESPONSE_MAX_TOKENS: ${CHAT_RESPONSE_MAX_TOKENS:-1200}
+  CHAT_TYPING_INDICATOR: ${CHAT_TYPING_INDICATOR:-true}
+  CHAT_GROUP_REQUIRES_MENTION: ${CHAT_GROUP_REQUIRES_MENTION:-true}
+  MEOBOT_ORGANIZATION_NAME: ${MEOBOT_ORGANIZATION_NAME:-}
+  MEOBOT_DEPARTMENT_NAME: ${MEOBOT_DEPARTMENT_NAME:-}
+  MEOBOT_DEPARTMENT_SIZE: ${MEOBOT_DEPARTMENT_SIZE:-}
+  MEOBOT_OWNER_TITLE: ${MEOBOT_OWNER_TITLE:-}
+  MEOBOT_OWNER_PREFERRED_ADDRESS: ${MEOBOT_OWNER_PREFERRED_ADDRESS:-}
+  META_APP_ID: ${META_APP_ID:-}
+  META_APP_SECRET: ${META_APP_SECRET:-}
+  META_GRAPH_API_VERSION: ${META_GRAPH_API_VERSION:-v23.0}
+  META_OAUTH_REDIRECT_URI: ${META_OAUTH_REDIRECT_URI:-}
+  PR_SECRET_ENCRYPTION_KEY_FILE: ${PR_SECRET_ENCRYPTION_KEY_FILE:-}
+  PR_SECRET_ENCRYPTION_KEY_ID: ${PR_SECRET_ENCRYPTION_KEY_ID:-v1}
+  PR_SECRET_ENCRYPTION_KEYS_OLD: ${PR_SECRET_ENCRYPTION_KEYS_OLD:-}
+  TIKTOK_CLIENT_KEY: ${TIKTOK_CLIENT_KEY:-}
+  TIKTOK_CLIENT_SECRET: ${TIKTOK_CLIENT_SECRET:-}
+  # Step 1F.2.6. Optional: unset, the connector derives
+  # {WEB_BASE_URL}/api/pr/channels/connections/tiktok/callback, which is what a
+  # normal deployment wants. It is listed here anyway because a variable an
+  # operator can set in .env and have silently ignored by the container is the
+  # exact failure the WEB_* block below was added to stop repeating.
+  TIKTOK_OAUTH_REDIRECT_URI: ${TIKTOK_OAUTH_REDIRECT_URI:-}
+  CONFIRMATION_TTL_SECONDS: ${CONFIRMATION_TTL_SECONDS:-300}
+  HTTP_TIMEOUT_SECONDS: ${HTTP_TIMEOUT_SECONDS:-15}
+  API_DOCS_ENABLED: ${API_DOCS_ENABLED:-false}
+  CONVERSATION_TTL_SECONDS: ${CONVERSATION_TTL_SECONDS:-3600}
+  SHEET_SYNC_INTERVAL_SECONDS: ${SHEET_SYNC_INTERVAL_SECONDS:-1800}
+  AUTO_REVIEW_ENABLED: ${AUTO_REVIEW_ENABLED:-true}
+  # --- PR AI review execution (Step 1F) --------------------------------------
+  # Read by the worker (which runs the reviews), by beat (which schedules the
+  # sweeps) and by the api (which exposes run state and the retry route), so
+  # they live in the shared anchor rather than on one service.
+  PR_AI_REVIEW_ENABLED: ${PR_AI_REVIEW_ENABLED:-true}
+  PR_AI_REVIEW_MAX_ATTEMPTS: ${PR_AI_REVIEW_MAX_ATTEMPTS:-3}
+  PR_AI_REVIEW_SWEEP_INTERVAL_SECONDS: ${PR_AI_REVIEW_SWEEP_INTERVAL_SECONDS:-20}
+  PR_AI_REVIEW_STALE_AFTER_SECONDS: ${PR_AI_REVIEW_STALE_AFTER_SECONDS:-900}
+  # --- PR platform policy ingestion (Step 1F.1) ------------------------------
+  # Read by the worker (which fetches) and beat (which schedules it). The api
+  # needs neither, but the anchor is shared and an unset variable there would be
+  # one more thing to remember.
+  PR_POLICY_REFRESH_ENABLED: ${PR_POLICY_REFRESH_ENABLED:-true}
+  PR_POLICY_REFRESH_INTERVAL_SECONDS: ${PR_POLICY_REFRESH_INTERVAL_SECONDS:-86400}
+  # --- Web admin panel (Step 1E / 1E.1) --------------------------------------
+  # Absent from the anchor until Step 1E.1, which meant an operator could set
+  # these in .env and have them silently ignored by the container.
+  #
+  # WEB_BASE_URL has no default: empty makes /web refuse to issue a login link,
+  # which is the correct failure. A link built for the wrong host is a credential
+  # handed to somebody else's server.
+  WEB_BASE_URL: ${WEB_BASE_URL:-}
+  WEB_LOGIN_TOKEN_TTL_SECONDS: ${WEB_LOGIN_TOKEN_TTL_SECONDS:-600}
+  WEB_SESSION_TTL_SECONDS: ${WEB_SESSION_TTL_SECONDS:-43200}
+  # Defaults to true, and APP_ENV=production *refuses to start* if it is false.
+  WEB_COOKIE_SECURE: ${WEB_COOKIE_SECURE:-true}
+  WEB_EXTRA_ALLOWED_ORIGINS: ${WEB_EXTRA_ALLOWED_ORIGINS:-}
+  # The milestone-1 /api/v1 routers: 24 unauthenticated writes attributed to a
+  # synthetic OWNER. Off, and it should stay off - see
+  # docs/pr/STEP_1E1_WEB_SECURITY_HARDENING.md before turning it on.
+  API_INTERNAL_ROUTERS_ENABLED: ${API_INTERNAL_ROUTERS_ENABLED:-false}
+
+# Host secrets, mounted read-only and ONLY into the services that talk to
+# Google. postgres, redis and beat never see them: beat only enqueues task
+# names, the worker is what actually calls the Sheets API.
+#
+# The directory (not the file) is mounted on purpose: a bind mount of a missing
+# file makes Docker silently create a *directory* in its place, which then
+# fails in a confusing way. With a directory mount, a missing credential is
+# simply a missing file, and MeoBot reports exactly that.
+x-secrets: &secrets-mount
+  - ./secrets:/run/secrets:ro
+
+x-logging: &default-logging
+  driver: json-file
+  options:
+    max-size: "10m"
+    max-file: "3"
+
+x-app-build: &app-build
+  build:
+    context: .
+    dockerfile: Dockerfile
+  image: meobot-app:0.3.0
+  restart: unless-stopped
+  # No `env_file:` on purpose - .env is already used for ${VAR} interpolation
+  # below, and listing variables explicitly keeps the container's environment
+  # auditable instead of injecting whatever happens to be in the file.
+  environment: *app-env
+  logging: *default-logging
+  depends_on:
+    postgres:
+      condition: service_healthy
+    redis:
+      condition: service_healthy
+
+services:
+  postgres:
+    image: postgres:17-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-meobot}
+      POSTGRES_USER: ${POSTGRES_USER:-meobot}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}
+      TZ: ${APP_TIMEZONE:-Asia/Ho_Chi_Minh}
+      PGTZ: UTC
+      POSTGRES_INITDB_ARGS: "--encoding=UTF8 --locale=C"
+    volumes:
+      - meobot_postgres_data:/var/lib/postgresql/data
+    # No published port: PostgreSQL is reachable only on the compose network.
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-meobot} -d ${POSTGRES_DB:-meobot}"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
+    logging: *default-logging
+    deploy:
+      resources:
+        limits:
+          memory: 768M
+
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    command:
+      - redis-server
+      - --appendonly
+      - "yes"
+      - --appendfsync
+      - everysec
+      - --maxmemory
+      - 192mb
+      - --maxmemory-policy
+      - noeviction
+    environment:
+      TZ: ${APP_TIMEZONE:-Asia/Ho_Chi_Minh}
+    volumes:
+      - meobot_redis_data:/data
+    # No published port.
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 10
+      start_period: 10s
+    logging: *default-logging
+    deploy:
+      resources:
+        limits:
+          memory: 256M
+
+  api:
+    <<: *app-build
+    volumes: *secrets-mount
+    command:
+      - uvicorn
+      - meobot.api.main:app
+      - --host
+      - 0.0.0.0
+      - --port
+      - "8000"
+      - --workers
+      - "1"
+      - --no-access-log
+    ports:
+      # Localhost only. Reach it from the NAS, or over an SSH tunnel.
+      - "127.0.0.1:8810:8000"
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:8000/health/live', timeout=5).status == 200 else 1)"
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+
+  # The PR admin panel. Not started by default:
+  #   docker compose --profile web up -d web
+  #
+  # Behind a profile because it is optional - the Telegram bot is the primary
+  # interface and works without it - and because it only becomes useful once
+  # WEB_BASE_URL is set and reachable, which needs a decision about how the
+  # deployment is exposed.
+  #
+  # Published on localhost only, like the API. Reaching it from outside the NAS
+  # is a separate, deliberate step (a reverse proxy or the cloudflared profile
+  # below), not something turning this service on does by itself.
+  web:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    profiles: ["web"]
+    restart: unless-stopped
+    environment:
+      # Container-internal. The browser never sees this address: every /api call
+      # goes to the panel's own origin and Next forwards it here, which is what
+      # lets the session cookie stay SameSite=Strict.
+      MEOBOT_API_URL: http://api:8000
+      # Next's standalone server binds to `localhost` unless told otherwise, and
+      # inside a container that resolves to the loopback interface only - so the
+      # published port answers nothing and the healthcheck's own fetch to
+      # 127.0.0.1 can pass while the service is unreachable from outside. Binding
+      # to every interface is what the NAS deployment needed; source-controlled
+      # here so the next sync does not have to rediscover it.
+      HOSTNAME: 0.0.0.0
+      # Decides whether the panel asserts HSTS. Read from configuration rather
+      # than sniffed from X-Forwarded-Proto: a header a client can set must not
+      # decide a security behaviour, and a browser that has cached HSTS for a
+      # hostname cannot be told to forget it.
+      WEB_COOKIE_SECURE: ${WEB_COOKIE_SECURE:-true}
+      TZ: ${APP_TIMEZONE:-Asia/Ho_Chi_Minh}
+    ports:
+      - "127.0.0.1:8811:3000"
+    depends_on:
+      api:
+        condition: service_healthy
+    logging: *default-logging
+    deploy:
+      resources:
+        limits:
+          memory: 256M
+
+  bot:
+    <<: *app-build
+    # The bot inspects Sheets directly during /add_sheet (listing tabs and
+    # reading headers must answer while the Owner is waiting). Everything
+    # long-running - syncing and reviewing - is handed to the worker.
+    volumes: *secrets-mount
+    command: ["python", "-m", "meobot.bot.main"]
+    # No published port: aiogram long polling makes outbound calls only.
+    deploy:
+      resources:
+        limits:
+          memory: 384M
+
+  worker:
+    <<: *app-build
+    volumes: *secrets-mount
+    command:
+      - celery
+      - -A
+      - meobot.tasks.celery_app
+      - worker
+      # q_notifications carries the transactional outbox: cross-chat delivery,
+      # reminder firings, destination health and failure alerts. It was missing
+      # here until 0.6.0a2, which meant every one of those rows was written and
+      # then never picked up - the business action succeeded and nobody was told.
+      - --queues
+      - q_default,q_integrations,q_reports,q_notifications
+      - --concurrency
+      - "2"
+      - --loglevel
+      - INFO
+    healthcheck:
+      test: ["CMD", "celery", "-A", "meobot.tasks.celery_app", "inspect", "ping", "-t", "10"]
+      interval: 60s
+      timeout: 15s
+      retries: 3
+      start_period: 45s
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+
+  beat:
+    <<: *app-build
+    # Beat runs as its own process, never embedded in the worker: two
+    # schedulers would double-fire every periodic task.
+    command:
+      - celery
+      - -A
+      - meobot.tasks.celery_app
+      - beat
+      - --loglevel
+      - INFO
+      - --schedule
+      - /var/lib/meobot-beat/celerybeat-schedule
+    volumes:
+      - meobot_beat_data:/var/lib/meobot-beat
+    deploy:
+      resources:
+        limits:
+          memory: 256M
+
+  # Not started by default. Enable only when OAuth callbacks need a public URL:
+  #   docker compose --profile tunnel up -d cloudflared
+  # TODO: pin an explicit cloudflared version and provide TUNNEL_TOKEN before use.
+  cloudflared:
+    image: cloudflare/cloudflared:2025.2.0
+    profiles: ["tunnel"]
+    restart: unless-stopped
+    command: ["tunnel", "--no-autoupdate", "run"]
+    environment:
+      TUNNEL_TOKEN: ${CLOUDFLARE_TUNNEL_TOKEN:-}
+      TZ: ${APP_TIMEZONE:-Asia/Ho_Chi_Minh}
+    depends_on:
+      api:
+        condition: service_healthy
+    logging: *default-logging
+    deploy:
+      resources:
+        limits:
+          memory: 128M
+
+volumes:
+  meobot_postgres_data:
+  meobot_redis_data:
+  meobot_beat_data:

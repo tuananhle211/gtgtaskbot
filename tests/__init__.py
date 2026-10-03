@@ -1,0 +1,1 @@
+"""MeoBot test suite."""
