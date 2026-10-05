@@ -248,7 +248,7 @@ services:
       WEB_COOKIE_SECURE: ${WEB_COOKIE_SECURE:-true}
       TZ: ${APP_TIMEZONE:-Asia/Ho_Chi_Minh}
     ports:
-      - "8811:3000"
+      - "127.0.0.1:8811:3000"
     depends_on:
       api:
         condition: service_healthy
