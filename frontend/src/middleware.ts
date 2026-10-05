@@ -101,12 +101,13 @@ function contentSecurityPolicy(nonce: string, { tiktokImages = false } = {}): st
     "frame-ancestors 'none'",
     "frame-src 'none'",
     "object-src 'none'",
-    // A <base> tag injection could otherwise repoint every relative URL on the
-    // page - including the /api calls that carry the session cookie.
     "base-uri 'self'",
     "form-action 'self'",
-    "upgrade-insecure-requests",
-  ].join("; ");
+  ];
+  if (HSTS_ENABLED) {
+    directives.push("upgrade-insecure-requests");
+  }
+  return directives.join("; ");
 }
 
 export function middleware(request: NextRequest): NextResponse {
