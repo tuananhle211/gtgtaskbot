@@ -82,8 +82,8 @@ const TIKTOK_IMAGE_HOSTS = [
  */
 const TIKTOK_IMAGE_PATH = "/pr/channels";
 
-function contentSecurityPolicy(nonce: string, { tiktokImages = false } = {}): string {
-  return [
+function contentSecurityPolicy(nonce: string, isSecure: boolean, { tiktokImages = false } = {}): string {
+  const directives = [
     "default-src 'self'",
     // No 'unsafe-inline', no 'unsafe-eval'. 'strict-dynamic' lets a nonced
     // script load the chunks it needs without every chunk URL being listed.
@@ -104,15 +104,16 @@ function contentSecurityPolicy(nonce: string, { tiktokImages = false } = {}): st
     "base-uri 'self'",
     "form-action 'self'",
   ];
-  if (HSTS_ENABLED) {
+  if (HSTS_ENABLED && isSecure) {
     directives.push("upgrade-insecure-requests");
   }
   return directives.join("; ");
 }
 
 export function middleware(request: NextRequest): NextResponse {
+  const isSecure = request.nextUrl.protocol === "https:" || request.headers.get("x-forwarded-proto") === "https";
   const nonce = crypto.randomUUID();
-  const csp = contentSecurityPolicy(nonce, {
+  const csp = contentSecurityPolicy(nonce, isSecure, {
     // `startsWith` rather than an exact match, so `/pr/channels?channel=…` -
     // which is where the OAuth callback lands - is covered too.
     tiktokImages: request.nextUrl.pathname.startsWith(TIKTOK_IMAGE_PATH),
@@ -130,7 +131,10 @@ export function middleware(request: NextRequest): NextResponse {
     // Nothing in a PR dashboard needs a camera, a microphone or a location.
     "camera=(), microphone=(), geolocation=(), payment=(), usb=(), interest-cohort=()",
   );
-  if (HSTS_ENABLED) {
+  
+  // Only assert HSTS and upgrade requests if the connection is actually secure
+  const isSecure = request.nextUrl.protocol === "https:" || request.headers.get("x-forwarded-proto") === "https";
+  if (HSTS_ENABLED && isSecure) {
     response.headers.set("Strict-Transport-Security", "max-age=31536000; includeSubDomains");
   }
   return response;
