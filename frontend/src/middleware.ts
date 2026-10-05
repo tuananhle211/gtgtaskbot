@@ -131,9 +131,6 @@ export function middleware(request: NextRequest): NextResponse {
     // Nothing in a PR dashboard needs a camera, a microphone or a location.
     "camera=(), microphone=(), geolocation=(), payment=(), usb=(), interest-cohort=()",
   );
-  
-  // Only assert HSTS and upgrade requests if the connection is actually secure
-  const isSecure = request.nextUrl.protocol === "https:" || request.headers.get("x-forwarded-proto") === "https";
   if (HSTS_ENABLED && isSecure) {
     response.headers.set("Strict-Transport-Security", "max-age=31536000; includeSubDomains");
   }
