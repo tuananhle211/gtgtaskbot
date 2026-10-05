@@ -96,14 +96,14 @@ async def handle_web(
     await message.answer(
         "🔗 Liên kết đăng nhập PR Admin của bạn:\n"
         f"{issued.url}\n\n"
-        f"• Chỉ dùng được **một lần** và hết hạn sau **{minutes} phút**.\n"
-        "• Muốn đăng nhập bằng Chrome/Safari: bạn **sao chép liên kết** rồi dán "
+        f"• Chỉ dùng được <b>một lần</b> và hết hạn sau <b>{minutes} phút</b>.\n"
+        "• Muốn đăng nhập bằng Chrome/Safari: bạn <b>sao chép liên kết</b> rồi dán "
         "vào trình duyệt đó. Bấm thẳng ở đây sẽ mở trong trình duyệt của "
         "Telegram, và phiên đăng nhập chỉ nằm trong đó.\n"
         "• Đừng chuyển tiếp cho ai — ai mở liên kết này sẽ đăng nhập bằng tài "
         "khoản của bạn.\n"
-        "• Cần liên kết mới thì gửi lại `/web` (liên kết cũ sẽ bị vô hiệu).",
-        parse_mode="Markdown",
+        "• Cần liên kết mới thì gửi lại <code>/web</code> (liên kết cũ sẽ bị vô hiệu).",
+        parse_mode="HTML",
         disable_web_page_preview=True,
     )
 
