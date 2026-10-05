@@ -18,6 +18,7 @@ jobs:
           port: ${{ secrets.VPS_PORT }}
           script: |
             cd /root/gtgtask
-            git pull origin master
+            git fetch origin
+            git reset --hard origin/master
             docker compose build
             docker compose up -d
