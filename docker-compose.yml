@@ -138,7 +138,9 @@ services:
       POSTGRES_INITDB_ARGS: "--encoding=UTF8 --locale=C"
     volumes:
       - meobot_postgres_data:/var/lib/postgresql/data
-    # No published port: PostgreSQL is reachable only on the compose network.
+    ports:
+      - "127.0.0.1:5432:5432"
+    # Published on localhost only so DBeaver can connect via SSH tunnel
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-meobot} -d ${POSTGRES_DB:-meobot}"]
       interval: 10s
