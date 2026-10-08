@@ -13,10 +13,10 @@ jobs:
       - name: Deploy to VPS via SSH
         uses: appleboy/ssh-action@v1.0.3
         with:
-          host: ${{ secrets.VPS_HOST }}
-          username: ${{ secrets.VPS_USERNAME }}
-          password: ${{ secrets.VPS_PASSWORD }}
-          port: ${{ secrets.VPS_PORT }}
+          host: ${{ secrets.VPS_DEV_HOST }}
+          username: ${{ secrets.VPS_DEV_USERNAME }}
+          password: ${{ secrets.VPS_DEV_PASSWORD }}
+          port: ${{ secrets.VPS_DEV_PORT }}
           script: |
             cd /root/gtgtask
             git fetch origin
