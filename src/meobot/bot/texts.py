@@ -17,10 +17,10 @@ from meobot.domain.identity.labels import GUEST_LABEL, role_label
 from meobot.domain.identity.models import Role
 
 WELCOME_OWNER = (
-    f"Xin chào. MeoBot đã sẵn sàng.\nBạn đang đăng nhập với vai trò {role_label(Role.OWNER)}."
+    f"Xin chào. TasksBot đã sẵn sàng.\nBạn đang đăng nhập với vai trò {role_label(Role.OWNER)}."
 )
 
-NOT_REGISTERED = "Tài khoản Telegram này chưa được đăng ký với MeoBot."
+NOT_REGISTERED = "Tài khoản Telegram này chưa được đăng ký với TasksBot."
 
 INTERNAL_ERROR = "Đã có lỗi xảy ra khi xử lý yêu cầu. Kỹ thuật đã được ghi nhận log."
 
@@ -32,7 +32,7 @@ def welcome_for(role: Role, full_name: str, *, guest: bool = False) -> str:
     ``EMPLOYEE`` is "Nhân viên" to everybody who reads a Telegram message.
     """
     if guest:
-        return f"Xin chào {full_name}. MeoBot đã sẵn sàng.\nVai trò của bạn: {GUEST_LABEL}."
+        return f"Xin chào {full_name}. TasksBot đã sẵn sàng.\nVai trò của bạn: {GUEST_LABEL}."
     if role is Role.OWNER:
         return WELCOME_OWNER
-    return f"Xin chào {full_name}. MeoBot đã sẵn sàng.\nVai trò của bạn: {role_label(role)}."
+    return f"Xin chào {full_name}. TasksBot đã sẵn sàng.\nVai trò của bạn: {role_label(role)}."

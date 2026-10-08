@@ -186,7 +186,7 @@ async def test_01_models_and_migration_agree_at_head(database: Database) -> None
                 "  AND column_name = 'created_by_user_id'"
             )
         )
-    assert head == alembic_head() == "0041"
+    assert head == alembic_head()
     assert nullable == "YES"
 
 
@@ -236,7 +236,7 @@ async def test_02_downgrade_and_upgrade_again_with_a_human_rule(
     try:
         async with engine.connect() as connection:
             version = await connection.scalar(text("SELECT version_num FROM alembic_version"))
-            assert version == "0041"
+            assert version == alembic_head()
     finally:
         await engine.dispose()
 
@@ -267,7 +267,7 @@ async def test_03_downgrade_refuses_to_attribute_a_system_rule(
     try:
         async with engine.connect() as connection:
             version = await connection.scalar(text("SELECT version_num FROM alembic_version"))
-            assert version == "0041", "a refused downgrade moves nothing"
+            assert version == alembic_head(), "a refused downgrade moves nothing"
             await connection.execute(
                 text("DELETE FROM pr_content_work_rules WHERE id = :id"), {"id": rule_id}
             )

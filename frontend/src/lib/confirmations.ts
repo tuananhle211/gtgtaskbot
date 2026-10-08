@@ -416,7 +416,7 @@ export const reactivateMemberConfirmation = (name: string): ConfirmSpec => ({
 export const disconnectChannelConfirmation = (provider: string): ConfirmSpec => ({
   title: `Ngắt kết nối ${provider} này?`,
   description:
-    "MeoChat sẽ ngừng đồng bộ dữ liệu từ tài khoản này cho đến khi được kết nối lại. Số liệu đã ghi nhận vẫn được giữ.",
+    "TasksBot sẽ ngừng đồng bộ dữ liệu từ tài khoản này cho đến khi được kết nối lại. Số liệu đã ghi nhận vẫn được giữ.",
   confirmLabel: "Ngắt kết nối",
   variant: "destructive",
 });
@@ -985,16 +985,63 @@ export const approvePerformancePolicyConfirmation = (version: number): ConfirmSp
  *
  * The description says what becomes fixed and what does not, and deliberately
  * does not mention pay: M6 scores and reports performance, and the head decides
- * any allocation separately, outside MeoChat. A dialog that implied otherwise
+ * any allocation separately, outside TasksBot. A dialog that implied otherwise
  * would turn an evaluation into a promise.
  */
 export const finalizePerformanceConfirmation = (name: string, month: string): ConfirmSpec => ({
   title: `Chốt hiệu suất tháng ${month}?`,
-  description: `Kết quả đánh giá hiệu suất của “${name}” sẽ được ghi lại thành lịch sử và không tự động tính lại nữa. Đây là kết quả đánh giá — việc phân bổ thưởng do quản lý quyết định riêng, ngoài MeoChat.`,
+  description: `Kết quả đánh giá hiệu suất của “${name}” sẽ được ghi lại thành lịch sử và không tự động tính lại nữa. Đây là kết quả đánh giá — việc phân bổ thưởng do quản lý quyết định riêng, ngoài TasksBot.`,
   confirmLabel: "Chốt hiệu suất",
 });
 
+/**
+ * Putting a member back on the shared default password. Destructive: the
+ * person's own password is gone and every session of theirs ends now.
+ */
+export const resetMemberPasswordConfirmation = (name: string): ConfirmSpec => ({
+  title: `Đặt lại mật khẩu của ${name}?`,
+  description: `TasksBot sẽ tạo một mật khẩu tạm và gửi qua Telegram cho “${name}”. Mật khẩu cũ hết hiệu lực, khoá đăng nhập (nếu có) được gỡ và mọi phiên đăng nhập của họ bị đăng xuất ngay. Lần đăng nhập tới bằng mật khẩu tạm họ phải đổi mật khẩu mới dùng được TasksBot.`,
+  confirmLabel: "Đặt lại mật khẩu",
+  variant: "destructive",
+});
+
+/** "Xoá ảnh" on the account page: back to the initials everywhere. */
+export const removeAvatarConfirmation = (): ConfirmSpec => ({
+  title: "Xoá ảnh đại diện?",
+  description:
+    "Ảnh hiện tại bị xoá và chữ viết tắt tên bạn sẽ hiện thay ở thanh trên cùng, bảng thành viên và mọi chỗ khác. Bạn có thể tải ảnh mới bất cứ lúc nào.",
+  confirmLabel: "Xoá ảnh",
+  variant: "destructive",
+});
+
 export const ACTION_INVENTORY: readonly ActionInventoryEntry[] = [
+  // --- Tài khoản và đăng nhập bằng mật khẩu
+  {
+    action: "Đăng nhập bằng ID Telegram và mật khẩu",
+    policy: "parameter-modal",
+    reason:
+      "Form đăng nhập chính là bước xác nhận: chỉ mở phiên cho chính người gõ mật khẩu, không đổi dữ liệu nghiệp vụ.",
+  },
+  {
+    action: "Đổi mật khẩu của tôi / đổi tên hiển thị",
+    policy: "parameter-modal",
+    reason:
+      "Form nhập mật khẩu hiện tại và mật khẩu mới (hoặc tên mới); nút lưu trong form là bước xác nhận và chỉ đổi tài khoản của chính mình.",
+  },
+  {
+    action: "Quên mật khẩu: gửi mật khẩu tạm qua Telegram",
+    policy: "parameter-modal",
+    reason:
+      "Form một ô ID Telegram trên trang đăng nhập; nút gửi chính là bước xác nhận. Mật khẩu tạm chỉ đến tin nhắn riêng Telegram của đúng tài khoản đó, máy chủ trả cùng một câu cho mọi ID và giới hạn 1 lần / 5 phút.",
+  },
+  { action: "Đặt lại mật khẩu thành viên", policy: "dialog" },
+  {
+    action: "Đổi ảnh đại diện của tôi",
+    policy: "parameter-modal",
+    reason:
+      "Hộp thoại cắt ảnh (chọn ảnh, kéo, phóng to) chính là bước xác nhận: nút Lưu ảnh chỉ đổi ảnh của chính mình và đổi lại được ngay.",
+  },
+  { action: "Xoá ảnh đại diện của tôi", policy: "dialog" },
   // --- Thành viên & Phân quyền (membership, phase 1)
   {
     action: "Thêm thành viên (Telegram ID + vai trò)",

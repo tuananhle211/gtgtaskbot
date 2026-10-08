@@ -252,6 +252,23 @@ class NotificationEvent(StrEnum):
     #: A workflow decision was taken back. The correction half of the two above -
     #: whoever was told to go and act must be told not to.
     PR_WORKFLOW_UNDONE = "pr_workflow_undone"
+    # --- Ads order engine --------------------------------------------------
+    #: One event per hand-off in the order pipeline. Each goes to the person
+    #: who has to act next, never to the person who acted. The inbox row is
+    #: always written; Telegram only when the unit opted in.
+    ORDER_SUBMITTED = "order_submitted"
+    ORDER_APPROVED = "order_approved"
+    ORDER_RETURNED = "order_returned"
+    ORDER_NODE_TURN = "order_node_turn"
+    ORDER_NODE_ASSIGNED = "order_node_assigned"
+    ORDER_NODE_ACCEPTED = "order_node_accepted"
+    ORDER_SUBMISSION_READY = "order_submission_ready"
+    ORDER_NODE_RETURNED = "order_node_returned"
+    ORDER_FINAL_RETURNED = "order_final_returned"
+    ORDER_COMPLETED = "order_completed"
+    # --- Account (0046) -------------------------------------------------------
+    #: A temporary web password, sent to its owner's private chat only.
+    ACCOUNT_TEMPORARY_PASSWORD = "account_temporary_password"  # noqa: S105
     # --- PR workflow, Step 1F.2.3d ----------------------------------------
     #: A Team Lead approved and the piece moved on to ``HEAD_REVIEW``. Sent to
     #: the responsible person as **status**, not as a task - they have nothing to
@@ -346,7 +363,7 @@ HEALTH_LABELS: dict[DestinationHealth, str] = {
     DestinationHealth.UNKNOWN: "Chưa kiểm tra",
     DestinationHealth.HEALTHY: "Hoạt động bình thường",
     DestinationHealth.CANNOT_SEND: "Không có quyền gửi",
-    DestinationHealth.BOT_REMOVED: "MeoBot đã bị xoá khỏi group",
+    DestinationHealth.BOT_REMOVED: "TasksBot đã bị xoá khỏi group",
     DestinationHealth.NOT_FOUND: "Không còn tìm thấy group",
     DestinationHealth.PROVIDER_ERROR: "Telegram tạm thời không phản hồi",
 }

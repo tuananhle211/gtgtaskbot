@@ -76,6 +76,18 @@ class WebSessionKind(StrEnum):
     SESSION = "SESSION"
 
 
+class WebSessionAuthMethod(StrEnum):
+    """How a session came to exist (0045).
+
+    ``TELEGRAM_LINK`` - redeemed from the bot's login link, the original and
+    still the default path. ``PASSWORD`` - ``POST /api/auth/password-login``.
+    Only the second is held to "change the default password first".
+    """
+
+    TELEGRAM_LINK = "TELEGRAM_LINK"
+    PASSWORD = "PASSWORD"  # noqa: S105 - a login method's name, not a secret
+
+
 class WebSession(Base, UUIDPrimaryKeyMixin):
     """One login token or one browser session.
 
@@ -95,6 +107,7 @@ class WebSession(Base, UUIDPrimaryKeyMixin):
         # "This person's live sessions", for logout-everywhere and for showing
         # somebody where they are signed in.
         Index("ix_web_sessions_user_kind", "user_id", "kind", "revoked_at"),
+        CheckConstraint("auth_method IN ('TELEGRAM_LINK', 'PASSWORD')", name="auth_method_known"),
     )
 
     user_id: Mapped[uuid.UUID] = mapped_column(
@@ -102,6 +115,13 @@ class WebSession(Base, UUIDPrimaryKeyMixin):
     )
     kind: Mapped[WebSessionKind] = mapped_column(
         value_enum(WebSessionKind, name="web_session_kind", length=20), nullable=False
+    )
+    #: How the session was created. Every row before 0045 is a Telegram link.
+    auth_method: Mapped[WebSessionAuthMethod] = mapped_column(
+        value_enum(WebSessionAuthMethod, name="web_session_auth_method", length=20),
+        nullable=False,
+        default=WebSessionAuthMethod.TELEGRAM_LINK,
+        server_default=WebSessionAuthMethod.TELEGRAM_LINK.value,
     )
     #: SHA-256 of the token. The token itself is shown once and never stored.
     token_hash: Mapped[str] = mapped_column(String(64), nullable=False)
@@ -144,4 +164,4 @@ class WebSession(Base, UUIDPrimaryKeyMixin):
         )
 
 
-__all__: list[str] = ["WebSession", "WebSessionKind"]
+__all__: list[str] = ["WebSession", "WebSessionAuthMethod", "WebSessionKind"]

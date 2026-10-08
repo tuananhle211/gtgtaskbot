@@ -42,6 +42,8 @@ import {
   renderWithQuery,
   stubFetch,
   urlStore,
+  PR_CONTENT_DETAIL_FILES,
+  readPrContentDetailSource,
 } from "./helpers";
 
 // Step 1F.2.2 put the board's filters in the URL, so the workspace reads
@@ -63,7 +65,10 @@ vi.mock("next/navigation", () => ({
   useParams: () => ({ id: CONTENT.id }),
   usePathname: () => "/pr/content",
   useSearchParams: () => URL_BAR.useSearchParams(),
-  useRouter: () => ({ replace: (url: string) => URL_BAR.navigate(url), push: vi.fn() }),
+  useRouter: () => ({
+    replace: (url: string) => URL_BAR.navigate(url),
+    push: vi.fn(),
+  }),
 }));
 
 beforeEach(() => {
@@ -72,17 +77,25 @@ beforeEach(() => {
 
 const ROOT = path.resolve(__dirname, "..");
 const SRC = path.join(ROOT, "src");
-const read = (relative: string) => readFileSync(path.join(SRC, relative), "utf8");
+const read = (relative: string) =>
+  readFileSync(path.join(SRC, relative), "utf8");
 
 const DASHBOARD = {
-  stage_counts: STAGE_ORDER.map((stage) => ({ stage, count: stage === "IDEA" ? 2 : 0 })),
+  stage_counts: STAGE_ORDER.map((stage) => ({
+    stage,
+    count: stage === "IDEA" ? 2 : 0,
+  })),
   awaiting_my_review: [],
   overdue_tasks: [],
   my_capabilities: ["PR_TEAM_LEAD_REVIEW"],
   recent_content: [],
 };
 
-const IDEA_ITEM = { ...CONTENT, workflow_stage: "IDEA", title: "Chăm sóc sau sinh" };
+const IDEA_ITEM = {
+  ...CONTENT,
+  workflow_stage: "IDEA",
+  title: "Chăm sóc sau sinh",
+};
 
 /** One item in the *other* tab, so switching groups has something to draw. */
 const GATED_ITEM = {
@@ -155,8 +168,9 @@ const boardBody = (items: unknown[]) => ({
   scope: "MY_ACTIONS",
   stage_counts: STAGE_ORDER.map((stage) => ({
     stage,
-    count: items.filter((item) => (item as { workflow_stage: string }).workflow_stage === stage)
-      .length,
+    count: items.filter(
+      (item) => (item as { workflow_stage: string }).workflow_stage === stage,
+    ).length,
   })),
   production_state_counts: [
     "WAITING_FOR_PRODUCER",
@@ -166,19 +180,33 @@ const boardBody = (items: unknown[]) => ({
   ].map((production_state) => ({
     production_state,
     count: items.filter(
-      (item) => (item as { production_state?: string }).production_state === production_state,
+      (item) =>
+        (item as { production_state?: string }).production_state ===
+        production_state,
     ).length,
   })),
   limit: 60,
   offset: 0,
 });
 
-const boardRoutes = (items: unknown[] = [IDEA_ITEM], brands: unknown[] = [BRAND]) => [
+const boardRoutes = (
+  items: unknown[] = [IDEA_ITEM],
+  brands: unknown[] = [BRAND],
+) => [
   { match: "/api/pr/dashboard", body: DASHBOARD },
   { match: "/api/pr/brands", body: brands },
   { match: "/api/pr/channels", body: [CHANNEL] },
   { match: "/api/pr/platforms", body: [BOARD_PLATFORM] },
-  { match: "/api/pr/people", body: [{ user_id: SESSION.user_id, full_name: SESSION.full_name, role: SESSION.role }] },
+  {
+    match: "/api/pr/people",
+    body: [
+      {
+        user_id: SESSION.user_id,
+        full_name: SESSION.full_name,
+        role: SESSION.role,
+      },
+    ],
+  },
   // Before `/api/pr/contents`, which would otherwise swallow it: `stubFetch`
   // matches on substring, in order.
   { match: "/api/pr/contents/board", body: boardBody(items) },
@@ -193,7 +221,11 @@ const detailRoutes = (
   return [
     {
       match: "/available-actions",
-      body: { content_id: CONTENT.id, workflow_stage: stage, available_actions: actions },
+      body: {
+        content_id: CONTENT.id,
+        workflow_stage: stage,
+        available_actions: actions,
+      },
     },
     {
       match: "/review-context",
@@ -208,7 +240,10 @@ const detailRoutes = (
       },
     },
     { match: "/versions", method: "GET", body: [VERSION] },
-    { match: "/ai-review", body: { run: null, review: null, active: false, can_retry: false } },
+    {
+      match: "/ai-review",
+      body: { run: null, review: null, active: false, can_retry: false },
+    },
     { match: "/api/pr/people", body: [] },
     {
       match: "/api/pr/contents/",
@@ -265,16 +300,27 @@ describe("43. the global header shows a person, not a capability model", () => {
       },
     ]);
     renderWithQuery(<Shell>{null}</Shell>);
-    await waitFor(() => expect(screen.getByText(/Phương Nhung/)).toBeInTheDocument());
+    await waitFor(() =>
+      expect(screen.getByText(/Phương Nhung/)).toBeInTheDocument(),
+    );
 
     const header = document.querySelector("header");
-    expect(header?.textContent).toContain("MeoChat · PR Admin");
+    expect(header?.textContent).toContain("TasksBot · Creative Ops");
+    // The brand mark is the inline TasksBot logo, decorative next to the name.
+    const mark = header?.querySelector("svg[data-logo-mark]");
+    expect(mark).not.toBeNull();
+    expect(mark).toHaveAttribute("aria-hidden", "true");
     // The role label is the server's `ROLE_LABELS` word for it - the same one
     // Telegram prints. OWNER is workspace ownership, "Chủ sở hữu" - never the
     // department head's title.
     expect(header?.textContent).toContain("Chủ sở hữu");
     expect(header?.textContent).not.toContain("Trưởng phòng");
-    for (const code of ["PR_CONTENT_CANCEL", "PR_CONTENT_EDIT", "PR_CONTENT_TRANSITION", "PR_"]) {
+    for (const code of [
+      "PR_CONTENT_CANCEL",
+      "PR_CONTENT_EDIT",
+      "PR_CONTENT_TRANSITION",
+      "PR_",
+    ]) {
       expect(header?.textContent, code).not.toContain(code);
     }
     // And nowhere else on the shell either.
@@ -294,17 +340,17 @@ describe("the legal pages are reachable from the panel without crowding it", () 
   it("puts both links in the footer and neither in the primary nav", async () => {
     stubFetch([{ match: "/api/auth/session", body: SESSION }]);
     renderWithQuery(<Shell>{null}</Shell>);
-    await waitFor(() => expect(screen.getByText(/Le Trưởng Nhóm/)).toBeInTheDocument());
+    await waitFor(() =>
+      expect(screen.getByText(/Le Trưởng Nhóm/)).toBeInTheDocument(),
+    );
 
     const legal = screen.getByRole("navigation", { name: "Thông tin pháp lý" });
-    expect(within(legal).getByRole("link", { name: "Điều khoản sử dụng" })).toHaveAttribute(
-      "href",
-      "/terms",
-    );
-    expect(within(legal).getByRole("link", { name: "Chính sách quyền riêng tư" })).toHaveAttribute(
-      "href",
-      "/privacy",
-    );
+    expect(
+      within(legal).getByRole("link", { name: "Điều khoản sử dụng" }),
+    ).toHaveAttribute("href", "/terms");
+    expect(
+      within(legal).getByRole("link", { name: "Chính sách quyền riêng tư" }),
+    ).toHaveAttribute("href", "/privacy");
 
     // The point of the footer: the primary strip carries **working
     // destinations only**. An entry on a strip that already scrolls on a phone
@@ -315,13 +361,16 @@ describe("the legal pages are reachable from the panel without crowding it", () 
     // legal link crept in", and a proxy that has to be edited every time the
     // product grows a module stops testing anything - M1 added "Công việc",
     // which is exactly the kind of entry that belongs here.
-    const primary = screen.getByRole("navigation", { name: "Điều hướng chính" });
+    const primary = screen.getByRole("navigation", {
+      name: "Điều hướng chính",
+    });
     const destinations = within(primary)
       .getAllByRole("link")
       .map((link) => link.getAttribute("href"));
     expect(destinations).toEqual([
-      "/pr",
-      "/pr/content",
+      "/dashboard",
+      "/tasks",
+      "/orders/new",
       "/pr/work",
       "/pr/tasks",
       "/pr/channels",
@@ -338,15 +387,23 @@ describe("the legal pages are reachable from the panel without crowding it", () 
     // the one where a login link has just expired. The footer is outside the
     // `session.data` branch that gates <main> for exactly that reason.
     stubFetch([
-      { match: "/api/auth/session", status: 401, body: { detail: "hết phiên" } },
+      {
+        match: "/api/auth/session",
+        status: 401,
+        body: { detail: "hết phiên" },
+      },
     ]);
     renderWithQuery(<Shell>{null}</Shell>);
-    await waitFor(() => expect(screen.getByText(/Bạn cần đăng nhập lại/)).toBeInTheDocument());
+    await waitFor(() =>
+      expect(screen.getByText(/Bạn cần đăng nhập lại/)).toBeInTheDocument(),
+    );
     // <main> is gated on a session; the footer must not be.
     expect(document.querySelector("main")).toBeNull();
 
     const legal = screen.getByRole("navigation", { name: "Thông tin pháp lý" });
-    expect(within(legal).getByRole("link", { name: "Điều khoản sử dụng" })).toBeInTheDocument();
+    expect(
+      within(legal).getByRole("link", { name: "Điều khoản sử dụng" }),
+    ).toBeInTheDocument();
     expect(
       within(legal).getByRole("link", { name: "Chính sách quyền riêng tư" }),
     ).toBeInTheDocument();
@@ -360,17 +417,23 @@ describe("44. the board groups the workflow instead of unrolling it", () => {
     // empty state and not what this test is about.
     stubFetch(boardRoutes([IDEA_ITEM, GATED_ITEM]));
     renderWithQuery(<ContentBoardPage />);
-    await waitFor(() => expect(screen.getByText("Chăm sóc sau sinh")).toBeInTheDocument());
+    await waitFor(() =>
+      expect(screen.getByText("Chăm sóc sau sinh")).toBeInTheDocument(),
+    );
 
     // The groups are tabs. Step 1F.2.3c made them five, `Đã hủy` included.
     for (const group of OPERATIONAL_GROUPS) {
-      expect(screen.getByRole("tab", { name: new RegExp(group.label) })).toBeInTheDocument();
+      expect(
+        screen.getByRole("tab", { name: new RegExp(group.label) }),
+      ).toBeInTheDocument();
     }
     // Only the open group's columns are on the page. "Chờ duyệt Trưởng nhóm"
     // belongs to another tab, so it must not be rendered - that is the whole
     // point of not having one 3400px-wide strip.
     for (const column of OPERATIONAL_GROUPS[0].columns) {
-      expect(screen.getByRole("region", { name: columnLabel(column) })).toBeInTheDocument();
+      expect(
+        screen.getByRole("region", { name: columnLabel(column) }),
+      ).toBeInTheDocument();
     }
     for (const column of OPERATIONAL_GROUPS[1].columns) {
       expect(
@@ -380,12 +443,18 @@ describe("44. the board groups the workflow instead of unrolling it", () => {
 
     // And switching tabs swaps them.
     await userEvent.click(
-      screen.getByRole("tab", { name: new RegExp(OPERATIONAL_GROUPS[1].label) }),
+      screen.getByRole("tab", {
+        name: new RegExp(OPERATIONAL_GROUPS[1].label),
+      }),
     );
     expect(
-      screen.getByRole("region", { name: columnLabel(OPERATIONAL_GROUPS[1].columns[0]) }),
+      screen.getByRole("region", {
+        name: columnLabel(OPERATIONAL_GROUPS[1].columns[0]),
+      }),
     ).toBeInTheDocument();
-    expect(screen.queryByRole("region", { name: stageLabel("IDEA") })).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole("region", { name: stageLabel("IDEA") }),
+    ).not.toBeInTheDocument();
   });
 
   it("keeps CANCELLED out of the forward path", () => {
@@ -405,7 +474,9 @@ describe("44. the board groups the workflow instead of unrolling it", () => {
     expect(board).not.toContain("overflow-x-auto");
     expect(board).toContain("grid");
     // The body says so too, so a future mistake clips rather than scrolls.
-    expect(readFileSync(path.join(SRC, "app/globals.css"), "utf8")).toContain("overflow-x: hidden");
+    expect(readFileSync(path.join(SRC, "app/globals.css"), "utf8")).toContain(
+      "overflow-x: hidden",
+    );
   });
 });
 
@@ -419,7 +490,9 @@ describe("45. a card leads with the title and mutes the code", () => {
 
     const code = within(card as HTMLElement).getByText(CONTENT.code);
     // Title before code in reading order...
-    expect(title.compareDocumentPosition(code) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(
+      title.compareDocumentPosition(code) & Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
     // ...and the code is muted metadata rather than the headline.
     expect(code.className).toContain("text-[var(--text-muted)]");
     expect(title.className).toContain("font-medium");
@@ -434,9 +507,13 @@ describe("46. the detail page does not offer every workflow stage", () => {
   it("renders one next step, not thirteen buttons", async () => {
     stubFetch(detailRoutes([transition("BRIEFING", "PRIMARY")]));
     renderWithQuery(<ContentDetailPage />);
-    await waitFor(() => expect(screen.getByText("Việc cần làm tiếp")).toBeInTheDocument());
+    await waitFor(() =>
+      expect(screen.getByText("Việc cần làm tiếp")).toBeInTheDocument(),
+    );
 
-    expect(screen.getAllByRole("button", { name: "Chuyển sang Brief" }).length).toBeGreaterThan(0);
+    expect(
+      screen.getAllByRole("button", { name: "Chuyển sang Brief" }).length,
+    ).toBeGreaterThan(0);
     // Every other stage label the old panel drew. None of them is a button now.
     for (const stage of STAGE_ORDER.filter((code) => code !== "BRIEFING")) {
       expect(
@@ -452,9 +529,13 @@ describe("46. the detail page does not offer every workflow stage", () => {
     stubFetch(detailRoutes([]));
     renderWithQuery(<ContentDetailPage />);
     await waitFor(() =>
-      expect(screen.getByText(/Chưa thể chuyển bước lúc này/)).toBeInTheDocument(),
+      expect(
+        screen.getByText(/Chưa thể chuyển bước lúc này/),
+      ).toBeInTheDocument(),
     );
-    expect(screen.queryByRole("button", { name: "Chuyển sang Brief" })).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole("button", { name: "Chuyển sang Brief" }),
+    ).not.toBeInTheDocument();
   });
 });
 
@@ -466,22 +547,32 @@ describe("47. dangerous actions are separated from the forward one", () => {
         method: "POST",
         body: { content: CONTENT, current_version: VERSION, targets: [] },
       },
-      ...detailRoutes([transition("BRIEFING", "PRIMARY"), transition("CANCELLED", "DANGER")]),
+      ...detailRoutes([
+        transition("BRIEFING", "PRIMARY"),
+        transition("CANCELLED", "DANGER"),
+      ]),
     ]);
     renderWithQuery(<ContentDetailPage />);
-    await waitFor(() => expect(screen.getByText("Việc cần làm tiếp")).toBeInTheDocument());
+    await waitFor(() =>
+      expect(screen.getByText("Việc cần làm tiếp")).toBeInTheDocument(),
+    );
 
     // Not in the forward row: "Hủy nội dung" next to "Chuyển sang Brief" is a
     // mis-click that ends somebody's work.
-    expect(screen.queryByRole("button", { name: "Hủy nội dung" })).not.toBeInTheDocument();
-    await userEvent.click(screen.getByRole("button", { name: /Thao tác khác/ }));
+    expect(
+      screen.queryByRole("button", { name: "Hủy nội dung" }),
+    ).not.toBeInTheDocument();
+    await userEvent.click(
+      screen.getByRole("button", { name: /Thao tác khác/ }),
+    );
 
     const cancel = screen.getByRole("button", { name: "Hủy nội dung" });
     await userEvent.click(cancel);
     // One press opens the shared dialog; nothing has been sent. Step 1F.2.8
     // replaced this panel's own inline "Xác nhận: X / Thôi" pair with it, and
     // the dialog is destructive-styled and says what cancelling does.
-    const calls = (fetchMock as unknown as { calls: Array<{ method: string }> }).calls;
+    const calls = (fetchMock as unknown as { calls: Array<{ method: string }> })
+      .calls;
     expect(calls.filter((call) => call.method === "POST")).toHaveLength(0);
     expect(dialog().getByText("Hủy nội dung này?")).toBeInTheDocument();
 
@@ -503,33 +594,53 @@ describe("48. review actions come from the server's answer", () => {
     await waitFor(() =>
       expect(screen.getByText(/không chờ bạn duyệt/)).toBeInTheDocument(),
     );
-    expect(screen.queryByRole("button", { name: "Duyệt" })).not.toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: "Từ chối" })).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole("button", { name: "Duyệt" }),
+    ).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole("button", { name: "Từ chối" }),
+    ).not.toBeInTheDocument();
   });
 
   it("offers approve and revision up front, and reject only behind the fold", async () => {
     stubFetch(
       detailRoutes(
         [
-          { action: "APPROVAL", target_stage: null, decision: "APPROVED", emphasis: "PRIMARY" },
+          {
+            action: "APPROVAL",
+            target_stage: null,
+            decision: "APPROVED",
+            emphasis: "PRIMARY",
+          },
           {
             action: "APPROVAL",
             target_stage: null,
             decision: "REVISION_REQUIRED",
             emphasis: "SECONDARY",
           },
-          { action: "APPROVAL", target_stage: null, decision: "REJECTED", emphasis: "DANGER" },
+          {
+            action: "APPROVAL",
+            target_stage: null,
+            decision: "REJECTED",
+            emphasis: "DANGER",
+          },
         ],
         "TEAM_LEAD_REVIEW",
       ),
     );
     renderWithQuery(<ContentDetailPage />);
     await waitFor(() =>
-      expect(screen.getAllByRole("button", { name: "Duyệt" }).length).toBeGreaterThan(0),
+      expect(
+        screen.getAllByRole("button", { name: "Duyệt" }).length,
+      ).toBeGreaterThan(0),
     );
-    expect(screen.getByRole("button", { name: "Yêu cầu sửa" })).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: "Yêu cầu sửa" }),
+    ).toBeInTheDocument();
     // Rejecting cancels the content at every gate, so it lives with cancel.
-    expect(screen.queryByRole("button", { name: "Từ chối" })).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole("button", { name: "Từ chối" }),
+    ).not.toBeInTheDocument();
     // The reviewer's comment box is labelled as a comment, not as a note.
     expect(screen.getByText(/Nhận xét/)).toBeInTheDocument();
   });
@@ -592,7 +703,7 @@ describe("51. stage wording is Vietnamese and lives in one table", () => {
     // No screen defines its own stage labels.
     for (const file of [
       "app/pr/content/page.tsx",
-      "app/pr/content/[id]/page.tsx",
+      ...PR_CONTENT_DETAIL_FILES,
       "app/pr/page.tsx",
       "components/pr.tsx",
     ]) {
@@ -606,7 +717,7 @@ describe("52. the panel still decides nothing", () => {
   it("has no transition, gate or capability table in any component", () => {
     for (const file of [
       "app/pr/content/page.tsx",
-      "app/pr/content/[id]/page.tsx",
+      ...PR_CONTENT_DETAIL_FILES,
       "components/pr.tsx",
       "components/shell.tsx",
       "lib/api.ts",
@@ -625,10 +736,9 @@ describe("52. the panel still decides nothing", () => {
     }
     // Whether editing is possible is read off the server's action list, not off
     // the stage - `EDITABLE_STAGES` is the Python table that decides it.
-    expect(read("app/pr/content/[id]/page.tsx")).toContain("EDIT_CONTENT");
+    expect(readPrContentDetailSource()).toContain("EDIT_CONTENT");
   });
 });
-
 
 // --- 53-56: Step 1E.2.1, brands by name and actions that work ---------------
 
@@ -636,7 +746,9 @@ describe("53. creating content asks for a brand, not for a UUID", () => {
   it("offers brand names in a picker", async () => {
     stubFetch(boardRoutes());
     renderWithQuery(<ContentBoardPage />);
-    await userEvent.click(await screen.findByRole("button", { name: /Tạo nội dung/ }));
+    await userEvent.click(
+      await screen.findByRole("button", { name: /Tạo nội dung/ }),
+    );
 
     const picker = await screen.findByRole("combobox", { name: /Thương hiệu/ });
     expect(
@@ -657,14 +769,24 @@ describe("53. creating content asks for a brand, not for a UUID", () => {
         match: "/api/pr/contents",
         method: "POST",
         status: 201,
-        body: { content: IDEA_ITEM, current_version: VERSION, targets: [], brand: BRAND },
+        body: {
+          content: IDEA_ITEM,
+          current_version: VERSION,
+          targets: [],
+          brand: BRAND,
+        },
       },
       ...boardRoutes(),
     ]);
     renderWithQuery(<ContentBoardPage />);
-    await userEvent.click(await screen.findByRole("button", { name: /Tạo nội dung/ }));
+    await userEvent.click(
+      await screen.findByRole("button", { name: /Tạo nội dung/ }),
+    );
 
-    await userEvent.type(screen.getByRole("textbox", { name: /Tiêu đề/ }), "Bài mới");
+    await userEvent.type(
+      screen.getByRole("textbox", { name: /Tiêu đề/ }),
+      "Bài mới",
+    );
     await userEvent.selectOptions(
       screen.getByRole("combobox", { name: /Thương hiệu/ }),
       BRAND.id,
@@ -679,15 +801,21 @@ describe("53. creating content asks for a brand, not for a UUID", () => {
       "SHORT_VIDEO_SCRIPT",
     );
     // Step 1F.2: a channel is required, and a grounded one needs its mode.
-    await userEvent.selectOptions(screen.getByRole("combobox", { name: "Chọn kênh" }), CHANNEL.id);
+    await userEvent.selectOptions(
+      screen.getByRole("combobox", { name: "Chọn kênh" }),
+      CHANNEL.id,
+    );
     await userEvent.selectOptions(
       await screen.findByRole("combobox", { name: /Hình thức đăng cho/ }),
       "ORGANIC",
     );
     await userEvent.click(screen.getByRole("button", { name: "Tạo nội dung" }));
 
-    const calls = (fetchMock as unknown as { calls: Array<{ method: string; body: unknown }> })
-      .calls;
+    const calls = (
+      fetchMock as unknown as {
+        calls: Array<{ method: string; body: unknown }>;
+      }
+    ).calls;
     const created = calls.find((call) => call.method === "POST");
     expect(created).toBeDefined();
     // A person picked a name; the mutation still carries the id it always did.
@@ -697,15 +825,21 @@ describe("53. creating content asks for a brand, not for a UUID", () => {
   it("refuses to show a form that cannot succeed when no brand exists", async () => {
     stubFetch(boardRoutes([IDEA_ITEM], []));
     renderWithQuery(<ContentBoardPage />);
-    await userEvent.click(await screen.findByRole("button", { name: /Tạo nội dung/ }));
+    await userEvent.click(
+      await screen.findByRole("button", { name: /Tạo nội dung/ }),
+    );
 
     // Every content item belongs to a brand, so with none on file there is
     // nothing to create against - and the fix is an admin task, not a UUID to
     // guess at.
     await waitFor(() =>
-      expect(screen.getByText(/Chưa có thương hiệu nào đang hoạt động/)).toBeInTheDocument(),
+      expect(
+        screen.getByText(/Chưa có thương hiệu nào đang hoạt động/),
+      ).toBeInTheDocument(),
     );
-    expect(screen.queryByRole("textbox", { name: /Tiêu đề/ })).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole("textbox", { name: /Tiêu đề/ }),
+    ).not.toBeInTheDocument();
   });
 });
 
@@ -724,7 +858,9 @@ describe("54. brands and channels are shown by name", () => {
     stubFetch(detailRoutes([transition("BRIEFING", "PRIMARY")]));
     renderWithQuery(<ContentDetailPage />);
     await waitFor(() =>
-      expect(screen.getByText("Apexmed · Facebook Apexmed")).toBeInTheDocument(),
+      expect(
+        screen.getByText("Apexmed · Facebook Apexmed"),
+      ).toBeInTheDocument(),
     );
     expect(document.body.textContent).not.toContain(CONTENT.brand_id);
   });
@@ -737,7 +873,9 @@ describe("55. the panel renders only what the server allows", () => {
     stubFetch(detailRoutes([transition("CANCELLED", "DANGER")], "PUBLISHED"));
     renderWithQuery(<ContentDetailPage />);
     await waitFor(() =>
-      expect(screen.getByText(/Chưa thể chuyển bước lúc này/)).toBeInTheDocument(),
+      expect(
+        screen.getByText(/Chưa thể chuyển bước lúc này/),
+      ).toBeInTheDocument(),
     );
     // Not offered, and not predicted back into existence by the browser.
     expect(
@@ -750,7 +888,7 @@ describe("55. the panel renders only what the server allows", () => {
 
   it("has no prerequisite check anywhere in the browser", () => {
     for (const file of [
-      "app/pr/content/[id]/page.tsx",
+      ...PR_CONTENT_DETAIL_FILES,
       "app/pr/content/page.tsx",
       "components/pr.tsx",
       "lib/api.ts",
@@ -843,7 +981,9 @@ describe("57. the panel shows what the worker is doing", () => {
   it("says queued while the run waits for a worker", async () => {
     stubFetch(aiRoutes(aiState({ run: aiRun("QUEUED"), active: true })));
     await openReviewTab();
-    await waitFor(() => expect(screen.getByText("Đang chờ xử lý…")).toBeInTheDocument());
+    await waitFor(() =>
+      expect(screen.getByText("Đang chờ xử lý…")).toBeInTheDocument(),
+    );
     expect(screen.queryByText(/Đạt/)).not.toBeInTheDocument();
   });
 
@@ -859,7 +999,12 @@ describe("57. the panel shows what the worker is doing", () => {
 describe("58. a finished review is rendered as its verdict", () => {
   it("shows PASS", async () => {
     stubFetch(
-      aiRoutes(aiState({ run: aiRun("SUCCEEDED", { outcome: "PASS" }), review: aiReview("PASS") })),
+      aiRoutes(
+        aiState({
+          run: aiRun("SUCCEEDED", { outcome: "PASS" }),
+          review: aiReview("PASS"),
+        }),
+      ),
     );
     await openReviewTab();
     await waitFor(() => expect(screen.getByText("Đạt")).toBeInTheDocument());
@@ -874,12 +1019,16 @@ describe("58. a finished review is rendered as its verdict", () => {
       aiRoutes(
         aiState({
           run: aiRun("SUCCEEDED", { outcome: "PASS_WITH_WARNINGS" }),
-          review: aiReview("PASS_WITH_WARNINGS", { issues: ["Cam kết quá mạnh"] }),
+          review: aiReview("PASS_WITH_WARNINGS", {
+            issues: ["Cam kết quá mạnh"],
+          }),
         }),
       ),
     );
     await openReviewTab();
-    await waitFor(() => expect(screen.getByText("Đạt, có lưu ý")).toBeInTheDocument());
+    await waitFor(() =>
+      expect(screen.getByText("Đạt, có lưu ý")).toBeInTheDocument(),
+    );
     expect(screen.getByText("Cam kết quá mạnh")).toBeInTheDocument();
   });
 
@@ -893,7 +1042,9 @@ describe("58. a finished review is rendered as its verdict", () => {
       ),
     );
     await openReviewTab();
-    await waitFor(() => expect(screen.getByText("Cần sửa")).toBeInTheDocument());
+    await waitFor(() =>
+      expect(screen.getByText("Cần sửa")).toBeInTheDocument(),
+    );
     // And it still says the machine does not approve anything.
     expect(screen.getByText(/không thay thế người duyệt/)).toBeInTheDocument();
   });
@@ -906,64 +1057,101 @@ describe("59. a failure is safe to read and retryable when the server allows", (
         match: "/ai-review/retry",
         method: "POST",
         status: 202,
-        body: aiState({ run: aiRun("QUEUED", { trigger: "MANUAL_RETRY" }), active: true }),
+        body: aiState({
+          run: aiRun("QUEUED", { trigger: "MANUAL_RETRY" }),
+          active: true,
+        }),
       },
       ...aiRoutes(
         aiState({
-          run: aiRun("FAILED", { error_code: "llm_error", finished_at: "2026-08-09T03:02:00+00:00" }),
+          run: aiRun("FAILED", {
+            error_code: "llm_error",
+            finished_at: "2026-08-09T03:02:00+00:00",
+          }),
           can_retry: true,
         }),
       ),
     ]);
     await openReviewTab();
-    await waitFor(() => expect(screen.getByText("Không thể xử lý")).toBeInTheDocument());
+    await waitFor(() =>
+      expect(screen.getByText("Không thể xử lý")).toBeInTheDocument(),
+    );
     // The content is still where it was, and the panel says so.
     expect(screen.getByText(/vẫn đang ở bước AI review/)).toBeInTheDocument();
     // The raw code the API sent is never put on screen.
     expect(document.body.textContent).not.toContain("llm_error");
 
-    await userEvent.click(screen.getByRole("button", { name: "Chạy lại AI review" }));
-    const calls = (fetchMock as unknown as { calls: Array<{ url: string; method: string }> }).calls;
-    expect(calls.some((call) => call.method === "POST" && call.url.includes("/ai-review/retry"))).toBe(
-      true,
+    await userEvent.click(
+      screen.getByRole("button", { name: "Chạy lại AI review" }),
     );
+    const calls = (
+      fetchMock as unknown as { calls: Array<{ url: string; method: string }> }
+    ).calls;
+    expect(
+      calls.some(
+        (call) =>
+          call.method === "POST" && call.url.includes("/ai-review/retry"),
+      ),
+    ).toBe(true);
   });
 
   it("does not offer a retry the server withheld", async () => {
-    stubFetch(aiRoutes(aiState({ run: aiRun("FAILED", { error_code: "timed_out" }), can_retry: false })));
+    stubFetch(
+      aiRoutes(
+        aiState({
+          run: aiRun("FAILED", { error_code: "timed_out" }),
+          can_retry: false,
+        }),
+      ),
+    );
     await openReviewTab();
-    await waitFor(() => expect(screen.getByText("Không thể xử lý")).toBeInTheDocument());
+    await waitFor(() =>
+      expect(screen.getByText("Không thể xử lý")).toBeInTheDocument(),
+    );
     // Authorization is not the browser's to work out. No button, and pressing
     // one anyway would be refused by the route.
-    expect(screen.queryByRole("button", { name: /Chạy lại AI review/ })).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole("button", { name: /Chạy lại AI review/ }),
+    ).not.toBeInTheDocument();
   });
 });
 
 describe("60. polling runs only while the server says something is active", () => {
   it("keeps asking while a run is active", async () => {
-    const fetchMock = stubFetch(aiRoutes(aiState({ run: aiRun("RUNNING"), active: true })));
+    const fetchMock = stubFetch(
+      aiRoutes(aiState({ run: aiRun("RUNNING"), active: true })),
+    );
     await openReviewTab();
-    await waitFor(() => expect(screen.getByText("Đang phân tích nội dung…")).toBeInTheDocument());
+    await waitFor(() =>
+      expect(screen.getByText("Đang phân tích nội dung…")).toBeInTheDocument(),
+    );
 
     const count = () =>
-      (fetchMock as unknown as { calls: Array<{ url: string }> }).calls.filter((call) =>
-        call.url.includes("/ai-review"),
+      (fetchMock as unknown as { calls: Array<{ url: string }> }).calls.filter(
+        (call) => call.url.includes("/ai-review"),
       ).length;
     const before = count();
     // The interval is four seconds; wait past one tick.
-    await waitFor(() => expect(count()).toBeGreaterThan(before), { timeout: 6000 });
+    await waitFor(() => expect(count()).toBeGreaterThan(before), {
+      timeout: 6000,
+    });
   }, 10000);
 
   it("stops once the state is terminal", async () => {
     const fetchMock = stubFetch(
-      aiRoutes(aiState({ run: aiRun("SUCCEEDED", { outcome: "PASS" }), review: aiReview("PASS") })),
+      aiRoutes(
+        aiState({
+          run: aiRun("SUCCEEDED", { outcome: "PASS" }),
+          review: aiReview("PASS"),
+        }),
+      ),
     );
     await openReviewTab();
     await waitFor(() => expect(screen.getByText("Đạt")).toBeInTheDocument());
 
     const count = () =>
-      (fetchMock as unknown as { calls: Array<{ url: string }> }).calls.filter((call) =>
-        call.url.includes("/ai-review"),
+      (fetchMock as unknown as { calls: Array<{ url: string }> }).calls.filter(
+        (call) => call.url.includes("/ai-review"),
       ).length;
     const settled = count();
     await new Promise((resolve) => setTimeout(resolve, 5000));
@@ -975,7 +1163,7 @@ describe("60. polling runs only while the server says something is active", () =
 
 describe("61. the panel decides nothing about the review", () => {
   it("derives no outcome and knows no terminal-status list", () => {
-    const source = read("app/pr/content/[id]/page.tsx");
+    const source = readPrContentDetailSource();
     for (const forbidden of [
       "BLOCKER",
       "deriveOutcome",
@@ -1016,7 +1204,14 @@ const policyRoutes = (
 ) => {
   const content = { ...CONTENT, workflow_stage: stage };
   return [
-    { match: "/available-actions", body: { content_id: CONTENT.id, workflow_stage: stage, available_actions: [] } },
+    {
+      match: "/available-actions",
+      body: {
+        content_id: CONTENT.id,
+        workflow_stage: stage,
+        available_actions: [],
+      },
+    },
     { match: "/ai-review", body: ai },
     {
       match: "/review-context",
@@ -1043,10 +1238,16 @@ describe("62. organic vs paid is chosen, never guessed", () => {
   it("offers the two real modes and never UNSPECIFIED as a choice", async () => {
     stubFetch(policyRoutes([target()]));
     renderWithQuery(<ContentDetailPage />);
-    await userEvent.click(await screen.findByRole("button", { name: "Sửa kênh" }));
+    await userEvent.click(
+      await screen.findByRole("button", { name: "Sửa kênh" }),
+    );
 
-    const picker = await screen.findByRole("combobox", { name: /TikTok Apexmed/ });
-    const options = within(picker).getAllByRole("option").map((option) => option.textContent);
+    const picker = await screen.findByRole("combobox", {
+      name: /TikTok Apexmed/,
+    });
+    const options = within(picker)
+      .getAllByRole("option")
+      .map((option) => option.textContent);
     expect(options).toContain("Organic");
     expect(options).toContain("Quảng cáo trả phí");
     // "Chưa xác định" is a starting state, not something to pick.
@@ -1063,17 +1264,28 @@ describe("62. organic vs paid is chosen, never guessed", () => {
       {
         match: "/targets/",
         method: "PATCH",
-        body: { content: CONTENT, current_version: VERSION, targets: [], brand: null },
+        body: {
+          content: CONTENT,
+          current_version: VERSION,
+          targets: [],
+          brand: null,
+        },
       },
       ...policyRoutes([target()]),
     ]);
     renderWithQuery(<ContentDetailPage />);
-    await userEvent.click(await screen.findByRole("button", { name: "Sửa kênh" }));
+    await userEvent.click(
+      await screen.findByRole("button", { name: "Sửa kênh" }),
+    );
     await userEvent.selectOptions(
       await screen.findByRole("combobox", { name: /TikTok Apexmed/ }),
       "PAID_AD",
     );
-    const calls = (fetchMock as unknown as { calls: Array<{ url: string; method: string; body: unknown }> }).calls;
+    const calls = (
+      fetchMock as unknown as {
+        calls: Array<{ url: string; method: string; body: unknown }>;
+      }
+    ).calls;
     // Step 1F.2.8. Choosing is not sending: this field decides which policy
     // pack the AI review is run against, so it confirms first and the dialog
     // says which mode and what follows from it.
@@ -1081,7 +1293,9 @@ describe("62. organic vs paid is chosen, never guessed", () => {
     expect(dialog().getByText(/Đổi hình thức đăng/)).toBeInTheDocument();
     await confirm();
 
-    await waitFor(() => expect(calls.some((call) => call.method === "PATCH")).toBe(true));
+    await waitFor(() =>
+      expect(calls.some((call) => call.method === "PATCH")).toBe(true),
+    );
     const sent = calls.find((call) => call.method === "PATCH");
     expect(sent?.body).toEqual({ distribution_mode: "PAID_AD" });
   });
@@ -1089,7 +1303,9 @@ describe("62. organic vs paid is chosen, never guessed", () => {
   it("says plainly that AI review is blocked until the mode is set", async () => {
     stubFetch(policyRoutes([target()]));
     renderWithQuery(<ContentDetailPage />);
-    await userEvent.click(await screen.findByRole("button", { name: "Sửa kênh" }));
+    await userEvent.click(
+      await screen.findByRole("button", { name: "Sửa kênh" }),
+    );
     await waitFor(() =>
       expect(
         screen.getByText(/Cần chọn Organic hay Quảng cáo trả phí/),
@@ -1104,14 +1320,22 @@ describe("62. organic vs paid is chosen, never guessed", () => {
   it("does not ask for a mode on an unsupported platform", async () => {
     stubFetch(
       policyRoutes([
-        target({ policy_grounded_platform: false, platform_code: "YOUTUBE", channel_name: "YouTube" }),
+        target({
+          policy_grounded_platform: false,
+          platform_code: "YOUTUBE",
+          channel_name: "YouTube",
+        }),
       ]),
     );
     renderWithQuery(<ContentDetailPage />);
-    await userEvent.click(await screen.findByRole("button", { name: "Sửa kênh" }));
+    await userEvent.click(
+      await screen.findByRole("button", { name: "Sửa kênh" }),
+    );
     // Which platforms are grounded is the server's answer, carried on the
     // target - the browser matches no platform codes of its own.
-    expect(screen.queryByRole("combobox", { name: /YouTube/ })).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole("combobox", { name: /YouTube/ }),
+    ).not.toBeInTheDocument();
   });
 });
 
@@ -1135,7 +1359,8 @@ describe("63. a grounded review names the pack it used", () => {
             {
               rule_id: "TT-AD-001",
               title: "Misleading and false content",
-              source_url: "https://ads.tiktok.com/help/article/tiktok-advertising-policies",
+              source_url:
+                "https://ads.tiktok.com/help/article/tiktok-advertising-policies",
               section_path: "Advertising Policies > Deceptive practices",
             },
           ],
@@ -1146,14 +1371,19 @@ describe("63. a grounded review names the pack it used", () => {
     renderWithQuery(<ContentDetailPage />);
     await userEvent.click(await screen.findByRole("tab", { name: "Duyệt" }));
 
-    await waitFor(() => expect(screen.getByText("Đã kiểm tra chính sách")).toBeInTheDocument());
+    await waitFor(() =>
+      expect(screen.getByText("Đã kiểm tra chính sách")).toBeInTheDocument(),
+    );
     expect(screen.getByText(/TIKTOK · Quảng cáo trả phí/)).toBeInTheDocument();
     expect(screen.getByText("TIKTOK-PAID_AD-2026-08-09.1")).toBeInTheDocument();
-    expect(screen.getByText(/Misleading and false content/)).toBeInTheDocument();
+    expect(
+      screen.getByText(/Misleading and false content/),
+    ).toBeInTheDocument();
   });
 
   it("links to the official source the server stored, not one it built", async () => {
-    const sourceUrl = "https://ads.tiktok.com/help/article/tiktok-advertising-policies";
+    const sourceUrl =
+      "https://ads.tiktok.com/help/article/tiktok-advertising-policies";
     stubFetch(
       policyRoutes(
         [target({ distribution_mode: "PAID_AD" })],
@@ -1161,10 +1391,20 @@ describe("63. a grounded review names the pack it used", () => {
           run: aiRun("SUCCEEDED", { outcome: "PASS" }),
           review: aiReview("PASS"),
           policy_packs: [
-            { platform_code: "TIKTOK", distribution_mode: "PAID_AD", pack_label: "L", pack_version: 1 },
+            {
+              platform_code: "TIKTOK",
+              distribution_mode: "PAID_AD",
+              pack_label: "L",
+              pack_version: 1,
+            },
           ],
           policy_citations: [
-            { rule_id: "TT-AD-001", title: "Deceptive practices", source_url: sourceUrl, section_path: null },
+            {
+              rule_id: "TT-AD-001",
+              title: "Deceptive practices",
+              source_url: sourceUrl,
+              section_path: null,
+            },
           ],
         }),
         "AI_REVIEW",
@@ -1173,14 +1413,20 @@ describe("63. a grounded review names the pack it used", () => {
     renderWithQuery(<ContentDetailPage />);
     await userEvent.click(await screen.findByRole("tab", { name: "Duyệt" }));
 
-    const link = await screen.findByRole("link", { name: "Xem nguồn chính thức" });
+    const link = await screen.findByRole("link", {
+      name: "Xem nguồn chính thức",
+    });
     // Exactly the stored URL. The client assembles no policy address of its own.
     expect(link).toHaveAttribute("href", sourceUrl);
     expect(link).toHaveAttribute("rel", expect.stringContaining("noopener"));
 
     // And no policy URL is constructed anywhere in the page source.
-    const source = read("app/pr/content/[id]/page.tsx");
-    for (const forbidden of ["transparency.meta.com", "ads.tiktok.com", "tiktok.com/community"]) {
+    const source = readPrContentDetailSource();
+    for (const forbidden of [
+      "transparency.meta.com",
+      "ads.tiktok.com",
+      "tiktok.com/community",
+    ]) {
       expect(source, forbidden).not.toContain(forbidden);
     }
   });
@@ -1205,17 +1451,21 @@ describe("64. a legacy review is not dressed up as policy-grounded", () => {
 
     await waitFor(() =>
       expect(
-        screen.getByText("Lượt review này không đối chiếu chính sách nền tảng."),
+        screen.getByText(
+          "Lượt review này không đối chiếu chính sách nền tảng.",
+        ),
       ).toBeInTheDocument(),
     );
-    expect(screen.queryByText("Đã kiểm tra chính sách")).not.toBeInTheDocument();
+    expect(
+      screen.queryByText("Đã kiểm tra chính sách"),
+    ).not.toBeInTheDocument();
   });
 });
 
 describe("65. the browser decides nothing about policy", () => {
   it("holds no platform list, no pack resolution and no readiness rule", () => {
     for (const file of [
-      "app/pr/content/[id]/page.tsx",
+      ...PR_CONTENT_DETAIL_FILES,
       "app/pr/content/page.tsx",
       "lib/api.ts",
       "lib/labels.ts",
@@ -1233,7 +1483,7 @@ describe("65. the browser decides nothing about policy", () => {
       }
     }
     // It reads the server's flag instead.
-    expect(read("app/pr/content/[id]/page.tsx")).toContain("policy_grounded_platform");
+    expect(readPrContentDetailSource()).toContain("policy_grounded_platform");
   });
 });
 
@@ -1268,7 +1518,7 @@ describe("66. the detail page opens on the draft", () => {
   it("does not flicker through Tổng quan first", () => {
     // Initial state, not an effect that corrects itself after paint - so the
     // very first render is already the draft tab.
-    const source = read("app/pr/content/[id]/page.tsx");
+    const source = readPrContentDetailSource();
     expect(source).toContain('useState<string>("content")');
     expect(source).not.toContain('useState<string>("overview")');
     expect(source).not.toMatch(/useEffect\([^)]*setTab/);
@@ -1277,7 +1527,9 @@ describe("66. the detail page opens on the draft", () => {
   it("still reaches the other tabs", async () => {
     stubFetch(policyRoutes([target({ distribution_mode: "ORGANIC" })]));
     renderWithQuery(<ContentDetailPage />);
-    await userEvent.click(await screen.findByRole("tab", { name: "Tổng quan" }));
+    await userEvent.click(
+      await screen.findByRole("tab", { name: "Tổng quan" }),
+    );
     expect(screen.getByRole("tab", { name: "Tổng quan" })).toHaveAttribute(
       "aria-selected",
       "true",
@@ -1301,7 +1553,9 @@ describe("67. the draft tab shows where the piece is going", () => {
       ]),
     );
     renderWithQuery(<ContentDetailPage />);
-    const summary = (await screen.findByText("Kênh dự kiến")).closest("section")!;
+    const summary = (await screen.findByText("Kênh dự kiến")).closest(
+      "section",
+    )!;
     expect(within(summary).getByText(/TikTok Apexmed/)).toBeInTheDocument();
     expect(within(summary).getByText(/Facebook Apexmed/)).toBeInTheDocument();
     expect(within(summary).getByText(/Quảng cáo trả phí/)).toBeInTheDocument();
@@ -1316,7 +1570,9 @@ describe("67. the draft tab shows where the piece is going", () => {
     await waitFor(() =>
       expect(screen.getByText(/Chưa có kênh dự kiến/)).toBeInTheDocument(),
     );
-    expect(screen.getByRole("button", { name: "Sửa kênh" })).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: "Sửa kênh" }),
+    ).toBeInTheDocument();
   });
 });
 
@@ -1324,16 +1580,25 @@ describe("68. creating content requires a channel", () => {
   it("blocks submission until a channel and its mode are chosen", async () => {
     stubFetch(boardRoutes());
     renderWithQuery(<ContentBoardPage />);
-    await userEvent.click(await screen.findByRole("button", { name: /Tạo nội dung/ }));
+    await userEvent.click(
+      await screen.findByRole("button", { name: /Tạo nội dung/ }),
+    );
 
     const submit = await screen.findByRole("button", { name: "Tạo nội dung" });
     expect(submit).toBeDisabled();
-    expect(screen.getByText(/Vui lòng chọn ít nhất một kênh dự kiến/)).toBeInTheDocument();
+    expect(
+      screen.getByText(/Vui lòng chọn ít nhất một kênh dự kiến/),
+    ).toBeInTheDocument();
 
     // A grounded channel still needs its mode before the form will submit.
-    await userEvent.selectOptions(screen.getByRole("combobox", { name: "Chọn kênh" }), CHANNEL.id);
+    await userEvent.selectOptions(
+      screen.getByRole("combobox", { name: "Chọn kênh" }),
+      CHANNEL.id,
+    );
     expect(submit).toBeDisabled();
-    expect(screen.getByText(/Chọn Organic hay Quảng cáo trả phí/)).toBeInTheDocument();
+    expect(
+      screen.getByText(/Chọn Organic hay Quảng cáo trả phí/),
+    ).toBeInTheDocument();
 
     await userEvent.selectOptions(
       await screen.findByRole("combobox", { name: /Hình thức đăng cho/ }),
@@ -1355,14 +1620,27 @@ describe("68. creating content requires a channel", () => {
         match: "/api/pr/contents",
         method: "POST",
         status: 201,
-        body: { content: IDEA_ITEM, current_version: VERSION, targets: [], brand: BRAND },
+        body: {
+          content: IDEA_ITEM,
+          current_version: VERSION,
+          targets: [],
+          brand: BRAND,
+        },
       },
       ...boardRoutes(),
     ]);
     renderWithQuery(<ContentBoardPage />);
-    await userEvent.click(await screen.findByRole("button", { name: /Tạo nội dung/ }));
-    await userEvent.type(screen.getByRole("textbox", { name: /Tiêu đề/ }), "Bài mới");
-    await userEvent.selectOptions(screen.getByRole("combobox", { name: /Thương hiệu/ }), BRAND.id);
+    await userEvent.click(
+      await screen.findByRole("button", { name: /Tạo nội dung/ }),
+    );
+    await userEvent.type(
+      screen.getByRole("textbox", { name: /Tiêu đề/ }),
+      "Bài mới",
+    );
+    await userEvent.selectOptions(
+      screen.getByRole("combobox", { name: /Thương hiệu/ }),
+      BRAND.id,
+    );
     await userEvent.selectOptions(
       screen.getByRole("combobox", { name: /Người phụ trách/ }),
       SESSION.user_id,
@@ -1372,15 +1650,21 @@ describe("68. creating content requires a channel", () => {
       screen.getByRole("combobox", { name: /Loại nội dung/ }),
       "SHORT_VIDEO_SCRIPT",
     );
-    await userEvent.selectOptions(screen.getByRole("combobox", { name: "Chọn kênh" }), CHANNEL.id);
+    await userEvent.selectOptions(
+      screen.getByRole("combobox", { name: "Chọn kênh" }),
+      CHANNEL.id,
+    );
     await userEvent.selectOptions(
       await screen.findByRole("combobox", { name: /Hình thức đăng cho/ }),
       "PAID_AD",
     );
     await userEvent.click(screen.getByRole("button", { name: "Tạo nội dung" }));
 
-    const calls = (fetchMock as unknown as { calls: Array<{ method: string; body: unknown }> })
-      .calls;
+    const calls = (
+      fetchMock as unknown as {
+        calls: Array<{ method: string; body: unknown }>;
+      }
+    ).calls;
     const created = calls.find((call) => call.method === "POST");
     expect((created?.body as { targets: unknown }).targets).toEqual([
       { channel_id: CHANNEL.id, distribution_mode: "PAID_AD" },
@@ -1390,7 +1674,8 @@ describe("68. creating content requires a channel", () => {
   it("asks the server which channels may be chosen", () => {
     // Status filtering is the server's, like brands. A browser-side
     // `status === "ACTIVE"` would be the UI deciding what may be published on.
-    const source = read("app/pr/content/page.tsx");
+    // The form lives in the shared component since it moved to "Tạo order".
+    const source = read("components/pr-create-content.tsx");
     expect(source).toContain('api.listChannels({ status: "ACTIVE" })');
     expect(source).not.toMatch(/channel\.status\s*===/);
     // And the picker never shows a platform code or a UUID.
@@ -1423,7 +1708,10 @@ const channelRoutes = (
   platforms: unknown[] = [PLATFORM],
   capabilities: string[] = ["PR_CHANNEL_MANAGE"],
 ) => [
-  { match: "/api/pr/dashboard", body: { ...DASHBOARD, my_capabilities: capabilities } },
+  {
+    match: "/api/pr/dashboard",
+    body: { ...DASHBOARD, my_capabilities: capabilities },
+  },
   { match: "/api/pr/platforms", body: platforms },
   { match: "/api/pr/brands", body: [BRAND] },
   // Step 1F.2.4a. Ordered before the bare list route because ``stubFetch``
@@ -1449,7 +1737,13 @@ const channelRoutes = (
   { match: "/api/pr/channels", body: channels },
   {
     match: "/api/pr/people",
-    body: [{ user_id: SESSION.user_id, full_name: SESSION.full_name, role: SESSION.role }],
+    body: [
+      {
+        user_id: SESSION.user_id,
+        full_name: SESSION.full_name,
+        role: SESSION.role,
+      },
+    ],
   },
 ];
 
@@ -1458,9 +1752,15 @@ describe("69. the empty channel list offers a way out of it", () => {
     stubFetch(channelRoutes());
     renderWithQuery(<ChannelsPage />);
 
-    expect(await screen.findByRole("button", { name: "+ Tạo nền tảng" })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "+ Tạo kênh" })).toBeInTheDocument();
-    expect(screen.getByText(/Hãy tạo nền tảng và kênh đầu tiên/)).toBeInTheDocument();
+    expect(
+      await screen.findByRole("button", { name: "+ Tạo nền tảng" }),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: "+ Tạo kênh" }),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByText(/Hãy tạo nền tảng và kênh đầu tiên/),
+    ).toBeInTheDocument();
   });
 
   it("shows neither to somebody who may only read", async () => {
@@ -1470,15 +1770,21 @@ describe("69. the empty channel list offers a way out of it", () => {
     // The empty state still appears - a reader is told there is nothing, not
     // offered a button that would 403.
     expect(await screen.findByText("Chưa có kênh nào.")).toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: "+ Tạo nền tảng" })).not.toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: "+ Tạo kênh" })).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole("button", { name: "+ Tạo nền tảng" }),
+    ).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole("button", { name: "+ Tạo kênh" }),
+    ).not.toBeInTheDocument();
   });
 
   it("will not let a channel be created before a platform exists", async () => {
     stubFetch(channelRoutes([], []));
     renderWithQuery(<ChannelsPage />);
 
-    expect(await screen.findByRole("button", { name: "+ Tạo kênh" })).toBeDisabled();
+    expect(
+      await screen.findByRole("button", { name: "+ Tạo kênh" }),
+    ).toBeDisabled();
     expect(screen.getByText(/Hãy tạo nền tảng trước/)).toBeInTheDocument();
   });
 });
@@ -1486,21 +1792,40 @@ describe("69. the empty channel list offers a way out of it", () => {
 describe("70. creating a platform asks for the code", () => {
   it("sends what was typed, and never derives it from the name", async () => {
     const fetchMock = stubFetch([
-      { match: "/api/pr/platforms", method: "POST", status: 201, body: PLATFORM },
+      {
+        match: "/api/pr/platforms",
+        method: "POST",
+        status: 201,
+        body: PLATFORM,
+      },
       ...channelRoutes(),
     ]);
     renderWithQuery(<ChannelsPage />);
-    await userEvent.click(await screen.findByRole("button", { name: "+ Tạo nền tảng" }));
+    await userEvent.click(
+      await screen.findByRole("button", { name: "+ Tạo nền tảng" }),
+    );
 
-    await userEvent.type(screen.getByRole("textbox", { name: "Mã nền tảng" }), "facebook");
-    await userEvent.type(screen.getByRole("textbox", { name: "Tên" }), "Facebook Việt Nam");
+    await userEvent.type(
+      screen.getByRole("textbox", { name: "Mã nền tảng" }),
+      "facebook",
+    );
+    await userEvent.type(
+      screen.getByRole("textbox", { name: "Tên" }),
+      "Facebook Việt Nam",
+    );
     await userEvent.click(screen.getByRole("button", { name: "Tạo nền tảng" }));
 
-    const calls = (fetchMock as unknown as { calls: Array<{ method: string; body: unknown }> })
-      .calls;
+    const calls = (
+      fetchMock as unknown as {
+        calls: Array<{ method: string; body: unknown }>;
+      }
+    ).calls;
     const created = calls.find((call) => call.method === "POST");
     // The name is a label and the code is identity. The form kept them apart.
-    expect(created?.body).toEqual({ code: "FACEBOOK", name: "Facebook Việt Nam" });
+    expect(created?.body).toEqual({
+      code: "FACEBOOK",
+      name: "Facebook Việt Nam",
+    });
   });
 
   it("renders a duplicate refusal as the sentence the server sent", async () => {
@@ -1509,17 +1834,32 @@ describe("70. creating a platform asks for the code", () => {
         match: "/api/pr/platforms",
         method: "POST",
         status: 409,
-        body: { error: { code: "pr.conflict", message: "Đã có nền tảng với mã FACEBOOK." } },
+        body: {
+          error: {
+            code: "pr.conflict",
+            message: "Đã có nền tảng với mã FACEBOOK.",
+          },
+        },
       },
       ...channelRoutes(),
     ]);
     renderWithQuery(<ChannelsPage />);
-    await userEvent.click(await screen.findByRole("button", { name: "+ Tạo nền tảng" }));
-    await userEvent.type(screen.getByRole("textbox", { name: "Mã nền tảng" }), "FACEBOOK");
-    await userEvent.type(screen.getByRole("textbox", { name: "Tên" }), "Facebook");
+    await userEvent.click(
+      await screen.findByRole("button", { name: "+ Tạo nền tảng" }),
+    );
+    await userEvent.type(
+      screen.getByRole("textbox", { name: "Mã nền tảng" }),
+      "FACEBOOK",
+    );
+    await userEvent.type(
+      screen.getByRole("textbox", { name: "Tên" }),
+      "Facebook",
+    );
     await userEvent.click(screen.getByRole("button", { name: "Tạo nền tảng" }));
 
-    expect(await screen.findByText("Đã có nền tảng với mã FACEBOOK.")).toBeInTheDocument();
+    expect(
+      await screen.findByText("Đã có nền tảng với mã FACEBOOK."),
+    ).toBeInTheDocument();
   });
 });
 
@@ -1530,25 +1870,40 @@ describe("71. creating a channel picks from what the server has", () => {
         match: "/api/pr/channels",
         method: "POST",
         status: 201,
-        body: { channel: { ...CHANNEL, name: "Apexmed Facebook" }, assignments: [] },
+        body: {
+          channel: { ...CHANNEL, name: "Apexmed Facebook" },
+          assignments: [],
+        },
       },
       ...channelRoutes(),
     ]);
     renderWithQuery(<ChannelsPage />);
-    await userEvent.click(await screen.findByRole("button", { name: "+ Tạo kênh" }));
+    await userEvent.click(
+      await screen.findByRole("button", { name: "+ Tạo kênh" }),
+    );
 
     const platform = screen.getByRole("combobox", { name: "Nền tảng *" });
-    expect(within(platform).getByRole("option", { name: "Facebook" })).toBeInTheDocument();
+    expect(
+      within(platform).getByRole("option", { name: "Facebook" }),
+    ).toBeInTheDocument();
     const brand = screen.getByRole("combobox", { name: "Thương hiệu" });
-    expect(within(brand).getByRole("option", { name: "Apexmed" })).toBeInTheDocument();
+    expect(
+      within(brand).getByRole("option", { name: "Apexmed" }),
+    ).toBeInTheDocument();
 
     await userEvent.selectOptions(platform, PLATFORM.id);
     await userEvent.selectOptions(brand, BRAND.id);
-    await userEvent.type(screen.getByRole("textbox", { name: "Tên kênh" }), "Apexmed Facebook");
+    await userEvent.type(
+      screen.getByRole("textbox", { name: "Tên kênh" }),
+      "Apexmed Facebook",
+    );
     await userEvent.click(screen.getByRole("button", { name: "Tạo kênh" }));
 
-    const calls = (fetchMock as unknown as { calls: Array<{ method: string; body: unknown }> })
-      .calls;
+    const calls = (
+      fetchMock as unknown as {
+        calls: Array<{ method: string; body: unknown }>;
+      }
+    ).calls;
     const created = calls.find((call) => call.method === "POST");
     expect(created?.body).toMatchObject({
       name: "Apexmed Facebook",
@@ -1563,10 +1918,14 @@ describe("71. creating a channel picks from what the server has", () => {
   it("offers only the domain's own categories", async () => {
     stubFetch(channelRoutes());
     renderWithQuery(<ChannelsPage />);
-    await userEvent.click(await screen.findByRole("button", { name: "+ Tạo kênh" }));
+    await userEvent.click(
+      await screen.findByRole("button", { name: "+ Tạo kênh" }),
+    );
 
     const category = screen.getByRole("combobox", { name: "Danh mục" });
-    expect(within(category).getAllByRole("option")).toHaveLength(CHANNEL_CATEGORIES.length);
+    expect(within(category).getAllByRole("option")).toHaveLength(
+      CHANNEL_CATEGORIES.length,
+    );
   });
 });
 
@@ -1579,26 +1938,51 @@ describe("72. a created channel shows up without a reload", () => {
         status: 201,
         body: { channel: CHANNEL, assignments: [] },
       },
-      { match: "/api/pr/dashboard", body: { ...DASHBOARD, my_capabilities: ["PR_CHANNEL_MANAGE"] } },
+      {
+        match: "/api/pr/dashboard",
+        body: { ...DASHBOARD, my_capabilities: ["PR_CHANNEL_MANAGE"] },
+      },
       { match: "/api/pr/platforms", body: [PLATFORM] },
       { match: "/api/pr/brands", body: [BRAND] },
-      { match: "/api/pr/channels/", body: { channel: CHANNEL, assignments: [] } },
+      {
+        match: "/api/pr/channels/",
+        body: { channel: CHANNEL, assignments: [] },
+      },
       { match: "/api/pr/channels", body: [CHANNEL] },
       {
         match: "/api/pr/people",
-        body: [{ user_id: SESSION.user_id, full_name: SESSION.full_name, role: SESSION.role }],
+        body: [
+          {
+            user_id: SESSION.user_id,
+            full_name: SESSION.full_name,
+            role: SESSION.role,
+          },
+        ],
       },
     ]);
     renderWithQuery(<ChannelsPage />);
-    await userEvent.click(await screen.findByRole("button", { name: "+ Tạo kênh" }));
-    await userEvent.selectOptions(screen.getByRole("combobox", { name: "Nền tảng *" }), PLATFORM.id);
-    await userEvent.type(screen.getByRole("textbox", { name: "Tên kênh" }), "TikTok Apexmed");
+    await userEvent.click(
+      await screen.findByRole("button", { name: "+ Tạo kênh" }),
+    );
+    await userEvent.selectOptions(
+      screen.getByRole("combobox", { name: "Nền tảng *" }),
+      PLATFORM.id,
+    );
+    await userEvent.type(
+      screen.getByRole("textbox", { name: "Tên kênh" }),
+      "TikTok Apexmed",
+    );
     await userEvent.click(screen.getByRole("button", { name: "Tạo kênh" }));
 
     await waitFor(() => {
       const listed = (
-        fetchMock as unknown as { calls: Array<{ url: string; method: string }> }
-      ).calls.filter((call) => call.method === "GET" && call.url.endsWith("/api/pr/channels"));
+        fetchMock as unknown as {
+          calls: Array<{ url: string; method: string }>;
+        }
+      ).calls.filter(
+        (call) =>
+          call.method === "GET" && call.url.endsWith("/api/pr/channels"),
+      );
       expect(listed.length).toBeGreaterThan(1);
     });
   });
@@ -1610,8 +1994,12 @@ describe("73. the channel screen shows no identifiers a person cannot use", () =
     renderWithQuery(<ChannelsPage />);
 
     expect(await screen.findByText("TikTok Apexmed")).toBeInTheDocument();
-    expect(screen.getByText(channelCategoryLabel(CHANNEL.category))).toBeInTheDocument();
-    expect(screen.getByText(channelStatusLabel(CHANNEL.status))).toBeInTheDocument();
+    expect(
+      screen.getByText(channelCategoryLabel(CHANNEL.category)),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByText(channelStatusLabel(CHANNEL.status)),
+    ).toBeInTheDocument();
     expect(document.body.textContent).not.toContain(CHANNEL.id);
     expect(document.body.textContent).not.toContain(CHANNEL.platform_id);
     // The allocated code is not a UUID and is worth showing - it is what people

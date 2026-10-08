@@ -47,7 +47,7 @@ NOT_IMPLEMENTED: tuple[str, ...] = (
     "Tự động đăng bài Facebook hoặc TikTok",
     "Thống kê mạng xã hội và báo cáo tự động",
     "Lịch nhắc lặp theo tháng (hiện có một lần, hằng ngày và hằng tuần)",
-    "Xoá hoặc di chuyển file trên Google Drive (MeoBot không có công cụ xoá)",
+    "Xoá hoặc di chuyển file trên Google Drive (TasksBot không có công cụ xoá)",
 )
 
 #: Things that work for every registered user, whatever their role, and are not

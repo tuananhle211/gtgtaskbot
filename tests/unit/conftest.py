@@ -9,5 +9,6 @@ is built in its own module and named here.
 from __future__ import annotations
 
 from tests.unit.pr_world import world
+from tests.unit.work_clock import frozen_work_clock
 
-__all__: list[str] = ["world"]
+__all__: list[str] = ["frozen_work_clock", "world"]

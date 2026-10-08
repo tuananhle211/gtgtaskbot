@@ -189,7 +189,9 @@ export function ConfirmDialog({
     }
     opener.current = document.activeElement as HTMLElement | null;
     const target = panel.current?.querySelector<HTMLElement>(
-      variant === "destructive" ? "[data-confirm-cancel]" : "[data-confirm-accept]",
+      variant === "destructive"
+        ? "[data-confirm-cancel]"
+        : "[data-confirm-accept]",
     );
     target?.focus();
     // The page behind a modal must not scroll under it on a phone, where the
@@ -225,7 +227,10 @@ export function ConfirmDialog({
       const first = focusable[0];
       const last = focusable[focusable.length - 1];
       const active = document.activeElement;
-      if (event.shiftKey && (active === first || !panel.current.contains(active))) {
+      if (
+        event.shiftKey &&
+        (active === first || !panel.current.contains(active))
+      ) {
         event.preventDefault();
         last.focus();
       } else if (!event.shiftKey && active === last) {
@@ -274,7 +279,10 @@ export function ConfirmDialog({
           <h2 id={titleId} className="text-base font-semibold leading-snug">
             {spec.title}
           </h2>
-          <p id={bodyId} className="mt-2 text-sm leading-relaxed text-[var(--text-muted)]">
+          <p
+            id={bodyId}
+            className="mt-2 text-sm leading-relaxed text-[var(--text-muted)]"
+          >
             {spec.description}
           </p>
           {spec.count !== undefined ? (
@@ -364,12 +372,18 @@ export function ConfirmButton({
   ariaLabel,
   className = "",
   onOpenChange,
+  confirmDisabled = false,
 }: {
   spec: ConfirmSpec;
   onConfirm: () => void;
   pending?: boolean;
   error?: unknown;
   disabled?: boolean;
+  /**
+   * The dialog's confirm cannot be pressed yet - `spec.details` collects a
+   * required field that is still empty. See `ConfirmDialog`.
+   */
+  confirmDisabled?: boolean;
   /** The trigger's label. Defaults to the confirm label when omitted. */
   children?: React.ReactNode;
   /** The trigger's styling. The dialog's own styling is `spec.variant`. */
@@ -430,6 +444,7 @@ export function ConfirmButton({
         spec={spec}
         pending={pending}
         error={error}
+        confirmDisabled={confirmDisabled}
         onCancel={() => change(false)}
         onConfirm={() => {
           setSubmitted(true);

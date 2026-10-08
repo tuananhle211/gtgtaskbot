@@ -12,7 +12,7 @@
  * table in `next.config.mjs` does not sweep these paths off to FastAPI.
  *
  * The second is that the documents do not claim things that are untrue. A
- * privacy policy saying MeoChat can post to TikTok would be a compliance problem
+ * privacy policy saying TasksBot can post to TikTok would be a compliance problem
  * rather than a rendering bug, and it is the kind of sentence that arrives later
  * in an innocent-looking edit. The forbidden-claims test is the guard.
  */
@@ -111,11 +111,11 @@ describe("page metadata", () => {
     // a review queue.
     const root = (await import("@/app/layout")).metadata;
     const template = (root.title as { template: string }).template;
-    expect((root.title as { default: string }).default).toBe("MeoChat");
+    expect((root.title as { default: string }).default).toBe("TasksBot");
 
     const compose = (title: unknown) => template.replace("%s", String(title));
-    expect(compose(termsMetadata.title)).toBe("Terms of Service | MeoChat");
-    expect(compose(privacyMetadata.title)).toBe("Privacy Policy | MeoChat");
+    expect(compose(termsMetadata.title)).toBe("Terms of Service | TasksBot");
+    expect(compose(privacyMetadata.title)).toBe("Privacy Policy | TasksBot");
   });
 
   it("overrides the app-wide noindex, because these two are published", () => {
@@ -133,7 +133,7 @@ describe("the Terms of Service", () => {
     render(<TermsPage />);
     expect(screen.getByRole("heading", { level: 1 })).toHaveTextContent("Terms of Service");
     for (const section of [
-      "about meochat",
+      "about tasksbot",
       "eligibility",
       "accounts",
       "acceptable use",
@@ -169,7 +169,7 @@ describe("the Privacy Policy", () => {
     expect(screen.getByRole("heading", { level: 1 })).toHaveTextContent("Privacy Policy");
     for (const section of [
       "overview",
-      "information meochat may collect",
+      "information tasksbot may collect",
       "account authentication information",
       "connected social platform information",
       "tiktok data",
@@ -222,19 +222,19 @@ describe("the Privacy Policy", () => {
     const { container } = render(<PrivacyPage />);
     const text = container.textContent ?? "";
     expect(text).toMatch(
-      /request deletion of account-related or connected-platform data by contacting the MeoChat administrator/i,
+      /request deletion of account-related or connected-platform data by contacting the TasksBot administrator/i,
     );
     // No support mailbox exists in this repo, so neither page may imply one.
     expect(text).not.toMatch(/[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}/);
   });
 });
 
-describe("neither document claims access MeoChat does not have", () => {
+describe("neither document claims access TasksBot does not have", () => {
   /**
    * Claims that would be false, matched against *affirmative* sentences only.
    *
    * Scanning the whole page for "publish to TikTok" would flag the sentence that
-   * says MeoChat does not - which is the sentence we want. So sentences carrying
+   * says TasksBot does not - which is the sentence we want. So sentences carrying
    * a negation are dropped first, and what is left is what the document asserts.
    */
   const forbidden: [RegExp, string][] = [
@@ -281,7 +281,7 @@ describe("the pages link to each other and home", () => {
       "href",
       "/privacy",
     );
-    expect(within(nav).getByRole("link", { name: /meochat home/i })).toHaveAttribute("href", "/");
+    expect(within(nav).getByRole("link", { name: /tasksbot home/i })).toHaveAttribute("href", "/");
   });
 
   it("points Privacy at Terms and at the home page", () => {
@@ -291,7 +291,7 @@ describe("the pages link to each other and home", () => {
       "href",
       "/terms",
     );
-    expect(within(nav).getByRole("link", { name: /meochat home/i })).toHaveAttribute("href", "/");
+    expect(within(nav).getByRole("link", { name: /tasksbot home/i })).toHaveAttribute("href", "/");
   });
 
   it("marks the English prose as English inside a Vietnamese document", () => {

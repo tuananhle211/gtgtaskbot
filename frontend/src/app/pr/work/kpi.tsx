@@ -781,7 +781,7 @@ export function EligibilityBadge({ row }: { row: ContributionEligibility }) {
  *
  * Deliberately **not** offered to a Trưởng nhóm: `PR_WORK_MANAGE` means deciding
  * whose job a piece of work is, which is a different act from deciding what
- * somebody's KPI targets are, and MeoBot models no team that would make a
+ * somebody's KPI targets are, and TasksBot models no team that would make a
  * narrower middle ground honest. The server refuses either way; this list simply
  * does not draw a control that would always fail.
  */

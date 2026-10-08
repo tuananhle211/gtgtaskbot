@@ -59,6 +59,16 @@ WEB_TITLES: Mapping[NotificationEvent, str] = MappingProxyType(
         NotificationEvent.PR_KPI_PLAN_SUBMITTED: "Có kế hoạch KPI chờ bạn duyệt",
         NotificationEvent.PR_KPI_PLAN_APPROVED: "Kế hoạch KPI của bạn đã được duyệt",
         NotificationEvent.PR_KPI_PLAN_RETURNED: "Kế hoạch KPI của bạn cần chỉnh sửa",
+        NotificationEvent.ORDER_SUBMITTED: "Có order mới cần duyệt",
+        NotificationEvent.ORDER_APPROVED: "Có order mới",
+        NotificationEvent.ORDER_RETURNED: "Order cần sửa, gửi lại",
+        NotificationEvent.ORDER_NODE_TURN: "Có order tới lượt",
+        NotificationEvent.ORDER_NODE_ASSIGNED: "Bạn được giao một công đoạn",
+        NotificationEvent.ORDER_NODE_ACCEPTED: "Đã có người nhận việc",
+        NotificationEvent.ORDER_SUBMISSION_READY: "Có bài chờ bạn duyệt",
+        NotificationEvent.ORDER_NODE_RETURNED: "Bài của bạn cần sửa",
+        NotificationEvent.ORDER_FINAL_RETURNED: "Sản phẩm cần sửa lại",
+        NotificationEvent.ORDER_COMPLETED: "Order đã hoàn thành",
     }
 )
 

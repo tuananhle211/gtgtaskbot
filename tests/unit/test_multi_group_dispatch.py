@@ -81,7 +81,7 @@ TEAM_LEAD = 910_201
 EMPLOYEE = 910_202
 
 ANNOUNCEMENT = (
-    "Chào mọi người, mình là MeoBot — trợ lý hỗ trợ điều hành và sáng tạo nội dung "
+    "Chào mọi người, mình là TasksBot — trợ lý hỗ trợ điều hành và sáng tạo nội dung "
     "cho Phòng PR Truyền thông Apexmed."
 )
 
@@ -265,7 +265,7 @@ class TestScreenshotRegression:
             ),
         )
         first = session.combined_text()
-        assert "MeoBot hiểu" in first
+        assert "TasksBot hiểu" in first
         assert "Saykeng" in first
         assert "KẾT BẠN BỐN PHƯƠNG" in first
         assert "Test" in first
@@ -504,7 +504,7 @@ class TestNaturalResolution:
         await dispatcher.feed_update(
             bot, owner_says(f"Gửi thông báo này cho tất cả group: {ANNOUNCEMENT}")
         )
-        assert "MeoBot tìm thấy" in session.combined_text()
+        assert "TasksBot tìm thấy" in session.combined_text()
 
         await dispatcher.feed_update(bot, owner_says("Tất cả"))
         await dispatcher.feed_update(bot, owner_says("Xác nhận"))
@@ -930,7 +930,7 @@ class TestRegistryListing:
             "Xem các group đã đăng ký.",
             "Có những group nào?",
             "Danh sách group.",
-            "MeoBot đang gửi được vào những nhóm nào?",
+            "TasksBot đang gửi được vào những nhóm nào?",
             "Cho chị chọn group.",
             "Xem cac group da dang ky",
         ],
@@ -1291,7 +1291,7 @@ class TestPersistenceFailureIsAnswered:
         await dispatcher.feed_update(bot, owner_says(f"Gửi cho tất cả group: {ANNOUNCEMENT}"))
 
         reply = session.combined_text()
-        assert "MeoBot chưa tạo được bản xem trước cho thông báo này." in reply
+        assert "TasksBot chưa tạo được bản xem trước cho thông báo này." in reply
         assert "Chưa có nội dung nào được gửi." in reply
         assert "Bạn thử lại sau khi hệ thống được cập nhật nhé." in reply
         # And the claim it makes is true.

@@ -33,12 +33,26 @@ import { readdirSync, readFileSync, statSync } from "node:fs";
 import path from "node:path";
 
 import { ConfirmDialog, type ConfirmSpec } from "@/components/confirm";
-import { ACTION_INVENTORY, assignProducerConfirmation } from "@/lib/confirmations";
-import { CONTENT, SESSION, VERSION, cancelDialog, channelsNavigation, confirm, dialog, renderWithQuery, stubFetch } from "./helpers";
+import {
+  ACTION_INVENTORY,
+  assignProducerConfirmation,
+} from "@/lib/confirmations";
+import {
+  CONTENT,
+  SESSION,
+  VERSION,
+  cancelDialog,
+  channelsNavigation,
+  confirm,
+  dialog,
+  renderWithQuery,
+  stubFetch,
+} from "./helpers";
 
 const ROOT = path.resolve(__dirname, "..");
 const SRC = path.join(ROOT, "src");
-const read = (relative: string) => readFileSync(path.join(SRC, relative), "utf8");
+const read = (relative: string) =>
+  readFileSync(path.join(SRC, relative), "utf8");
 
 const walk = (dir: string): string[] =>
   readdirSync(dir).flatMap((entry) => {
@@ -56,7 +70,8 @@ vi.mock("next/navigation", () => ({
   useParams: () => ({ id: CONTENT.id }),
 }));
 
-const { default: ContentDetailPage } = await import("@/app/pr/content/[id]/page");
+const { default: ContentDetailPage } =
+  await import("@/app/pr/content/[id]/page");
 const { default: PermissionsPage } = await import("@/app/pr/permissions/page");
 const { default: ChannelsPage } = await import("@/app/pr/channels/page");
 
@@ -66,7 +81,8 @@ const { default: ChannelsPage } = await import("@/app/pr/channels/page");
 
 const SPEC: ConfirmSpec = {
   title: "Duyệt nội dung này?",
-  description: "Nội dung sẽ được ghi nhận là đã duyệt và chuyển sang bước tiếp theo.",
+  description:
+    "Nội dung sẽ được ghi nhận là đã duyệt và chuyển sang bước tiếp theo.",
   confirmLabel: "Duyệt",
 };
 
@@ -103,8 +119,12 @@ describe("167. the dialog is reachable and escapable from the keyboard", () => {
     expect(box).toHaveAttribute("aria-modal", "true");
     // Not a hard-coded id: the point is that the two attributes *point at* the
     // title and the body, which is what a screen reader reads on open.
-    const labelled = document.getElementById(box.getAttribute("aria-labelledby") ?? "");
-    const described = document.getElementById(box.getAttribute("aria-describedby") ?? "");
+    const labelled = document.getElementById(
+      box.getAttribute("aria-labelledby") ?? "",
+    );
+    const described = document.getElementById(
+      box.getAttribute("aria-describedby") ?? "",
+    );
     expect(labelled).toHaveTextContent(SPEC.title);
     expect(described).toHaveTextContent(SPEC.description);
   });
@@ -126,7 +146,9 @@ describe("167. the dialog is reachable and escapable from the keyboard", () => {
 
   it("focuses the cancel button on a destructive dialog", () => {
     renderWithQuery(
-      <Harness spec={{ ...SPEC, variant: "destructive", confirmLabel: "Từ chối" }} />,
+      <Harness
+        spec={{ ...SPEC, variant: "destructive", confirmLabel: "Từ chối" }}
+      />,
     );
     // The one opinion this component holds: a stray Enter on a destructive
     // dialog must cancel, not confirm.
@@ -151,7 +173,9 @@ describe("167. the dialog is reachable and escapable from the keyboard", () => {
 
   it("returns focus to whatever opened it", async () => {
     function Toggle() {
-      const [open, setOpen] = (globalThis as unknown as { __useState: typeof import("react").useState }).__useState(false);
+      const [open, setOpen] = (
+        globalThis as unknown as { __useState: typeof import("react").useState }
+      ).__useState(false);
       return (
         <>
           <button type="button" onClick={() => setOpen(true)}>
@@ -167,7 +191,9 @@ describe("167. the dialog is reachable and escapable from the keyboard", () => {
       );
     }
     const react = await import("react");
-    (globalThis as unknown as { __useState: typeof react.useState }).__useState = react.useState;
+    (
+      globalThis as unknown as { __useState: typeof react.useState }
+    ).__useState = react.useState;
 
     renderWithQuery(<Toggle />);
     const opener = screen.getByRole("button", { name: "Mở hộp thoại" });
@@ -202,14 +228,24 @@ describe("167b. the dialog is a viewport modal, not a child of whatever opened i
   it("escapes a blurred sticky ancestor - the exact shape that broke it", () => {
     function InsideABlurredBar() {
       return (
-        <div className="sticky bottom-0 z-20 backdrop-blur" data-testid="sticky-bar">
-          <ConfirmDialog open spec={SPEC} onConfirm={vi.fn()} onCancel={vi.fn()} />
+        <div
+          className="sticky bottom-0 z-20 backdrop-blur"
+          data-testid="sticky-bar"
+        >
+          <ConfirmDialog
+            open
+            spec={SPEC}
+            onConfirm={vi.fn()}
+            onCancel={vi.fn()}
+          />
         </div>
       );
     }
     renderWithQuery(<InsideABlurredBar />);
 
-    expect(screen.getByTestId("sticky-bar").contains(screen.getByRole("dialog"))).toBe(false);
+    expect(
+      screen.getByTestId("sticky-bar").contains(screen.getByRole("dialog")),
+    ).toBe(false);
   });
 
   it("carries the two-layout contract on the overlay and the panel", () => {
@@ -240,7 +276,9 @@ describe("167b. the dialog is a viewport modal, not a child of whatever opened i
 
   it("keeps the footer out of the scrolling body", () => {
     renderWithQuery(
-      <Harness spec={{ ...SPEC, count: 16, details: "A · B · C và 13 nội dung khác" }} />,
+      <Harness
+        spec={{ ...SPEC, count: 16, details: "A · B · C và 13 nội dung khác" }}
+      />,
     );
     const box = screen.getByRole("dialog");
     const footer = box.querySelector("footer")!;
@@ -248,7 +286,9 @@ describe("167b. the dialog is a viewport modal, not a child of whatever opened i
     // A dialog listing titles and an error still has its buttons on screen: the
     // body scrolls, the footer does not move.
     expect(footer).toBeInTheDocument();
-    expect(footer.contains(box.querySelector("[data-confirm-accept]"))).toBe(true);
+    expect(footer.contains(box.querySelector("[data-confirm-accept]"))).toBe(
+      true,
+    );
     expect(box.querySelector(".overflow-y-auto")!.contains(footer)).toBe(false);
     // Right-aligned from `sm` up; stacked and full width below it.
     expect(footer.className).toContain("sm:justify-end");
@@ -272,8 +312,12 @@ describe("167b. the dialog is a viewport modal, not a child of whatever opened i
     );
     const box = screen.getByRole("dialog");
 
-    expect(within(box).getByRole("heading", { name: "Duyệt 16 nội dung?" })).toBeInTheDocument();
-    expect(within(box).getByText(/Chờ duyệt nội bộ sẽ được ghi nhận/)).toBeInTheDocument();
+    expect(
+      within(box).getByRole("heading", { name: "Duyệt 16 nội dung?" }),
+    ).toBeInTheDocument();
+    expect(
+      within(box).getByText(/Chờ duyệt nội bộ sẽ được ghi nhận/),
+    ).toBeInTheDocument();
     expect(within(box).getByText("Số lượng: 16 nội dung")).toBeInTheDocument();
     expect(within(box).getByText(/và 11 nội dung khác/)).toBeInTheDocument();
     // Cancel first in the DOM, confirm second - so tab order and the reading
@@ -323,7 +367,9 @@ describe("169. the two variants, and the optional parts", () => {
       />,
     );
     expect(screen.getByText("Số lượng: 24 nội dung")).toBeInTheDocument();
-    expect(screen.getByText("A · B · C và 21 nội dung khác")).toBeInTheDocument();
+    expect(
+      screen.getByText("A · B · C và 21 nội dung khác"),
+    ).toBeInTheDocument();
   });
 
   it("styles a destructive confirm differently from an ordinary one", () => {
@@ -357,7 +403,12 @@ const PRODUCER = {
   role: "EMPLOYEE",
 };
 
-type Route = { match: string; status?: number; body?: unknown; method?: string };
+type Route = {
+  match: string;
+  status?: number;
+  body?: unknown;
+  method?: string;
+};
 
 const detailRoutes = (
   actions: Array<Record<string, unknown>>,
@@ -380,7 +431,10 @@ const detailRoutes = (
     body: { content, current_version: VERSION, approvals: [], tasks: [] },
   },
   { match: `/api/pr/contents/${CONTENT.id}/versions`, body: [VERSION] },
-  { match: `/api/pr/contents/${CONTENT.id}/history`, body: { transitions: [] } },
+  {
+    match: `/api/pr/contents/${CONTENT.id}/history`,
+    body: { transitions: [] },
+  },
   {
     match: `/api/pr/contents/${CONTENT.id}/production`,
     body: {
@@ -391,28 +445,46 @@ const detailRoutes = (
       submissions: [],
     },
   },
-  { match: `/api/pr/contents/${CONTENT.id}/ai-review`, body: { active: false, runs: [] } },
+  {
+    match: `/api/pr/contents/${CONTENT.id}/ai-review`,
+    body: { active: false, runs: [] },
+  },
   {
     match: `/api/pr/contents/${CONTENT.id}`,
     body: { content, current_version: VERSION, targets: [], brand: BRAND },
   },
   {
     match: "/api/pr/people",
-    body: [{ user_id: SESSION.user_id, full_name: SESSION.full_name }, PRODUCER],
+    body: [
+      { user_id: SESSION.user_id, full_name: SESSION.full_name },
+      PRODUCER,
+    ],
   },
 ];
 
 const posts = (stub: ReturnType<typeof stubFetch>) =>
-  (stub as unknown as { calls: Array<{ url: string; method: string; body: unknown }> }).calls.filter(
-    (call) => call.method !== "GET",
-  );
+  (
+    stub as unknown as {
+      calls: Array<{ url: string; method: string; body: unknown }>;
+    }
+  ).calls.filter((call) => call.method !== "GET");
 
 describe("170. approving asks, and cancelling sends nothing", () => {
   it("asks before an approval and states what the approval does", async () => {
     const stub = stubFetch([
-      { match: "/reviews", method: "POST", status: 201, body: { content: CONTENT, current_version: VERSION, targets: [] } },
+      {
+        match: "/reviews",
+        method: "POST",
+        status: 201,
+        body: { content: CONTENT, current_version: VERSION, targets: [] },
+      },
       ...detailRoutes([
-        { action: "APPROVAL", decision: "APPROVED", target_stage: null, emphasis: "PRIMARY" },
+        {
+          action: "APPROVAL",
+          decision: "APPROVED",
+          target_stage: null,
+          emphasis: "PRIMARY",
+        },
       ]),
     ]);
     renderWithQuery(<ContentDetailPage />);
@@ -438,23 +510,39 @@ describe("170. approving asks, and cancelling sends nothing", () => {
   it("uses destructive styling for a rejection and ordinary for an approval", async () => {
     stubFetch(
       detailRoutes([
-        { action: "APPROVAL", decision: "APPROVED", target_stage: null, emphasis: "PRIMARY" },
-        { action: "APPROVAL", decision: "REJECTED", target_stage: null, emphasis: "DANGER" },
+        {
+          action: "APPROVAL",
+          decision: "APPROVED",
+          target_stage: null,
+          emphasis: "PRIMARY",
+        },
+        {
+          action: "APPROVAL",
+          decision: "REJECTED",
+          target_stage: null,
+          emphasis: "DANGER",
+        },
       ]),
     );
     renderWithQuery(<ContentDetailPage />);
 
-    await userEvent.click((await screen.findAllByRole("button", { name: "Duyệt" }))[0]);
+    await userEvent.click(
+      (await screen.findAllByRole("button", { name: "Duyệt" }))[0],
+    );
     expect(
-      screen.getByRole("dialog").querySelector("[data-confirm-accept]")!.className,
+      screen.getByRole("dialog").querySelector("[data-confirm-accept]")!
+        .className,
     ).not.toContain("red");
     await cancelDialog();
 
-    await userEvent.click(screen.getByRole("button", { name: /Thao tác khác/ }));
+    await userEvent.click(
+      screen.getByRole("button", { name: /Thao tác khác/ }),
+    );
     await userEvent.click(screen.getByRole("button", { name: "Từ chối" }));
     expect(dialog().getByText("Từ chối nội dung này?")).toBeInTheDocument();
     expect(
-      screen.getByRole("dialog").querySelector("[data-confirm-accept]")!.className,
+      screen.getByRole("dialog").querySelector("[data-confirm-accept]")!
+        .className,
     ).toContain("red");
   });
 });
@@ -463,14 +551,29 @@ describe("171. claiming and assigning name what changes hands", () => {
   it("says who becomes responsible when claiming", async () => {
     stubFetch(
       detailRoutes(
-        [{ action: "CLAIM_PRODUCTION", decision: null, target_stage: null, emphasis: "PRIMARY" }],
-        { ...CONTENT, workflow_stage: "APPROVED", production_state: "WAITING_FOR_PRODUCER" },
+        [
+          {
+            action: "CLAIM_PRODUCTION",
+            decision: null,
+            target_stage: null,
+            emphasis: "PRIMARY",
+          },
+        ],
+        {
+          ...CONTENT,
+          workflow_stage: "APPROVED",
+          production_state: "WAITING_FOR_PRODUCER",
+        },
       ),
     );
     renderWithQuery(<ContentDetailPage />);
 
-    await userEvent.click(await screen.findByRole("button", { name: "Nhận sản xuất" }));
-    expect(dialog().getByText("Nhận sản xuất nội dung này?")).toBeInTheDocument();
+    await userEvent.click(
+      await screen.findByRole("button", { name: "Nhận sản xuất" }),
+    );
+    expect(
+      dialog().getByText("Nhận sản xuất nội dung này?"),
+    ).toBeInTheDocument();
     expect(
       dialog().getByText(
         "Bạn sẽ trở thành người phụ trách sản xuất và nội dung sẽ chuyển sang bước Đang sản xuất.",
@@ -489,7 +592,10 @@ describe("171. claiming and assigning name what changes hands", () => {
     expect(fresh.confirmLabel).toBe("Phân công Hà Chi");
     expect(fresh.variant).toBe("primary");
 
-    const moved = assignProducerConfirmation({ name: "Hà Chi", current: "Minh" });
+    const moved = assignProducerConfirmation({
+      name: "Hà Chi",
+      current: "Minh",
+    });
     expect(moved.title).toBe("Chuyển người sản xuất sang Hà Chi?");
     expect(moved.description).toBe(
       "Người phụ trách sản xuất hiện tại sẽ được thay thế bằng Hà Chi.",
@@ -504,20 +610,37 @@ describe("171. claiming and assigning name what changes hands", () => {
   it("does not send an assignment merely because the picker changed", async () => {
     const stub = stubFetch(
       detailRoutes(
-        [{ action: "ASSIGN_PRODUCER", decision: null, target_stage: null, emphasis: "SECONDARY" }],
-        { ...CONTENT, workflow_stage: "APPROVED", production_state: "WAITING_FOR_PRODUCER" },
+        [
+          {
+            action: "ASSIGN_PRODUCER",
+            decision: null,
+            target_stage: null,
+            emphasis: "SECONDARY",
+          },
+        ],
+        {
+          ...CONTENT,
+          workflow_stage: "APPROVED",
+          production_state: "WAITING_FOR_PRODUCER",
+        },
       ),
     );
     renderWithQuery(<ContentDetailPage />);
 
-    const picker = await screen.findByRole("combobox", { name: "Người sản xuất" });
+    const picker = await screen.findByRole("combobox", {
+      name: "Người sản xuất",
+    });
     await userEvent.selectOptions(picker, PRODUCER.user_id);
 
     // Before Step 1F.2.8 this `change` *was* the assignment, so a mis-scroll on
     // a phone moved somebody else's work to somebody else.
     expect(posts(stub)).toHaveLength(0);
-    await userEvent.click(screen.getByRole("button", { name: "Phân công Hà Chi" }));
-    expect(dialog().getByText("Phân công Hà Chi sản xuất?")).toBeInTheDocument();
+    await userEvent.click(
+      screen.getByRole("button", { name: "Phân công Hà Chi" }),
+    );
+    expect(
+      dialog().getByText("Phân công Hà Chi sản xuất?"),
+    ).toBeInTheDocument();
     expect(posts(stub)).toHaveLength(0);
   });
 });
@@ -563,11 +686,15 @@ describe("172. permissions and integrations", () => {
     NAV.arriveAt("/pr/permissions?tab=grants");
     renderWithQuery(<PermissionsPage />);
 
-    await userEvent.click(await screen.findByRole("button", { name: "Thu hồi" }));
+    await userEvent.click(
+      await screen.findByRole("button", { name: "Thu hồi" }),
+    );
     expect(
       dialog().getByText("Thu hồi quyền Duyệt Trưởng nhóm của Hà Chi?"),
     ).toBeInTheDocument();
-    expect(dialog().getByText("Quyền này sẽ ngừng có hiệu lực ngay lập tức.")).toBeInTheDocument();
+    expect(
+      dialog().getByText("Quyền này sẽ ngừng có hiệu lực ngay lập tức."),
+    ).toBeInTheDocument();
     expect(posts(stub)).toHaveLength(0);
 
     await confirm();
@@ -603,7 +730,9 @@ describe("172. permissions and integrations", () => {
       PRODUCER.user_id,
     );
     // Both scope axes to "all", which is what makes the grant submittable.
-    for (const box of screen.getAllByRole("checkbox", { name: "Chọn tất cả" })) {
+    for (const box of screen.getAllByRole("checkbox", {
+      name: "Chọn tất cả",
+    })) {
       await userEvent.click(box);
     }
 
@@ -621,7 +750,12 @@ describe("172. permissions and integrations", () => {
 });
 
 describe("172b. disconnecting a channel asks; connecting one does not", () => {
-  const PLATFORM = { id: "d1", code: "TIKTOK", name: "TikTok", status: "ACTIVE" };
+  const PLATFORM = {
+    id: "d1",
+    code: "TIKTOK",
+    name: "TikTok",
+    status: "ACTIVE",
+  };
   const CHANNEL = {
     id: "c1",
     code: "CH-1",
@@ -677,8 +811,15 @@ describe("172b. disconnecting a channel asks; connecting one does not", () => {
     },
     { match: "/api/pr/platforms", body: [PLATFORM] },
     { match: "/api/pr/brands", body: [BRAND] },
-    { match: "/connections/accounts", body: { channel_id: CHANNEL.id, provider: "TIKTOK", accounts: [] } },
-    { match: "/connections/tiktok/disconnect", method: "POST", body: state(null) },
+    {
+      match: "/connections/accounts",
+      body: { channel_id: CHANNEL.id, provider: "TIKTOK", accounts: [] },
+    },
+    {
+      match: "/connections/tiktok/disconnect",
+      method: "POST",
+      body: state(null),
+    },
     // Before `/connection`, which is a substring of it. This file is about the
     // confirmation dialogs, so the panel only has to render - see
     // `tiktok-connector.test.tsx` for what it renders.
@@ -728,7 +869,25 @@ describe("172b. disconnecting a channel asks; connecting one does not", () => {
       },
     },
     { match: "/connection", body: state(connection) },
-    { match: "/metrics", body: { channel_id: CHANNEL.id, status: "CONNECTED_API", status_label: "Đã kết nối API", latest: null, previous: null, trend: null, history: [], total: 0, limit: 30, offset: 0, days_since_capture: null, analytics: null, can_record_metrics: true, has_history: false } },
+    {
+      match: "/metrics",
+      body: {
+        channel_id: CHANNEL.id,
+        status: "CONNECTED_API",
+        status_label: "Đã kết nối API",
+        latest: null,
+        previous: null,
+        trend: null,
+        history: [],
+        total: 0,
+        limit: 30,
+        offset: 0,
+        days_since_capture: null,
+        analytics: null,
+        can_record_metrics: true,
+        has_history: false,
+      },
+    },
     {
       match: `/api/pr/channels/${CHANNEL.id}`,
       body: {
@@ -746,15 +905,22 @@ describe("172b. disconnecting a channel asks; connecting one does not", () => {
   it("asks before disconnecting, and says what stops happening", async () => {
     const stub = stubFetch(channelRoutes(CONNECTED));
     renderWithQuery(<ChannelsPage />);
-    await userEvent.click(await screen.findByRole("button", { name: new RegExp(CHANNEL.name) }));
+    await userEvent.click(
+      await screen.findByRole("button", { name: new RegExp(CHANNEL.name) }),
+    );
 
-    await userEvent.click(await screen.findByRole("button", { name: "Ngắt kết nối" }));
+    await userEvent.click(
+      await screen.findByRole("button", { name: "Ngắt kết nối" }),
+    );
     expect(dialog().getByText("Ngắt kết nối TikTok này?")).toBeInTheDocument();
-    expect(dialog().getByText(/ngừng đồng bộ dữ liệu từ tài khoản này/)).toBeInTheDocument();
+    expect(
+      dialog().getByText(/ngừng đồng bộ dữ liệu từ tài khoản này/),
+    ).toBeInTheDocument();
     expect(posts(stub)).toHaveLength(0);
     // Disconnecting takes an integration away, so it is destructive-styled.
     expect(
-      screen.getByRole("dialog").querySelector("[data-confirm-accept]")!.className,
+      screen.getByRole("dialog").querySelector("[data-confirm-accept]")!
+        .className,
     ).toContain("red");
   });
 
@@ -765,17 +931,23 @@ describe("172b. disconnecting a channel asks; connecting one does not", () => {
       {
         match: "/connections/tiktok/authorize",
         method: "POST",
-        body: { authorization_url: "https://www.tiktok.com/v2/auth/authorize/?x=1" },
+        body: {
+          authorization_url: "https://www.tiktok.com/v2/auth/authorize/?x=1",
+        },
       },
       ...channelRoutes(null),
     ]);
     renderWithQuery(<ChannelsPage />);
-    await userEvent.click(await screen.findByRole("button", { name: new RegExp(CHANNEL.name) }));
+    await userEvent.click(
+      await screen.findByRole("button", { name: new RegExp(CHANNEL.name) }),
+    );
 
-    await userEvent.click(await screen.findByRole("button", { name: "Kết nối TikTok" }));
+    await userEvent.click(
+      await screen.findByRole("button", { name: "Kết nối TikTok" }),
+    );
 
     // Requirement 22: TikTok's own consent screen *is* the authorization step.
-    // A MeoChat dialog in front of it would be a click that authorises nothing.
+    // A TasksBot dialog in front of it would be a click that authorises nothing.
     expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
     await waitFor(() => expect(assign).toHaveBeenCalled());
   });
@@ -789,7 +961,11 @@ describe("173. the confirmation policy has a maintainable regression strategy", 
   it("uses no browser confirm, alert or prompt anywhere in the panel", () => {
     for (const file of walk(SRC).filter((f) => /\.tsx?$/.test(f))) {
       const source = readFileSync(file, "utf8");
-      for (const forbidden of ["window.confirm", "window.alert", "window.prompt"]) {
+      for (const forbidden of [
+        "window.confirm",
+        "window.alert",
+        "window.prompt",
+      ]) {
         expect(source, `${file}: ${forbidden}`).not.toContain(forbidden);
       }
     }
@@ -804,6 +980,14 @@ describe("173. the confirmation policy has a maintainable regression strategy", 
         "Đánh dấu đã đọc chỉ đổi trạng thái đọc của chính người đang đăng nhập, không đổi dữ liệu nghiệp vụ.",
       "components/shell.tsx":
         "Chỉ có đăng xuất; kết thúc phiên của chính mình, không đổi dữ liệu nghiệp vụ và đăng nhập lại được ngay.",
+      "components/pr-create-content.tsx":
+        "Form tạo nội dung PR, tách ra khỏi app/pr/content/page.tsx để dùng chung với màn Tạo order. Chỉ tạo bản ghi mới; nút gửi trong form chính là bước xác nhận (policy parameter-modal), như khi còn nằm trong trang bảng nội dung.",
+      "components/pr-content-detail/review.tsx":
+        'Tab Duyệt của trang nội dung PR, tách nguyên văn khỏi app/pr/content/[id]/page.tsx để dùng chung với màn task hợp nhất (/tasks/[ref]). Hai thao tác ghi: Lưu bản mới trong trình soạn thảo (policy parameter-modal, xem ACTION_INVENTORY "Sửa nội dung"; luôn tạo phiên bản mới, không ghi đè bản cũ) và Thử lại AI review đã lỗi (chỉ xếp lại một lần kiểm tra mang tính tư vấn, không đổi bước quy trình hay quyết định duyệt nào).',
+      "app/login/page.tsx":
+        "Form đăng nhập bằng ID Telegram và mật khẩu; nút Đăng nhập trong form chính là bước xác nhận (policy parameter-modal). Chỉ mở phiên cho chính người gõ mật khẩu, không đổi dữ liệu nghiệp vụ. Form Quên mật khẩu (một ô ID Telegram) cũng vậy: mật khẩu tạm chỉ gửi vào Telegram của chính tài khoản đó.",
+      "app/account/password.tsx":
+        "Form đổi mật khẩu của chính mình (hộp thoại trên trang Tài khoản, hoặc thẻ duy nhất khi bắt buộc đổi); nút Đổi mật khẩu trong form là bước xác nhận (policy parameter-modal, xem ACTION_INVENTORY). Phải nhập đúng mật khẩu hiện tại và chỉ đổi tài khoản của chính người đang đăng nhập.",
       "app/pr/work/mapping.tsx":
         "Form ba lựa chọn (cột mốc, loại nội dung, loại công việc); nút lưu trong form chính là bước xác nhận — xem ACTION_INVENTORY, policy parameter-modal. Lưu ánh xạ không viết lại lịch sử: công việc đã COUNTED trong kỳ đã đóng giữ nguyên, chỉ các lần chiếu sau dùng ánh xạ mới. M3.1 tách tệp này ra khỏi kpi.tsx, và trước đó nó lọt qua kiểm tra này chỉ vì ở chung tệp với các hộp thoại KPI.",
     };
@@ -861,7 +1045,9 @@ describe("173. the confirmation policy has a maintainable regression strategy", 
 
   it("never asks twice for a read-only interaction", () => {
     const readOnly = ACTION_INVENTORY.filter((entry) =>
-      /Lọc|Mở chi tiết|thông báo đã đọc|màn hình cấp quyền|Đồng bộ số liệu/.test(entry.action),
+      /Lọc|Mở chi tiết|thông báo đã đọc|màn hình cấp quyền|Đồng bộ số liệu/.test(
+        entry.action,
+      ),
     );
     expect(readOnly.length).toBeGreaterThan(3);
     for (const entry of readOnly) {

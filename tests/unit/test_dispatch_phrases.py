@@ -51,7 +51,7 @@ class TestConfirmation:
             "Chốt",
             "Thực hiện",
             "Đồng ý",
-            "OK gửi luôn đi MeoBot",
+            "OK gửi luôn đi TasksBot",
             "Xác nhận nhé em",
         ],
     )
@@ -235,7 +235,7 @@ class TestPrivacy:
     @pytest.mark.parametrize(
         "content",
         [
-            "Chào mọi người, mình là MeoBot - trợ lý của Phòng PR Truyền thông.",
+            "Chào mọi người, mình là TasksBot - trợ lý của Phòng PR Truyền thông.",
             "Sáng mai họp lúc 9 giờ ở phòng lớn nhé cả nhà.",
             # Deliberately close to a marker without being one: a schedule
             # announcement about payday is exactly what a department says.
@@ -263,7 +263,7 @@ class TestPrivacy:
 
 # --- Long messages ----------------------------------------------------------
 PARAGRAPH = (
-    "Chào mọi người, mình là MeoBot - trợ lý hỗ trợ điều hành và sáng tạo nội "
+    "Chào mọi người, mình là TasksBot - trợ lý hỗ trợ điều hành và sáng tạo nội "
     "dung cho Phòng PR Truyền thông Apexmed. Mình có thể hỗ trợ brainstorm, "
     "review kịch bản, tổng hợp báo cáo, quản lý nội dung và nhắc việc."
 )

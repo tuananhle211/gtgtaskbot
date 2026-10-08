@@ -187,7 +187,7 @@ def test_the_forbidden_words_would_actually_be_caught() -> None:
 
 def test_platform_names_are_not_flagged() -> None:
     assert offending_words("Đăng lên Facebook và TikTok qua Google Drive") == set()
-    assert offending_words("MeoBot gửi qua Telegram") == set()
+    assert offending_words("TasksBot gửi qua Telegram") == set()
 
 
 def test_the_help_card_teaches_natural_language_first() -> None:

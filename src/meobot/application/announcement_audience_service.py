@@ -52,7 +52,7 @@ logger = get_logger(__name__)
 #: same to somebody who is not told which one they are looking at.
 UNCONFIGURED_AUDIENCE = (
     "Thông báo này đã có {count} người xác nhận đã đọc.\n"
-    "Group chưa được cấu hình danh sách thành viên kỳ vọng nên MeoBot chưa thể "
+    "Group chưa được cấu hình danh sách thành viên kỳ vọng nên TasksBot chưa thể "
     "xác định ai chưa đọc."
 )
 

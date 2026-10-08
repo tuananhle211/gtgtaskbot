@@ -126,6 +126,8 @@ CAPABILITY_PATTERNS: tuple[str, ...] = (
 IDENTITY_PATTERNS: tuple[str, ...] = (
     "ban la ai",
     "ban ten gi",
+    "tasksbot la gi",
+    "tasksbot la ai",
     "meobot la gi",
     "meobot la ai",
     "gioi thieu ve ban",
@@ -155,6 +157,7 @@ _GREETING_FILLER: frozenset[str] = frozenset(
     {
         "xin",
         "ban",
+        "tasksbot",
         "meobot",
         "oi",
         "nhe",

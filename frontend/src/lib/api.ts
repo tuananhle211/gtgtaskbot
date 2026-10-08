@@ -45,7 +45,12 @@ export class ApiError extends Error {
   readonly code: string;
   readonly details: Record<string, unknown>;
 
-  constructor(status: number, code: string, message: string, details: Record<string, unknown>) {
+  constructor(
+    status: number,
+    code: string,
+    message: string,
+    details: Record<string, unknown>,
+  ) {
     super(message);
     this.name = "ApiError";
     this.status = status;
@@ -132,7 +137,9 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
       envelope?.error?.code ?? "http_error",
       // Prefer the server's Vietnamese sentence. `detail` covers the 401 raised
       // by the FastAPI dependency, which uses the framework's own shape.
-      envelope?.error?.message ?? detail ?? `Yêu cầu thất bại (${response.status}).`,
+      envelope?.error?.message ??
+        detail ??
+        `Yêu cầu thất bại (${response.status}).`,
       envelope?.error?.details ?? {},
     );
   }
@@ -180,6 +187,19 @@ export interface Session {
   role: string;
   active: boolean;
   capabilities: string[];
+  /**
+   * The account still uses the shared default password. Until it is changed the
+   * API refuses every route but `/api/auth/*`, `/api/account/me` and
+   * `/api/account/password` (403 `password_change_required`), and the Shell
+   * sends the person to `/account?doi-mat-khau=1`. Optional only so a session
+   * from an API that predates password login still parses.
+   */
+  must_change_password?: boolean;
+  /**
+   * `/api/account/avatar/<user_id>?v=<version>` when the person uploaded a
+   * profile picture, else null (initials are drawn). Optional: older APIs omit it.
+   */
+  avatar_url?: string | null;
 }
 
 export interface Person {
@@ -246,7 +266,11 @@ export interface ContentSummary {
    * same stage and different things to do, and which is which is a rule.
    */
   production_state:
-    "WAITING_FOR_PRODUCER" | "READY_FOR_PRODUCTION" | "IN_PRODUCTION" | "IN_INTERNAL_REVIEW" | null;
+    | "WAITING_FOR_PRODUCER"
+    | "READY_FOR_PRODUCTION"
+    | "IN_PRODUCTION"
+    | "IN_INTERNAL_REVIEW"
+    | null;
   /**
    * Step 1F.2.8. Whether **this session** could record an approval for this
    * item right now - it is at a review gate and a grant of the actor's covers
@@ -417,7 +441,11 @@ export interface ProductionState {
    * same stage and different things to do, and which is which is a rule.
    */
   production_state:
-    "WAITING_FOR_PRODUCER" | "READY_FOR_PRODUCTION" | "IN_PRODUCTION" | "IN_INTERNAL_REVIEW" | null;
+    | "WAITING_FOR_PRODUCER"
+    | "READY_FOR_PRODUCTION"
+    | "IN_PRODUCTION"
+    | "IN_INTERNAL_REVIEW"
+    | null;
   submissions: ProductionSubmission[];
 }
 
@@ -543,7 +571,7 @@ export interface ChannelConnection {
   last_sync_failed_at: string | null;
   /** A safe error class, never a provider message. */
   last_sync_error_code: string | null;
-  /** A Vietnamese sentence MeoBot wrote. Never provider prose. */
+  /** A Vietnamese sentence TasksBot wrote. Never provider prose. */
   last_sync_error_message: string | null;
   days_since_success: number | null;
   auto_sync_enabled: boolean;
@@ -685,7 +713,7 @@ export interface TikTokOverview {
   max_video_pages: number;
   granted_scopes: string[];
   scopes: TikTokScope[];
-  /** When MeoChat asked TikTok. Not when the numbers became true. */
+  /** When TasksBot asked TikTok. Not when the numbers became true. */
   fetched_at: string;
   /** When a *snapshot* sync last succeeded. A different fact. */
   last_sync_succeeded_at: string | null;
@@ -768,7 +796,7 @@ export interface WorkType {
 // canonical-component rule exists to prevent.
 //
 // **No money.** M6 scores and reports performance; the head allocates
-// performance pay separately, outside MeoChat. A performance index is an
+// performance pay separately, outside TasksBot. A performance index is an
 // evaluation result and not a salary multiplier, so nothing here carries an
 // amount or a coefficient.
 //
@@ -786,7 +814,11 @@ export type PerformanceLevel =
   "EXCELLENT" | "GOOD" | "MEETS_EXPECTATIONS" | "BELOW_EXPECTATIONS" | "POOR";
 
 export type PerformanceCalculationStatus =
-  "READY" | "TARGET_UNRESOLVED" | "NO_SCORING_RULE" | "PERFORMANCE_REVIEW_PENDING" | "FINALIZED";
+  | "READY"
+  | "TARGET_UNRESOLVED"
+  | "NO_SCORING_RULE"
+  | "PERFORMANCE_REVIEW_PENDING"
+  | "FINALIZED";
 
 export interface WorkScoringRule {
   id: Uuid;
@@ -1008,7 +1040,7 @@ export interface WorkContribution {
 }
 
 /**
- * A text, or a link, proving the work. MeoChat stores no files.
+ * A text, or a link, proving the work. TasksBot stores no files.
  *
  * Two shapes on one row. A row written as **one free text** carries it in
  * `text` - links and all, rendered with the links made clickable - and its
@@ -2397,7 +2429,7 @@ export interface MetricCapabilities {
  * second as "0", and telling them apart is the entire reason this shape exists.
  *
  * The derived half - growth, growth rate, engagement change - is computed by
- * the server from MeoBot's own stored snapshots, not fetched from any platform.
+ * the server from TasksBot's own stored snapshots, not fetched from any platform.
  * No arithmetic on these numbers belongs in the browser.
  */
 export interface ChannelAnalytics {
@@ -3227,11 +3259,655 @@ export interface Dashboard {
   recent_content: ContentSummary[];
 }
 
+// --- Units, orders and the shared board -------------------------------------
+// Mirrors src/meobot/api/schemas/{units,orders,board}.py.
+
+export interface UnitSettingsInfo {
+  urgent_days: number;
+  media_nas_url: string | null;
+  design_nas_url: string | null;
+  btd_link_attacher: string;
+  telegram_enabled: boolean;
+  review_bien_tap: boolean;
+  review_thiet_ke: boolean;
+  review_dung: boolean;
+  review_video_by_script_lead: boolean;
+  /** Ads permission matrix: role -> permission -> NONE / OWN / ALL. */
+  permissions?: Record<string, Record<string, string>>;
+  permission_catalog?: Array<{
+    key: string;
+    label: string;
+    own_meaning: string | null;
+    scopes: string[];
+  }>;
+  permission_roles?: Array<{ key: string; label: string }>;
+  scope_labels?: Record<string, string>;
+}
+
+export interface UnitEntry {
+  code: string;
+  label: string;
+  role: string;
+  role_label: string;
+  is_lead: boolean;
+  member_code: string | null;
+  personal_nas_url: string | null;
+  settings: UnitSettingsInfo;
+}
+
+export interface UnitsMe {
+  units: UnitEntry[];
+  default_unit: string | null;
+  can_view_all: boolean;
+  can_admin: string[];
+}
+
+export interface UnitMember {
+  user_id: Uuid;
+  full_name: string;
+  base_role: string;
+  base_role_label: string;
+  role: string;
+  role_label: string;
+  is_lead: boolean;
+  member_code: string | null;
+  personal_nas_url: string | null;
+  joined_at: string;
+  left_at: string | null;
+  active: boolean;
+}
+
+export interface UnitMemberList {
+  unit: string;
+  unit_label: string;
+  members: UnitMember[];
+  /** Positions: a role, plus `is_lead` for a function's head (Trưởng phòng Biên kịch...). */
+  assignable_roles: Array<{ role: string; label: string; is_lead?: boolean }>;
+}
+
+export interface DirectoryUser {
+  user_id: Uuid;
+  full_name: string;
+  base_role: string;
+  base_role_label: string;
+  active: boolean;
+  units: string[];
+}
+
+/**
+ * One entry of a unit's "Loại video" catalogue. `points` is numeric(6,2) on
+ * the server and may arrive as a number or a decimal string - read it with
+ * `Number(...)`.
+ */
+export interface UnitVideoKind {
+  id: Uuid;
+  name: string;
+  points: number | string;
+  active: boolean;
+  sort_order: number;
+}
+
+export interface UnitVideoKindList {
+  kinds: UnitVideoKind[];
+}
+
+export interface UnitVideoKindBody {
+  name?: string;
+  points?: number;
+  active?: boolean;
+  sort_order?: number;
+}
+
+export interface UnitHealth {
+  unit: string;
+  warnings: Array<{ code: string; message: string }>;
+}
+
+export interface TaskCell {
+  key: string;
+  label: string;
+  person_name: string | null;
+  status: string;
+  status_label: string;
+  is_current: boolean;
+  since: string | null;
+  revisions: number;
+}
+
+export interface TaskExtra {
+  label: string;
+  value: string;
+}
+
+export interface TaskRow {
+  unit: string;
+  unit_label: string;
+  id: Uuid;
+  code: string;
+  title: string;
+  kind: string;
+  kind_label: string;
+  owner_user_id: Uuid;
+  owner_name: string;
+  created_at: string;
+  phase: string;
+  phase_label: string;
+  status: string;
+  status_label: string;
+  cells: TaskCell[];
+  product_link: string | null;
+  returned_at: string | null;
+  is_priority: boolean;
+  urgent: boolean;
+  detail_path: string;
+  version: number;
+  /** When the finished link was handed over (Ads: "Gắn link"; PR: newest hand-in). */
+  delivered_at?: string | null;
+  /** When the row entered its current step. */
+  stage_since: string | null;
+  /** Returns across the whole row. */
+  revisions: number;
+  /**
+   * Who holds the row right now: always one named member, or "Chờ giao" when
+   * the step needs somebody and nobody is set. `null` only once finished.
+   */
+  current_person_name: string | null;
+  current_person_user_id?: string | null;
+  /** True when `current_person_name` is "Chờ giao". */
+  awaiting_assignment?: boolean;
+  /** The newest file handed in. */
+  latest_link: string | null;
+  extras: TaskExtra[];
+}
+
+export interface TaskPage {
+  unit: string;
+  items: TaskRow[];
+  total: number;
+  limit: number;
+  offset: number;
+  phases: Array<{ value: string; label: string }>;
+  /** Ads only: the four steps of the "Pha" filter. */
+  steps?: Array<{ value: string; label: string }>;
+}
+
+export interface BoardFilters {
+  unit?: string;
+  date_from?: string;
+  date_to?: string;
+  phase?: string;
+  /** Ads only: ORDER, BIEN_TAP, THIET_KE or DUNG. */
+  step?: string;
+  /** Ads: the process code (B, T, D, BT, BD, TD, BTD). */
+  kind?: string;
+  /** Ads: one entry of the unit's video-kind catalogue. */
+  video_kind_id?: string;
+  status?: string;
+  owner?: string;
+  assignee?: string;
+  /** Everything one person takes part in (ordered, holds a step, or PR owner). */
+  person?: string;
+  mine?: boolean;
+  awaiting_me?: boolean;
+  priority?: boolean;
+  urgent?: boolean;
+  q?: string;
+  limit?: number;
+  offset?: number;
+}
+
+export interface PersonStat {
+  user_id: Uuid;
+  name: string;
+  opened: number;
+  done: number;
+  late: number;
+}
+
+export interface DashboardSummary {
+  unit: string;
+  date_from: string;
+  date_to: string;
+  total: number;
+  completed: number;
+  pending_review: number;
+  urgent: number;
+  progress_percent: number | null;
+  by_phase: Array<{ phase: string; label: string; count: number }>;
+  by_owner: PersonStat[];
+  by_worker: PersonStat[];
+}
+
+export interface OrderInfo {
+  id: Uuid;
+  code: string;
+  title: string;
+  /** The process code: B, T, D, BT, BD, TD or BTD. */
+  video_type: string;
+  /** The process in words, e.g. "Biên kịch › Design › Dựng". */
+  video_type_label: string;
+  /** The production nodes the order visits, in pipeline order. */
+  process?: string[];
+  video_kind_id?: Uuid | null;
+  /** Snapshots taken when the order was sent. */
+  video_kind_name?: string | null;
+  video_kind_points?: number | string | null;
+  order_content: string;
+  script_source: string | null;
+  design_link: string | null;
+  reference_link: string | null;
+  source_link: string | null;
+  owner_user_id: Uuid;
+  owner_name: string | null;
+  stage: string;
+  stage_label: string;
+  submitted_at: string;
+  order_approved_at: string | null;
+  returned_reason: string | null;
+  is_priority: boolean;
+  urgent: boolean;
+  product_link: string | null;
+  completed_at: string | null;
+  cancelled_reason: string | null;
+  version: number;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface OrderNode {
+  id: Uuid;
+  node_type: string;
+  node_type_label: string;
+  status: string;
+  status_label: string;
+  is_current: boolean;
+  preassigned_user_id: Uuid | null;
+  preassigned_name: string | null;
+  assignee_user_id: Uuid | null;
+  assignee_name: string | null;
+  approved_by_name: string | null;
+  activated_at: string | null;
+  assigned_at: string | null;
+  accepted_at: string | null;
+  submitted_at: string | null;
+  approved_at: string | null;
+  revision_count: number;
+  submission_count: number;
+  version: number;
+}
+
+export interface OrderSubmission {
+  id: Uuid;
+  node_id: Uuid;
+  node_type: string;
+  submission_no: number;
+  label: string;
+  submitted_by_name: string | null;
+  link: string | null;
+  script_text: string | null;
+  note: string | null;
+  created_at: string;
+}
+
+export interface OrderApproval {
+  id: Uuid;
+  gate: string;
+  round_no: number;
+  decision: string;
+  actor_name: string | null;
+  comment: string | null;
+  created_at: string;
+}
+
+export interface OrderEvent {
+  id: Uuid;
+  kind: string;
+  kind_label: string;
+  node_type: string | null;
+  actor_name: string | null;
+  assignee_name: string | null;
+  note: string | null;
+  created_at: string;
+}
+
+export interface OrderAction {
+  kind: string;
+  label: string;
+  node_id: Uuid | null;
+  requires_note: boolean;
+}
+
+export interface OrderDetail {
+  order: OrderInfo;
+  nodes: OrderNode[];
+  submissions: OrderSubmission[];
+  approvals: OrderApproval[];
+  events: OrderEvent[];
+  available_actions: OrderAction[];
+}
+
+export interface CreateOrderBody {
+  title: string;
+  /** The process code. Either this or `process`; if both, they must agree. */
+  video_type?: string;
+  /** The production nodes, e.g. ["BIEN_TAP", "DUNG"]; the server orders them. */
+  process?: string[];
+  /** Required when the unit has an active video kind. */
+  video_kind_id?: Uuid | null;
+  order_content: string;
+  script_source?: string | null;
+  design_link?: string | null;
+  reference_link?: string | null;
+  source_link?: string | null;
+  preassigned?: Record<string, Uuid>;
+}
+
+// --- The unified task (PR content + Ads order) ------------------------------
+// Mirrors GET /api/tasks/{ref}. One shape for both units; the client renders
+// what the server lists and never decides a step, a field or an action itself.
+
+export interface TaskPerson {
+  user_id: Uuid;
+  name: string;
+}
+
+export interface TaskInfo {
+  id: Uuid;
+  unit: "PR" | "ADS";
+  unit_label: string;
+  code: string;
+  title: string;
+  kind: string;
+  kind_label: string;
+  phase: string;
+  phase_label: string;
+  stage: string;
+  stage_label: string;
+  owner: TaskPerson;
+  current_person: TaskPerson | null;
+  is_priority: boolean;
+  urgent: boolean;
+  created_at: string;
+  updated_at: string;
+  stage_since: string | null;
+  finished_at: string | null;
+  product_link: string | null;
+  latest_link: string | null;
+  revisions: number;
+  version: number;
+  /** The row this task extends: a PR content item or an Ads order. */
+  source: { type: "PR_CONTENT" | "ORDER"; id: Uuid };
+}
+
+/** One step of the progress strip. Same shape as a board row's cell. */
+export type TaskStep = TaskCell;
+
+export interface TaskParticipant {
+  role_label: string;
+  user_id: Uuid | null;
+  name: string;
+}
+
+export interface TaskField {
+  key: string;
+  label: string;
+  value: string | null;
+  type: "text" | "longtext" | "link" | "date";
+  group: "common" | "pr" | "ads";
+}
+
+export interface TaskSubmission {
+  id: Uuid;
+  label: string;
+  step_label: string;
+  person_name: string | null;
+  link: string | null;
+  text: string | null;
+  note: string | null;
+  submitted_at: string;
+  status_label: string | null;
+}
+
+export interface TaskTimelineEntry {
+  at: string;
+  actor_name: string | null;
+  label: string;
+  note: string | null;
+}
+
+export type TaskActionInput = "note" | "link" | "text" | "assignee";
+
+export interface TaskAction {
+  /** Opaque; posted back unchanged. The client never parses it. */
+  key: string;
+  label: string;
+  emphasis: "PRIMARY" | "SECONDARY" | "DANGER";
+  requires_note: boolean;
+  inputs: TaskActionInput[];
+  assignee_options: TaskPerson[];
+}
+
+/**
+ * `GET /api/tasks/{ref}`. Named apart from the PR module's own `TaskDetail`
+ * (`/api/pr/tasks`), which is an unrelated, older thing.
+ */
+export interface UnifiedTaskDetail {
+  task: TaskInfo;
+  steps: TaskStep[];
+  people: TaskParticipant[];
+  fields: TaskField[];
+  submissions: TaskSubmission[];
+  /** Newest first. */
+  timeline: TaskTimelineEntry[];
+  actions: TaskAction[];
+}
+
+export interface TaskActionBody {
+  key: string;
+  version: number;
+  note?: string;
+  link?: string;
+  text?: string;
+  assignee_user_id?: Uuid;
+}
+
+// --- Password login and the account screen ----------------------------------
+// Mirrors the /api/account routes. No `data` envelope, like /api/orders.
+
+/** One person's figures for one month. Every number is the server's. */
+export interface MemberStats {
+  /** `YYYY-MM`. */
+  month: string;
+  /** Ads production points: the video kind's points per completed node. */
+  points: number;
+  nodes_done: number;
+  /** Assigned now and not finished, whatever the month. */
+  nodes_in_progress: number;
+  revisions: number;
+  orders_created: number;
+  orders_completed: number;
+  pr_contents_owned: number;
+  pr_productions_done: number;
+  pr_approvals: number;
+  work_items_counted: number;
+  /** Share (0..1) of completed nodes approved without a return; null when none. */
+  on_time_rate: number | null;
+}
+
+export interface AccountUnit {
+  code: string;
+  label: string;
+  role_label: string;
+  member_code: string | null;
+}
+
+export interface AccountMe {
+  user_id: Uuid;
+  telegram_user_id: number | string;
+  telegram_username: string | null;
+  full_name: string;
+  role: string;
+  role_label: string;
+  units: AccountUnit[];
+  must_change_password: boolean;
+  /** Whether the person chose their own password (not the default, not a temporary one). */
+  has_custom_password?: boolean;
+  /** On a temporary password sent by Telegram (a reset). Optional: older APIs omit it. */
+  password_temporary?: boolean;
+  password_changed_at: string | null;
+  /** The profile picture's URL, or null for initials. Optional: older APIs omit it. */
+  avatar_url?: string | null;
+  /** The current month. */
+  stats: MemberStats;
+}
+
+export interface MemberRow {
+  user_id: Uuid;
+  full_name: string;
+  telegram_user_id: number | string;
+  /** Unit codes, e.g. ["PR", "ADS"]. */
+  units: string[];
+  role_label: string;
+  last_login_at: string | null;
+  has_custom_password: boolean;
+  /** On a temporary password sent by a reset. Optional: older APIs omit it. */
+  password_temporary?: boolean;
+  locked: boolean;
+  /** The profile picture's URL, or null for initials. Optional: older APIs omit it. */
+  avatar_url?: string | null;
+  stats: MemberStats;
+}
+
+export interface AccountMembers {
+  month: string;
+  members: MemberRow[];
+}
+
+export interface PasswordLoginResult {
+  must_change_password: boolean;
+}
+
+/** The encodings the browser may send a cropped avatar in. */
+export type AvatarContentType = "image/webp" | "image/jpeg" | "image/png";
+
+/** `PUT /api/account/avatar`: where the new picture is served from. */
+export interface AvatarResult {
+  avatar_url: string;
+}
+
+/** The same sentence for every "Quên mật khẩu?" request, known id or not. */
+export interface PasswordResetResult {
+  message: string;
+}
+
 // --- The calls --------------------------------------------------------------
 
 export const api = {
   session: () => get<Session>("/api/auth/session"),
   logout: () => post<void>("/api/auth/logout"),
+  /**
+   * Sign in with the Telegram numeric id and a password. The password travels
+   * only in this body; the server answers by setting the same HttpOnly cookie
+   * the Telegram link sets, so nothing here holds a credential afterwards.
+   */
+  passwordLogin: (username: string, password: string) =>
+    post<PasswordLoginResult>("/api/auth/password-login", { username, password }),
+  /**
+   * "Quên mật khẩu?". Always 202 with one sentence, whether or not the id
+   * exists: the temporary password goes to that account's Telegram, never here.
+   */
+  requestPasswordReset: (username: string) =>
+    post<PasswordResetResult>("/api/auth/password-reset", { username }),
+
+  // The account screen.
+  accountMe: () => get<AccountMe>("/api/account/me"),
+  accountStats: (month: string) =>
+    get<MemberStats>(`/api/account/me/stats${query({ month })}`),
+  updateProfile: (fullName: string) =>
+    patch<AccountMe>("/api/account/profile", { full_name: fullName }),
+  /** 204. Other sessions of this account are signed out; this one stays. */
+  changePassword: (current: string, next: string) =>
+    post<void>("/api/account/password", {
+      current_password: current,
+      new_password: next,
+    }),
+  /** 403 `account_members_forbidden` for somebody who may not see the roster. */
+  accountMembers: (month: string, unit: string) =>
+    get<AccountMembers>(`/api/account/members${query({ month, unit })}`),
+  /**
+   * A temporary password is sent to the member's Telegram; their sessions are
+   * revoked. 204; 409 `password_reset_undeliverable` without a private chat.
+   */
+  resetMemberPassword: (userId: Uuid) =>
+    post<void>(`/api/account/members/${userId}/reset-password`),
+  /**
+   * The browser has already cropped and resized the picture (256x256); `data`
+   * is its base64 **without** the `data:` prefix. 422 `avatar_too_large` over
+   * 300 KB, `avatar_invalid_image` when the bytes are not the declared type.
+   */
+  uploadAvatar: (contentType: AvatarContentType, data: string) =>
+    put<AvatarResult>("/api/account/avatar", { content_type: contentType, data }),
+  /** 204. Back to initials. */
+  removeAvatar: () => del<void>("/api/account/avatar"),
+
+  // Units, orders, board.
+  unitsMe: () => get<UnitsMe>("/api/units/me"),
+  unitMembers: (code: string) =>
+    get<UnitMemberList>(`/api/units/${code}/members`),
+  unitDirectory: () => get<DirectoryUser[]>("/api/units/directory"),
+  unitHealth: (code: string) => get<UnitHealth>(`/api/units/${code}/health`),
+  tagUnitMember: (
+    code: string,
+    body: {
+      user_id: Uuid;
+      role: string;
+      is_lead?: boolean;
+      member_code?: string | null;
+      personal_nas_url?: string | null;
+    },
+  ) => post<UnitMember>(`/api/units/${code}/members`, body),
+  updateUnitMember: (
+    code: string,
+    userId: Uuid,
+    body: {
+      role?: string;
+      is_lead?: boolean;
+      member_code?: string | null;
+      personal_nas_url?: string | null;
+    },
+  ) => patch<UnitMember>(`/api/units/${code}/members/${userId}`, body),
+  untagUnitMember: (code: string, userId: Uuid) =>
+    del<UnitMember>(`/api/units/${code}/members/${userId}`),
+  updateUnitSettings: (code: string, body: Partial<UnitSettingsInfo>) =>
+    patch<UnitSettingsInfo>(`/api/units/${code}/settings`, body),
+  /** Active kinds for any member; `includeInactive` is for unit admins. */
+  unitVideoKinds: (code: string, includeInactive = false) =>
+    get<UnitVideoKindList>(
+      `/api/units/${code}/video-kinds${query({ include_inactive: includeInactive })}`,
+    ),
+  createUnitVideoKind: (
+    code: string,
+    body: UnitVideoKindBody & { name: string; points: number },
+  ) => post<UnitVideoKind>(`/api/units/${code}/video-kinds`, body),
+  updateUnitVideoKind: (code: string, id: Uuid, body: UnitVideoKindBody) =>
+    patch<UnitVideoKind>(`/api/units/${code}/video-kinds/${id}`, body),
+  boardTasks: (filters: BoardFilters = {}) =>
+    get<TaskPage>(`/api/board/tasks${query(filters)}`),
+  boardDashboard: (filters: BoardFilters = {}) =>
+    get<DashboardSummary>(`/api/board/dashboard${query(filters)}`),
+  createOrder: (body: CreateOrderBody) =>
+    post<OrderDetail>("/api/orders", body),
+  order: (ref: string) =>
+    get<OrderDetail>(`/api/orders/${encodeURIComponent(ref)}`),
+  /** One pipeline action. `path` is the route suffix, e.g. `/approve`. */
+  orderAction: (orderId: Uuid, path: string, body: Record<string, unknown>) =>
+    post<OrderDetail>(`/api/orders/${orderId}${path}`, body),
+  /** One task, by task id, task code, PR content id or order id. */
+  task: (ref: string) =>
+    get<UnifiedTaskDetail>(`/api/tasks/${encodeURIComponent(ref)}`),
+  /** One workflow action; answers with the fresh task. 409 on a stale version. */
+  taskAction: (taskId: Uuid, body: TaskActionBody) =>
+    post<UnifiedTaskDetail>(`/api/tasks/${taskId}/actions`, body),
 
   dashboard: () => get<Dashboard>("/api/pr/dashboard"),
   people: () => get<Person[]>("/api/pr/people"),
@@ -3262,10 +3938,15 @@ export const api = {
    * pieces of a closed month there are, and their ids, frozen now.
    */
   archiveCandidates: (period: string) =>
-    get<ArchiveCandidates>(`/api/pr/contents/archive-candidates${query({ period })}`),
+    get<ArchiveCandidates>(
+      `/api/pr/contents/archive-candidates${query({ period })}`,
+    ),
   /** The write half: every id `PUBLISHED -> ARCHIVED` through the workflow, or none. */
-  archiveBatch: (body: { period: string; content_ids: Uuid[]; note?: string }) =>
-    post<BulkArchiveResult>("/api/pr/contents/archive-batch", body),
+  archiveBatch: (body: {
+    period: string;
+    content_ids: Uuid[];
+    note?: string;
+  }) => post<BulkArchiveResult>("/api/pr/contents/archive-batch", body),
   createContent: (body: {
     title: string;
     brand_id: Uuid;
@@ -3290,7 +3971,8 @@ export const api = {
     initial_resources?: ContentResourceInput[];
   }) => post<ContentDetail>("/api/pr/contents", body),
   getContent: (id: Uuid) => get<ContentDetail>(`/api/pr/contents/${id}`),
-  listVersions: (id: Uuid) => get<ContentVersion[]>(`/api/pr/contents/${id}/versions`),
+  listVersions: (id: Uuid) =>
+    get<ContentVersion[]>(`/api/pr/contents/${id}/versions`),
   /** Say whether one target is organic or a paid ad. */
   setTargetMode: (contentId: Uuid, targetId: Uuid, distribution_mode: string) =>
     patch<ContentDetail>(`/api/pr/contents/${contentId}/targets/${targetId}`, {
@@ -3318,8 +4000,15 @@ export const api = {
     get<ContentResource[]>(`/api/pr/contents/${contentId}/resources`),
   addContentResource: (contentId: Uuid, body: ContentResourceInput) =>
     post<ContentResource>(`/api/pr/contents/${contentId}/resources`, body),
-  updateContentResource: (contentId: Uuid, resourceId: Uuid, body: Partial<ContentResourceInput>) =>
-    patch<ContentResource>(`/api/pr/contents/${contentId}/resources/${resourceId}`, body),
+  updateContentResource: (
+    contentId: Uuid,
+    resourceId: Uuid,
+    body: Partial<ContentResourceInput>,
+  ) =>
+    patch<ContentResource>(
+      `/api/pr/contents/${contentId}/resources/${resourceId}`,
+      body,
+    ),
   deleteContentResource: (contentId: Uuid, resourceId: Uuid) =>
     del<void>(`/api/pr/contents/${contentId}/resources/${resourceId}`),
   reviseContent: (
@@ -3346,7 +4035,8 @@ export const api = {
    * Read-only. Asking does not move anything, and the answer is not a
    * permission - the write route re-checks. See `AvailableAction`.
    */
-  availableActions: (id: Uuid) => get<AvailableActions>(`/api/pr/contents/${id}/available-actions`),
+  availableActions: (id: Uuid) =>
+    get<AvailableActions>(`/api/pr/contents/${id}/available-actions`),
   /**
    * Step 1F.2.3a. **Permanently** delete an item and everything under it.
    *
@@ -3360,9 +4050,11 @@ export const api = {
    */
   deleteContent: (id: Uuid, body: { reason?: string } = {}) =>
     del<void>(`/api/pr/contents/${id}`, body),
-  productionState: (id: Uuid) => get<ProductionState>(`/api/pr/contents/${id}/production`),
+  productionState: (id: Uuid) =>
+    get<ProductionState>(`/api/pr/contents/${id}/production`),
   /** Step 1F.2.3b. `APPROVED -> PRODUCTION`, once somebody holds the piece. */
-  startProduction: (id: Uuid) => post<ContentDetail>(`/api/pr/contents/${id}/production/start`),
+  startProduction: (id: Uuid) =>
+    post<ContentDetail>(`/api/pr/contents/${id}/production/start`),
   /**
    * Step 1F.2.3b. Take back the last reversible decision.
    *
@@ -3370,14 +4062,17 @@ export const api = {
    * the last reversible action; a browser choosing a stage would be a browser
    * moving content anywhere.
    */
-  undoLastAction: (id: Uuid) => post<ContentDetail>(`/api/pr/contents/${id}/undo`),
-  contentHistory: (id: Uuid) => get<TransitionEvent[]>(`/api/pr/contents/${id}/history`),
+  undoLastAction: (id: Uuid) =>
+    post<ContentDetail>(`/api/pr/contents/${id}/undo`),
+  contentHistory: (id: Uuid) =>
+    get<TransitionEvent[]>(`/api/pr/contents/${id}/history`),
   assignProducer: (id: Uuid, producer_user_id: Uuid | null) =>
     post<ContentDetail>(`/api/pr/contents/${id}/producer`, {
       producer_user_id,
     }),
   /** Takes no body: who is claiming is the session, as with a review decision. */
-  claimProduction: (id: Uuid) => post<ContentDetail>(`/api/pr/contents/${id}/producer/claim`),
+  claimProduction: (id: Uuid) =>
+    post<ContentDetail>(`/api/pr/contents/${id}/producer/claim`),
   submitProduction: (
     id: Uuid,
     body: {
@@ -3386,18 +4081,30 @@ export const api = {
       label?: string;
       note?: string;
     },
-  ) => post<ProductionState>(`/api/pr/contents/${id}/production-submissions`, body),
-  reviewContext: (id: Uuid) => get<ReviewContext>(`/api/pr/contents/${id}/review-context`),
+  ) =>
+    post<ProductionState>(
+      `/api/pr/contents/${id}/production-submissions`,
+      body,
+    ),
+  reviewContext: (id: Uuid) =>
+    get<ReviewContext>(`/api/pr/contents/${id}/review-context`),
   /** The reviewer is the session. There is no field for one, by design. */
-  decide: (id: Uuid, body: { decision: string; version_reviewed: number; comment?: string }) =>
-    post<ContentDetail>(`/api/pr/contents/${id}/reviews`, body),
-  listAiReviews: (id: Uuid) => get<AiReview[]>(`/api/pr/contents/${id}/ai-reviews`),
+  decide: (
+    id: Uuid,
+    body: { decision: string; version_reviewed: number; comment?: string },
+  ) => post<ContentDetail>(`/api/pr/contents/${id}/reviews`, body),
+  listAiReviews: (id: Uuid) =>
+    get<AiReview[]>(`/api/pr/contents/${id}/ai-reviews`),
   /** The current execution and its result. Polled while `active`. */
-  aiReviewState: (id: Uuid) => get<AiReviewState>(`/api/pr/contents/${id}/ai-review`),
+  aiReviewState: (id: Uuid) =>
+    get<AiReviewState>(`/api/pr/contents/${id}/ai-review`),
   /** Ask for another attempt. The server decides whether that is allowed. */
-  retryAiReview: (id: Uuid) => post<AiReviewState>(`/api/pr/contents/${id}/ai-review/retry`),
-  listApprovals: (id: Uuid) => get<ApprovalEvent[]>(`/api/pr/contents/${id}/approvals`),
-  listPublications: (id: Uuid) => get<Publication[]>(`/api/pr/contents/${id}/publications`),
+  retryAiReview: (id: Uuid) =>
+    post<AiReviewState>(`/api/pr/contents/${id}/ai-review/retry`),
+  listApprovals: (id: Uuid) =>
+    get<ApprovalEvent[]>(`/api/pr/contents/${id}/approvals`),
+  listPublications: (id: Uuid) =>
+    get<Publication[]>(`/api/pr/contents/${id}/publications`),
   /**
    * Record that a produced file went out on a channel. Step 1F.2.3f.
    *
@@ -3432,7 +4139,11 @@ export const api = {
       published_at?: string | null;
       note?: string | null;
     },
-  ) => patch<Publication>(`/api/pr/contents/${id}/publications/${publicationId}`, body),
+  ) =>
+    patch<Publication>(
+      `/api/pr/contents/${id}/publications/${publicationId}`,
+      body,
+    ),
   /**
    * Take a publication back as entered in error. **Nothing is deleted.**
    *
@@ -3441,7 +4152,10 @@ export const api = {
    * server's decision and comes back on the response.
    */
   reversePublication: (id: Uuid, publicationId: Uuid) =>
-    post<PublicationReversal>(`/api/pr/contents/${id}/publications/${publicationId}/reverse`, {}),
+    post<PublicationReversal>(
+      `/api/pr/contents/${id}/publications/${publicationId}/reverse`,
+      {},
+    ),
 
   // --- Production outputs and destinations, Step 1F.2.3f ------------------
   // Their own endpoints rather than fields on the detail response, for the
@@ -3467,12 +4181,23 @@ export const api = {
       note?: string | null;
     },
   ) =>
-    patch<ProductionSubmission>(`/api/pr/contents/${id}/production-outputs/${submissionId}`, body),
-  contentDerivatives: (id: Uuid) => get<ContentDerivative[]>(`/api/pr/contents/${id}/derivatives`),
+    patch<ProductionSubmission>(
+      `/api/pr/contents/${id}/production-outputs/${submissionId}`,
+      body,
+    ),
+  contentDerivatives: (id: Uuid) =>
+    get<ContentDerivative[]>(`/api/pr/contents/${id}/derivatives`),
   addContentDerivative: (id: Uuid, body: ContentDerivativeInput) =>
     post<ContentDerivative>(`/api/pr/contents/${id}/derivatives`, body),
-  updateContentDerivative: (id: Uuid, derivativeId: Uuid, body: Partial<ContentDerivativeInput>) =>
-    patch<ContentDerivative>(`/api/pr/contents/${id}/derivatives/${derivativeId}`, body),
+  updateContentDerivative: (
+    id: Uuid,
+    derivativeId: Uuid,
+    body: Partial<ContentDerivativeInput>,
+  ) =>
+    patch<ContentDerivative>(
+      `/api/pr/contents/${id}/derivatives/${derivativeId}`,
+      body,
+    ),
   deleteContentDerivative: (id: Uuid, derivativeId: Uuid) =>
     del<void>(`/api/pr/contents/${id}/derivatives/${derivativeId}`),
   // --- Comments, Step 1F.2.3g -------------------------------------------
@@ -3486,7 +4211,10 @@ export const api = {
    * `can_delete` for this session, so no control here is drawn from a session-id
    * comparison.
    */
-  contentComments: (id: Uuid, params: { limit?: number; offset?: number } = {}) =>
+  contentComments: (
+    id: Uuid,
+    params: { limit?: number; offset?: number } = {},
+  ) =>
     get<ContentCommentPage>(`/api/pr/contents/${id}/comments${query(params)}`),
   /**
    * Say something. With `parent_comment_id` it is a reply to that root.
@@ -3495,8 +4223,10 @@ export const api = {
    * revision. Changes nothing about the content - no stage, no version, no
    * approval, no notification.
    */
-  addContentComment: (id: Uuid, body: { body: string; parent_comment_id?: Uuid | null }) =>
-    post<ContentComment>(`/api/pr/contents/${id}/comments`, body),
+  addContentComment: (
+    id: Uuid,
+    body: { body: string; parent_comment_id?: Uuid | null },
+  ) => post<ContentComment>(`/api/pr/contents/${id}/comments`, body),
   /** Reword your own. One field: a comment cannot be moved to another thread. */
   updateContentComment: (id: Uuid, commentId: Uuid, body: { body: string }) =>
     patch<ContentComment>(`/api/pr/contents/${id}/comments/${commentId}`, body),
@@ -3516,7 +4246,11 @@ export const api = {
     id: Uuid,
     destinationId: Uuid,
     body: Partial<ContentDestinationInput>,
-  ) => patch<ContentDestination>(`/api/pr/contents/${id}/destinations/${destinationId}`, body),
+  ) =>
+    patch<ContentDestination>(
+      `/api/pr/contents/${id}/destinations/${destinationId}`,
+      body,
+    ),
   deleteContentDestination: (id: Uuid, destinationId: Uuid) =>
     del<void>(`/api/pr/contents/${id}/destinations/${destinationId}`),
   pendingReviews: () => get<ContentSummary[]>("/api/pr/reviews/pending"),
@@ -3531,18 +4265,28 @@ export const api = {
     get<ApprovableSelection>(
       `/api/pr/reviews/approvable${query({ ...params, gate, limit: undefined, offset: undefined })}`,
     ),
-  bulkApprove: (body: { gate: string; content_ids: Uuid[]; comment?: string }) =>
-    post<BulkApproveResult>("/api/pr/reviews/bulk-approve", body),
+  bulkApprove: (body: {
+    gate: string;
+    content_ids: Uuid[];
+    comment?: string;
+  }) => post<BulkApproveResult>("/api/pr/reviews/bulk-approve", body),
 
-  listTasks: (params: { status?: string; overdue?: boolean; content_id?: Uuid } = {}) =>
-    get<TaskSummary[]>(`/api/pr/tasks${query(params)}`),
-  createTask: (body: { task_type: string; title: string; content_id?: Uuid; deadline?: string }) =>
-    post<TaskDetail>("/api/pr/tasks", body),
+  listTasks: (
+    params: { status?: string; overdue?: boolean; content_id?: Uuid } = {},
+  ) => get<TaskSummary[]>(`/api/pr/tasks${query(params)}`),
+  createTask: (body: {
+    task_type: string;
+    title: string;
+    content_id?: Uuid;
+    deadline?: string;
+  }) => post<TaskDetail>("/api/pr/tasks", body),
   getTask: (id: Uuid) => get<TaskDetail>(`/api/pr/tasks/${id}`),
   assignTask: (id: Uuid, body: { user_id: Uuid; assignment_role: string }) =>
     post<TaskDetail>(`/api/pr/tasks/${id}/assignments`, body),
   unassignTask: (id: Uuid, userId: Uuid, role: string) =>
-    del<TaskDetail>(`/api/pr/tasks/${id}/assignments/${userId}?assignment_role=${role}`),
+    del<TaskDetail>(
+      `/api/pr/tasks/${id}/assignments/${userId}?assignment_role=${role}`,
+    ),
   setTaskStatus: (id: Uuid, body: { status: string; note?: string }) =>
     post<TaskDetail>(`/api/pr/tasks/${id}/status`, body),
 
@@ -3583,8 +4327,10 @@ export const api = {
    * One request rather than three, and paginated - the server caps the page, so
    * a client cannot ask for every reading ever taken.
    */
-  channelMetrics: (id: Uuid, params: { limit?: number; offset?: number } = {}) =>
-    get<ChannelMetrics>(`/api/pr/channels/${id}/metrics${query(params)}`),
+  channelMetrics: (
+    id: Uuid,
+    params: { limit?: number; offset?: number } = {},
+  ) => get<ChannelMetrics>(`/api/pr/channels/${id}/metrics${query(params)}`),
 
   /**
    * Write down one reading. Management only, and **manual by definition**.
@@ -3600,7 +4346,8 @@ export const api = {
     post<ChannelMetrics>(`/api/pr/channels/${id}/metrics`, body),
 
   /** A channel's connector state. Answered for every channel, connected or not. */
-  channelConnection: (id: Uuid) => get<ChannelConnectionState>(`/api/pr/channels/${id}/connection`),
+  channelConnection: (id: Uuid) =>
+    get<ChannelConnectionState>(`/api/pr/channels/${id}/connection`),
 
   /**
    * Start connecting a channel to its platform. Returns the consent URL.
@@ -3637,9 +4384,12 @@ export const api = {
    * instruction it obeys.
    */
   selectConnectionAccount: (id: Uuid, account_id: string) =>
-    post<{ connection: ChannelConnection }>(`/api/pr/channels/${id}/connections/select`, {
-      account_id,
-    }),
+    post<{ connection: ChannelConnection }>(
+      `/api/pr/channels/${id}/connections/select`,
+      {
+        account_id,
+      },
+    ),
 
   /** Disconnect. Drops the stored secret locally and keeps every reading. */
   disconnectConnection: (id: Uuid, provider: string) =>
@@ -3663,8 +4413,13 @@ export const api = {
    * Carries no credential. The access token never leaves the server, and the
    * refresh token is never even decrypted for this path's benefit.
    */
-  tiktokOverview: (id: Uuid, params: { videos?: number; cursor?: number } = {}) =>
-    get<TikTokOverview>(`/api/pr/channels/${id}/connections/tiktok/overview${query(params)}`),
+  tiktokOverview: (
+    id: Uuid,
+    params: { videos?: number; cursor?: number } = {},
+  ) =>
+    get<TikTokOverview>(
+      `/api/pr/channels/${id}/connections/tiktok/overview${query(params)}`,
+    ),
 
   /**
    * "Đồng bộ lại": re-read the account **and** ask for a fresh metric snapshot.
@@ -3679,7 +4434,10 @@ export const api = {
    * click through the dialogs that matter.
    */
   refreshTiktokAccount: (id: Uuid, params: { videos?: number } = {}) =>
-    post<TikTokOverview>(`/api/pr/channels/${id}/connections/tiktok/refresh${query(params)}`, {}),
+    post<TikTokOverview>(
+      `/api/pr/channels/${id}/connections/tiktok/refresh${query(params)}`,
+      {},
+    ),
 
   // --- The Work Ledger, M1 ----------------------------------------------
   //
@@ -3711,7 +4469,8 @@ export const api = {
     post<WorkScoringRule>(`/api/pr/performance/scoring-rules/${id}/approve`),
 
   /** Performance policies, newest version first. */
-  performancePolicies: () => get<PerformancePolicy[]>("/api/pr/performance/policies"),
+  performancePolicies: () =>
+    get<PerformancePolicy[]>("/api/pr/performance/policies"),
 
   createPerformancePolicy: (body: {
     effective_from: string;
@@ -3788,7 +4547,8 @@ export const api = {
   workType: (id: Uuid) => get<WorkType>(`/api/pr/work/types/${id}`),
 
   /** Register a kind of work. `PR_WORK_CONFIGURE`. M2.5. */
-  createWorkType: (body: WorkTypeInput) => post<WorkType>("/api/pr/work/types", body),
+  createWorkType: (body: WorkTypeInput) =>
+    post<WorkType>("/api/pr/work/types", body),
 
   /**
    * Edit a kind of work. `PR_WORK_CONFIGURE`. M2.5.
@@ -3801,13 +4561,16 @@ export const api = {
     patch<WorkType>(`/api/pr/work/types/${id}`, body),
 
   /** Offer this kind of work again. M2.5. */
-  activateWorkType: (id: Uuid) => post<WorkType>(`/api/pr/work/types/${id}/activate`),
+  activateWorkType: (id: Uuid) =>
+    post<WorkType>(`/api/pr/work/types/${id}/activate`),
 
   /** Stop offering it for new work and new quotas. **Not a delete.** M2.5. */
-  deactivateWorkType: (id: Uuid) => post<WorkType>(`/api/pr/work/types/${id}/deactivate`),
+  deactivateWorkType: (id: Uuid) =>
+    post<WorkType>(`/api/pr/work/types/${id}/deactivate`),
 
   /** Create the starting taxonomy. Idempotent - a second run creates nothing. M2.5. */
-  bootstrapWorkTypes: () => post<BootstrapWorkTypesResult>("/api/pr/work/types/bootstrap"),
+  bootstrapWorkTypes: () =>
+    post<BootstrapWorkTypesResult>("/api/pr/work/types/bootstrap"),
 
   /**
    * A page of work.
@@ -3882,7 +4645,8 @@ export const api = {
   ) => get<WorkSummary>(`/api/pr/work/summary${query(params)}`),
 
   workItem: (id: Uuid) => get<WorkItemDetail>(`/api/pr/work/${id}`),
-  workHistory: (id: Uuid) => get<WorkHistoryEntry[]>(`/api/pr/work/${id}/history`),
+  workHistory: (id: Uuid) =>
+    get<WorkHistoryEntry[]>(`/api/pr/work/${id}/history`),
 
   /**
    * Propose work. Lands at `PROPOSED` and enters **nobody's** KPI.
@@ -3972,9 +4736,12 @@ export const api = {
    * generates, and that is on the ordinary ledger with everything else.
    */
   listRecurringTemplates: (params: { status?: string } = {}) =>
-    get<{ items: RecurringTemplate[] }>(`/api/pr/work/recurring${query(params)}`),
+    get<{ items: RecurringTemplate[] }>(
+      `/api/pr/work/recurring${query(params)}`,
+    ),
 
-  recurringTemplate: (id: Uuid) => get<RecurringTemplate>(`/api/pr/work/recurring/${id}`),
+  recurringTemplate: (id: Uuid) =>
+    get<RecurringTemplate>(`/api/pr/work/recurring/${id}`),
 
   /**
    * M4B. Every scheduled firing and what became of it.
@@ -4012,7 +4779,8 @@ export const api = {
     put<RecurringTemplate>(`/api/pr/work/recurring/${id}`, body),
 
   /** M4B. Remove a draft the scheduler never reached. Refused for anything that has run. */
-  deleteRecurringTemplate: (id: Uuid) => del<void>(`/api/pr/work/recurring/${id}`),
+  deleteRecurringTemplate: (id: Uuid) =>
+    del<void>(`/api/pr/work/recurring/${id}`),
 
   /**
    * M4B. Start the routine. **This is the authorization.**
@@ -4035,7 +4803,8 @@ export const api = {
   endRecurringTemplate: (id: Uuid) =>
     post<RecurringTemplate>(`/api/pr/work/recurring/${id}/end`, {}),
 
-  acceptWork: (id: Uuid) => post<WorkItemDetail>(`/api/pr/work/${id}/accept`, {}),
+  acceptWork: (id: Uuid) =>
+    post<WorkItemDetail>(`/api/pr/work/${id}/accept`, {}),
   rejectWork: (id: Uuid, note?: string | null) =>
     post<WorkItemDetail>(`/api/pr/work/${id}/reject`, { note: note ?? null }),
   startWork: (id: Uuid) => post<WorkItemDetail>(`/api/pr/work/${id}/start`, {}),
@@ -4068,14 +4837,20 @@ export const api = {
   reportWorkResultInto: (id: Uuid, body: ReportResultInput) =>
     post<WorkItemDetail>(`/api/pr/work/${id}/results`, body),
   /** Count pending results. `PR_WORK_VALIDATE`, and never the subject. */
-  validateWorkResults: (id: Uuid, body: { result_ids?: Uuid[] | null; note?: string | null } = {}) =>
-    post<WorkItemDetail>(`/api/pr/work/${id}/results/validate`, body),
+  validateWorkResults: (
+    id: Uuid,
+    body: { result_ids?: Uuid[] | null; note?: string | null } = {},
+  ) => post<WorkItemDetail>(`/api/pr/work/${id}/results/validate`, body),
   /** *Từ chối / Không ghi nhận*. `PR_WORK_VALIDATE`, never the subject; a reason is required. */
   excludeWorkResult: (resultId: Uuid, reason: string) =>
-    post<WorkItemDetail>(`/api/pr/work/results/${resultId}/exclude`, { reason }),
+    post<WorkItemDetail>(`/api/pr/work/results/${resultId}/exclude`, {
+      reason,
+    }),
   /** *Xem xét lại*: release a validator's rejection back to pending. Same capability. */
   reconsiderWorkResult: (resultId: Uuid, note?: string | null) =>
-    post<WorkItemDetail>(`/api/pr/work/results/${resultId}/reconsider`, { note: note ?? null }),
+    post<WorkItemDetail>(`/api/pr/work/results/${resultId}/reconsider`, {
+      note: note ?? null,
+    }),
   withdrawWorkResult: (resultId: Uuid) =>
     del<WorkItemDetail>(`/api/pr/work/results/${resultId}`),
 
@@ -4086,15 +4861,19 @@ export const api = {
   removeWorkContributor: (id: Uuid, contributionId: Uuid) =>
     del<WorkItemDetail>(`/api/pr/work/${id}/contributors/${contributionId}`),
 
-  changeWorkDeadline: (id: Uuid, body: { due_at: string | null; reason?: string | null }) =>
-    post<WorkItemDetail>(`/api/pr/work/${id}/deadline`, body),
+  changeWorkDeadline: (
+    id: Uuid,
+    body: { due_at: string | null; reason?: string | null },
+  ) => post<WorkItemDetail>(`/api/pr/work/${id}/deadline`, body),
   changeWorkPriority: (id: Uuid, priority: string) =>
     post<WorkItemDetail>(`/api/pr/work/${id}/priority`, { priority }),
 
   /** One free text (what the screen sends), or the legacy label and link. */
   addWorkEvidence: (
     id: Uuid,
-    body: { text: string } | { label: string; location: string; note?: string | null },
+    body:
+      | { text: string }
+      | { label: string; location: string; note?: string | null },
   ) => post<WorkItemDetail>(`/api/pr/work/${id}/evidence`, body),
   removeWorkEvidence: (id: Uuid, evidenceId: Uuid) =>
     del<WorkItemDetail>(`/api/pr/work/${id}/evidence/${evidenceId}`),
@@ -4131,7 +4910,9 @@ export const api = {
    * - the truth, rather than an empty table that reads as "no work".
    */
   myWorkPlan: (periodId: Uuid) =>
-    get<WorkPlanDetail>(`/api/pr/work/plans/mine${query({ period_id: periodId })}`),
+    get<WorkPlanDetail>(
+      `/api/pr/work/plans/mine${query({ period_id: periodId })}`,
+    ),
 
   /**
    * **One row per employee** for one month. `PR_WORK_VIEW_ALL`.
@@ -4148,7 +4929,9 @@ export const api = {
 
   /** KPI self-service. The caller's own row for one month: the four states. */
   myWorkPlanSummary: (periodId: Uuid) =>
-    get<EmployeePlanSummary>(`/api/pr/work/plans/mine/summary${query({ period_id: periodId })}`),
+    get<EmployeePlanSummary>(
+      `/api/pr/work/plans/mine/summary${query({ period_id: periodId })}`,
+    ),
 
   /** One employee's plan history for one month, newest first. */
   workPlanHistory: (userId: Uuid, periodId: Uuid) =>
@@ -4158,15 +4941,19 @@ export const api = {
 
   workPlan: (id: Uuid) => get<WorkPlanDetail>(`/api/pr/work/plans/${id}`),
 
-  createWorkPlan: (body: { user_id: Uuid; period_id: Uuid; note?: string | null }) =>
-    post<WorkPlanDetail>("/api/pr/work/plans", body),
+  createWorkPlan: (body: {
+    user_id: Uuid;
+    period_id: Uuid;
+    note?: string | null;
+  }) => post<WorkPlanDetail>("/api/pr/work/plans", body),
 
   /** **Tạo KPI của tôi.** No subject in the body: the session is the subject. */
   selfCreateWorkPlan: (body: { period_id: Uuid; note?: string | null }) =>
     post<WorkPlanDetail>("/api/pr/work/plans/mine", body),
 
   /** **Gửi duyệt.** The subject hands the draft over; nothing becomes effective. */
-  submitWorkPlan: (id: Uuid) => post<WorkPlanDetail>(`/api/pr/work/plans/${id}/submit`, {}),
+  submitWorkPlan: (id: Uuid) =>
+    post<WorkPlanDetail>(`/api/pr/work/plans/${id}/submit`, {}),
 
   /** **Trả lại để chỉnh sửa.** The same version, reopened, with the note. */
   returnWorkPlan: (id: Uuid, note?: string | null) =>
@@ -4196,7 +4983,11 @@ export const api = {
       /** Move the draft quota to another kind of work; basis and unit follow the type. */
       work_type_id?: Uuid | null;
     },
-  ) => patch<WorkPlanDetail>(`/api/pr/work/plans/${planId}/quotas/${quotaId}`, body),
+  ) =>
+    patch<WorkPlanDetail>(
+      `/api/pr/work/plans/${planId}/quotas/${quotaId}`,
+      body,
+    ),
 
   removeWorkQuota: (planId: Uuid, quotaId: Uuid) =>
     del<WorkPlanDetail>(`/api/pr/work/plans/${planId}/quotas/${quotaId}`),
@@ -4231,8 +5022,10 @@ export const api = {
    * migration-time backfill. A closed or locked period is refused and there is
    * no flag that gets past it.
    */
-  reconcileWorkEligibility: (body: { period_id: Uuid; user_ids?: Uuid[] | null }) =>
-    post<ReconcileOutcome>("/api/pr/work/eligibility/reconcile", body),
+  reconcileWorkEligibility: (body: {
+    period_id: Uuid;
+    user_ids?: Uuid[] | null;
+  }) => post<ReconcileOutcome>("/api/pr/work/eligibility/reconcile", body),
 
   // --- Content → Work projection, M3 --------------------------------------
   //
@@ -4246,19 +5039,30 @@ export const api = {
 
   // --- Work maintenance, PR_WORK_CONFIGURE -----------------------------------
   previewContentSync: (body: MaintenanceScopeBody) =>
-    post<MaintenancePreview>("/api/pr/work/maintenance/content-sync/preview", body),
+    post<MaintenancePreview>(
+      "/api/pr/work/maintenance/content-sync/preview",
+      body,
+    ),
   runContentSync: (body: MaintenanceScopeBody) =>
     post<MaintenanceRun>("/api/pr/work/maintenance/content-sync/run", body),
   previewContentRebuild: (body: MaintenanceScopeBody) =>
-    post<MaintenancePreview>("/api/pr/work/maintenance/content-rebuild/preview", body),
+    post<MaintenancePreview>(
+      "/api/pr/work/maintenance/content-rebuild/preview",
+      body,
+    ),
   runContentRebuild: (body: MaintenanceScopeBody) =>
     post<MaintenanceRun>("/api/pr/work/maintenance/content-rebuild/run", body),
   adminRemoveWorkResult: (resultId: Uuid, note?: string | null) =>
-    post<WorkItemDetail>(`/api/pr/work/maintenance/results/${resultId}/admin-remove`, {
-      note: note ?? null,
-    }),
+    post<WorkItemDetail>(
+      `/api/pr/work/maintenance/results/${resultId}/admin-remove`,
+      {
+        note: note ?? null,
+      },
+    ),
   workTypeReferences: (id: Uuid) =>
-    get<WorkTypeReferences>(`/api/pr/work/maintenance/work-types/${id}/references`),
+    get<WorkTypeReferences>(
+      `/api/pr/work/maintenance/work-types/${id}/references`,
+    ),
   cleanupEmptyContainers: (id: Uuid) =>
     post<{ removed: number; remaining_references: WorkTypeReferences }>(
       `/api/pr/work/maintenance/work-types/${id}/cleanup-empty-containers`,
@@ -4312,16 +5116,27 @@ export const api = {
     content_ids?: Uuid[] | null;
     limit?: number;
     dry_run?: boolean;
-  }) => post<ReconcileContentWorkOutcome>("/api/pr/work/content/reconcile", body),
+  }) =>
+    post<ReconcileContentWorkOutcome>("/api/pr/work/content/reconcile", body),
 
   /** One content item, now rather than at the next sweep. Safe to repeat. */
   projectContentWork: (contentId: Uuid, params: { dry_run?: boolean } = {}) =>
-    post<ContentProjectionReport>(`/api/pr/work/content/${contentId}/project${query(params)}`, {}),
+    post<ContentProjectionReport>(
+      `/api/pr/work/content/${contentId}/project${query(params)}`,
+      {},
+    ),
 
-  closeChannelAssignment: (channelId: Uuid, assignmentId: Uuid, effective_to: string) =>
-    post<ChannelDetail>(`/api/pr/channels/${channelId}/assignments/${assignmentId}/close`, {
-      effective_to,
-    }),
+  closeChannelAssignment: (
+    channelId: Uuid,
+    assignmentId: Uuid,
+    effective_to: string,
+  ) =>
+    post<ChannelDetail>(
+      `/api/pr/channels/${channelId}/assignments/${assignmentId}/close`,
+      {
+        effective_to,
+      },
+    ),
 
   // --- Notifications, Step 1F.2.3d --------------------------------------
   // Not under `/api/pr`: a notification is not a PR object, and the routes
@@ -4329,8 +5144,10 @@ export const api = {
   notifications: (params: { limit?: number; offset?: number } = {}) =>
     get<NotificationList>(`/api/notifications${query(params)}`),
   unreadCount: () => get<UnreadCount>("/api/notifications/unread-count"),
-  markNotificationRead: (id: Uuid) => post<AppNotification>(`/api/notifications/${id}/read`),
-  markAllNotificationsRead: () => post<MarkAllRead>("/api/notifications/read-all"),
+  markNotificationRead: (id: Uuid) =>
+    post<AppNotification>(`/api/notifications/${id}/read`),
+  markAllNotificationsRead: () =>
+    post<MarkAllRead>("/api/notifications/read-all"),
 
   listCapabilities: (capability?: string) =>
     get<CapabilityGrant[]>(`/api/pr/capabilities${query({ capability })}`),
@@ -4360,7 +5177,8 @@ export const api = {
   /** *Vô hiệu hóa thành viên.* Reversible: `reactivateMember`. */
   deactivateMember: (id: Uuid, body: { reason?: string | null } = {}) =>
     post<Member>(`/api/pr/members/${id}/deactivate`, body),
-  reactivateMember: (id: Uuid) => post<Member>(`/api/pr/members/${id}/reactivate`),
+  reactivateMember: (id: Uuid) =>
+    post<Member>(`/api/pr/members/${id}/reactivate`),
   /** *Loại khỏi PR.* Terminal in phase 1: the row and its history stay, and no
    * route undoes it. */
   revokeMember: (id: Uuid, body: { reason?: string | null } = {}) =>
@@ -4501,7 +5319,12 @@ export interface MemberResponsibilities {
 function query(params: object): string {
   const search = new URLSearchParams();
   for (const [key, value] of Object.entries(params)) {
-    if (value !== undefined && value !== null && value !== "" && value !== false) {
+    if (
+      value !== undefined &&
+      value !== null &&
+      value !== "" &&
+      value !== false
+    ) {
       search.set(key, String(value));
     }
   }

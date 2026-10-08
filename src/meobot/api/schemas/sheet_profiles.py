@@ -134,7 +134,7 @@ class RemapSheetProfileRequest(BaseModel):
 
     field_mapping: dict[str, Any] | None = Field(
         default=None,
-        description="Omit to adopt the mapping MeoBot proposes for the live sheet.",
+        description="Omit to adopt the mapping TasksBot proposes for the live sheet.",
     )
     headers: list[str] | None = None
     use_llm: bool = False

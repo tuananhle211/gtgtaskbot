@@ -109,7 +109,7 @@ from tests.unit.test_pr_work_result_exclusion import (
     worker_runs,
 )
 
-pytestmark = pytest.mark.asyncio
+pytestmark = [pytest.mark.asyncio, pytest.mark.usefixtures("frozen_work_clock")]
 
 KIND = PrContentWorkKind.CONTENT_CREATION
 TYPE = PrContentType.SHORT_VIDEO_SCRIPT

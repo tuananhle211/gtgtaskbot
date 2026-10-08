@@ -174,7 +174,7 @@ async def test_01_models_and_migration_agree(database: Database) -> None:
 async def test_02_the_head_is_0041(database: Database) -> None:
     async with database.session() as session:
         head = await session.scalar(text("SELECT version_num FROM alembic_version"))
-    assert head == alembic_head() == "0041"
+    assert head == alembic_head()
 
 
 async def test_03_legacy_excluded_rows_are_not_classified(database: Database) -> None:

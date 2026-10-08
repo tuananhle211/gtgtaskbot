@@ -79,7 +79,7 @@ class CreateSpreadsheetArgs(BaseModel):
     folder: str = Field(
         min_length=1,
         max_length=500,
-        description="Thư mục đích: tên, mã, hoặc ID thư mục ĐÃ ĐĂNG KÝ với MeoBot.",
+        description="Thư mục đích: tên, mã, hoặc ID thư mục ĐÃ ĐĂNG KÝ với TasksBot.",
     )
     period: str | None = Field(default=None, max_length=100, description="Kỳ / tháng.")
     team: str | None = Field(default=None, max_length=100)
@@ -130,7 +130,7 @@ def build_drive_tools(*, drive: DriveClient, sheets: SheetsClient) -> list[ToolD
                 data={"items": []},
                 entity_type="drive_folder",
             )
-        lines = ["📁 Thư mục Drive MeoBot được phép tạo file:"]
+        lines = ["📁 Thư mục Drive TasksBot được phép tạo file:"]
         for folder in folders:
             marks = []
             if folder.shared_drive_id:
@@ -235,7 +235,7 @@ def build_drive_tools(*, drive: DriveClient, sheets: SheetsClient) -> list[ToolD
         service = SheetTemplateService(session, AuditService(session), context.settings)
         await service.ensure_all_builtin()
         templates = list(await service.list_templates(active_only=True))
-        lines = ["🧩 Mẫu Sheet MeoBot tạo được:"]
+        lines = ["🧩 Mẫu Sheet TasksBot tạo được:"]
         for template in templates:
             method = (
                 "sao chép từ mẫu có sẵn" if template.source_file_id else "tạo Sheet trắng chuẩn"
@@ -349,12 +349,12 @@ def build_drive_tools(*, drive: DriveClient, sheets: SheetsClient) -> list[ToolD
         if not records:
             return ToolResult(
                 success=True,
-                message="MeoBot chưa tạo Sheet nào.",
+                message="TasksBot chưa tạo Sheet nào.",
                 data={"items": []},
                 entity_type="created_spreadsheet",
             )
         timezone = context.settings.timezone
-        lines = ["📄 Sheet MeoBot đã tạo:"]
+        lines = ["📄 Sheet TasksBot đã tạo:"]
         for record in records:
             when = (
                 format_local(record.created_at, timezone, "%d/%m %H:%M")
@@ -424,7 +424,7 @@ def build_drive_tools(*, drive: DriveClient, sheets: SheetsClient) -> list[ToolD
             message=(
                 f"Đã đổi file mẫu của {template.name!r} thành {short_id(template.source_file_id)}."
                 if template.source_file_id
-                else f"Đã bỏ file mẫu của {template.name!r}; MeoBot sẽ tạo Sheet trắng chuẩn."
+                else f"Đã bỏ file mẫu của {template.name!r}; TasksBot sẽ tạo Sheet trắng chuẩn."
             ),
             data={"id": str(template.id), "source_file_id": template.source_file_id},
             entity_type="sheet_template",
@@ -434,7 +434,7 @@ def build_drive_tools(*, drive: DriveClient, sheets: SheetsClient) -> list[ToolD
     return [
         ToolDefinition(
             name="drive.folder.list",
-            description="Liệt kê các thư mục Google Drive MeoBot được phép tạo file.",
+            description="Liệt kê các thư mục Google Drive TasksBot được phép tạo file.",
             handler=list_folders,
             arguments_model=NoArguments,
             risk_level=RiskLevel.LOW,
@@ -452,7 +452,7 @@ def build_drive_tools(*, drive: DriveClient, sheets: SheetsClient) -> list[ToolD
         ),
         ToolDefinition(
             name="drive.folder.register",
-            description="Đăng ký một thư mục Drive làm nơi MeoBot được phép tạo file.",
+            description="Đăng ký một thư mục Drive làm nơi TasksBot được phép tạo file.",
             handler=register_folder,
             arguments_model=RegisterFolderArgs,
             risk_level=RiskLevel.MEDIUM,
@@ -461,7 +461,7 @@ def build_drive_tools(*, drive: DriveClient, sheets: SheetsClient) -> list[ToolD
         ),
         ToolDefinition(
             name="sheet_template.list",
-            description="Liệt kê các mẫu Sheet MeoBot có thể tạo.",
+            description="Liệt kê các mẫu Sheet TasksBot có thể tạo.",
             handler=list_templates,
             arguments_model=NoArguments,
             risk_level=RiskLevel.LOW,
@@ -480,7 +480,8 @@ def build_drive_tools(*, drive: DriveClient, sheets: SheetsClient) -> list[ToolD
         ToolDefinition(
             name="spreadsheet.create_script",
             description=(
-                "Tạo một Google Sheet quản lý kịch bản và đăng ký nó làm nguồn kịch bản cho MeoBot."
+                "Tạo một Google Sheet quản lý kịch bản và đăng ký nó làm nguồn kịch bản "
+                "cho TasksBot."
             ),
             handler=create_script,
             arguments_model=CreateSpreadsheetArgs,
@@ -490,7 +491,7 @@ def build_drive_tools(*, drive: DriveClient, sheets: SheetsClient) -> list[ToolD
         ),
         ToolDefinition(
             name="spreadsheet.list_created",
-            description="Liệt kê các Google Sheet mà MeoBot đã tạo.",
+            description="Liệt kê các Google Sheet mà TasksBot đã tạo.",
             handler=list_created,
             arguments_model=NoArguments,
             risk_level=RiskLevel.LOW,
@@ -499,7 +500,7 @@ def build_drive_tools(*, drive: DriveClient, sheets: SheetsClient) -> list[ToolD
         ),
         ToolDefinition(
             name="spreadsheet.get_created",
-            description="Xem chi tiết một Google Sheet mà MeoBot đã tạo.",
+            description="Xem chi tiết một Google Sheet mà TasksBot đã tạo.",
             handler=get_created,
             arguments_model=CreatedReferenceArgs,
             risk_level=RiskLevel.LOW,

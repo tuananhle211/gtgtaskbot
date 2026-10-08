@@ -366,7 +366,7 @@ BOT_ID = 123456
 
 def bot_user() -> TelegramUser:
     """The ``getMe`` result the fake bot reports."""
-    return TelegramUser(id=BOT_ID, is_bot=True, first_name="MeoBot", username=BOT_USERNAME)
+    return TelegramUser(id=BOT_ID, is_bot=True, first_name="TasksBot", username=BOT_USERNAME)
 
 
 def make_group_message(
@@ -444,7 +444,7 @@ def bot_reply_message(*, chat_id: int = -1001, message_id: int = 500) -> Message
         date=utcnow(),
         chat=Chat(id=chat_id, type="supergroup", title="Nhóm Nội Dung"),
         from_user=bot_user(),
-        text="MeoBot đã trả lời trước đó.",
+        text="TasksBot đã trả lời trước đó.",
     )
 
 

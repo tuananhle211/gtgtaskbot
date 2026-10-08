@@ -50,7 +50,6 @@ from sqlalchemy import func, select
 
 from meobot.application.pr_work_period_service import month_bounds, month_period_code
 from meobot.application.pr_work_service import CreateWorkCommand
-from meobot.core.time import utcnow
 from meobot.db.models.audit_log import AuditLog
 from meobot.db.models.pr_reporting import PrReportingPeriod
 from meobot.db.models.pr_work import PrWorkContribution, PrWorkItem, PrWorkType
@@ -81,7 +80,7 @@ from tests.unit.test_pr_production_lifecycle import (  # noqa: F401 - `world` is
 )
 from tests.unit.test_pr_work_core import take_to_completed
 
-pytestmark = pytest.mark.asyncio
+pytestmark = [pytest.mark.asyncio, pytest.mark.usefixtures("frozen_work_clock")]
 
 #: Mid-September, so every helper below lands in one month whose bounds are
 #: unambiguous in Asia/Ho_Chi_Minh as well as in UTC.
@@ -1546,7 +1545,7 @@ async def test_31_approving_the_same_plan_twice_is_refused(world: World) -> None
 
 
 async def test_32_the_approval_path_projects_eligibility_without_depending_on_it(
-    world: World,
+    world: World, frozen_work_clock: datetime
 ) -> None:
     """Work becomes ``COUNTED`` whether or not a quota exists, and is projected
     in the same transaction when one does.
@@ -1558,7 +1557,7 @@ async def test_32_the_approval_path_projects_eligibility_without_depending_on_it
     # ``counted_at`` the service stamps - which is now. Every other test in this
     # file stamps a chosen instant afterwards and reconciles; this one is
     # precisely about the automatic path, so it cannot.
-    today = utcnow().astimezone(world.settings.timezone).date()
+    today = frozen_work_clock.astimezone(world.settings.timezone).date()
     period = await month(world, year=today.year, number=today.month)
     type_row = await work_type(world)
     await approved_plan(world, period=period, quotas=((type_row, Decimal("1"), Decimal("1")),))
@@ -1646,7 +1645,10 @@ async def test_33_no_content_or_task_semantics_changed(world: World) -> None:
 
     from meobot.db.base import Base
 
-    for forbidden in ("teams", "team_members", "departments", "org_units"):
+    # ``org_units`` is the PR / Ads unit registry from 0042 - a wall, not a
+    # hierarchy - and the quota module still never touches it (see the
+    # identifier sweep above).
+    for forbidden in ("teams", "team_members", "departments"):
         assert forbidden not in Base.metadata.tables
 
 

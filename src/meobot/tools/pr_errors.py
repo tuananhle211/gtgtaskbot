@@ -112,7 +112,7 @@ def _forbidden(details: Mapping[str, Any]) -> str:
     if reason == "missing_grant":
         return "Bạn chưa được cấp quyền duyệt ở bước này. Trưởng phòng có thể cấp quyền cho bạn."
     if reason == "actor_has_no_user_row" or reason == "no_user_record":
-        return "Tài khoản của bạn chưa được đăng ký trong MeoBot nên chưa thao tác được."
+        return "Tài khoản của bạn chưa được đăng ký trong TasksBot nên chưa thao tác được."
     # Step 1F.2.3. The delete rule refuses for three different reasons and they
     # need three different next steps: ask for the right, ask the owner, or stop
     # asking - so the sentence says which one this was.

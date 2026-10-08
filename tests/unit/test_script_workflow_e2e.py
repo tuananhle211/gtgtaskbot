@@ -545,7 +545,7 @@ async def test_request_revision_records_the_comment(
 async def test_write_back_touches_only_the_mapped_columns(
     session: AsyncSession, owner: Actor
 ) -> None:
-    headers = [*HEADERS, "MeoBot Status", "Điểm AI", "Nhận xét AI"]
+    headers = [*HEADERS, "TasksBot Status", "Điểm AI", "Nhận xét AI"]
     sheets = FakeSheetsClient()
     sheets.load(SPREADSHEET, TAB, headers, [[*ROW_1, "", "", ""]])
 
@@ -559,7 +559,7 @@ async def test_write_back_touches_only_the_mapped_columns(
         field_mapping=dict(propose_mapping(headers).mapping),
         headers=headers,
         write_back_mapping={
-            "meobot_status": "MeoBot Status",
+            "meobot_status": "TasksBot Status",
             "review_score": "Điểm AI",
             "review_summary": "Nhận xét AI",
         },

@@ -1,11 +1,12 @@
 import Link from "next/link";
+import { LogoMark } from "@/components/logo";
 
 /**
  * The two public legal pages, /terms and /privacy, share one shell.
  *
  * They are the only pages in this app a visitor may see without a session, and
  * the only ones written in English: they exist so a platform reviewer - TikTok's,
- * today - can read what MeoChat does with the data an account owner authorizes.
+ * today - can read what TasksBot does with the data an account owner authorizes.
  * The rest of the panel speaks Vietnamese to the team that uses it, so the
  * `<article>` here carries its own `lang` rather than the document's.
  *
@@ -82,9 +83,10 @@ export function LegalDocument({
       <header className="mb-6">
         <Link
           href="/"
-          className="inline-flex min-h-11 items-center text-sm font-semibold tracking-tight text-[var(--text)] hover:text-[var(--accent)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--accent)]"
+          className="inline-flex min-h-11 items-center gap-2.5 text-sm font-semibold tracking-tight text-[var(--text)] hover:text-[var(--accent)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--accent)]"
         >
-          MeoChat
+          <LogoMark size={28} className="shrink-0" />
+          TasksBot
         </Link>
       </header>
 
@@ -116,7 +118,7 @@ export function LegalDocument({
           href="/"
           className="inline-flex min-h-11 items-center text-[var(--text-muted)] underline underline-offset-2 hover:text-[var(--text)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--accent)]"
         >
-          MeoChat home
+          TasksBot home
         </Link>
       </nav>
     </div>

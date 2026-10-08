@@ -68,8 +68,8 @@ PURPOSE_PHRASES: dict[str, ChatPurpose] = {
 }
 
 PRIVATE_UNAVAILABLE = (
-    "MeoBot chưa thể nhắn riêng cho {name} vì {name} chưa bắt đầu cuộc trò chuyện với bot.\n\n"
-    "Hãy nhờ {name} mở MeoBot và bấm ‘Bắt đầu’."
+    "TasksBot chưa thể nhắn riêng cho {name} vì {name} chưa bắt đầu cuộc trò chuyện với bot.\n\n"
+    "Hãy nhờ {name} mở TasksBot và bấm ‘Bắt đầu’."
 )
 
 NO_DESTINATION = (
@@ -570,7 +570,7 @@ class RecipientResolver:
         if user.status is not UserStatus.ACTIVE:
             return PrivateResolution(
                 user=user,
-                message=f"Tài khoản của {name} hiện không sử dụng được MeoBot.",
+                message=f"Tài khoản của {name} hiện không sử dụng được TasksBot.",
             )
 
         chat_id = user.telegram_private_chat_id or user.telegram_user_id

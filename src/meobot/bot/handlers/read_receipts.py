@@ -64,9 +64,9 @@ HANDLED: frozenset[MemberIntent] = frozenset(
 
 #: The short toast the presser sees. Deliberately says "đã ghi nhận" only
 #: because a row exists by the time it is shown.
-ACKNOWLEDGED = "MeoBot đã ghi nhận bạn đã đọc thông báo."
+ACKNOWLEDGED = "TasksBot đã ghi nhận bạn đã đọc thông báo."
 ALREADY_ACKNOWLEDGED = "Bạn đã xác nhận thông báo này rồi."
-NEEDS_FOLLOWUP = "MeoBot đã ghi nhận. Trưởng phòng sẽ trao đổi thêm với bạn."
+NEEDS_FOLLOWUP = "TasksBot đã ghi nhận. Trưởng phòng sẽ trao đổi thêm với bạn."
 STALE = "Nút này không còn hiệu lực."
 NOTHING_TO_REPORT = "Chưa có thông báo nào cần theo dõi xác nhận."
 NOT_PERMITTED = "Bạn chưa được phép xem xác nhận đã đọc của thông báo này."
@@ -166,7 +166,7 @@ async def handle_receipt_question(
     if capped < outstanding:
         lines.append(
             formatting.escape(
-                f"MeoBot chỉ nhắc {capped} người trong lần này, còn {outstanding - capped} "
+                f"TasksBot chỉ nhắc {capped} người trong lần này, còn {outstanding - capped} "
                 "người sẽ nhắc ở lần sau."
             )
         )
@@ -263,11 +263,12 @@ async def handle_remind_unread(
         queued = len(result.queued)
 
     # "Đã xếp hàng gửi", not "đã gửi": the rows exist, the worker has not run.
-    lines = [formatting.escape(f"📨 MeoBot đã xếp hàng gửi nhắc cho {queued} người.")]
+    lines = [formatting.escape(f"📨 TasksBot đã xếp hàng gửi nhắc cho {queued} người.")]
     if unreachable:
         lines.append(
             formatting.escape(
-                f"{unreachable} người chưa bắt đầu trò chuyện với MeoBot nên chưa nhắn riêng được."
+                f"{unreachable} người chưa bắt đầu trò chuyện với TasksBot "
+                "nên chưa nhắn riêng được."
             )
         )
     await formatting.edit_callback(query, "\n".join(lines))

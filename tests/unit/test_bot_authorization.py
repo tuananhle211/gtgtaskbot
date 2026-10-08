@@ -162,7 +162,7 @@ async def test_join_with_a_bot_suffix_is_still_public(settings: Settings) -> Non
     """Group chats append '@BotName' to every command."""
     session = FakeSession(results=[FakeResult()])
     called, _, _ = await run_middleware(
-        settings, FakeTelegramUser(424244), session, text="/join@MeoBot ABCD234XYZ"
+        settings, FakeTelegramUser(424244), session, text="/join@TasksBot ABCD234XYZ"
     )
     assert called is True
 

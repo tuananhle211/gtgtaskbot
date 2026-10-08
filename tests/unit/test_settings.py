@@ -11,7 +11,7 @@ from meobot.core.config import Settings
 def test_settings_load_from_environment(settings: Settings) -> None:
     """The pinned test environment is what the app sees."""
     assert settings.app_env == "test"
-    assert settings.app_name == "MeoBot"
+    assert settings.app_name == "TasksBot"
     assert settings.app_timezone == "Asia/Ho_Chi_Minh"
     assert settings.llm_provider == "fake"
 

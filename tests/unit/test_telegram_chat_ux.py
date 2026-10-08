@@ -67,7 +67,7 @@ def bot_reply(text: str = "trước đó") -> Message:
         message_id=41,
         date=utcnow(),
         chat=Chat(id=-100123, type="supergroup"),
-        from_user=TelegramUser(id=123456, is_bot=True, first_name="MeoBot"),
+        from_user=TelegramUser(id=123456, is_bot=True, first_name="TasksBot"),
         text=text,
     )
 
@@ -191,7 +191,7 @@ async def test_free_text_reaches_the_conversation_handler(
 
     assert session.sent_texts()
     combined = session.combined_text()
-    assert "MeoBot" in combined
+    assert "TasksBot" in combined
     assert "ngắn gọn hơn" not in combined
 
 

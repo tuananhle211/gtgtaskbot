@@ -109,7 +109,7 @@ GLOSSARY: tuple[DomainTerm, ...] = (
         term="Nội dung",
         code="Content",
         definition=(
-            "Đơn vị công việc gốc của MeoBot: một bài/kịch bản đi qua toàn bộ quy "
+            "Đơn vị công việc gốc của TasksBot: một bài/kịch bản đi qua toàn bộ quy "
             "trình duyệt và sản xuất. Có mã (vd CNT-2026-000123), tiêu đề, người "
             "phụ trách, bước hiện tại."
         ),
@@ -258,7 +258,7 @@ GLOSSARY: tuple[DomainTerm, ...] = (
         code="Metric Snapshot",
         definition=(
             "Một lần đo, chỉ ghi thêm và không sửa/xoá: thời điểm ghi nhận, các số "
-            "liệu, nguồn dữ liệu và người ghi nhận. Nguồn API nghĩa là MeoBot lấy tự "
+            "liệu, nguồn dữ liệu và người ghi nhận. Nguồn API nghĩa là TasksBot lấy tự "
             "động từ nền tảng và KHÔNG có người ghi nhận; nguồn Nhập thủ công nghĩa là "
             "một người đã tự gõ vào và tên người đó được lưu. Nhập sai thì ghi nhận "
             "một bản mới đúng, bản cũ vẫn còn."
@@ -282,7 +282,7 @@ GLOSSARY: tuple[DomainTerm, ...] = (
         term="Kết nối kênh",
         code="Channel Connection",
         definition=(
-            "Liên kết giữa một kênh MeoBot và một tài khoản nền tảng thật, tạo ra khi "
+            "Liên kết giữa một kênh TasksBot và một tài khoản nền tảng thật, tạo ra khi "
             "người quản trị cấp quyền qua OAuth. Mỗi kênh chỉ có tối đa MỘT kết nối "
             "đang hoạt động cho mỗi nền tảng. Trạng thái kết nối nói về QUYỀN TRUY CẬP: "
             "Đã kết nối, Cần xác thực lại, Chưa kết nối, Chờ chọn tài khoản (đã cấp "
@@ -305,7 +305,7 @@ GLOSSARY: tuple[DomainTerm, ...] = (
         term="Tự động đồng bộ",
         code="Auto Sync",
         definition=(
-            "Khi một kênh có kết nối còn hiệu lực, MeoBot tự lấy số liệu theo lịch "
+            "Khi một kênh có kết nối còn hiệu lực, TasksBot tự lấy số liệu theo lịch "
             "hàng ngày. Chỉ áp dụng cho kênh ĐÃ KẾT NỐI - không phải mọi kênh YouTube, "
             "Facebook hay Instagram."
         ),
@@ -379,7 +379,7 @@ HISTORICAL_RULES: tuple[str, ...] = (
     "nhận bài đăng, đều không cho quyền thu hồi.",
     "Bước ARCHIVED nghĩa là không chuyển bước ra khỏi đó nữa và không xoá được - "
     "KHÔNG có nghĩa là cấm ghi thêm siêu dữ liệu, phái sinh hay bình luận.",
-    "MeoBot có trình kết nối tự động cho ĐÚNG BỐN nền tảng: YOUTUBE, FACEBOOK (Trang "
+    "TasksBot có trình kết nối tự động cho ĐÚNG BỐN nền tảng: YOUTUBE, FACEBOOK (Trang "
     "Facebook), INSTAGRAM (tài khoản Instagram Professional) và TIKTOK. Website và "
     "Khác không có. "
     "Nhưng có trình kết nối KHÔNG đồng nghĩa với việc kênh đó đang tự đồng bộ: chỉ "
@@ -392,15 +392,15 @@ HISTORICAL_RULES: tuple[str, ...] = (
     "theo cửa sổ thời gian, nên kênh TikTok CHƯA có các chỉ số 7 ngày / 30 ngày - "
     "không có lượt xem 30 ngày, không có tương tác 30 ngày, không có bài đăng 30 ngày, "
     "không có video nổi bật. Ô trống ở những chỗ đó nghĩa là CHƯA ĐO ĐƯỢC, tuyệt đối "
-    "không phải bằng 0. Tăng trưởng Followers vẫn tính được vì MeoBot tự so sánh các "
+    "không phải bằng 0. Tăng trưởng Followers vẫn tính được vì TasksBot tự so sánh các "
     "lần ghi nhận của chính mình. Nếu được hỏi vì sao thiếu, hãy nói thẳng: cần khảo "
     "sát khả năng thật của TikTok API trên tài khoản production trước khi xây tiếp.",
     "Kênh Facebook chỉ kết nối được với TRANG Facebook (Page). Không hỗ trợ trang cá "
     "nhân, Nhóm, tài khoản quảng cáo. Kênh Instagram chỉ kết nối được với tài khoản "
     "Instagram Professional (Business/Creator) đã liên kết với một Trang Facebook; "
     "tài khoản cá nhân thường không kết nối được.",
-    "Khi cấp quyền Meta, một người thường quản lý nhiều Trang. MeoBot KHÔNG tự chọn - "
-    "người dùng phải chọn đúng Trang/tài khoản, và MeoBot chỉ lấy số liệu của tài "
+    "Khi cấp quyền Meta, một người thường quản lý nhiều Trang. TasksBot KHÔNG tự chọn - "
+    "người dùng phải chọn đúng Trang/tài khoản, và TasksBot chỉ lấy số liệu của tài "
     "khoản được chọn.",
     "Muốn biết một kênh có đang tự đồng bộ hay không thì phải xem trạng thái kết nối "
     "của chính kênh đó trong bối cảnh, không suy ra từ việc nó là kênh YouTube.",
@@ -442,7 +442,7 @@ HISTORICAL_RULES: tuple[str, ...] = (
 #: "derivative" means against this file.
 CONTEXT_PRECEDENCE: tuple[str, ...] = (
     "Yêu cầu an toàn và quy định nền tảng.",
-    "Bối cảnh nghiệp vụ chuẩn của MeoBot ở mục [CANONICAL DOMAIN CONTEXT].",
+    "Bối cảnh nghiệp vụ chuẩn của TasksBot ở mục [CANONICAL DOMAIN CONTEXT].",
     "Dữ liệu thật của người dùng và bản ghi hiện tại ở các mục [CURRENT USER], "
     "[CURRENT OBJECT], [AVAILABLE ACTIONS], [RELEVANT INTERNAL RECORDS].",
     "Lịch sử hội thoại.",
@@ -453,24 +453,24 @@ CONTEXT_PRECEDENCE: tuple[str, ...] = (
 #: The grounding rule itself. Written as instructions to the model because that
 #: is what it is; every clause here has a test.
 GROUNDING_POLICY = """\
-Khi câu hỏi liên quan tới MeoBot - nghiệp vụ, thuật ngữ, quy trình, quyền, nội
+Khi câu hỏi liên quan tới TasksBot - nghiệp vụ, thuật ngữ, quy trình, quyền, nội
 dung, sản xuất, xuất bản, phái sinh, bình luận, tài nguyên, kênh, chỉ số kênh,
 hoặc bản ghi nội bộ:
-1. Dùng bối cảnh MeoBot ở trên trước tiên.
-2. Không thay luật MeoBot bằng suy đoán chung của ngành.
+1. Dùng bối cảnh TasksBot ở trên trước tiên.
+2. Không thay luật TasksBot bằng suy đoán chung của ngành.
 3. Không bịa bản ghi, trạng thái, quyền, hành động hay kết quả.
 4. Nếu dữ liệu cần thiết không có trong bối cảnh, hãy nói thẳng là chưa có -
    ví dụ "Mình chưa có dữ liệu đó trong bối cảnh hiện tại." Không đoán.
 5. Không ngụ ý rằng bạn đã tra cứu toàn hệ thống. Bạn chỉ thấy đúng những gì
    được đưa vào bối cảnh này.
-6. Chỉ dùng kiến thức chung khi người dùng rõ ràng hỏi ngoài phạm vi MeoBot.
+6. Chỉ dùng kiến thức chung khi người dùng rõ ràng hỏi ngoài phạm vi TasksBot.
 7. Chỉ nói một kênh đang tự đồng bộ khi bối cảnh của CHÍNH kênh đó cho thấy có
    kết nối còn hiệu lực. Có trình kết nối cho YouTube, Facebook, Instagram và
    TikTok; TikTok chỉ đọc được số liệu cộng dồn trọn đời, CHƯA có chỉ số 7/30
    ngày - nói thẳng như vậy nếu được hỏi. Khi nói về số liệu, hãy nói rõ nó đến
    từ API hay do người nhập tay, kèm thời điểm ghi nhận gần nhất.
 Thuật ngữ mơ hồ ("phái sinh", "xuất bản", "sản phẩm", "link") phải hiểu theo
-định nghĩa chuẩn của MeoBot ở trên khi cuộc trò chuyện đang nói về MeoBot hoặc
+định nghĩa chuẩn của TasksBot ở trên khi cuộc trò chuyện đang nói về TasksBot hoặc
 về một bản ghi nội bộ.
 Nói bằng từ tiếng Việt của hệ thống (vd "Sẵn sàng đăng"), không đọc mã nội bộ
 (vd READY_TO_PUBLISH) trừ khi người dùng hỏi về kỹ thuật.
@@ -513,7 +513,7 @@ class MeoBotDomainContext:
         """
         blocks = [
             f"Phiên bản bối cảnh: {self.version}",
-            "MeoBot là trợ lý vận hành BÊN TRONG hệ thống MeoBot - hệ thống quản lý "
+            "TasksBot là trợ lý vận hành BÊN TRONG hệ thống TasksBot - hệ thống quản lý "
             "nội dung và truyền thông (PR) của phòng. Mọi thuật ngữ dưới đây là nghĩa "
             "chuẩn trong hệ thống này.",
             self.render_workflow(),

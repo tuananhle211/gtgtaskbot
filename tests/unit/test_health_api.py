@@ -32,7 +32,7 @@ def test_root_banner(client: TestClient) -> None:
     response = client.get("/")
     assert response.status_code == 200
     body = response.json()
-    assert body["service"] == "MeoBot"
+    assert body["service"] == "TasksBot"
     assert "Telegram" in body["interface"]
 
 

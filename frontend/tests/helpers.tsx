@@ -1,8 +1,16 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { render, screen, waitFor, within, type RenderResult } from "@testing-library/react";
+import {
+  render,
+  screen,
+  waitFor,
+  within,
+  type RenderResult,
+} from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { useSyncExternalStore, type ReactElement } from "react";
 import { expect, vi } from "vitest";
+import { readdirSync, readFileSync } from "node:fs";
+import path from "node:path";
 
 /**
  * Render a component with a query client that does not retry.
@@ -18,7 +26,9 @@ export function renderWithQuery(element: ReactElement): RenderResult {
       mutations: { retry: false },
     },
   });
-  return render(<QueryClientProvider client={client}>{element}</QueryClientProvider>);
+  return render(
+    <QueryClientProvider client={client}>{element}</QueryClientProvider>,
+  );
 }
 
 /**
@@ -127,7 +137,9 @@ export function channelsNavigation(pathname = "/pr/channels") {
  * column that has says either its cards or "Chưa có nội dung ở bước này.".
  */
 export async function settleLanes(): Promise<void> {
-  await waitFor(() => expect(screen.queryAllByText("Đang tải…")).toHaveLength(0));
+  await waitFor(() =>
+    expect(screen.queryAllByText("Đang tải…")).toHaveLength(0),
+  );
 }
 
 /** A `fetch` stub keyed by URL substring. Anything unmatched is a loud failure. */
@@ -140,30 +152,37 @@ export function stubFetch(
   }>,
 ): ReturnType<typeof vi.fn> {
   const calls: Array<{ url: string; method: string; body: unknown }> = [];
-  const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
-    const url = String(input);
-    const method = init?.method ?? "GET";
-    calls.push({
-      url,
-      method,
-      body: init?.body ? JSON.parse(String(init.body)) : undefined,
-    });
-    const route = routes.find(
-      (candidate) => url.includes(candidate.match) && (candidate.method ?? method) === method,
-    );
-    if (!route) {
-      throw new Error(`No stub for ${method} ${url}`);
-    }
-    const status = route.status ?? 200;
-    // A 204 may not carry a body - the Response constructor throws if it does -
-    // and the API uses one for permanent deletion, so the stub has to be able to
-    // produce a real one rather than an approximation with an empty string.
-    const body = status === 204 || route.body === undefined ? null : JSON.stringify(route.body);
-    return new Response(body, {
-      status,
-      headers: { "Content-Type": "application/json" },
-    });
-  });
+  const fetchMock = vi.fn(
+    async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      const method = init?.method ?? "GET";
+      calls.push({
+        url,
+        method,
+        body: init?.body ? JSON.parse(String(init.body)) : undefined,
+      });
+      const route = routes.find(
+        (candidate) =>
+          url.includes(candidate.match) &&
+          (candidate.method ?? method) === method,
+      );
+      if (!route) {
+        throw new Error(`No stub for ${method} ${url}`);
+      }
+      const status = route.status ?? 200;
+      // A 204 may not carry a body - the Response constructor throws if it does -
+      // and the API uses one for permanent deletion, so the stub has to be able to
+      // produce a real one rather than an approximation with an empty string.
+      const body =
+        status === 204 || route.body === undefined
+          ? null
+          : JSON.stringify(route.body);
+      return new Response(body, {
+        status,
+        headers: { "Content-Type": "application/json" },
+      });
+    },
+  );
   vi.stubGlobal("fetch", fetchMock);
   // Exposed so a test can assert what was sent, not only what was rendered.
   (fetchMock as unknown as { calls: typeof calls }).calls = calls;
@@ -336,18 +355,51 @@ export function serverWorkActions(
   const manage = Boolean(flags.can_manage);
   const validate = Boolean(flags.can_validate);
   const execute = Boolean(flags.can_execute);
-  const cancellable = ["PROPOSED", "ACCEPTED", "IN_PROGRESS", "COMPLETED"].includes(status);
+  const cancellable = [
+    "PROPOSED",
+    "ACCEPTED",
+    "IN_PROGRESS",
+    "COMPLETED",
+  ].includes(status);
   const derived = {
     can_accept: manage && !container && status === "PROPOSED",
     can_reject: manage && !container && status === "PROPOSED",
     can_start: execute && !container && status === "ACCEPTED",
-    can_complete: execute && !container && (status === "ACCEPTED" || status === "IN_PROGRESS"),
+    can_complete:
+      execute &&
+      !container &&
+      (status === "ACCEPTED" || status === "IN_PROGRESS"),
     can_approve: validate && !container && status === "COMPLETED",
     can_reopen: validate && !container && status === "COMPLETED",
     can_cancel: manage && manual && !container && cancellable,
   };
   const explicit = Object.fromEntries(
-    Object.entries(flags).filter(([key]) => key in derived).map(([key, value]) => [key, Boolean(value)]),
+    Object.entries(flags)
+      .filter(([key]) => key in derived)
+      .map(([key, value]) => [key, Boolean(value)]),
   );
   return { ...derived, ...explicit };
+}
+
+/**
+ * The PR content detail page's source files, relative to `src/`.
+ *
+ * Its tabs (content, review, resources, product, publish, history) were moved
+ * verbatim into `components/pr-content-detail/` so the unified task screen
+ * (`app/tasks/[ref]/page.tsx`) can reuse them. A test that scans "the detail
+ * page" for a string scans all of these, not only the route file.
+ */
+export const PR_CONTENT_DETAIL_FILES: string[] = [
+  "app/pr/content/[id]/page.tsx",
+  ...readdirSync(path.join(__dirname, "../src/components/pr-content-detail"))
+    .filter((file) => /\.tsx?$/.test(file))
+    .sort()
+    .map((file) => `components/pr-content-detail/${file}`),
+];
+
+/** Every file in {@link PR_CONTENT_DETAIL_FILES}, concatenated. */
+export function readPrContentDetailSource(): string {
+  return PR_CONTENT_DETAIL_FILES.map((file) =>
+    readFileSync(path.join(__dirname, "../src", file), "utf8"),
+  ).join("\n");
 }

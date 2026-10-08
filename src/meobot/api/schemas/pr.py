@@ -150,15 +150,29 @@ class ActorResponse(BaseModel):
     role: str
     active: bool
     capabilities: list[str] = Field(default_factory=list)
+    #: True for a session opened with the default password (0045): every other
+    #: route answers 403 ``password_change_required`` until it is changed.
+    must_change_password: bool = False
+    #: Additive (0047): the profile picture's URL, null without one.
+    avatar_url: str | None = None
 
     @classmethod
-    def from_actor(cls, actor: Actor, capabilities: frozenset[Any]) -> ActorResponse:
+    def from_actor(
+        cls,
+        actor: Actor,
+        capabilities: frozenset[Any],
+        *,
+        must_change_password: bool = False,
+        avatar_url: str | None = None,
+    ) -> ActorResponse:
         return cls(
             user_id=actor.user_id,
             full_name=actor.full_name,
             role=actor.role.value,
             active=actor.active,
             capabilities=sorted(capability.value for capability in capabilities),
+            must_change_password=must_change_password,
+            avatar_url=avatar_url,
         )
 
 
@@ -2080,7 +2094,7 @@ class TopPostResponse(BaseModel):
     """The window's best-performing post, as the connector recorded it.
 
     Sent so a manager can open the post that worked. ``excerpt`` is a truncated
-    copy of the post's own text and nothing else - MeoBot stores no comments and
+    copy of the post's own text and nothing else - TasksBot stores no comments and
     sends none.
     """
 
@@ -2209,7 +2223,7 @@ class ChannelAnalyticsResponse(BaseModel):
     as "—" and the second as "0", and the whole point of this response shape is
     that it can tell them apart.
 
-    The derived half is computed **from MeoBot's own stored snapshots**, never
+    The derived half is computed **from TasksBot's own stored snapshots**, never
     fetched. That is what makes it survive a Graph version bump, and what makes
     it work identically for a channel somebody records by hand.
     """
@@ -2412,7 +2426,7 @@ class FinishConnectionRequest(_Body):
     session presenting it, and ``code`` is passed straight to the token exchange
     without ever being logged.
 
-    **There is no channel field.** The channel is read from the state row MeoBot
+    **There is no channel field.** The channel is read from the state row TasksBot
     wrote when it started the flow - accepting one here would be exactly the
     injection the state exists to prevent.
     """

@@ -104,7 +104,7 @@ class PolicyEngine:
             return PolicyDecision(
                 allowed=False,
                 code=DecisionCode.NOT_REGISTERED,
-                reason="Tài khoản chưa được đăng ký với MeoBot.",
+                reason="Tài khoản chưa được đăng ký với TasksBot.",
                 effective_risk=plan.risk_level,
             )
 
@@ -120,7 +120,7 @@ class PolicyEngine:
             return PolicyDecision(
                 allowed=False,
                 code=DecisionCode.UNKNOWN_INTENT,
-                reason="MeoBot chưa hiểu yêu cầu này.",
+                reason="TasksBot chưa hiểu yêu cầu này.",
                 effective_risk=RiskLevel.LOW,
             )
 

@@ -123,7 +123,7 @@ async def resolve_person(services: PrServices, *, name: str) -> uuid.UUID:
             },
         )
     raise ToolExecutionError(
-        f'Mình không tìm thấy người nào tên "{name}" trong MeoBot.',
+        f'Mình không tìm thấy người nào tên "{name}" trong TasksBot.',
         details={"reason": "person_not_found", "query": name},
     )
 

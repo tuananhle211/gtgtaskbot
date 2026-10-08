@@ -140,6 +140,7 @@ _RULES: tuple[tuple[str, tuple[str, ...]], ...] = (
         (
             "sheet da tao",
             "da tao",
+            "sheet tasksbot tao",
             "sheet meobot tao",
             "created sheet",
         ),
@@ -166,7 +167,7 @@ _CLARIFY_RULES: tuple[tuple[str, str], ...] = (
     ),
     (
         "xoa cai do",
-        "MeoBot không có công cụ xoá. Bạn muốn tạm dừng đồng bộ một Sheet, hay "
+        "TasksBot không có công cụ xoá. Bạn muốn tạm dừng đồng bộ một Sheet, hay "
         "yêu cầu sửa lại một kịch bản?",
     ),
     (
@@ -178,8 +179,10 @@ _CLARIFY_RULES: tuple[tuple[str, str], ...] = (
 _GREETING_TRIGGERS: tuple[str, ...] = (
     "xin chao",
     "chao ban",
+    "chao tasksbot",
     "chao meobot",
     "hello",
+    "hi tasksbot",
     "hi meobot",
     "chao buoi",
     "alo",
@@ -189,6 +192,7 @@ _IDENTITY_TRIGGERS: tuple[str, ...] = (
     "ban la ai",
     "em la ai",
     "gioi thieu ve ban",
+    "tasksbot la gi",
     "meobot la gi",
     "ban ten gi",
 )
@@ -417,7 +421,7 @@ class FakeLLMProvider(StructuredTaskMixin):
 
         if any(trigger in needle for trigger in _IDENTITY_TRIGGERS):
             return (
-                "Mình là MeoBot — trợ lý điều hành và sáng tạo nội dung của bạn. "
+                "Mình là TasksBot — trợ lý điều hành và sáng tạo nội dung của bạn. "
                 "Mình giúp bạn brainstorm hướng nội dung, phản biện ý tưởng, review "
                 "kịch bản, quản lý các Sheet kịch bản và chạy các thao tác vận hành "
                 "có kiểm duyệt quyền hạn."
@@ -431,7 +435,7 @@ class FakeLLMProvider(StructuredTaskMixin):
 
         if any(trigger in needle for trigger in _GREETING_TRIGGERS):
             return (
-                "Chào bạn, mình là MeoBot — trợ lý điều hành và sáng tạo nội dung "
+                "Chào bạn, mình là TasksBot — trợ lý điều hành và sáng tạo nội dung "
                 "của bạn. Hôm nay bạn muốn bắt đầu với công việc, kịch bản hay một "
                 "ý tưởng mới?"
             )

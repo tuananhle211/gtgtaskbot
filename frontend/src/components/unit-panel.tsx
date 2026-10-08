@@ -1,0 +1,634 @@
+"use client";
+
+import { useState } from "react";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { api, type UnitMember, type UnitSettingsInfo } from "@/lib/api";
+import { ConfirmButton } from "@/components/confirm";
+import { Select } from "@/components/pr";
+import { ErrorBox, Loading, NoticeBox, Pill } from "@/components/states";
+import { VideoKindsManager } from "@/components/video-kinds";
+
+/** A role in the unit, with ``is_lead`` making a function role its head. */
+type Position = { role: string; label: string; is_lead?: boolean };
+
+/** One select value per position: "BIEN_TAP:LEAD" is Trưởng phòng Biên kịch. */
+const positionKey = (role: string, isLead?: boolean) => (isLead ? `${role}:LEAD` : role);
+const fromPositionKey = (key: string) => ({
+  role: key.replace(/:LEAD$/, ""),
+  is_lead: key.endsWith(":LEAD"),
+});
+
+/** One unit tag chip: PR teal, ADS orange - the same colours everywhere. */
+export function UnitTags({ units }: { units: string[] }) {
+  if (units.length === 0) return null;
+  return (
+    <span className="inline-flex flex-wrap gap-1">
+      {units.map((unit) => (
+        <span
+          key={unit}
+          className={`unit-tag ${unit === "ADS" ? "unit-tag-ads" : "unit-tag-pr"}`}
+        >
+          {unit}
+        </span>
+      ))}
+    </span>
+  );
+}
+
+/**
+ * One unit's team: its members with every unit tag they hold, the picker that
+ * adds anybody - a member of the other unit included, who then carries both
+ * tags - and, for Ads, the unit's settings and permission matrix. Used by
+ * "Quản trị đơn vị" and by the "Đội Ads" tab of "Thành viên & Phân quyền".
+ */
+export function UnitPanel({
+  code,
+  preselect,
+  settings = true,
+}: {
+  code: string;
+  /** A user id to put in the "add member" picker, e.g. from a PR member card. */
+  preselect?: string;
+  /** Show the unit's settings and permission matrix (Ads). */
+  settings?: boolean;
+}) {
+  const queryClient = useQueryClient();
+  const members = useQuery({
+    queryKey: ["units", code, "members"],
+    queryFn: () => api.unitMembers(code),
+  });
+  const health = useQuery({
+    queryKey: ["units", code, "health"],
+    queryFn: () => api.unitHealth(code),
+  });
+  const directory = useQuery({
+    queryKey: ["units", "directory"],
+    queryFn: api.unitDirectory,
+  });
+  const refresh = () => {
+    void queryClient.invalidateQueries({ queryKey: ["units"] });
+  };
+  if (members.isPending) return <Loading label="Đang tải thành viên…" />;
+  if (members.isError)
+    return <ErrorBox error={members.error} onRetry={() => members.refetch()} />;
+  const tagged = new Set(members.data.members.map((member) => member.user_id));
+  const tagsOf = new Map(
+    (directory.data ?? []).map((user) => [user.user_id, user.units]),
+  );
+  const candidates = (directory.data ?? []).filter(
+    (user) => user.active && !tagged.has(user.user_id),
+  );
+
+  return (
+    <div className="space-y-4">
+      {health.data && health.data.warnings.length > 0 ? (
+        <ul className="space-y-1 rounded-xl border border-amber-400 bg-amber-500/10 p-3 text-sm">
+          {health.data.warnings.map((warning) => (
+            <li key={warning.code}>{warning.message}</li>
+          ))}
+        </ul>
+      ) : null}
+      <AddMember
+        key={preselect ?? ""}
+        code={code}
+        roles={members.data.assignable_roles}
+        candidates={candidates}
+        initialUser={preselect && !tagged.has(preselect) ? preselect : ""}
+        onDone={refresh}
+      />
+      <section className="rounded-xl border border-[var(--border)] bg-[var(--surface)]">
+        <div className="overflow-x-auto">
+          <table className="w-full min-w-[56rem] border-collapse text-sm">
+            <thead>
+              <tr className="border-b border-[var(--border)] text-left text-xs text-[var(--text-muted)]">
+                <th className="px-3 py-2 font-medium">Thành viên</th>
+                <th className="px-3 py-2 font-medium">Đội</th>
+                <th className="px-3 py-2 font-medium">Vai trò hệ thống</th>
+                <th className="px-3 py-2 font-medium">Vai trò trong ban</th>
+                <th className="px-3 py-2 font-medium">Mã thành viên</th>
+                <th className="px-3 py-2 font-medium">Kho cá nhân</th>
+                <th className="px-3 py-2 font-medium">
+                  <span className="sr-only">Thao tác</span>
+                </th>
+              </tr>
+            </thead>
+            <tbody>
+              {members.data.members.map((member) => (
+                <MemberRow
+                  key={member.user_id}
+                  code={code}
+                  member={member}
+                  units={tagsOf.get(member.user_id) ?? [code]}
+                  roles={members.data.assignable_roles}
+                  onDone={refresh}
+                />
+              ))}
+            </tbody>
+          </table>
+        </div>
+        {members.data.members.length === 0 ? (
+          <p className="p-3 text-sm text-[var(--text-muted)]">
+            Ban chưa có thành viên nào.
+          </p>
+        ) : null}
+      </section>
+      {code === "ADS" && settings ? <SettingsForm code={code} onDone={refresh} /> : null}
+      {code === "ADS" && settings ? <VideoKindsManager code={code} /> : null}
+      {code === "ADS" && settings ? (
+        <PermissionMatrix code={code} onDone={refresh} />
+      ) : null}
+    </div>
+  );
+}
+
+function AddMember({
+  code,
+  roles,
+  candidates,
+  initialUser = "",
+  onDone,
+}: {
+  code: string;
+  roles: Position[];
+  candidates: Array<{ user_id: string; full_name: string; units: string[] }>;
+  initialUser?: string;
+  onDone: () => void;
+}) {
+  const [userId, setUserId] = useState(initialUser);
+  const chosen = candidates.find((user) => user.user_id === userId);
+  // Never tagged = PR by default; a first tag elsewhere ends that default.
+  const losesDefaultPr = code !== "PR" && chosen !== undefined && chosen.units.length === 0;
+  const [position, setPosition] = useState(
+    roles[0] ? positionKey(roles[0].role, roles[0].is_lead) : "",
+  );
+  const [memberCode, setMemberCode] = useState("");
+  const tag = useMutation({
+    mutationFn: () =>
+      api.tagUnitMember(code, {
+        user_id: userId,
+        ...fromPositionKey(position),
+        member_code: memberCode || null,
+      }),
+    onSuccess: () => {
+      setUserId("");
+      setMemberCode("");
+      onDone();
+    },
+  });
+  return (
+    <form
+      className="flex flex-wrap items-end gap-3 rounded-xl border border-[var(--border)] bg-[var(--surface)] p-3"
+      onSubmit={(event) => event.preventDefault()}
+    >
+      <label className="flex min-w-[14rem] flex-col gap-1 text-xs text-[var(--text-muted)]">
+        Thêm thành viên
+        <Select
+          value={userId}
+          onChange={(event) => setUserId(event.target.value)}
+        >
+          <option value="">— chọn tài khoản —</option>
+          {candidates.map((user) => (
+            <option key={user.user_id} value={user.user_id}>
+              {user.full_name}
+              {user.units.length > 0 ? ` · đang ở ${user.units.join(", ")}` : ""}
+            </option>
+          ))}
+        </Select>
+      </label>
+      <label className="flex flex-col gap-1 text-xs text-[var(--text-muted)]">
+        Vai trò
+        <Select value={position} onChange={(event) => setPosition(event.target.value)}>
+          {roles.map((option) => (
+            <option
+              key={positionKey(option.role, option.is_lead)}
+              value={positionKey(option.role, option.is_lead)}
+            >
+              {option.label}
+            </option>
+          ))}
+        </Select>
+      </label>
+      {code === "ADS" ? (
+        <label className="flex flex-col gap-1 text-xs text-[var(--text-muted)]">
+          Mã thành viên
+          <input
+            type="text"
+            value={memberCode}
+            onChange={(event) =>
+              setMemberCode(event.target.value.toUpperCase())
+            }
+            placeholder="TUAN"
+            className="min-h-11 w-28 rounded-lg border border-[var(--border)] bg-[var(--surface)] px-3 text-sm text-[var(--text)]"
+          />
+        </label>
+      ) : null}
+      <ConfirmButton
+        spec={{
+          title: "Gắn tag ban cho thành viên?",
+          description: losesDefaultPr
+            ? "Tài khoản này chưa có tag đội nào nên đang mặc định là PR. Sau khi gắn tag này họ chỉ còn ở ban này — muốn giữ cả PR thì gắn thêm tag PR ở tab Thành viên."
+            : "Người này sẽ thấy task của ban và xuất hiện trong chuỗi sản xuất theo vai trò. Tag ở ban khác (nếu có) vẫn giữ nguyên.",
+          confirmLabel: "Gắn tag",
+        }}
+        onConfirm={() => tag.mutate()}
+        pending={tag.isPending}
+        error={tag.error}
+        disabled={!userId || !position}
+        tone="primary"
+      >
+        Gắn tag
+      </ConfirmButton>
+      {tag.isError ? <NoticeBox error={tag.error} /> : null}
+    </form>
+  );
+}
+
+function MemberRow({
+  code,
+  member,
+  units,
+  roles,
+  onDone,
+}: {
+  code: string;
+  member: UnitMember;
+  units: string[];
+  roles: Position[];
+  onDone: () => void;
+}) {
+  const [memberCode, setMemberCode] = useState(member.member_code ?? "");
+  const [nas, setNas] = useState(member.personal_nas_url ?? "");
+  const update = useMutation({
+    mutationFn: (body: Parameters<typeof api.updateUnitMember>[2]) =>
+      api.updateUnitMember(code, member.user_id, body),
+    onSuccess: onDone,
+  });
+  const untag = useMutation({
+    mutationFn: () => api.untagUnitMember(code, member.user_id),
+    onSuccess: onDone,
+  });
+  const dirty =
+    memberCode !== (member.member_code ?? "") ||
+    nas !== (member.personal_nas_url ?? "");
+  return (
+    <tr className="border-b border-[var(--border)] align-top">
+      <td className="px-3 py-2 font-medium">{member.full_name}</td>
+      <td className="px-3 py-2">
+        <UnitTags units={units} />
+      </td>
+      <td className="px-3 py-2">{member.base_role_label}</td>
+      <td className="px-3 py-2">
+        <Select
+          value={positionKey(member.role, member.is_lead)}
+          onChange={(event) => update.mutate(fromPositionKey(event.target.value))}
+          aria-label={`Vai trò của ${member.full_name}`}
+        >
+          {roles.map((option) => (
+            <option
+              key={positionKey(option.role, option.is_lead)}
+              value={positionKey(option.role, option.is_lead)}
+            >
+              {option.label}
+            </option>
+          ))}
+        </Select>
+        {member.is_lead ? (
+          <span className="mt-1 block">
+            <Pill tone="good">Nhận việc của ban để phân công</Pill>
+          </span>
+        ) : null}
+      </td>
+      <td className="px-3 py-2">
+        {code === "ADS" ? (
+          <input
+            type="text"
+            value={memberCode}
+            onChange={(event) =>
+              setMemberCode(event.target.value.toUpperCase())
+            }
+            aria-label={`Mã thành viên của ${member.full_name}`}
+            className="min-h-11 w-28 rounded-lg border border-[var(--border)] bg-[var(--surface)] px-3 text-sm text-[var(--text)]"
+          />
+        ) : (
+          "–"
+        )}
+      </td>
+      <td className="px-3 py-2">
+        <input
+          type="text"
+          value={nas}
+          onChange={(event) => setNas(event.target.value)}
+          aria-label={`Kho cá nhân của ${member.full_name}`}
+          className="min-h-11 w-40 rounded-lg border border-[var(--border)] bg-[var(--surface)] px-3 text-sm text-[var(--text)]"
+        />
+      </td>
+      <td className="px-3 py-2">
+        <div className="flex flex-wrap justify-end gap-1.5">
+          {dirty ? (
+            <button
+              type="button"
+              onClick={() =>
+                update.mutate({
+                  member_code: memberCode || null,
+                  personal_nas_url: nas || null,
+                })
+              }
+              disabled={update.isPending}
+              className="min-h-11 rounded-lg bg-[var(--accent)] px-3 text-xs font-medium text-[var(--accent-text)] disabled:opacity-50"
+            >
+              Lưu
+            </button>
+          ) : null}
+          <ConfirmButton
+            spec={{
+              title: `Gỡ ${member.full_name} khỏi ban?`,
+              description:
+                "Người này không còn thấy task của ban. Lịch sử được giữ; gắn lại được sau.",
+              confirmLabel: "Gỡ tag",
+              variant: "destructive",
+            }}
+            onConfirm={() => untag.mutate()}
+            pending={untag.isPending}
+            error={untag.error}
+            tone="danger"
+          >
+            Gỡ
+          </ConfirmButton>
+        </div>
+        {update.isError ? <NoticeBox error={update.error} /> : null}
+        {untag.isError ? <NoticeBox error={untag.error} /> : null}
+      </td>
+    </tr>
+  );
+}
+
+export function SettingsForm({ code, onDone }: { code: string; onDone: () => void }) {
+  const me = useQuery({ queryKey: ["units", "me"], queryFn: api.unitsMe });
+  const current = me.data?.units.find((unit) => unit.code === code)?.settings;
+  const [draft, setDraft] = useState<Partial<UnitSettingsInfo>>({});
+  const save = useMutation({
+    mutationFn: () => api.updateUnitSettings(code, draft),
+    onSuccess: () => {
+      setDraft({});
+      onDone();
+    },
+  });
+  if (!current) return null;
+  const value = <K extends keyof UnitSettingsInfo>(
+    key: K,
+  ): UnitSettingsInfo[K] => (draft[key] ?? current[key]) as UnitSettingsInfo[K];
+  const field =
+    "min-h-11 w-full rounded-lg border border-[var(--border)] bg-[var(--surface)] px-3 text-sm text-[var(--text)]";
+  return (
+    <form
+      className="grid gap-3 rounded-xl border border-[var(--border)] bg-[var(--surface)] p-4 sm:grid-cols-2"
+      onSubmit={(event) => event.preventDefault()}
+    >
+      <h2 className="text-sm font-semibold sm:col-span-2">Thiết lập ban</h2>
+      <label className="text-xs text-[var(--text-muted)]">
+        Mốc Gấp (ngày)
+        <input
+          type="number"
+          min={1}
+          max={365}
+          value={value("urgent_days")}
+          onChange={(event) =>
+            setDraft((all) => ({
+              ...all,
+              urgent_days: Number(event.target.value),
+            }))
+          }
+          className={`mt-1 ${field}`}
+        />
+      </label>
+      <label className="text-xs text-[var(--text-muted)]">
+        Người gắn link khi quy trình đủ Biên kịch › Design › Dựng
+        <Select
+          value={value("btd_link_attacher")}
+          onChange={(event) =>
+            setDraft((all) => ({
+              ...all,
+              btd_link_attacher: event.target.value,
+            }))
+          }
+          className="mt-1 w-full"
+        >
+          <option value="DUNG">Dựng (Editor)</option>
+          <option value="BIEN_TAP">Biên kịch</option>
+        </Select>
+      </label>
+      <label className="text-xs text-[var(--text-muted)]">
+        Link Kho Media
+        <input
+          type="url"
+          value={value("media_nas_url") ?? ""}
+          onChange={(event) =>
+            setDraft((all) => ({
+              ...all,
+              media_nas_url: event.target.value || null,
+            }))
+          }
+          className={`mt-1 ${field}`}
+        />
+      </label>
+      <label className="text-xs text-[var(--text-muted)]">
+        Link Kho Thiết kế
+        <input
+          type="url"
+          value={value("design_nas_url") ?? ""}
+          onChange={(event) =>
+            setDraft((all) => ({
+              ...all,
+              design_nas_url: event.target.value || null,
+            }))
+          }
+          className={`mt-1 ${field}`}
+        />
+      </label>
+      <label className="inline-flex min-h-11 items-center gap-2 text-sm">
+        <input
+          type="checkbox"
+          checked={value("telegram_enabled")}
+          onChange={(event) =>
+            setDraft((all) => ({
+              ...all,
+              telegram_enabled: event.target.checked,
+            }))
+          }
+        />
+        Gửi thêm thông báo qua Telegram
+      </label>
+      <fieldset className="sm:col-span-2">
+        <legend className="text-xs text-[var(--text-muted)]">
+          Trưởng phòng ban duyệt bài nộp trước khi chuyển bước (bỏ chọn: nộp xong tự
+          chuyển bước tiếp theo)
+        </legend>
+        <div className="mt-1 flex flex-wrap gap-x-5">
+          {(
+            [
+              ["review_bien_tap", "Biên kịch"],
+              ["review_thiet_ke", "Design"],
+              ["review_dung", "Dựng"],
+              ["review_video_by_script_lead", "Trưởng phòng Biên kịch xem video (quy trình có Biên kịch)"],
+            ] as const
+          ).map(([key, label]) => (
+            <label
+              key={key}
+              className="inline-flex min-h-11 items-center gap-2 text-sm"
+            >
+              <input
+                type="checkbox"
+                checked={Boolean(value(key))}
+                onChange={(event) =>
+                  setDraft((all) => ({ ...all, [key]: event.target.checked }))
+                }
+              />
+              {label}
+            </label>
+          ))}
+        </div>
+      </fieldset>
+      <div className="flex justify-end sm:col-span-2">
+        <ConfirmButton
+          spec={{
+            title: "Lưu thiết lập ban?",
+            description: "Áp dụng cho mọi order của ban từ giờ.",
+            confirmLabel: "Lưu",
+          }}
+          onConfirm={() => save.mutate()}
+          pending={save.isPending}
+          error={save.error}
+          disabled={Object.keys(draft).length === 0}
+          tone="primary"
+        >
+          Lưu thiết lập
+        </ConfirmButton>
+      </div>
+      {save.isError ? <NoticeBox error={save.error} /> : null}
+    </form>
+  );
+}
+
+/**
+ * The Ads permission matrix: one row per permission, one column per role.
+ * The OWNER is not a column - they hold everything. "Trong ban mình" means
+ * the person's own function (a Leader's nodes), or the orderer's own orders.
+ */
+export function PermissionMatrix({
+  code,
+  onDone,
+}: {
+  code: string;
+  onDone: () => void;
+}) {
+  const me = useQuery({ queryKey: ["units", "me"], queryFn: api.unitsMe });
+  const current = me.data?.units.find((unit) => unit.code === code)?.settings;
+  const [draft, setDraft] = useState<Record<string, Record<string, string>> | null>(
+    null,
+  );
+  const save = useMutation({
+    mutationFn: () =>
+      api.updateUnitSettings(code, { permissions: draft ?? undefined }),
+    onSuccess: () => {
+      setDraft(null);
+      onDone();
+    },
+  });
+  if (!current?.permissions || !current.permission_catalog || !current.permission_roles) {
+    return null;
+  }
+  const matrix = draft ?? current.permissions;
+  const labels = current.scope_labels ?? {};
+  const setCell = (role: string, permission: string, scope: string) =>
+    setDraft({
+      ...matrix,
+      [role]: { ...matrix[role], [permission]: scope },
+    });
+  const tone = (scope: string) =>
+    scope === "ALL"
+      ? "bg-[var(--good-soft)] text-[var(--good)]"
+      : scope === "OWN"
+        ? "bg-[var(--warn-soft)] text-[var(--warn)]"
+        : "bg-[var(--surface-muted)] text-[var(--text-muted)]";
+  return (
+    <section
+      aria-label="Phân quyền ban Ads"
+      className="rounded-xl border border-[var(--border)] bg-[var(--surface)] p-4"
+    >
+      <div className="flex flex-wrap items-end justify-between gap-2">
+        <div>
+          <h2 className="text-sm font-semibold">Phân quyền ban Ads</h2>
+          <p className="mt-0.5 text-xs text-[var(--text-muted)]">
+            Quyền theo vai trò. Chủ sở hữu luôn có mọi quyền. Một người có nhiều
+            vai trò (ví dụ Admin kiêm Trưởng phòng Dựng) được cộng quyền của các vai trò đó.
+          </p>
+        </div>
+        <ConfirmButton
+          spec={{
+            title: "Lưu bảng phân quyền?",
+            description:
+              "Áp dụng ngay cho mọi order của ban: ai được duyệt, giao việc, huỷ, xem.",
+            confirmLabel: "Lưu",
+          }}
+          onConfirm={() => save.mutate()}
+          pending={save.isPending}
+          error={save.error}
+          disabled={draft === null}
+          tone="primary"
+        >
+          Lưu phân quyền
+        </ConfirmButton>
+      </div>
+      <div className="mt-3 overflow-x-auto">
+        <table className="table-dense">
+          <thead>
+            <tr>
+              <th scope="col">Quyền</th>
+              {current.permission_roles.map((role) => (
+                <th key={role.key} scope="col">
+                  {role.label}
+                </th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {current.permission_catalog.map((permission) => (
+              <tr key={permission.key}>
+                <th scope="row" className="text-left font-medium">
+                  {permission.label}
+                  {permission.own_meaning ? (
+                    <span className="block text-[11px] font-normal text-[var(--text-muted)]">
+                      Trong ban mình: {permission.own_meaning}
+                    </span>
+                  ) : null}
+                </th>
+                {current.permission_roles!.map((role) => {
+                  const scope = matrix[role.key]?.[permission.key] ?? "NONE";
+                  return (
+                    <td key={role.key}>
+                      <select
+                        aria-label={`${permission.label} · ${role.label}`}
+                        value={scope}
+                        onChange={(event) =>
+                          setCell(role.key, permission.key, event.target.value)
+                        }
+                        className={`min-h-9 rounded-md border border-[var(--border)] px-2 text-xs font-medium ${tone(scope)}`}
+                      >
+                        {permission.scopes.map((option) => (
+                          <option key={option} value={option}>
+                            {labels[option] ?? option}
+                          </option>
+                        ))}
+                      </select>
+                    </td>
+                  );
+                })}
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+      {save.isError ? <NoticeBox error={save.error} /> : null}
+    </section>
+  );
+}

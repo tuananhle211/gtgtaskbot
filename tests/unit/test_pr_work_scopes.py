@@ -404,8 +404,11 @@ async def test_22_no_team_or_department_table_was_added(world: World) -> None:
     """
     from meobot.db.base import Base
 
+    # ``org_units`` arrived with 0042 as the PR / Ads unit registry - a wall
+    # between two departments, not a hierarchy. The scopes still read no
+    # organisational table: that is asserted on the source below.
     tables = set(Base.metadata.tables)
-    for forbidden in ("teams", "team_members", "departments", "org_units"):
+    for forbidden in ("teams", "team_members", "departments"):
         assert forbidden not in tables
 
     source = (

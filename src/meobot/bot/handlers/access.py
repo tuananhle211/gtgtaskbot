@@ -328,7 +328,7 @@ async def _apply(
         },
     )
     return formatting.escape(
-        f"🔕 MeoBot sẽ im lặng với {name} trong group này. Các group khác không đổi."
+        f"🔕 TasksBot sẽ im lặng với {name} trong group này. Các group khác không đổi."
     )
 
 

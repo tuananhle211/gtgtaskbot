@@ -102,7 +102,7 @@ class UpdateTemplateRequest(BaseModel):
 
 
 class CreatedSpreadsheetResponse(BaseModel):
-    """One spreadsheet MeoBot created."""
+    """One spreadsheet TasksBot created."""
 
     model_config = ConfigDict(frozen=True)
 

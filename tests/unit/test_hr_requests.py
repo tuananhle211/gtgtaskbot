@@ -15,7 +15,8 @@ approval card and in nothing else - not in a group, not in the audit payload.
 from __future__ import annotations
 
 import uuid
-from datetime import UTC, date, datetime, time
+from datetime import UTC, date, datetime, time, timedelta
+from zoneinfo import ZoneInfo
 
 import pytest
 from sqlalchemy import select
@@ -59,6 +60,11 @@ from meobot.domain.permissions.matrix import Permission, has_permission
 #: 30 July 2026 is a Thursday; 15:00 in Ho Chi Minh City.
 NOW = datetime(2026, 7, 30, 8, 0, tzinfo=UTC)
 TOMORROW = date(2026, 7, 31)
+#: The service refuses a request for a day that has passed, judged by the real
+#: clock in Ho Chi Minh City. ``TOMORROW`` is fixed for the pure date-resolver
+#: and formatting tests above; the service tests file for this moving day so
+#: they keep passing after 31 July 2026.
+NEXT_DAY = datetime.now(tz=ZoneInfo("Asia/Ho_Chi_Minh")).date() + timedelta(days=1)
 
 
 @pytest.fixture
@@ -239,7 +245,7 @@ async def test_a_member_files_their_own_request(session, request_id: uuid.UUID) 
         actor=actor_for(user),
         request_id=request_id,
         request_type=HrRequestType.MORNING_LEAVE,
-        work_date=TOMORROW,
+        work_date=NEXT_DAY,
         schedule=DEFAULT_SCHEDULE,
         reason="Có việc gia đình",
     )
@@ -256,7 +262,7 @@ async def test_filing_writes_one_history_event(session, request_id: uuid.UUID) -
         actor=actor_for(user),
         request_id=request_id,
         request_type=HrRequestType.FULL_DAY_LEAVE,
-        work_date=TOMORROW,
+        work_date=NEXT_DAY,
         schedule=DEFAULT_SCHEDULE,
     )
     events = (
@@ -287,7 +293,7 @@ async def test_overlapping_leave_is_refused(session, request_id: uuid.UUID) -> N
         actor=actor_for(user),
         request_id=request_id,
         request_type=HrRequestType.FULL_DAY_LEAVE,
-        work_date=TOMORROW,
+        work_date=NEXT_DAY,
         schedule=DEFAULT_SCHEDULE,
     )
     with pytest.raises(ValidationError):
@@ -295,7 +301,7 @@ async def test_overlapping_leave_is_refused(session, request_id: uuid.UUID) -> N
             actor=actor_for(user),
             request_id=request_id,
             request_type=HrRequestType.MORNING_LEAVE,
-            work_date=TOMORROW,
+            work_date=NEXT_DAY,
             schedule=DEFAULT_SCHEDULE,
         )
 
@@ -310,7 +316,7 @@ async def test_two_late_requests_for_one_day_are_refused(session, request_id: uu
                 actor=actor_for(user),
                 request_id=request_id,
                 request_type=HrRequestType.LATE_ARRIVAL,
-                work_date=TOMORROW,
+                work_date=NEXT_DAY,
                 schedule=DEFAULT_SCHEDULE,
                 expected_arrival_at=arrival,
                 late_minutes=30,
@@ -321,7 +327,7 @@ async def test_two_late_requests_for_one_day_are_refused(session, request_id: uu
                     actor=actor_for(user),
                     request_id=request_id,
                     request_type=HrRequestType.LATE_ARRIVAL,
-                    work_date=TOMORROW,
+                    work_date=NEXT_DAY,
                     schedule=DEFAULT_SCHEDULE,
                     expected_arrival_at=arrival,
                     late_minutes=45,
@@ -339,7 +345,7 @@ async def test_a_suspended_account_cannot_file(session, request_id: uuid.UUID) -
             actor=actor_for(user),
             request_id=request_id,
             request_type=HrRequestType.FULL_DAY_LEAVE,
-            work_date=TOMORROW,
+            work_date=NEXT_DAY,
             schedule=DEFAULT_SCHEDULE,
         )
 
@@ -352,7 +358,7 @@ async def test_only_the_owner_approves(session, request_id: uuid.UUID) -> None:
         actor=actor_for(user),
         request_id=request_id,
         request_type=HrRequestType.FULL_DAY_LEAVE,
-        work_date=TOMORROW,
+        work_date=NEXT_DAY,
         schedule=DEFAULT_SCHEDULE,
     )
     lead = Actor(
@@ -371,7 +377,7 @@ async def test_a_member_cannot_approve_their_own_request(session, request_id: uu
         actor=actor_for(user),
         request_id=request_id,
         request_type=HrRequestType.FULL_DAY_LEAVE,
-        work_date=TOMORROW,
+        work_date=NEXT_DAY,
         schedule=DEFAULT_SCHEDULE,
     )
     # Even as an owner, deciding your own request is refused.
@@ -393,7 +399,7 @@ async def test_approving_twice_changes_state_once(
         actor=actor_for(user),
         request_id=request_id,
         request_type=HrRequestType.FULL_DAY_LEAVE,
-        work_date=TOMORROW,
+        work_date=NEXT_DAY,
         schedule=DEFAULT_SCHEDULE,
     )
     await hr.approve(actor=owner, request_id=request_id, hr_request_id=row.id)
@@ -420,7 +426,7 @@ async def test_a_stale_version_cannot_be_approved(
         actor=actor_for(user),
         request_id=request_id,
         request_type=HrRequestType.FULL_DAY_LEAVE,
-        work_date=TOMORROW,
+        work_date=NEXT_DAY,
         schedule=DEFAULT_SCHEDULE,
     )
     rendered_version = row.version
@@ -450,7 +456,7 @@ async def test_rejecting_an_approved_request_is_refused(
         actor=actor_for(user),
         request_id=request_id,
         request_type=HrRequestType.FULL_DAY_LEAVE,
-        work_date=TOMORROW,
+        work_date=NEXT_DAY,
         schedule=DEFAULT_SCHEDULE,
     )
     await hr.approve(actor=owner, request_id=request_id, hr_request_id=row.id)
@@ -466,7 +472,7 @@ async def test_a_member_withdraws_their_own_pending_request(session, request_id:
         actor=actor_for(user),
         request_id=request_id,
         request_type=HrRequestType.FULL_DAY_LEAVE,
-        work_date=TOMORROW,
+        work_date=NEXT_DAY,
         schedule=DEFAULT_SCHEDULE,
     )
     await hr.withdraw(actor=actor_for(user), request_id=request_id, hr_request_id=row.id)
@@ -483,7 +489,7 @@ async def test_an_approved_request_cannot_be_silently_withdrawn(
         actor=actor_for(user),
         request_id=request_id,
         request_type=HrRequestType.FULL_DAY_LEAVE,
-        work_date=TOMORROW,
+        work_date=NEXT_DAY,
         schedule=DEFAULT_SCHEDULE,
     )
     await hr.approve(actor=owner, request_id=request_id, hr_request_id=row.id)
@@ -499,7 +505,7 @@ async def test_nobody_can_touch_somebody_elses_request(session, request_id: uuid
         actor=actor_for(mine),
         request_id=request_id,
         request_type=HrRequestType.FULL_DAY_LEAVE,
-        work_date=TOMORROW,
+        work_date=NEXT_DAY,
         schedule=DEFAULT_SCHEDULE,
     )
     with pytest.raises(AuthorizationError):
@@ -513,7 +519,7 @@ async def test_nothing_is_ever_deleted(session, owner: Actor, request_id: uuid.U
         actor=actor_for(user),
         request_id=request_id,
         request_type=HrRequestType.FULL_DAY_LEAVE,
-        work_date=TOMORROW,
+        work_date=NEXT_DAY,
         schedule=DEFAULT_SCHEDULE,
     )
     await hr.withdraw(actor=actor_for(user), request_id=request_id, hr_request_id=row.id)
@@ -531,7 +537,7 @@ async def test_a_member_sees_only_their_own_requests(session, request_id: uuid.U
         actor=actor_for(mine),
         request_id=request_id,
         request_type=HrRequestType.MORNING_LEAVE,
-        work_date=TOMORROW,
+        work_date=NEXT_DAY,
         schedule=DEFAULT_SCHEDULE,
         reason="Riêng tư của tôi",
     )
@@ -539,7 +545,7 @@ async def test_a_member_sees_only_their_own_requests(session, request_id: uuid.U
         actor=actor_for(theirs),
         request_id=request_id,
         request_type=HrRequestType.AFTERNOON_LEAVE,
-        work_date=TOMORROW,
+        work_date=NEXT_DAY,
         schedule=DEFAULT_SCHEDULE,
         reason="Riêng tư của người khác",
     )
@@ -571,11 +577,15 @@ async def test_personal_totals_separate_the_statuses(
 ) -> None:
     user = await make_user(session)
     hr = service(session)
+    # A whole month that still lies ahead, so no request trips the past-date
+    # rule whatever today's date is: the first of next month, and the one after.
+    next_month = month_bounds(NEXT_DAY)[1] + timedelta(days=1)
+    month_after = month_bounds(next_month)[1] + timedelta(days=1)
     approved = await hr.submit(
         actor=actor_for(user),
         request_id=request_id,
         request_type=HrRequestType.MORNING_LEAVE,
-        work_date=date(2026, 7, 31),
+        work_date=next_month + timedelta(days=10),
         schedule=DEFAULT_SCHEDULE,
     )
     await hr.approve(actor=owner, request_id=request_id, hr_request_id=approved.id)
@@ -583,20 +593,19 @@ async def test_personal_totals_separate_the_statuses(
         actor=actor_for(user),
         request_id=request_id,
         request_type=HrRequestType.FULL_DAY_LEAVE,
-        work_date=date(2026, 7, 28),
+        work_date=next_month + timedelta(days=7),
         schedule=DEFAULT_SCHEDULE,
-        allow_past=True,
     )
     await hr.reject(actor=owner, request_id=request_id, hr_request_id=rejected.id)
     await hr.submit(
         actor=actor_for(user),
         request_id=request_id,
         request_type=HrRequestType.AFTERNOON_LEAVE,
-        work_date=date(2026, 8, 3),
+        work_date=month_after + timedelta(days=2),
         schedule=DEFAULT_SCHEDULE,
     )
 
-    start, end = month_bounds(date(2026, 7, 15))
+    start, end = month_bounds(next_month)
     summary = await HrStatisticsService(session).personal(user_id=user.id, start=start, end=end)
     assert summary.leave.approved_count == 1
     assert summary.leave.rejected_count == 1
@@ -650,12 +659,12 @@ async def test_department_totals_are_computed_not_generated(
             actor=actor_for(user),
             request_id=request_id,
             request_type=HrRequestType.FULL_DAY_LEAVE,
-            work_date=TOMORROW,
+            work_date=NEXT_DAY,
             schedule=DEFAULT_SCHEDULE,
         )
         await hr.approve(actor=owner, request_id=request_id, hr_request_id=row.id)
 
-    start, end = month_bounds(TOMORROW)
+    start, end = month_bounds(NEXT_DAY)
     summary = await HrStatisticsService(session).department(actor=owner, start=start, end=end)
     assert summary.leave.approved_count == 2
     assert summary.leave.approved_days == 2.0
@@ -670,7 +679,7 @@ async def test_absence_today_names_only_approved_people(
         actor=actor_for(user),
         request_id=request_id,
         request_type=HrRequestType.MORNING_LEAVE,
-        work_date=TOMORROW,
+        work_date=NEXT_DAY,
         schedule=DEFAULT_SCHEDULE,
     )
     await hr.approve(actor=owner, request_id=request_id, hr_request_id=approved.id)
@@ -680,11 +689,11 @@ async def test_absence_today_names_only_approved_people(
         actor=actor_for(other),
         request_id=request_id,
         request_type=HrRequestType.FULL_DAY_LEAVE,
-        work_date=TOMORROW,
+        work_date=NEXT_DAY,
         schedule=DEFAULT_SCHEDULE,
     )
 
-    summary = await HrStatisticsService(session).absence_on(actor=owner, day=TOMORROW)
+    summary = await HrStatisticsService(session).absence_on(actor=owner, day=NEXT_DAY)
     assert [name for name, _ in summary.morning] == ["Linh"]
     assert summary.full_day == [], "a pending request is not an absence yet"
     assert summary.pending_count == 1
@@ -736,7 +745,7 @@ async def test_the_audit_trail_records_state_but_not_the_reason(
         actor=actor_for(user),
         request_id=request_id,
         request_type=HrRequestType.MORNING_LEAVE,
-        work_date=TOMORROW,
+        work_date=NEXT_DAY,
         schedule=DEFAULT_SCHEDULE,
         reason=private_reason,
     )
@@ -757,7 +766,7 @@ async def test_history_events_carry_no_reason(session, request_id: uuid.UUID) ->
         actor=actor_for(user),
         request_id=request_id,
         request_type=HrRequestType.MORNING_LEAVE,
-        work_date=TOMORROW,
+        work_date=NEXT_DAY,
         schedule=DEFAULT_SCHEDULE,
         reason="Chuyện riêng",
     )
@@ -774,7 +783,7 @@ async def test_a_private_note_never_reaches_the_requester_view(
         actor=actor_for(user),
         request_id=request_id,
         request_type=HrRequestType.MORNING_LEAVE,
-        work_date=TOMORROW,
+        work_date=NEXT_DAY,
         schedule=DEFAULT_SCHEDULE,
     )
     await hr.approve(

@@ -26,7 +26,7 @@ from typing import Final
 #: that look like interface English.
 ALLOWED_PROPER_NOUNS: Final[frozenset[str]] = frozenset(
     {
-        "MeoBot",
+        "TasksBot",
         "Telegram",
         "Facebook",
         "TikTok",
@@ -71,7 +71,7 @@ TERMS: Final[dict[str, str]] = {
     "proof": "Bằng chứng",
     "progress": "Tiến độ",
     "dashboard": "Tổng quan",
-    "access_request": "Yêu cầu sử dụng MeoBot",
+    "access_request": "Yêu cầu sử dụng TasksBot",
     "seed_order": "Yêu cầu seeding",
     "seed_task": "Việc seeding",
     "social_report": "Báo cáo kênh",
@@ -92,7 +92,7 @@ class Button(StrEnum):
     SUBMIT_RESULT = "📤 Nộp kết quả"
     REPORT_ISSUE = "⚠️ Báo vấn đề"
     VIEW_PROGRESS = "📊 Xem tiến độ"
-    ASK_MEOBOT = "💬 Hỏi MeoBot"
+    ASK_MEOBOT = "💬 Hỏi TasksBot"
 
     # Work cards
     START_WORK = "▶️ Bắt đầu làm"
@@ -152,7 +152,7 @@ HOME_GREETING: Final[str] = "Chào {name} 👋"
 HOME_QUESTION: Final[str] = "Bạn muốn làm gì?"
 HOME_NOTHING_TODAY: Final[str] = "Hôm nay bạn chưa có việc nào được giao."
 
-HELP_MEMBER: Final[str] = """MEOBOT CÓ THỂ GIÚP BẠN
+HELP_MEMBER: Final[str] = """TASKSBOT CÓ THỂ GIÚP BẠN
 
 📋 Công việc
 • Xem việc hôm nay
@@ -233,10 +233,10 @@ class Problem(StrEnum):
         "Mình không còn tìm thấy yêu cầu này. Có thể yêu cầu đã được xử lý hoặc đã bị rút."
     )
     AI_UNAVAILABLE = (
-        "MeoBot chưa thể tạo nội dung lúc này.\nLượt trò chuyện AI của bạn chưa bị trừ."
+        "TasksBot chưa thể tạo nội dung lúc này.\nLượt trò chuyện AI của bạn chưa bị trừ."
     )
     FACEBOOK_DISCONNECTED = (
-        "MeoBot hiện chưa lấy được số liệu của Page này vì kết nối Facebook đã hết hạn.\n\n"
+        "TasksBot hiện chưa lấy được số liệu của Page này vì kết nối Facebook đã hết hạn.\n\n"
         "Quản trị viên đã được thông báo để kết nối lại.\nBạn không cần thao tác gì."
     )
     BUTTON_EXPIRED = "Nút này đã hết hiệu lực. Bạn mở lại danh sách rồi thử lại nhé."
@@ -254,27 +254,27 @@ class Problem(StrEnum):
 NOT_BUILT_YET: Final[dict[str, str]] = {
     "work": (
         "Tính năng giao việc đang được hoàn thiện.\n"
-        "Hiện tại MeoBot chưa quản lý danh sách việc của bạn."
+        "Hiện tại TasksBot chưa quản lý danh sách việc của bạn."
     ),
     "seeding": (
         "Tính năng giao việc seeding đang được hoàn thiện.\n"
-        "Hiện tại bạn chưa thể nộp kết quả seeding qua MeoBot."
+        "Hiện tại bạn chưa thể nộp kết quả seeding qua TasksBot."
     ),
     "proof": (
         "Tính năng nộp bằng chứng đang được hoàn thiện.\n"
-        "Hiện tại MeoBot chưa lưu được ảnh hay link kết quả."
+        "Hiện tại TasksBot chưa lưu được ảnh hay link kết quả."
     ),
     "channels": (
         "Danh sách kênh bạn phụ trách đang được hoàn thiện.\n"
-        "Hiện tại MeoBot chưa quản lý phân công kênh."
+        "Hiện tại TasksBot chưa quản lý phân công kênh."
     ),
     "schedule_gaps": (
         "Lịch đăng bài đang được hoàn thiện.\n"
-        "Hiện tại MeoBot chưa theo dõi được kênh nào còn thiếu bài."
+        "Hiện tại TasksBot chưa theo dõi được kênh nào còn thiếu bài."
     ),
     "personal_report": (
         "Báo cáo kết quả cá nhân đang được hoàn thiện.\n"
-        "Hiện tại MeoBot chưa tổng hợp được số liệu của bạn."
+        "Hiện tại TasksBot chưa tổng hợp được số liệu của bạn."
     ),
     "issue": (
         "Tính năng báo vấn đề bài đăng đang được hoàn thiện.\n"

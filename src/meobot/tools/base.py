@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import uuid
-from collections.abc import Awaitable, Callable, Mapping
+from collections.abc import Awaitable, Callable, Iterator, Mapping
 from dataclasses import dataclass, field
 from typing import Any, TypeVar
 
@@ -149,6 +149,10 @@ class ToolRegistry:
 
     def __len__(self) -> int:
         return len(self._tools)
+
+    def __iter__(self) -> Iterator[ToolDefinition]:
+        """Every registered tool, in registration order."""
+        return iter(self._tools.values())
 
     @property
     def names(self) -> list[str]:

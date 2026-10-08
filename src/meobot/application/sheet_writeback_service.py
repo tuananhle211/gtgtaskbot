@@ -29,16 +29,16 @@ logger = get_logger(__name__)
 
 #: How each workflow status reads in the team's sheet.
 STATUS_LABELS: dict[ScriptStatus, str] = {
-    ScriptStatus.IMPORTED: "MeoBot: đã nhận",
-    ScriptStatus.SUBMITTED_FOR_REVIEW: "MeoBot: chờ review",
-    ScriptStatus.REVIEWING: "MeoBot: đang review",
-    ScriptStatus.AI_REVIEWED: "MeoBot: đã review",
-    ScriptStatus.WAITING_FOR_SCRIPT_APPROVAL: "MeoBot: chờ duyệt",
-    ScriptStatus.REVISION_REQUIRED: "MeoBot: cần sửa",
-    ScriptStatus.APPROVED_FOR_PRODUCTION: "MeoBot: duyệt sản xuất",
-    ScriptStatus.IN_PRODUCTION: "MeoBot: đang sản xuất",
-    ScriptStatus.ARCHIVED: "MeoBot: lưu trữ",
-    ScriptStatus.DRAFT: "MeoBot: nháp",
+    ScriptStatus.IMPORTED: "TasksBot: đã nhận",
+    ScriptStatus.SUBMITTED_FOR_REVIEW: "TasksBot: chờ review",
+    ScriptStatus.REVIEWING: "TasksBot: đang review",
+    ScriptStatus.AI_REVIEWED: "TasksBot: đã review",
+    ScriptStatus.WAITING_FOR_SCRIPT_APPROVAL: "TasksBot: chờ duyệt",
+    ScriptStatus.REVISION_REQUIRED: "TasksBot: cần sửa",
+    ScriptStatus.APPROVED_FOR_PRODUCTION: "TasksBot: duyệt sản xuất",
+    ScriptStatus.IN_PRODUCTION: "TasksBot: đang sản xuất",
+    ScriptStatus.ARCHIVED: "TasksBot: lưu trữ",
+    ScriptStatus.DRAFT: "TasksBot: nháp",
 }
 
 #: Review summaries are trimmed before they reach a spreadsheet cell.

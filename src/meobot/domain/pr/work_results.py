@@ -45,6 +45,10 @@ class PrWorkResultSource(StrEnum):
     CRM = "CRM"
     SYSTEM = "SYSTEM"
     OTHER = "OTHER"
+    #: The Ads order engine: a production node a Leader approved. Keyed
+    #: ``order:<node uuid>:<NODE_TYPE>`` by
+    #: :mod:`meobot.application.orders.work_recorder`.
+    ORDER = "ORDER"
 
 
 class PrWorkExclusionKind(StrEnum):

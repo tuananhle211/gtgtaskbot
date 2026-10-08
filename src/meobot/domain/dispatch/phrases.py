@@ -56,6 +56,7 @@ NUMBER_WORDS: dict[str, int] = {
 #: because a group really can be called "Anh em Content".
 FILLERS: frozenset[str] = frozenset(
     {
+        "tasksbot",
         "meobot",
         "bot",
         "nhe",

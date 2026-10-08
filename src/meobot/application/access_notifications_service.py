@@ -90,7 +90,7 @@ async def queue_access_request_notification(
                 private_chat_id=owner.telegram_chat_id,
                 source_chat_id=request.telegram_chat_id,
                 destination_label="Chat riêng của Trưởng phòng",
-                business_summary="Yêu cầu dùng MeoBot của một người lạ",
+                business_summary="Yêu cầu dùng TasksBot của một người lạ",
             )
         ]
     )
@@ -124,7 +124,7 @@ async def queue_access_decision_notification(
                 private_chat_id=request.telegram_chat_id,
                 source_chat_id=request.telegram_chat_id,
                 destination_label="Group người hỏi",
-                business_summary="Kết quả yêu cầu dùng MeoBot",
+                business_summary="Kết quả yêu cầu dùng TasksBot",
             )
         ]
     )

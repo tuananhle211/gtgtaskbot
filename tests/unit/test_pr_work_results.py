@@ -71,7 +71,7 @@ from tests.unit.test_pr_production_lifecycle import (  # noqa: F401 - `world` is
 )
 from tests.unit.test_pr_work_quota import approved_plan, month
 
-pytestmark = pytest.mark.asyncio
+pytestmark = [pytest.mark.asyncio, pytest.mark.usefixtures("frozen_work_clock")]
 
 #: 380 standard minutes a customer - the brief's "points per unit".
 CUSTOMER_RATE = Decimal("380")

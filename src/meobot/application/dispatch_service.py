@@ -92,7 +92,7 @@ NO_DESTINATION_SELECTED = (
     "Bạn chưa chọn group nào để gửi. Bạn chọn ít nhất một group giúp mình nhé."
 )
 NOT_ALLOWED_HERE = (
-    "Bạn không còn được phép gửi vào {name} nên MeoBot chưa gửi thông báo này.\n"
+    "Bạn không còn được phép gửi vào {name} nên TasksBot chưa gửi thông báo này.\n"
     "Bạn bỏ nơi nhận đó rồi gửi lại giúp mình nhé."
 )
 PRIVATE_CONTENT = "Thông báo này có thể chứa thông tin cá nhân và không phù hợp để gửi vào group."
@@ -702,13 +702,13 @@ def _summary_of(content: str) -> str:
 def _reason_for(category: FailureCategory) -> str:
     """Why one destination did not receive it, in Vietnamese."""
     return {
-        FailureCategory.BOT_NOT_IN_CHAT: "MeoBot không còn ở trong group này.",
-        FailureCategory.BOT_CANNOT_SEND: "MeoBot hiện không có quyền gửi tin trong group này.",
-        FailureCategory.CHAT_NOT_FOUND: "MeoBot không còn tìm thấy group này.",
+        FailureCategory.BOT_NOT_IN_CHAT: "TasksBot không còn ở trong group này.",
+        FailureCategory.BOT_CANNOT_SEND: "TasksBot hiện không có quyền gửi tin trong group này.",
+        FailureCategory.CHAT_NOT_FOUND: "TasksBot không còn tìm thấy group này.",
         FailureCategory.PRIVATE_CHAT_UNAVAILABLE: "Chưa mở được cuộc trò chuyện với người nhận.",
         FailureCategory.DESTINATION_REFUSED: "Nơi nhận này đang không nhận thông báo tự động.",
         FailureCategory.RATE_LIMITED: "Telegram đang giới hạn tốc độ gửi.",
         FailureCategory.NETWORK: "Kết nối tới Telegram đang gặp sự cố.",
         FailureCategory.PROVIDER_UNAVAILABLE: "Telegram tạm thời không phản hồi.",
         FailureCategory.NONE: "Chưa gửi xong.",
-    }.get(category, "MeoBot chưa gửi được vào group này.")
+    }.get(category, "TasksBot chưa gửi được vào group này.")

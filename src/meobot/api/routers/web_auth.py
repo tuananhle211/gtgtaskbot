@@ -25,18 +25,31 @@ cross-site request carrying credentials for a token to protect.
 from __future__ import annotations
 
 from fastapi import APIRouter, Query, Request, Response, status
-from fastapi.responses import RedirectResponse
+from fastapi.responses import JSONResponse, RedirectResponse
 
 from meobot.api.deps import (
+    AvatarServiceDep,
     CurrentActorDep,
+    CurrentWebSessionDep,
+    PasswordResetServiceDep,
+    PasswordServiceDep,
     PrServicesDep,
     RequestIdDep,
     SettingsDep,
     WebAuthServiceDep,
 )
-from meobot.api.schemas.pr import ActorResponse
+from meobot.api.schemas.account import (
+    PasswordLoginRequest,
+    PasswordLoginResponse,
+    PasswordResetRequest,
+    PasswordResetResponse,
+)
+from meobot.api.schemas.pr import ActorResponse, ErrorBody, ErrorEnvelope
+from meobot.application.account.password_reset_service import RESET_REQUESTED_MESSAGE
+from meobot.application.account.password_service import LoginStatus
 from meobot.application.web_auth_service import LOGIN_TOKEN_PARAM, SESSION_COOKIE
-from meobot.core.errors import ValidationError
+from meobot.core.errors import MeoBotError, ValidationError
+from meobot.domain.account.errors import LoginFailedError, LoginLockedError
 from meobot.domain.audit.models import AuditAction, AuditResult
 
 router = APIRouter(tags=["web-auth"])
@@ -112,7 +125,9 @@ async def redeem_login(
 )
 async def current_session(
     actor: CurrentActorDep,
+    web_session: CurrentWebSessionDep,
     services: PrServicesDep,
+    avatars: AvatarServiceDep,
 ) -> ActorResponse:
     """The signed-in person and their current PR capabilities.
 
@@ -125,8 +140,103 @@ async def current_session(
     grant made a minute ago shows up on the next page load.
     """
     return ActorResponse.from_actor(
-        actor, await services.capabilities.capabilities_for_actor(actor)
+        actor,
+        await services.capabilities.capabilities_for_actor(actor),
+        must_change_password=web_session is not None and web_session.must_change_password,
+        avatar_url=await avatars.url_for(actor.user_id),
     )
+
+
+def error_response(http_status: int, error: MeoBotError) -> JSONResponse:
+    """The ``{"error": {...}}`` envelope, rendered by a route that must commit.
+
+    Raising would roll the request's transaction back - and with it the failed
+    login counter and the audit row, which are the whole point of a failure.
+    """
+    body = ErrorEnvelope(
+        error=ErrorBody(code=error.code, message=error.message, details=error.details)
+    )
+    return JSONResponse(status_code=http_status, content=body.model_dump(mode="json"))
+
+
+@router.post(
+    "/api/auth/password-login",
+    response_model=PasswordLoginResponse,
+    summary="Sign in with Telegram id and password",
+    responses={
+        401: {"model": ErrorEnvelope, "description": "login_failed - always the same body."},
+        429: {"model": ErrorEnvelope, "description": "login_locked."},
+    },
+)
+async def password_login(
+    request: Request,
+    body: PasswordLoginRequest,
+    passwords: PasswordServiceDep,
+    auth: WebAuthServiceDep,
+    settings: SettingsDep,
+    request_id: RequestIdDep,
+) -> Response:
+    """Set the same session cookie the Telegram link sets.
+
+    Every failure reads the same (401 ``login_failed``); a locked account reads
+    429 ``login_locked``. Signed-in browsers may call it again: the session the
+    browser already held is revoked when the new one is issued.
+
+    ``must_change_password`` in the body tells the panel to show the change
+    form; the server enforces it regardless (403 ``password_change_required``
+    on every other route).
+    """
+    outcome = await passwords.login(
+        username=body.username,
+        password=body.password,
+        request_id=request_id,
+        user_agent=request.headers.get("user-agent"),
+        ip=request.client.host if request.client else None,
+    )
+    if outcome.status is LoginStatus.LOCKED:
+        return error_response(status.HTTP_429_TOO_MANY_REQUESTS, LoginLockedError())
+    if outcome.status is not LoginStatus.OK or outcome.issued is None:
+        return error_response(status.HTTP_401_UNAUTHORIZED, LoginFailedError())
+
+    previous = request.cookies.get(SESSION_COOKIE)
+    if previous:
+        await auth.revoke_session(token=previous)
+    response = JSONResponse(
+        content=PasswordLoginResponse(must_change_password=outcome.must_change_password).model_dump(
+            mode="json"
+        )
+    )
+    _set_session_cookie(
+        response,
+        token=outcome.issued.token,
+        max_age=settings.web_session_ttl_seconds,
+        secure=settings.web_cookie_secure,
+    )
+    return response
+
+
+@router.post(
+    "/api/auth/password-reset",
+    response_model=PasswordResetResponse,
+    status_code=status.HTTP_202_ACCEPTED,
+    summary="Send a temporary password to the person's Telegram",
+)
+async def password_reset(
+    body: PasswordResetRequest,
+    resets: PasswordResetServiceDep,
+    request_id: RequestIdDep,
+) -> PasswordResetResponse:
+    """ "Quên mật khẩu?". Always 202 with the same body.
+
+    Unknown id, inactive account, no private chat with the bot, or a reset in
+    the last five minutes - none of it is told to the caller, so this cannot be
+    used to learn which Telegram ids have accounts. When the account exists and
+    can be messaged, a random temporary password is stored (hashed), every web
+    session of it is signed out, and the password is queued to the person's
+    Telegram; the next password login must change it.
+    """
+    await resets.request_reset(username=body.username, request_id=request_id)
+    return PasswordResetResponse(message=RESET_REQUESTED_MESSAGE)
 
 
 @router.post(

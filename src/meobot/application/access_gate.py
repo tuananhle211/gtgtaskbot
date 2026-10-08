@@ -62,10 +62,12 @@ from meobot.domain.member.intents import is_operational
 logger = get_logger(__name__)
 
 BLOCKED_SUSPENDED = (
-    "Tài khoản của bạn đang tạm khoá nên MeoBot chưa thể hỗ trợ. Vui lòng liên hệ Trưởng phòng."
+    "Tài khoản của bạn đang tạm khoá nên TasksBot chưa thể hỗ trợ. Vui lòng liên hệ Trưởng phòng."
 )
 
-BLOCKED_REVOKED = "Tài khoản của bạn không còn quyền sử dụng MeoBot. Vui lòng liên hệ Trưởng phòng."
+BLOCKED_REVOKED = (
+    "Tài khoản của bạn không còn quyền sử dụng TasksBot. Vui lòng liên hệ Trưởng phòng."
+)
 
 PENDING_ACKNOWLEDGEMENT = (
     "Mình đã chuyển yêu cầu của bạn tới Trưởng phòng để xin phép trả lời. Bạn chờ một chút nhé."

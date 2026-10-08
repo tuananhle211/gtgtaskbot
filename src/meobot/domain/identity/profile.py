@@ -69,7 +69,7 @@ class ActorProfile(BaseModel):
     preferred_address: str = Field(
         default="",
         max_length=40,
-        description="How MeoBot addresses this person. Empty means use 'bạn'.",
+        description="How TasksBot addresses this person. Empty means use 'bạn'.",
     )
     #: Authoritative, copied from the Actor. Never read from storage.
     role: Role = Role.EMPLOYEE
@@ -110,7 +110,7 @@ class ActorProfile(BaseModel):
         if self.preferred_name and self.preferred_name != self.display_name:
             lines.append(f"Muốn được gọi là: {self.preferred_name}")
         lines.append(
-            f"Xưng hô: gọi người dùng là '{self.address}', MeoBot xưng '{DEFAULT_SELF_ADDRESS}'"
+            f"Xưng hô: gọi người dùng là '{self.address}', TasksBot xưng '{DEFAULT_SELF_ADDRESS}'"
         )
         # The label, not the enum: this block is read back to the user by the
         # model, and "EMPLOYEE" is not a word anybody here uses.

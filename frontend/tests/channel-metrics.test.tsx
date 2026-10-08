@@ -15,7 +15,7 @@
  * on screen to one that asks.
  *
  * The other half is what the screen must never say. There is no live API sync
- * in MeoBot, so a figure typed three days ago must not read as today's: the
+ * in TasksBot, so a figure typed three days ago must not read as today's: the
  * capture time and the source travel with every number, and test 53 says the
  * word "Live" is nowhere on the page.
  */

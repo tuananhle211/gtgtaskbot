@@ -97,7 +97,7 @@ async def handle_create_invite(
         + "\n"
         + formatting.escape(f"Người được mời gõ: /join {code}")
         + "\n\n"
-        + formatting.escape("MeoBot chỉ lưu bản băm của mã. Nếu mất, hãy tạo mã mới."),
+        + formatting.escape("TasksBot chỉ lưu bản băm của mã. Nếu mất, hãy tạo mã mới."),
     )
 
 
@@ -143,7 +143,7 @@ async def handle_add_user(
         message,
         formatting.escape(f"✅ Đã thêm {added_name} với vai trò {role_label(role)}.")
         + "\n"
-        + formatting.escape("Họ gõ /start để bắt đầu dùng MeoBot."),
+        + formatting.escape("Họ gõ /start để bắt đầu dùng TasksBot."),
     )
 
 

@@ -123,19 +123,19 @@ COMMANDS: tuple[CommandSpec, ...] = (
     ),
     CommandSpec(
         command="capabilities",
-        description="MeoBot hiện làm được gì",
+        description="TasksBot hiện làm được gì",
         usage="/capabilities",
         category=CommandCategory.SYSTEM,
     ),
     CommandSpec(
         command="whoami",
-        description="Xem hồ sơ MeoBot đang dùng cho bạn",
+        description="Xem hồ sơ TasksBot đang dùng cho bạn",
         usage="/whoami",
         category=CommandCategory.SYSTEM,
     ),
     CommandSpec(
         command="assistant_profile",
-        description="Xem danh tính và nhiệm vụ của MeoBot",
+        description="Xem danh tính và nhiệm vụ của TasksBot",
         usage="/assistant_profile",
         category=CommandCategory.SYSTEM,
     ),
@@ -178,7 +178,7 @@ COMMANDS: tuple[CommandSpec, ...] = (
     ),
     CommandSpec(
         command="set_preferred_address",
-        description="Đổi cách MeoBot xưng hô với bạn",
+        description="Đổi cách TasksBot xưng hô với bạn",
         usage="/set_preferred_address <cách bạn muốn được gọi>",
         category=CommandCategory.CHAT,
         permission=Permission.CONVERSATION_USE,
@@ -223,14 +223,14 @@ COMMANDS: tuple[CommandSpec, ...] = (
     ),
     CommandSpec(
         command="sheet_templates",
-        description="Danh sách mẫu Sheet MeoBot tạo được",
+        description="Danh sách mẫu Sheet TasksBot tạo được",
         usage="/sheet_templates",
         category=CommandCategory.DRIVE,
         permission=Permission.SHEET_TEMPLATE_READ,
     ),
     CommandSpec(
         command="drive_folders",
-        description="Thư mục Drive MeoBot được phép tạo file",
+        description="Thư mục Drive TasksBot được phép tạo file",
         usage="/drive_folders",
         category=CommandCategory.DRIVE,
         permission=Permission.DRIVE_FOLDER_READ,
@@ -258,7 +258,7 @@ COMMANDS: tuple[CommandSpec, ...] = (
     ),
     CommandSpec(
         command="created_sheets",
-        description="Các Sheet MeoBot đã tạo",
+        description="Các Sheet TasksBot đã tạo",
         usage="/created_sheets",
         category=CommandCategory.DRIVE,
         permission=Permission.SPREADSHEET_READ,
@@ -318,7 +318,7 @@ COMMANDS: tuple[CommandSpec, ...] = (
     # reply rather than a name - see :mod:`meobot.bot.handlers.people`.
     CommandSpec(
         command="allow_user",
-        description="Cho phép MeoBot trả lời người này trong group",
+        description="Cho phép TasksBot trả lời người này trong group",
         usage="/allow_user (reply vào tin nhắn của họ)",
         category=CommandCategory.ACCESS,
         permission=Permission.GROUP_MEMBER_POLICY_MANAGE,
@@ -545,7 +545,7 @@ def render_help(role: Role, *, unregistered: bool = False) -> str:
         specs = commands_for(role)
 
     lines: list[str] = [
-        "🐱 " + bold("MeoBot") + " — trợ lý vận hành nội dung",
+        "🤖 " + bold("TasksBot") + " — trợ lý vận hành nội dung",
         "",
     ]
     for category in CATEGORY_ORDER:
@@ -561,7 +561,7 @@ def render_help(role: Role, *, unregistered: bool = False) -> str:
             [
                 bold("Nhắn tự nhiên"),
                 escape(
-                    "Bạn có thể nhắn bình thường: hỏi MeoBot làm được gì, "
+                    "Bạn có thể nhắn bình thường: hỏi TasksBot làm được gì, "
                     "brainstorm ý tưởng nội dung, hoặc yêu cầu thao tác thật "
                     'như "đồng bộ các Sheet" hay "tạo Sheet kịch bản tháng 8".'
                 ),
@@ -576,7 +576,7 @@ def render_help(role: Role, *, unregistered: bool = False) -> str:
                 escape("• Tự động đăng Facebook / TikTok"),
                 escape("• Thống kê mạng xã hội và báo cáo tự động"),
                 escape("• Xin nghỉ, báo đi muộn, báo cáo nhân sự"),
-                escape("• Xoá file trên Google Drive (MeoBot không có công cụ xoá)"),
+                escape("• Xoá file trên Google Drive (TasksBot không có công cụ xoá)"),
             ]
         )
     return "\n".join(lines).strip()

@@ -110,7 +110,7 @@ RESPONSE_RULES = """\
 #: the server would refuse, implying the whole system was searched, and treating
 #: a comment body as an instruction.
 GROUNDED_RESPONSE_RULES = """\
-- Thuật ngữ MeoBot phải hiểu theo mục [CANONICAL DOMAIN CONTEXT], không theo
+- Thuật ngữ TasksBot phải hiểu theo mục [CANONICAL DOMAIN CONTEXT], không theo
   nghĩa chung ngoài đời.
 - Quyền và hành động: chỉ trả lời theo đúng các cờ can_edit / can_delete /
   can_reverse / can_correct và danh sách [AVAILABLE ACTIONS]. Nếu một cờ là
@@ -367,7 +367,7 @@ class PromptContextService:
         if not report.available_now:
             return ""
         return (
-            f"MeoBot có {len(report.available_now)} nhóm việc dùng được ngay cho người "
+            f"TasksBot có {len(report.available_now)} nhóm việc dùng được ngay cho người "
             "dùng này. Nếu họ hỏi cụ thể, hãy nói là bạn sẽ liệt kê chi tiết."
         )
 

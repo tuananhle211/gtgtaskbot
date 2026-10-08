@@ -133,7 +133,8 @@ async def handle_review_script(
         kwargs={"notify_chat_id": message.chat.id},
     )
     await message.answer(
-        f"⏳ Đã xếp hàng review cho `{short_id(script_id)}`. MeoBot sẽ gửi kết quả ngay khi xong.",
+        f"⏳ Đã xếp hàng review cho `{short_id(script_id)}`. "
+        "TasksBot sẽ gửi kết quả ngay khi xong.",
         parse_mode="Markdown",
     )
 

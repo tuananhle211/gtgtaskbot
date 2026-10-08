@@ -71,17 +71,17 @@ logger = get_logger(__name__)
 #: Said when there is no durable user to own the reminder. Deliberately about
 #: the *account*, not about a profile: see :meth:`ReminderService.create`.
 ACCOUNT_NOT_READY = (
-    "MeoBot cần hoàn tất tài khoản sử dụng trước khi tạo lịch nhắc.\nBạn nhấn /start nhé."
+    "TasksBot cần hoàn tất tài khoản sử dụng trước khi tạo lịch nhắc.\nBạn nhấn /start nhé."
 )
 
 MEMBER_CANNOT_TARGET_OTHERS = (
-    "MeoBot chỉ đặt lịch nhắc cho chính bạn. Nếu cần nhắc cả nhóm, bạn nhờ "
+    "TasksBot chỉ đặt lịch nhắc cho chính bạn. Nếu cần nhắc cả nhóm, bạn nhờ "
     "Trưởng phòng hoặc Trưởng nhóm phụ trách group đó giúp nhé."
 )
 NOT_YOUR_REMINDER = "Lịch nhắc này không phải của bạn."
-NO_SUCH_REMINDER = "MeoBot không tìm thấy lịch nhắc nào như vậy."
+NO_SUCH_REMINDER = "TasksBot không tìm thấy lịch nhắc nào như vậy."
 REMINDERS_DISABLED = "Tính năng lịch nhắc hiện đang tắt."
-NEEDS_CONTENT = "Bạn muốn MeoBot nhắc nội dung gì ạ?"
+NEEDS_CONTENT = "Bạn muốn TasksBot nhắc nội dung gì ạ?"
 
 
 @dataclass(frozen=True, slots=True)
@@ -587,7 +587,7 @@ class ReminderService:
                 return
             raise AuthorizationError(
                 f"Bạn chưa được giao quản lý group {chat.display_name}, "
-                "nên MeoBot chưa đặt lịch nhắc vào đó được."
+                "nên TasksBot chưa đặt lịch nhắc vào đó được."
             )
         raise AuthorizationError(MEMBER_CANNOT_TARGET_OTHERS)
 

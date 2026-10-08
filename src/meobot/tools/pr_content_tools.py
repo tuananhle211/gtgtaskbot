@@ -227,7 +227,7 @@ async def _create_handler(context: ToolContext, arguments: CreateContentArgs) ->
         )
         if owner_id is None:
             raise ToolExecutionError(
-                "Tài khoản của bạn chưa được đăng ký trong MeoBot nên chưa tạo nội dung được.",
+                "Tài khoản của bạn chưa được đăng ký trong TasksBot nên chưa tạo nội dung được.",
                 details={"reason": "actor_has_no_user_row"},
             )
 
@@ -532,7 +532,7 @@ async def _submit_ai_review_handler(
             success=True,
             message=(
                 f"🤖 <b>{content.code}</b> đã chuyển sang bước AI Review. "
-                "MeoBot đang tự động phân tích nội dung — kết quả sẽ hiện trong "
+                "TasksBot đang tự động phân tích nội dung — kết quả sẽ hiện trong "
                 "PR Admin, và bài sẽ tự chuyển bước theo kết quả."
             ),
             data={"code": content.code, "workflow_stage": updated.workflow_stage.value},
@@ -608,7 +608,7 @@ def build_pr_content_tools() -> list[ToolDefinition]:
             name="pr.ai_review.submit",
             description=(
                 "Đưa một nội dung PR đang viết kịch bản sang bước AI Review. "
-                "MeoBot sẽ tự động chạy AI review và chuyển bước theo kết quả."
+                "TasksBot sẽ tự động chạy AI review và chuyển bước theo kết quả."
             ),
             handler=_submit_ai_review_handler,
             arguments_model=ContentReferenceArgs,

@@ -44,7 +44,7 @@ import { finalizePerformanceConfirmation } from "@/lib/confirmations";
  * ## And it shows no money
  *
  * M6 scores and reports performance. The head allocates performance pay as a
- * separate management decision outside MeoChat, and this screen deliberately
+ * separate management decision outside TasksBot, and this screen deliberately
  * ends at the index and its band - no coefficient, no amount, nothing that
  * implies a guaranteed relationship between a performance result and pay.
  *

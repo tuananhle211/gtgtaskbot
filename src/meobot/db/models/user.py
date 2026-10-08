@@ -5,7 +5,17 @@ from __future__ import annotations
 import uuid
 from datetime import datetime
 
-from sqlalchemy import BigInteger, Boolean, DateTime, ForeignKey, String, Text
+from sqlalchemy import (
+    BigInteger,
+    Boolean,
+    CheckConstraint,
+    DateTime,
+    ForeignKey,
+    Integer,
+    String,
+    Text,
+    false,
+)
 from sqlalchemy import Enum as SAEnum
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -32,6 +42,15 @@ class User(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     """
 
     __tablename__ = "users"
+    __table_args__ = (
+        # Only a scrypt hash may ever be stored. A plain-text write - a bug, a
+        # hand-run UPDATE - fails here instead of landing on disk (0045).
+        CheckConstraint(
+            "password_hash IS NULL OR password_hash LIKE 'scrypt$%'",
+            name="password_hash_is_scrypt",
+        ),
+        CheckConstraint("failed_login_count >= 0", name="failed_login_count_not_negative"),
+    )
 
     telegram_user_id: Mapped[int | None] = mapped_column(
         BigInteger, unique=True, nullable=True, index=True
@@ -85,6 +104,33 @@ class User(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     )
     private_delivery_failure_category: Mapped[str | None] = mapped_column(String(40), nullable=True)
     bot_blocked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+    # --- Web password login (0045) ----------------------------------------
+    #: ``scrypt$16384$8$1$<salt b64>$<hash b64>`` - see
+    #: :mod:`meobot.application.account.passwords`. ``NULL`` means "still on the
+    #: default password"; the password itself is never stored.
+    password_hash: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    password_changed_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    #: Consecutive failed password logins since the last success or lockout.
+    failed_login_count: Mapped[int] = mapped_column(
+        Integer, nullable=False, default=0, server_default="0"
+    )
+    #: Password login is refused until this instant. The Telegram link is not.
+    locked_until: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    # --- Password reset (0046) ----------------------------------------------
+    #: The stored hash is a temporary password MeoBot generated and sent by
+    #: Telegram (self-service or admin reset). A password session on it must
+    #: choose a new one, exactly as on the default. Cleared by a change.
+    password_temporary: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False, server_default=false()
+    )
+    #: When the last temporary password was issued. Self-service resets within
+    #: five minutes of it are ignored.
+    password_reset_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
 
     @property
     def may_use_meobot(self) -> bool:

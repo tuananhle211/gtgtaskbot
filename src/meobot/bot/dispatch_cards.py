@@ -54,7 +54,7 @@ NO_SELECTION = "Bạn chưa chọn group nào. Bạn chọn ít nhất một gro
 ASK_WHERE = "Bạn muốn gửi tới đâu?"
 
 DRAFT_EXPIRED = (
-    "Thông báo bạn soạn trước đó đã quá hạn nên MeoBot không gửi nữa.\n"
+    "Thông báo bạn soạn trước đó đã quá hạn nên TasksBot không gửi nữa.\n"
     "Bạn nhắn lại nội dung và nơi nhận giúp mình nhé."
 )
 
@@ -65,11 +65,11 @@ STILL_CHOOSING = (
 
 SELECTION_MOVED = (
     "Danh sách nơi nhận đã thay đổi sau khi thẻ này hiện ra, "
-    "nên MeoBot chưa gửi. Bạn xem lại và xác nhận giúp mình nhé."
+    "nên TasksBot chưa gửi. Bạn xem lại và xác nhận giúp mình nhé."
 )
 
 AWAITING_CONFIRM = (
-    "Bạn nhắn “xác nhận” hoặc bấm nút phía trên để MeoBot gửi thông báo này, "
+    "Bạn nhắn “xác nhận” hoặc bấm nút phía trên để TasksBot gửi thông báo này, "
     "hoặc nhắn “huỷ” nếu không gửi nữa."
 )
 
@@ -91,7 +91,7 @@ def _health_line(row: TelegramChat) -> str:
     if not row.allow_automated_delivery:
         return "Không nhận thông báo tự động"
     if not row.bot_can_send:
-        return "MeoBot hiện không có quyền gửi tin trong group này"
+        return "TasksBot hiện không có quyền gửi tin trong group này"
     return health_label(row.health_status)
 
 
@@ -193,7 +193,7 @@ def selection_card(
         lines.append("")
         lines.append(
             formatting.escape(
-                f"{len(locked)} group bạn chưa được phép gửi nên MeoBot không cho chọn."
+                f"{len(locked)} group bạn chưa được phép gửi nên TasksBot không cho chọn."
             )
         )
     return Card(text="\n".join(lines), buttons=selection_keyboard(recipients))
@@ -206,7 +206,7 @@ def inferred_card(phrase: str, recipients: Sequence[MessageDispatchDraftRecipien
     who typed a description has not seen the list it expands to, and confirming
     something you have not read is not confirming.
     """
-    lines = [formatting.escape(f"MeoBot hiểu “{phrase}” là:"), ""]
+    lines = [formatting.escape(f"TasksBot hiểu “{phrase}” là:"), ""]
     lines.extend(formatting.escape(f"• {row.display_name}") for row in recipients)
     buttons = [
         [ButtonSpec(f"✅ Dùng {len(recipients)} group này", "disp.done")],
@@ -223,7 +223,7 @@ def scope_card(*, usable: int, paused: int, unreachable: int, recipients: Sequen
     two were skipped, and somebody who wanted all fourteen would never find
     out.
     """
-    lines = ["MeoBot tìm thấy:", "", formatting.escape(f"• {usable} group có thể gửi")]
+    lines = ["TasksBot tìm thấy:", "", formatting.escape(f"• {usable} group có thể gửi")]
     if paused:
         lines.append(formatting.escape(f"• {paused} group đang tạm dừng"))
     if unreachable:
@@ -275,7 +275,7 @@ def preview(
             [
                 "",
                 formatting.escape(
-                    f"Thông báo dài nên MeoBot sẽ gửi thành {part_count} tin liên tiếp, "
+                    f"Thông báo dài nên TasksBot sẽ gửi thành {part_count} tin liên tiếp, "
                     "theo đúng thứ tự."
                 ),
             ]
@@ -284,7 +284,7 @@ def preview(
         lines.extend(["", formatting.bold("Không gửi vào:")])
         lines.extend(formatting.escape(f"• {name}") for name in excluded)
     if unresolved:
-        lines.extend(["", formatting.bold("MeoBot chưa tìm thấy:")])
+        lines.extend(["", formatting.bold("TasksBot chưa tìm thấy:")])
         lines.extend(formatting.escape(f"• {name}") for name in unresolved)
 
     buttons = [
@@ -341,7 +341,7 @@ def source_label(source: SelectionSource) -> str:
     """How a destination came to be on the list, for the detail card."""
     return {
         SelectionSource.NAMED: "Bạn gọi tên",
-        SelectionSource.INFERRED: "MeoBot suy ra từ nhãn của group",
+        SelectionSource.INFERRED: "TasksBot suy ra từ nhãn của group",
         SelectionSource.ALL_REGISTERED: "Thuộc nhóm “tất cả group”",
         SelectionSource.BUTTON: "Bạn chọn bằng nút",
         SelectionSource.LIST_REFERENCE: "Bạn đếm theo danh sách vừa hiện",

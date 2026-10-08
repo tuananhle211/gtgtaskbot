@@ -24,7 +24,7 @@ Hệ quả quan trọng: unit test chỉ kiểm tra **luật hành vi**. CHECK c
 |---|---|
 | `alembic.ini` | `script_location = alembic`, `prepend_sys_path = src`, không có `sqlalchemy.url`; template file `%(rev)s_%(slug)s`; post-write hook chạy `ruff format` (`alembic.ini:1-18`) |
 | `alembic/env.py` | lấy DSN từ `get_settings().database_url` (`:28`) — tức cùng `Settings` với ứng dụng, nên `postgres://`/`postgresql://` được viết lại thành `postgresql+asyncpg://` (`src/meobot/core/config.py:396-404`); engine async `async_engine_from_config(... poolclass=NullPool)` và `connection.run_sync(do_run_migrations)` (`:58-72`); offline mode phát SQL (`:31-42`); `compare_type=True, compare_server_default=True, render_as_batch=False` (`:47-53`) |
-| Thư mục | `alembic/versions/` — 41 file `0001_…py` → `0041_…py`; bị loại khỏi ruff lint (`pyproject.toml` `extend-exclude`) |
+| Thư mục | `alembic/versions/` — 47 file `0001_…py` → `0047_…py`; bị loại khỏi ruff lint (`pyproject.toml` `extend-exclude`) |
 | Lệnh chạy trong vận hành | `make migrate` = `docker compose run --rm api alembic upgrade head` (`Makefile:70-71`) |
 | Tạo migration | `make migration m="describe the change"` = `docker compose run --rm api alembic revision --autogenerate -m "…"` (`Makefile:73-75`) |
 
@@ -32,10 +32,10 @@ Hệ quả quan trọng: unit test chỉ kiểm tra **luật hành vi**. CHECK c
 
 ```
 $ DATABASE_URL=postgresql+asyncpg://x:y@localhost/z .venv/bin/alembic heads
-0041 (head)
+0047 (head)
 ```
 
-Lệnh trên dùng một DSN giả và **không kết nối CSDL** (Alembic chỉ đọc cây script). `alembic history` cho đúng **một chuỗi tuyến tính** `<base> → 0001 → … → 0041`, không có nhánh; chuỗi `down_revision` nối liền từng file (`0032_pr_work_core.py:77-78` … `0041_pr_work_result_exclusion_kind.py:55-56`).
+Lệnh trên dùng một DSN giả và **không kết nối CSDL** (Alembic chỉ đọc cây script). `alembic history` cho đúng **một chuỗi tuyến tính** `<base> → 0001 → … → 0047`, không có nhánh; chuỗi `down_revision` nối liền từng file (`0032_pr_work_core.py:77-78` … `0041_pr_work_result_exclusion_kind.py:55-56`).
 
 Head hiện tại: `0041_pr_work_result_exclusion_kind`. Repository phải mang theo **toàn bộ** `alembic/versions/0001…0041` cùng `alembic.ini` và `alembic/env.py`: `alembic upgrade head` trên database trống chạy qua cả 41 file, và một database đang vận hành chỉ nâng được từ revision đang có. Trước khi nâng cấp một database hiện có, luôn đọc revision đang áp dụng bằng `docker compose run --rm api alembic current` (xem §5).
 
@@ -84,6 +84,12 @@ Head hiện tại: `0041_pr_work_result_exclusion_kind`. Repository phải mang 
 | 0039 | **Work results — kiến trúc result-grain**: `pr_work_results`, container (`reporting_period_id`, `subject_user_id`), `counted_amount` trên score allocation, nới `quantity_positive` | downgrade **mất results** — dump trước (`../pr/WORK_RESULTS_BY_PERIOD.md`) |
 | 0040 | Tự cấp phát loại việc: `pr_content_work_rules.created_by_user_id` NULL-able | downgrade **từ chối** khi còn rule tự cấp (`0040:63-82`) |
 | 0041 | `pr_work_results.exclusion_kind` + CHECK | downgrade làm **mọi loại trừ trở thành khôi phục được** (`0041:87-89`) |
+| 0042 | `org_units`, `org_unit_members` + 7 bảng Ads order (`orders`, `order_nodes`, …) + seed (xem §ngoại lệ bên dưới) | downgrade xoá 9 bảng |
+| 0043 | `tasks` — một dòng cho mỗi `pr_content_items` / `orders` (backfill), giữ đồng bộ bằng flush hook `meobot.application.tasks.sync`; FK nguồn `ON DELETE CASCADE` | downgrade chỉ xoá bảng chiếu, nguồn không mất gì |
+| 0044 | Ads: quy trình linh hoạt (`orders.video_type` = mã quy trình B/T/D/BT/BD/TD/BTD, không cần DDL vì cột không có CHECK enum) + CHECK link thiết kế tổng quát (`ck_orders_design_link_required_without_design`: D, BD); bảng `unit_video_kinds` + seed 11 loại video cho ADS; `orders.video_kind_id/_name/_points` (snapshot) | downgrade **từ chối** khi còn order/work rule dùng mã mới (B, T, BT, BD); nếu không, khôi phục CHECK cũ và xoá bảng + 3 cột (mất snapshot loại video) |
+| 0045 | Đăng nhập web bằng mật khẩu: `users.password_hash` (scrypt, NULL = còn mật khẩu mặc định; CHECK `ck_users_password_hash_is_scrypt` chặn plain text), `password_changed_at`, `failed_login_count` (≥ 0), `locked_until`; `web_sessions.auth_method` (`TELEGRAM_LINK` mặc định / `PASSWORD`, CHECK `ck_web_sessions_auth_method_known`) | downgrade xoá 5 cột — **mất mọi mật khẩu đã đặt** (mọi người quay về đăng nhập qua bot), phiên giữ nguyên |
+| 0046 | Đặt lại mật khẩu qua Telegram: `users.password_temporary` (NOT NULL, mặc định `false`; `true` = mật khẩu tạm MeoBot sinh ngẫu nhiên và gửi DM, phiên mật khẩu trên nó phải đổi như mật khẩu mặc định) và `users.password_reset_at` (giới hạn 1 lần tự đặt lại / 5 phút) | downgrade xoá 2 cột — mật khẩu tạm đang dùng trở thành mật khẩu thường (vẫn đăng nhập được, không còn bị bắt đổi) |
+| 0047 | Ảnh đại diện: bảng `user_avatars` (1 dòng / người, `user_id` PK, FK `users` **ON DELETE CASCADE**; `content_type` CHECK `image/webp`/`image/jpeg`/`image/png`, `data` bytea, `size_bytes` CHECK 1..307200 (300 KB), `version` ≥ 1 mặc định 1 — tăng mỗi lần tải lên, là `?v=` của URL ảnh, `updated_at`) | downgrade xoá bảng — **mất mọi ảnh đại diện** (mọi người quay về chữ cái đầu tên) |
 
 ### Downgrade phá dữ liệu — không chạy nếu không có backup
 
@@ -154,6 +160,8 @@ Không bao giờ: `alembic downgrade` trên production mà không có backup và
 - Mỗi migration lớn có **test round-trip trên scratch DB PostgreSQL** (`tests/integration/*_migrations.py`: tạo `meobot_pr_<hex>`, upgrade qua chuỗi, chèn dữ liệu như ứng dụng, kiểm CHECK/partial index, downgrade và upgrade lại, drop `WITH (FORCE)`). Viết test này cùng migration.
 - Migration **không gọi mạng** (1F1: "migration makes no network calls"); seed dữ liệu nghiệp vụ (work types, policy packs) là CLI/service riêng (`meobot-work-types`, `meobot-policy`), không phải migration.
 - Nếu migration đổi ngữ nghĩa (như 0041), docstring phải nói rõ downgrade làm gì với dữ liệu.
+- **Ngoại lệ có chủ đích của 0042** (`0042_org_units_and_orders.py`): migration này seed hai dòng `org_units` (PR, ADS), gắn tag PR `MEMBER` cho mọi `users` hiện có, và tạo 3 `pr_work_types` cho Ads kèm `order_work_rules` mặc định. Lý do ghi trong docstring: cổng `require_unit(PR)` đọc bảng này ngay request đầu sau deploy, nên để CLI seed sau sẽ khoá mọi người khỏi PR. Downgrade xoá 3 work type này và **bị RESTRICT từ chối** nếu đã có kết quả KPI trỏ tới chúng.
+- **Ngoại lệ có chủ đích của 0044** (`0044_ads_process_and_video_kinds.py`): seed 11 dòng `unit_video_kinds` (danh mục "Loại video" của phòng Ads, id `uuid5` cố định). Lý do: form tạo order bắt buộc chọn loại video ngay khi phòng có một loại đang dùng, và phòng Ads cần danh mục từ ngày đầu.
 
 ## 7. Dữ liệu, sao lưu và bí mật
 

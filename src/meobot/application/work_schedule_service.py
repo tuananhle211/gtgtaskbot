@@ -32,7 +32,7 @@ from meobot.domain.identity.models import Actor
 logger = get_logger(__name__)
 
 NOT_CONFIGURED = (
-    "MeoBot chưa có cấu hình giờ làm việc.\n"
+    "TasksBot chưa có cấu hình giờ làm việc.\n"
     "Hãy thiết lập giờ làm trước khi tự động tính thời gian đi muộn."
 )
 

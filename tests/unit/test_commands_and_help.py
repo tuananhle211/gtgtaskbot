@@ -168,7 +168,7 @@ async def test_help_answers_in_a_normal_chat(
     await dispatcher.feed_update(bot, make_update("/help"))
 
     assert session.sent_texts(), "/help produced no outgoing message at all"
-    assert "MeoBot" in session.combined_text()
+    assert "TasksBot" in session.combined_text()
     assert "/sheets" in session.combined_text()
 
 
@@ -191,7 +191,7 @@ async def test_help_answers_while_an_fsm_flow_is_active(
     await dispatcher.feed_update(bot, make_update("/help", update_id=2, message_id=2))
 
     reply = session.combined_text()
-    assert "MeoBot" in reply
+    assert "TasksBot" in reply
     assert "Không nhận ra link" not in reply
     # The flow is untouched: /help answers, it does not cancel your work.
     assert await dispatcher.storage.get_state(key) == AddSheet.waiting_for_url.state

@@ -443,6 +443,45 @@ class AuditAction(StrEnum):
     WEB_LOGIN_REDEEMED = "web.login.redeemed"
     WEB_LOGIN_REJECTED = "web.login.rejected"
     WEB_SESSION_REVOKED = "web.session.revoked"
+    # --- Web password login (0045) ------------------------------------------
+    #: Never with the password, the hash or the default in the payload.
+    AUTH_PASSWORD_LOGIN_SUCCEEDED = "auth.password_login.succeeded"  # noqa: S105
+    AUTH_PASSWORD_LOGIN_FAILED = "auth.password_login.failed"  # noqa: S105
+    AUTH_PASSWORD_CHANGED = "auth.password.changed"  # noqa: S105
+    AUTH_PASSWORD_CHANGE_FAILED = "auth.password.change_failed"  # noqa: S105
+    AUTH_PASSWORD_RESET = "auth.password.reset"  # noqa: S105
+    #: Self-service "Quên mật khẩu?" (0046). ``after_data.outcome`` says what
+    #: happened (sent / unknown / rate limited / undeliverable); never the
+    #: temporary password.
+    AUTH_PASSWORD_RESET_REQUESTED = "auth.password.reset_requested"  # noqa: S105
+    USER_PROFILE_UPDATED = "user.profile.updated"
+    #: Profile picture (0047). Type, size and version only - never the image.
+    USER_AVATAR_UPDATED = "user.avatar.updated"
+    USER_AVATAR_REMOVED = "user.avatar.removed"
+
+    # Units (PR / Ads) and the Ads order engine.
+    UNIT_MEMBER_TAGGED = "unit.member.tagged"
+    UNIT_MEMBER_UPDATED = "unit.member.updated"
+    UNIT_MEMBER_UNTAGGED = "unit.member.untagged"
+    UNIT_SETTINGS_UPDATED = "unit.settings.updated"
+    UNIT_VIDEO_KIND_CREATED = "unit.video_kind.created"
+    UNIT_VIDEO_KIND_UPDATED = "unit.video_kind.updated"
+    ORDER_SUBMITTED = "order.submitted"
+    ORDER_RESUBMITTED = "order.resubmitted"
+    ORDER_APPROVED = "order.approved"
+    ORDER_RETURNED = "order.returned"
+    ORDER_NODE_ASSIGNED = "order.node.assigned"
+    ORDER_NODE_ACCEPTED = "order.node.accepted"
+    ORDER_NODE_SUBMITTED = "order.node.submitted"
+    ORDER_NODE_APPROVED = "order.node.approved"
+    ORDER_NODE_RETURNED = "order.node.returned"
+    ORDER_LINK_ATTACHED = "order.link.attached"
+    ORDER_VIDEO_APPROVED = "order.video.approved"
+    ORDER_VIDEO_RETURNED = "order.video.returned"
+    ORDER_FINAL_APPROVED = "order.final.approved"
+    ORDER_FINAL_RETURNED = "order.final.returned"
+    ORDER_PRIORITY_CHANGED = "order.priority.changed"
+    ORDER_CANCELLED = "order.cancelled"
 
 
 class AuditEntry(BaseModel):

@@ -104,7 +104,7 @@ WEEKDAY_LABELS: tuple[str, ...] = (
 #: than approximate: pretending a monthly rule works by scheduling something
 #: weekly would be worse than declining.
 UNSUPPORTED_MONTHLY = (
-    "MeoBot chưa làm được lịch nhắc theo tháng. Hiện MeoBot làm được lịch nhắc "
+    "TasksBot chưa làm được lịch nhắc theo tháng. Hiện TasksBot làm được lịch nhắc "
     "một lần, hằng ngày và hằng tuần."
 )
 

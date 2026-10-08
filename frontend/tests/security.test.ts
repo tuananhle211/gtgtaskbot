@@ -65,7 +65,14 @@ describe("37. the content security policy is restrictive and nonce-based", () =>
     // no script loads and the page renders blank - while looking fine to `curl`.
     for (const layout of [
       "src/app/pr/layout.tsx",
+      "src/app/dashboard/layout.tsx",
+      "src/app/tasks/layout.tsx",
+      "src/app/orders/layout.tsx",
+      "src/app/admin/layout.tsx",
       "src/app/auth/layout.tsx",
+      // Password login (public) and the account screen.
+      "src/app/login/layout.tsx",
+      "src/app/account/layout.tsx",
       // The public legal segment. Its pages are static prose and would still be
       // readable un-hydrated, but a public page whose scripts the browser
       // refuses is not a page to ship.

@@ -55,7 +55,7 @@ FOLDER_ID = "folder-tiktok"
 def drive() -> FakeDriveClient:
     """A Drive with a root folder and one registered destination inside it."""
     client = FakeDriveClient()
-    client.add_folder(ROOT_ID, "MeoBot", drive_id="shared-1")
+    client.add_folder(ROOT_ID, "TasksBot", drive_id="shared-1")
     client.add_folder(FOLDER_ID, "Kịch bản TikTok", parents=(ROOT_ID,), drive_id="shared-1")
     return client
 

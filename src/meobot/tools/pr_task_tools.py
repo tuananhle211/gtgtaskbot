@@ -389,7 +389,7 @@ def build_pr_task_tools() -> list[ToolDefinition]:
         ),
         ToolDefinition(
             name="pr.task.assign",
-            description="Giao một task PR cho một người trong MeoBot.",
+            description="Giao một task PR cho một người trong TasksBot.",
             handler=_assign_handler,
             arguments_model=AssignTaskArgs,
             risk_level=RiskLevel.MEDIUM,

@@ -270,9 +270,13 @@ def test_03_the_default_surface_serves_no_synthetic_owner_route_at_all() -> None
     facts = route_inventory(internal_enabled=False)
     assert not [fact for fact in facts if fact.synthetic_owner]
     assert not [fact for fact in facts if fact.path.startswith("/api/v1")]
-    # Every write that is served requires a real session.
+    # Every write that is served requires a real session - except signing out,
+    # signing in with a password (0045), which is how a session is made, and
+    # "Quên mật khẩu?" (0046), which is for somebody who cannot sign in and
+    # only ever sends a temporary password to that account's own Telegram.
+    sessionless = {"/api/auth/logout", "/api/auth/password-login", "/api/auth/password-reset"}
     for fact in facts:
-        if fact.is_write and fact.path not in {"/api/auth/logout"}:
+        if fact.is_write and fact.path not in sessionless:
             assert fact.web_session, f"{fact.method} {fact.path} writes without a session"
 
 

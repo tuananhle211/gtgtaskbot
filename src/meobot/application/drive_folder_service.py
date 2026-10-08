@@ -149,7 +149,7 @@ class DriveFolderService:
                 return folder
 
         raise NotFoundError(
-            "Thư mục này chưa được đăng ký với MeoBot. Dùng /drive_folders để "
+            "Thư mục này chưa được đăng ký với TasksBot. Dùng /drive_folders để "
             "xem danh sách, hoặc /add_drive_folder để đăng ký thêm."
         )
 
@@ -217,7 +217,7 @@ class DriveFolderService:
                 FolderValidationStatus.CANNOT_CREATE,
                 file=file,
                 message=(
-                    "MeoBot đọc được thư mục nhưng không có quyền tạo file trong đó. "
+                    "TasksBot đọc được thư mục nhưng không có quyền tạo file trong đó. "
                     "Hãy cấp quyền Content manager (hoặc Editor) cho email service account."
                 ),
             )
@@ -230,7 +230,7 @@ class DriveFolderService:
                 file=file,
                 message=(
                     "Thư mục này nằm ngoài thư mục gốc đã cấu hình "
-                    f"(GOOGLE_DRIVE_ROOT_FOLDER_ID={root}). MeoBot chỉ tạo file bên trong đó."
+                    f"(GOOGLE_DRIVE_ROOT_FOLDER_ID={root}). TasksBot chỉ tạo file bên trong đó."
                 ),
             )
         return FolderValidation(FolderValidationStatus.VALID, file=file)

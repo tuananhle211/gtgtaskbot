@@ -608,7 +608,7 @@ async def get_work(
     """One job, its people, its evidence, and what this actor may do to it.
 
     Visible to a contributor, its creator, whoever assigned it, or a holder of
-    ``PR_WORK_MANAGE`` - explicit relationships, because MeoBot models no team
+    ``PR_WORK_MANAGE`` - explicit relationships, because TasksBot models no team
     and M1 declined to invent one.
     """
     return await _detail(services, actor, work_item_id)
@@ -1170,7 +1170,7 @@ async def add_evidence(
 ) -> WorkItemDetailResponse:
     """A contributor's own act. One text, or the legacy label and link.
 
-    MeoBot stores no files either way. The schema has already refused a body
+    TasksBot stores no files either way. The schema has already refused a body
     that is neither shape or both, so the branch here is the only decision.
     """
     if body.text is not None:

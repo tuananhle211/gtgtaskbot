@@ -51,6 +51,7 @@ from sqlalchemy.ext.asyncio import create_async_engine
 
 from meobot.core.config import Settings
 from meobot.db.session import Database
+from tests.integration.legacy_rows import insert_legacy_user
 from tests.integration.test_dispatch_migrations import (
     TEST_DATABASE_URL,
     downgrade_to,
@@ -167,9 +168,6 @@ async def _seed_pre_0034(database: Database) -> None:
     """
     from meobot.db.models.pr import PrBrand, PrContentItem
     from meobot.db.models.pr_work import PrWorkContribution, PrWorkType
-    from meobot.db.models.user import User
-    from meobot.domain.access.models import UserStatus
-    from meobot.domain.identity.models import Role
     from meobot.domain.pr.models import PrWorkflowStage
     from meobot.domain.pr.work import (
         PrWorkContributionRole,
@@ -179,12 +177,7 @@ async def _seed_pre_0034(database: Database) -> None:
     from meobot.domain.pr.work_quota import PrWorkQuotaBasis
 
     async with database.session() as session:
-        user = User(
-            full_name="Phương Nhung",
-            role=Role.EMPLOYEE,
-            status=UserStatus.ACTIVE,
-            active=True,
-        )
+        user_id = await insert_legacy_user(session, full_name="Phương Nhung", role="EMPLOYEE")
         brand = PrBrand(code="BRND-A", name="Apexmed")
         work_type = PrWorkType(
             code="SHORT_SCRIPT",
@@ -193,7 +186,7 @@ async def _seed_pre_0034(database: Database) -> None:
             default_unit=PrWorkUnit.ITEM,
             default_quota_basis=PrWorkQuotaBasis.ITEM_COUNT,
         )
-        session.add_all([user, brand, work_type])
+        session.add_all([brand, work_type])
         await session.flush()
 
         content = PrContentItem(
@@ -201,8 +194,8 @@ async def _seed_pre_0034(database: Database) -> None:
             title="Bí quyết ngủ ngon",
             brand_id=brand.id,
             workflow_stage=PrWorkflowStage.APPROVED,
-            owner_user_id=user.id,
-            created_by_user_id=user.id,
+            owner_user_id=user_id,
+            created_by_user_id=user_id,
         )
         session.add(content)
         await session.flush()
@@ -217,13 +210,13 @@ async def _seed_pre_0034(database: Database) -> None:
                 " :work_type_id, 'MANUAL', 'APPROVED', 'NORMAL', :user_id, now(), now()) "
                 "RETURNING id"
             ),
-            {"work_type_id": work_type.id, "user_id": user.id},
+            {"work_type_id": work_type.id, "user_id": user_id},
         )
 
         session.add(
             PrWorkContribution(
                 work_item_id=item_id,
-                user_id=user.id,
+                user_id=user_id,
                 contribution_role=PrWorkContributionRole.PRIMARY,
                 assigned_at=_COUNTED_AT,
                 count_status=PrWorkCountStatus.COUNTED,

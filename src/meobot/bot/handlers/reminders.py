@@ -86,9 +86,9 @@ CANCEL_BUTTON = "❌ Huỷ"
 PREVIEW_FOOTER = "Bạn kiểm tra lại giúp mình trước khi xác nhận nhé."
 
 #: Said *after* the row is committed, and only then.
-CREATED = "✅ MeoBot đã tạo lịch nhắc."
+CREATED = "✅ TasksBot đã tạo lịch nhắc."
 
-CANCELLED_DRAFT = "MeoBot chưa tạo lịch nhắc nào. Bạn nhắn lại khi cần nhé."
+CANCELLED_DRAFT = "TasksBot chưa tạo lịch nhắc nào. Bạn nhắn lại khi cần nhé."
 
 #: Shown when the account is not yet usable. Deliberately says "tài khoản",
 #: not "hồ sơ": in this codebase "hồ sơ" is the optional descriptive
@@ -96,15 +96,15 @@ CANCELLED_DRAFT = "MeoBot chưa tạo lịch nhắc nào. Bạn nhắn lại khi
 #: their profile is missing sends them looking for a thing that is not the
 #: problem.
 ACCOUNT_NOT_READY = (
-    "MeoBot cần hoàn tất tài khoản sử dụng trước khi tạo lịch nhắc.\nBạn nhấn /start nhé."
+    "TasksBot cần hoàn tất tài khoản sử dụng trước khi tạo lịch nhắc.\nBạn nhấn /start nhé."
 )
 
 #: After /start, when the held request could be resumed.
-RESUMED_AFTER_START = "MeoBot đã hoàn tất tài khoản của bạn."
+RESUMED_AFTER_START = "TasksBot đã hoàn tất tài khoản của bạn."
 
 #: After /start, when it could not.
 RESUME_FAILED = (
-    "MeoBot đã hoàn tất tài khoản của bạn.\n"
+    "TasksBot đã hoàn tất tài khoản của bạn.\n"
     "Yêu cầu lịch nhắc trước đó chưa được lưu, bạn gửi lại giúp mình nhé."
 )
 
@@ -112,13 +112,13 @@ RESUME_FAILED = (
 #: is the point: the old behaviour repeated the same generic error with no hint
 #: that a half-built reminder was still open.
 WAITING_FOR_TIME = (
-    "MeoBot đang chờ thời gian cho lịch nhắc “{content}”.\n\n"
+    "TasksBot đang chờ thời gian cho lịch nhắc “{content}”.\n\n"
     "Bạn có thể gửi:\n"
     "• 22h40\n"
     "• Sau 5 phút\n"
     "• 4 giờ chiều"
 )
-WAITING_FOR_CONTENT = "MeoBot đã ghi thời gian {timing}.\n\nBạn muốn MeoBot nhắc nội dung gì ạ?"
+WAITING_FOR_CONTENT = "TasksBot đã ghi thời gian {timing}.\n\nBạn muốn TasksBot nhắc nội dung gì ạ?"
 CANCEL_DRAFT_BUTTON = "❌ Huỷ lịch nhắc"
 
 #: Natural cancellation, folded and accent-free.
@@ -129,9 +129,9 @@ EDIT_PROMPT = "Bạn nhắn lại nội dung và thời gian mới giúp mình n
 AMBIGUOUS_HOUR = "Bạn muốn nhắc lúc mấy giờ?"
 NO_REMINDERS = "Bạn chưa có lịch nhắc nào. Bạn nhắn ví dụ “nhắc tôi 8 giờ sáng mai họp” nhé."
 WHICH_REMINDER = "Bạn muốn chọn lịch nhắc nào?"
-PAUSED = "⏸ MeoBot đã tạm dừng lịch nhắc này."
-RESUMED = "▶️ MeoBot đã bật lại lịch nhắc này."
-STOPPED = "🛑 MeoBot đã huỷ lịch nhắc này."
+PAUSED = "⏸ TasksBot đã tạm dừng lịch nhắc này."
+RESUMED = "▶️ TasksBot đã bật lại lịch nhắc này."
+STOPPED = "🛑 TasksBot đã huỷ lịch nhắc này."
 
 
 class ReminderFlow(StatesGroup):

@@ -241,7 +241,7 @@ function WorkWorkspace() {
   /**
    * M2. Configuring a KPI quota is `PR_WORK_CONFIGURE` - ADMIN and OWNER - and
    * **deliberately not** `PR_WORK_MANAGE`: a Trưởng nhóm who assigns work does
-   * not thereby decide an arbitrary colleague's targets, and MeoBot models no
+   * not thereby decide an arbitrary colleague's targets, and TasksBot models no
    * team that would make a narrower middle ground honest. The server refuses
    * either way; not drawing the controls is a courtesy.
    */

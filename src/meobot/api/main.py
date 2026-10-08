@@ -5,19 +5,23 @@ from __future__ import annotations
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI, Request, status
+from fastapi import Depends, FastAPI, Request, status
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
 from meobot import __version__
+from meobot.api.deps import require_unit
 from meobot.api.middleware import RequestContextMiddleware
 from meobot.api.routers import (
     access,
+    account,
+    board,
     conversations,
     drive,
     health,
     invites,
     notifications,
+    orders,
     pr,
     pr_content_work,
     pr_members,
@@ -30,6 +34,8 @@ from meobot.api.routers import (
     scripts,
     sheet_profiles,
     system,
+    tasks,
+    units,
     web_auth,
 )
 from meobot.api.schemas.common import ErrorResponse
@@ -48,7 +54,9 @@ from meobot.core.errors import (
 )
 from meobot.core.logging import configure_logging, get_logger
 from meobot.db.session import Database
+from meobot.domain.account.errors import LoginLockedError
 from meobot.domain.pr.errors import PrImmutableFieldError
+from meobot.domain.units.models import UnitCode
 from meobot.integrations.google.factory import build_drive_client, build_sheets_client
 from meobot.integrations.llm.factory import build_llm_provider
 from meobot.tools.registry import build_default_registry
@@ -79,13 +87,25 @@ _STATUS_MAP: tuple[tuple[type[MeoBotError], int], ...] = (
     (ValidationError, status.HTTP_422_UNPROCESSABLE_ENTITY),
     (AuthorizationError, status.HTTP_403_FORBIDDEN),
     (ConfigurationError, status.HTTP_500_INTERNAL_SERVER_ERROR),
+    # 0045. A plain ``MeoBotError``, so its place in the order is free.
+    (LoginLockedError, status.HTTP_429_TOO_MANY_REQUESTS),
 )
 
 #: Paths whose failures use the ``{"error": {...}}`` envelope the web client
 #: branches on. The milestone-1 routers keep their flat body: changing it would
 #: break callers for cosmetic consistency, and both shapes carry the same code,
 #: message and details.
-_ENVELOPE_PREFIXES = ("/api/pr", "/api/auth", "/api/notifications", "/auth/")
+_ENVELOPE_PREFIXES = (
+    "/api/pr",
+    "/api/auth",
+    "/api/notifications",
+    "/api/units",
+    "/api/orders",
+    "/api/board",
+    "/api/tasks",
+    "/api/account",
+    "/auth/",
+)
 
 
 def _http_status_for(error: MeoBotError) -> int:
@@ -127,7 +147,16 @@ def _include_web_facing_routers(app: FastAPI) -> None:
     """
     app.include_router(health.router)
     app.include_router(web_auth.router)
-    app.include_router(pr.router)
+    # Units. Every PR router below is mounted behind the PR unit gate: the
+    # caller must be tagged PR (migration 0042 tags every existing account, and
+    # an untagged account counts as PR), or gets the routes' usual "not
+    # visible" 404. The gate is an include-time dependency, so no route body
+    # changes and ``get_current_web_actor`` stays in every route's tree.
+    pr_gate = [Depends(require_unit(UnitCode.PR))]
+    app.include_router(pr.router, dependencies=pr_gate)
+    # The OAuth callbacks arrive by redirect with no session and authenticate
+    # from their signed state; they cannot sit behind a session-based gate.
+    app.include_router(pr.oauth_callback_router)
     # M1. Its own router because the Work Ledger is a separate additive module;
     # same prefix family, same dependencies, no route in ``pr.router`` changes.
     # M2, and mounted **before** M1's work router on purpose. They share the
@@ -136,33 +165,47 @@ def _include_web_facing_routers(app: FastAPI) -> None:
     # ``/plans`` and ``/eligibility`` paths have to be declared first or every
     # one of them would be parsed as a work-item UUID and answered with a 422.
     # Neither router's own routes change; only which is asked first.
-    app.include_router(pr_work_quota.router)
+    app.include_router(pr_work_quota.router, dependencies=pr_gate)
     # M3, and mounted before M1's work router for the same reason M2's is: it
     # owns the literal ``/api/pr/work/content`` prefix, and M1 owns
     # ``GET /api/pr/work/{work_item_id}``. FastAPI matches in registration
     # order, so "content" would otherwise be parsed as a work-item UUID.
-    app.include_router(pr_content_work.router)
+    app.include_router(pr_content_work.router, dependencies=pr_gate)
     # M4B, and mounted before M1's work router for the same reason M2's and M3's
     # are: it owns the literal ``/api/pr/work/recurring`` prefix, and M1 owns
     # ``GET /api/pr/work/{work_item_id}``. Declared later, "recurring" would be
     # parsed as a work-item UUID and answered with a 422.
-    app.include_router(pr_work_recurring.router)
+    app.include_router(pr_work_recurring.router, dependencies=pr_gate)
     # Work maintenance. ``/api/pr/work/maintenance``, mounted before M1's work
     # router for the same reason as the three above.
-    app.include_router(pr_work_maintenance.router)
-    app.include_router(pr_work.router)
+    app.include_router(pr_work_maintenance.router, dependencies=pr_gate)
+    app.include_router(pr_work.router, dependencies=pr_gate)
     # M6. Its own ``/api/pr/performance`` prefix, so ordering against M1's
     # ``/api/pr/work/{work_item_id}`` does not arise - unlike M2's and M3's,
     # which had to be mounted first because they extend that prefix.
-    app.include_router(pr_performance.router)
+    app.include_router(pr_performance.router, dependencies=pr_gate)
     # Membership phase 1. ``/api/pr/members`` and ``/api/pr/roles``: reads of
     # its own, writes delegated to ``UserService`` - the Telegram commands'
     # service - so the two clients cannot disagree about who may do what.
-    app.include_router(pr_members.router)
+    app.include_router(pr_members.router, dependencies=pr_gate)
     # Step 1F.2.3d. Browser-facing and session-authenticated like the two above.
     # Not under the PR prefix: a notification is not a PR object, and the routes
     # know nothing about content beyond an opaque ``target_kind``.
     app.include_router(notifications.router)
+    # Units. Not behind any unit gate: ``/me`` is how the shell learns which
+    # units the caller has, and the per-unit routes check inside.
+    app.include_router(units.router)
+    # The Ads order engine, behind the Ads unit gate the same way the PR
+    # routers sit behind the PR one.
+    app.include_router(orders.router, dependencies=[Depends(require_unit(UnitCode.ADS))])
+    # The shared board. Checks the unit it is asked for inside the service.
+    app.include_router(board.router)
+    # The unified task page, for both units. Checks the task's unit inside.
+    app.include_router(tasks.router)
+    # The signed-in person's account (0045): card, figures, password, and the
+    # member list. Not behind a unit gate - everybody has an account; who may
+    # list or reset whom is decided inside ``AccountService``.
+    app.include_router(account.router)
 
 
 def _include_internal_routers(app: FastAPI) -> None:
@@ -249,7 +292,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         title=f"{resolved.app_name} internal API",
         version=__version__,
         description=(
-            "Internal operations API for MeoBot. Telegram is the primary "
+            "Internal operations API for TasksBot. Telegram is the primary "
             "interface; this API exists for health checks, development and "
             "future OAuth callbacks. It is bound to 127.0.0.1 on the NAS."
         ),

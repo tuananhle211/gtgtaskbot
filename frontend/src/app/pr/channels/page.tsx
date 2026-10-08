@@ -90,7 +90,7 @@ const ASSIGNMENT_ROLES = [
  *   intervals for the same reason;
  * - **a snapshot is never dressed up as live data.** Every figure is shown with
  *   the moment it was captured and the source it came from, and the words are
- *   "Chỉ số gần nhất" - never "Live". Nothing in MeoBot fetches from a platform
+ *   "Chỉ số gần nhất" - never "Live". Nothing in TasksBot fetches from a platform
  *   yet, and a screen implying otherwise would be the most expensive kind of
  *   wrong.
  */
@@ -266,7 +266,7 @@ function ChannelWorkspace() {
         </ul>
       </div>
       <div className="space-y-3">
-        {/* Step 1F.2.9. What the OAuth callback came back to say, in MeoChat's
+        {/* Step 1F.2.9. What the OAuth callback came back to say, in TasksBot's
             own words. The query string carries a short status token the server
             chose from a closed set - never a provider message, and never a
             destination - and this turns it into one Vietnamese sentence. */}
@@ -1070,7 +1070,7 @@ function EditChannelForm({
  *
  * Step 1F.2.4d added six. The form offers them for the same reason it offers
  * the other fourteen: a channel on a platform with no connector is measured by
- * somebody reading the numbers off a screen, and a metric MeoBot can store but
+ * somebody reading the numbers off a screen, and a metric TasksBot can store but
  * cannot be told is a column nobody outside a Facebook Page can ever fill.
  */
 const METRIC_FIELDS: Array<{ key: string; label: string }> = [
@@ -1150,7 +1150,7 @@ const TREND_ARROWS: Record<string, string> = { UP: "↑", DOWN: "↓", FLAT: "�
  * What a number did since a comparable reading, or that there is no such reading.
  *
  * The two branches are the same rule the whole panel follows. A comparison
- * MeoBot could make prints the change **and what it actually compared against**;
+ * TasksBot could make prints the change **and what it actually compared against**;
  * one it could not prints "Chưa đủ dữ liệu" and never `0%`. A channel connected
  * last Tuesday has not been flat for a month - nobody knows what it did, and a
  * `0%` there is a measurement nobody took.
@@ -1204,7 +1204,7 @@ function MetricCard({
   hint?: string | null;
   change?: MetricChange | null;
   reason?: string | null;
-  /** Hover text for the label. Used for ratios MeoBot defines itself. */
+  /** Hover text for the label. Used for ratios TasksBot defines itself. */
   title?: string;
 }) {
   return (
@@ -1337,12 +1337,12 @@ function AnalyticsCards({
         <MetricCard
           label="Tương tác / Followers"
           value={formatRatioPercent(analytics.engagement_per_follower_30d)}
-          /* MeoBot's own management ratio, and it says so. Facebook publishes
+          /* TasksBot's own management ratio, and it says so. Facebook publishes
              no "engagement rate" for a Page and this is not it: it is the
              month's engagements over today's follower count, which is a useful
              internal comparison between two channels and not a figure to quote
              to a client as Meta's. */
-          title="Tỷ lệ tương tác 30 ngày so với số Followers hiện tại. Đây là tỷ lệ nội bộ của MeoChat, không phải chỉ số chính thức của Facebook."
+          title="Tỷ lệ tương tác 30 ngày so với số Followers hiện tại. Đây là tỷ lệ nội bộ của TasksBot, không phải chỉ số chính thức của Facebook."
           hint="tỷ lệ nội bộ, không phải chỉ số của Facebook"
         />
       </MetricGroup>
@@ -1543,7 +1543,7 @@ function AnalyticsDetail({
  * The cards that are not drawn, and why not.
  *
  * This section exists because of a support question rather than a design idea.
- * A manager who sees "Reach —" concludes that MeoBot is broken - which is the
+ * A manager who sees "Reach —" concludes that TasksBot is broken - which is the
  * reasonable conclusion and the wrong one - and asks. An em dash where a number
  * belongs *is* a defect unless something says otherwise, so rather than draw a
  * card that can never fill, the panel names the metric here and says which of
@@ -1607,7 +1607,7 @@ function UnavailableMetrics({ entries }: { entries: UnavailableMetric[] }) {
  * `top_post_30d` entirely when the reaction and comment summaries could not be
  * read: the connector still has to pick a post and it picks the most-shared
  * one, but calling that "bài tốt nhất" on a screen a manager quotes to a client
- * would be MeoBot misleading them rather than Meta. That decision is the
+ * would be TasksBot misleading them rather than Meta. That decision is the
  * server's and this component never second-guesses it - an object here is an
  * object that may be labelled a ranking.
  */
@@ -1750,7 +1750,7 @@ function ChannelMetricsPanel({ channelId }: { channelId: string }) {
           ) : null}
 
           {/* Step 1F.2.4b. Two different times, said as two different things.
-              "Ghi nhận" is when MeoBot fetched; the window below is what the
+              "Ghi nhận" is when TasksBot fetched; the window below is what the
               numbers actually cover, which for YouTube Analytics ends a couple
               of days back because that is when the data settles. Calling both
               "cập nhật lúc" would make a 30-day figure look like a snapshot of
@@ -1784,7 +1784,7 @@ function ChannelMetricsPanel({ channelId }: { channelId: string }) {
 
               Meta Insights settles up to about 48 hours behind, so the window
               these numbers describe ends a couple of days before the sync that
-              fetched them. "Ghi nhận" below is when MeoBot asked; this is what
+              fetched them. "Ghi nhận" below is when TasksBot asked; this is what
               the answer was about, and calling both "cập nhật lúc" would make a
               monthly total look like a snapshot of this morning. */}
           {capabilitiesOf(analytics).window_30d_end ? (
@@ -2084,7 +2084,7 @@ const providerPath = (platform: string | null) =>
  *
  * Every label is the server's. The browser never maps a state code to
  * Vietnamese, never decides who may press a button, and never renders a
- * provider's own error text - the API sends a sentence MeoBot wrote.
+ * provider's own error text - the API sends a sentence TasksBot wrote.
  */
 function ChannelConnectionPanel({ channelId }: { channelId: string }) {
   const queryClient = useQueryClient();
@@ -2180,7 +2180,7 @@ function ChannelConnectionPanel({ channelId }: { channelId: string }) {
       {connection === null ? (
         <>
           <p className="text-sm text-[var(--text-muted)]">
-            Chưa kết nối. Kết nối để MeoChat tự lấy số liệu kênh mỗi ngày.
+            Chưa kết nối. Kết nối để TasksBot tự lấy số liệu kênh mỗi ngày.
           </p>
           {data.can_manage_connection ? (
             <button
@@ -2221,7 +2221,7 @@ function ChannelConnectionPanel({ channelId }: { channelId: string }) {
             ) : null}
             <div>
               <dt className="text-[var(--text-muted)]">Đồng bộ gần nhất</dt>
-              {/* "Đồng bộ lúc" is when MeoBot fetched. The reporting window the
+              {/* "Đồng bộ lúc" is when TasksBot fetched. The reporting window the
                   numbers cover is a different fact and lives on the metrics
                   panel, so the two are never conflated into "cập nhật lúc". */}
               <dd>
@@ -2283,7 +2283,7 @@ function ChannelConnectionPanel({ channelId }: { channelId: string }) {
               )}
               {/* Step 1F.2.8. The *first* connection opens the provider's own
                   consent screen and asks nothing here - that screen is the
-                  authorization step, and a MeoChat dialog in front of it would
+                  authorization step, and a TasksBot dialog in front of it would
                   be a click that authorises nothing. Reconnecting is different:
                   there is already a working connection, and this replaces it. */}
               <ConfirmButton
@@ -2481,7 +2481,7 @@ function TikTokAccountPanel({
           <p className="flex flex-wrap items-center gap-2 text-sm font-semibold">
             {account.display_name ?? "—"}
             {/* Three states, not two. `null` means user.info.profile was not
-                granted, and printing "Chưa xác minh" over it would be MeoChat
+                granted, and printing "Chưa xác minh" over it would be TasksBot
                 asserting something TikTok never said. */}
             {account.is_verified === true ? (
               <Pill tone="good">Đã xác minh</Pill>
@@ -2594,7 +2594,7 @@ function TikTokAccountPanel({
             {hasMore && !canLoadMore ? (
               <p className="mt-2 text-xs text-[var(--text-muted)]">
                 Đã tải tối đa {data.max_video_pages} trang video gần nhất.
-                MeoChat không tải toàn bộ lịch sử kênh.
+                TasksBot không tải toàn bộ lịch sử kênh.
               </p>
             ) : null}
           </>
@@ -2787,7 +2787,7 @@ function AccountChooser({
     <div className="space-y-2">
       <h4 className="text-sm font-semibold">{title}</h4>
       <p className="text-xs text-[var(--text-muted)]">
-        Đã cấp quyền xong. Hãy chọn đúng tài khoản mà kênh này đại diện — MeoChat
+        Đã cấp quyền xong. Hãy chọn đúng tài khoản mà kênh này đại diện — TasksBot
         chỉ lấy số liệu của tài khoản được chọn.
       </p>
       {accounts.data.accounts.length === 0 ? (

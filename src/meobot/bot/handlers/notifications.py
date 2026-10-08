@@ -160,7 +160,7 @@ async def handle_register_chat(
             formatting.escape(f"• Tên Telegram: {message.chat.title or 'không rõ'}"),
             formatting.escape(f"• Tên sử dụng: {display}"),
             formatting.escape(f"• Mục đích: {purpose_description(purpose)}"),
-            formatting.escape("• Cho phép MeoBot gửi tự động: Có"),
+            formatting.escape("• Cho phép TasksBot gửi tự động: Có"),
             formatting.escape("• Dữ liệu cá nhân: Không được hiển thị"),
         ]
     )
@@ -506,10 +506,10 @@ async def _unknown_destination(message: Message, *, settings: Settings, name: st
     quoted = f"“{name}” " if name else ""
     body = "\n".join(
         [
-            formatting.escape(f"MeoBot chưa tìm thấy group {quoted}trong danh sách đã đăng ký."),
+            formatting.escape(f"TasksBot chưa tìm thấy group {quoted}trong danh sách đã đăng ký."),
             "",
             formatting.escape(
-                "Bạn vào chính group đó và nhắn “đăng ký group này” để MeoBot ghi nhận nhé."
+                "Bạn vào chính group đó và nhắn “đăng ký group này” để TasksBot ghi nhận nhé."
             ),
         ]
     )
@@ -775,8 +775,8 @@ async def _show_destinations(query: CallbackQuery, *, database: Database) -> Non
 
 # --- Messaging one person ---------------------------------------------------
 PRIVATE_SEND_UNAVAILABLE = (
-    "MeoBot chưa gửi tin nhắn riêng cho từng người theo yêu cầu được.\n\n"
-    "Hiện MeoBot gửi được tới các group đã đăng ký. Bạn nhắn ví dụ:\n"
+    "TasksBot chưa gửi tin nhắn riêng cho từng người theo yêu cầu được.\n\n"
+    "Hiện TasksBot gửi được tới các group đã đăng ký. Bạn nhắn ví dụ:\n"
     "“Thông báo cho <tên group đã đăng ký>: <nội dung>.”"
 )
 

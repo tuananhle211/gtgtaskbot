@@ -12,7 +12,7 @@ import uuid
 
 TEST_ENV: dict[str, str] = {
     "APP_ENV": "test",
-    "APP_NAME": "MeoBot",
+    "APP_NAME": "TasksBot",
     "APP_TIMEZONE": "Asia/Ho_Chi_Minh",
     "LOG_LEVEL": "WARNING",
     "LOG_FORMAT": "console",
@@ -52,6 +52,17 @@ TEST_ENV: dict[str, str] = {
     "MEOBOT_DEPARTMENT_SIZE": "",
     "MEOBOT_OWNER_TITLE": "",
     "MEOBOT_OWNER_PREFERRED_ADDRESS": "",
+    # Pinned to the code defaults for the same reason again: a local ``.env``
+    # that serves the panel over plain HTTP sets WEB_COOKIE_SECURE=false, and
+    # pydantic-settings would read it for any key the environment leaves unset,
+    # which turned the "strict cookie defaults" tests red on that machine.
+    "WEB_BASE_URL": "",
+    "WEB_COOKIE_SECURE": "true",
+    "WEB_EXTRA_ALLOWED_ORIGINS": "",
+    "WEB_LOGIN_TOKEN_TTL_SECONDS": "600",
+    "WEB_SESSION_TTL_SECONDS": "43200",
+    # The password-login default (0045), pinned for the same reason.
+    "MEOBOT_WEB_DEFAULT_PASSWORD": "Apm@2026",
 }
 os.environ.update(TEST_ENV)
 
@@ -76,6 +87,7 @@ from tests.fakes import (  # noqa: E402
     SwitchableDatabase,
     bot_user,
 )
+from tests.unit.work_clock import frozen_work_clock  # noqa: E402
 
 #: Telegram id declared as the bootstrap owner in the test environment.
 OWNER_TELEGRAM_ID = int(TEST_ENV["MEOBOT_OWNER_TELEGRAM_ID"])
@@ -228,3 +240,6 @@ async def bot_and_session() -> AsyncIterator[tuple[Bot, RecordingSession]]:
         yield bot, session
     finally:
         await bot.session.close()
+
+
+__all__ = ["frozen_work_clock"]

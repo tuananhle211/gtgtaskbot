@@ -120,7 +120,7 @@ class DecisionRequest(BaseModel):
     capability_brief: str | None = Field(
         default=None,
         max_length=6000,
-        description="What MeoBot can actually do for this actor, from configuration.",
+        description="What TasksBot can actually do for this actor, from configuration.",
     )
     workflow_context: dict[str, Any] = Field(
         default_factory=dict,

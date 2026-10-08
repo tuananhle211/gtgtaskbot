@@ -24,7 +24,7 @@ from typing import Any
 from meobot.core.logging import get_logger
 from meobot.db.models.notifications import OutboundMessage
 from meobot.domain.notifications.models import FailureCategory
-from meobot.domain.notifications.templates import render
+from meobot.domain.notifications.templates import template_for
 from meobot.integrations.telegram.notifier import Notifier
 
 logger = get_logger(__name__)
@@ -121,7 +121,8 @@ class TelegramDeliveryService:
                 would be stale by the time a retry delivered it.
         """
         try:
-            text = render(message.template_key, dict(message.safe_payload_json))
+            template = template_for(message.template_key)
+            text = template.render(dict(message.safe_payload_json))
         except (KeyError, ValueError) as exc:
             # A payload that no longer matches its template cannot be fixed by
             # retrying, and is a programming error worth surfacing loudly.
@@ -136,9 +137,18 @@ class TelegramDeliveryService:
             return DeliveryResult(delivered=False, category=FailureCategory.DESTINATION_REFUSED)
 
         try:
-            accepted = await self._notifier.send(
-                message.telegram_chat_id, text, reply_markup=reply_markup
-            )
+            if template.parse_mode is None:
+                # The call every existing transport (and test fake) knows.
+                accepted = await self._notifier.send(
+                    message.telegram_chat_id, text, reply_markup=reply_markup
+                )
+            else:
+                accepted = await self._notifier.send(
+                    message.telegram_chat_id,
+                    text,
+                    reply_markup=reply_markup,
+                    parse_mode=template.parse_mode,
+                )
         except Exception as exc:
             category = DeliveryFailureMapper.categorize(exc)
             logger.warning(

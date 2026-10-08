@@ -260,7 +260,7 @@ def parse_reminder(text: str, *, now: datetime, tz: ZoneInfo) -> ParseResult:
     minutes = _take_duration(consumer, local_now)
     if minutes is not None:
         if minutes <= 0 or minutes > 60 * 24 * 365:
-            return ParseResult(problem="Khoảng thời gian đó dài quá, MeoBot chưa đặt lịch được.")
+            return ParseResult(problem="Khoảng thời gian đó dài quá, TasksBot chưa đặt lịch được.")
         moment = (local_now + timedelta(minutes=minutes)).replace(second=0, microsecond=0)
         schedule = ReminderSchedule(
             kind=ScheduleKind.ONE_TIME,
@@ -295,7 +295,7 @@ def parse_reminder(text: str, *, now: datetime, tz: ZoneInfo) -> ParseResult:
     clock = consumer.take(_TIME)
     if clock is None and relative_day is None:
         return ParseResult(
-            problem="MeoBot chưa rõ bạn muốn được nhắc lúc mấy giờ. Bạn nói giúp mình giờ nhé.",
+            problem="TasksBot chưa rõ bạn muốn được nhắc lúc mấy giờ. Bạn nói giúp mình giờ nhé.",
             address_preference=address,
             partial_content=_content_of(consumer.remaining) or None,
         )

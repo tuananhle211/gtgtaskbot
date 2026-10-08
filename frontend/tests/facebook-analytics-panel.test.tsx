@@ -142,7 +142,7 @@ const NOT_PERMITTED_NOTE =
   "Cần cấp lại quyền cho ứng dụng mới có số liệu.";
 const UNSUPPORTED_NOTE =
   "Meta hiện không còn cung cấp chỉ số này qua API đang dùng, " +
-  "nên MeoBot để trống thay vì ước lượng.";
+  "nên TasksBot để trống thay vì ước lượng.";
 
 const unavailable = (metric: string, label: string, permitted: boolean) => ({
   metric,
@@ -519,7 +519,7 @@ describe("8. the best post is withheld while its ranking cannot be trusted", () 
     // The server sends no `top_post_30d` at all in this state. The panel must
     // not reconstruct one from anything else on the response: a ranking on
     // shares alone is the most-shared post, not the best one, and a manager
-    // quoting it to a client would have been misled by MeoBot.
+    // quoting it to a client would have been misled by TasksBot.
     expect(screen.queryByText("Bài tốt nhất 30 ngày")).not.toBeInTheDocument();
     // It is accounted for rather than silently dropped.
     const explanation = screen.getByRole("group", {

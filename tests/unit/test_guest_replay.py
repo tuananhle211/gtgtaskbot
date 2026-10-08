@@ -52,7 +52,7 @@ STRANGER = 930_001
 async def open_request(
     session,  # type: ignore[no-untyped-def]
     *,
-    question: str = "MeoBot giúp được gì cho team nội dung?",
+    question: str = "TasksBot giúp được gì cho team nội dung?",
     message_id: int = 42,
 ) -> PendingGuestAccessRequest:
     request, _notify = await AccessRequestService(session).open_or_reuse(
@@ -73,7 +73,7 @@ async def capture(
     settings: Settings,
     request: PendingGuestAccessRequest,
     *,
-    text: str = "MeoBot giúp được gì cho team nội dung?",
+    text: str = "TasksBot giúp được gì cho team nội dung?",
 ) -> DeferredGuestMessage | None:
     return await DeferredGuestMessageService(session, settings).capture(
         request=request, bot_identity=1, text=text, reply_to_message_id=42
@@ -90,7 +90,7 @@ class TestHolding:
         held = await capture(session, settings, request)
         assert held is not None
         assert held.status is DeferredMessageStatus.PENDING_APPROVAL
-        assert held.sanitized_text == "MeoBot giúp được gì cho team nội dung?"
+        assert held.sanitized_text == "TasksBot giúp được gì cho team nội dung?"
         assert held.original_chat_id == GROUP
         assert held.reply_to_message_id == 42
 
@@ -467,8 +467,8 @@ def test_the_reply_template_carries_only_the_answer() -> None:
     assert template.optional == ()
     assert template.classification.may_reach_a_group
 
-    rendered = template.render({"answer": "MeoBot hỗ trợ nội dung và vận hành."})
-    assert rendered == "MeoBot hỗ trợ nội dung và vận hành."
+    rendered = template.render({"answer": "TasksBot hỗ trợ nội dung và vận hành."})
+    assert rendered == "TasksBot hỗ trợ nội dung và vận hành."
 
 
 def test_a_guest_reply_key_is_stable_per_question() -> None:

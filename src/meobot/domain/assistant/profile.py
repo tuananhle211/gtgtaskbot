@@ -88,7 +88,7 @@ class AssistantProfile(BaseModel):
 
     model_config = ConfigDict(frozen=True)
 
-    assistant_name: str = Field(default="MeoBot", max_length=80)
+    assistant_name: str = Field(default="TasksBot", max_length=80)
     identity: str = Field(default=DEFAULT_IDENTITY, max_length=500)
     mission: str = Field(default=DEFAULT_MISSION, max_length=1000)
     organization_name: str = Field(default="", max_length=200)
@@ -178,7 +178,7 @@ def default_assistant_profile(
     organization_name: str = "",
     department_name: str = "",
     department_size: str = "",
-    assistant_name: str = "MeoBot",
+    assistant_name: str = "TasksBot",
 ) -> AssistantProfile:
     """Build the profile MeoBot ships with, filled in from configuration.
 

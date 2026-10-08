@@ -7,12 +7,17 @@ declare what they need here and delegate.
 from __future__ import annotations
 
 import uuid
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Awaitable, Callable
 from typing import Annotated
 
 from fastapi import Depends, HTTPException, Request, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from meobot.application.account.account_service import AccountService
+from meobot.application.account.avatar_service import AvatarService
+from meobot.application.account.password_reset_service import PasswordResetService
+from meobot.application.account.password_service import PasswordService
+from meobot.application.account.stats_service import AccountStatsService
 from meobot.application.audit_service import AuditService
 from meobot.application.chat_memory_service import ChatMemoryService
 from meobot.application.drive_folder_service import DriveFolderService
@@ -27,12 +32,16 @@ from meobot.application.sheet_inspection_service import SheetInspectionService
 from meobot.application.sheet_profile_service import SheetProfileService
 from meobot.application.sheet_template_service import SheetTemplateService
 from meobot.application.spreadsheet_creation_service import SpreadsheetCreationService
-from meobot.application.web_auth_service import SESSION_COOKIE, WebAuthService
+from meobot.application.units.directory import NOT_VISIBLE, UnitDirectoryService
+from meobot.application.web_auth_service import SESSION_COOKIE, ResolvedSession, WebAuthService
 from meobot.core.config import Settings, get_settings
 from meobot.core.context import require_request_id
 from meobot.core.errors import ConfigurationError
 from meobot.db.session import Database
+from meobot.domain.account.errors import PasswordChangeRequiredError
 from meobot.domain.identity.models import Actor, Role
+from meobot.domain.units.errors import UnitNotFoundError
+from meobot.domain.units.models import UnitCode, UnitMembership
 from meobot.integrations.google.drive import DriveClient
 from meobot.integrations.google.sheets import SheetsClient
 from meobot.integrations.llm.base import LLMProvider
@@ -162,13 +171,60 @@ async def get_current_web_actor(
     services against the role and the capability grants, so a valid session for
     a new EMPLOYEE authenticates fine and can still do almost nothing.
     """
-    actor = await auth.resolve_session(token=request.cookies.get(SESSION_COOKIE))
-    if actor is None:
+    resolved = await auth.resolve_web_session(token=request.cookies.get(SESSION_COOKIE))
+    if resolved is None:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Bạn cần đăng nhập lại.",
         )
-    return actor
+    request.state.web_session = resolved
+    if resolved.must_change_password and not password_change_allows(request.url.path):
+        # A session opened with the default (or a temporary) password may only read who it is
+        # and change the password. Enforced here, once, for every route that
+        # authenticates - never route by route, where one would be forgotten.
+        raise PasswordChangeRequiredError()
+    return resolved.actor
+
+
+#: What a default-password session may still reach (0045): the auth routes
+#: (session, logout, password login), its own account card, and the change form.
+_PASSWORD_CHANGE_ALLOWED_PREFIXES = ("/api/auth/",)
+_PASSWORD_CHANGE_ALLOWED_PATHS = frozenset({"/api/account/me", "/api/account/password"})
+#: Reading a profile picture (0047) - ``/api/account/avatar/<user_id>``, which
+#: only has a GET. Read-only and harmless, and the forced-change card shows
+#: the avatar. Uploading/removing (``/api/account/avatar`` itself) stays closed.
+_AVATAR_READ_PREFIX = "/api/account/avatar/"
+
+
+def password_change_allows(path: str) -> bool:
+    """Whether a session that must change its password may reach ``path``.
+
+    Exact paths, not prefixes, for the account routes: ``/api/account/me/stats``
+    and ``/api/account/members`` stay closed until the password is changed. The
+    one pattern is a single segment after ``/api/account/avatar/``.
+    """
+    if path.startswith(_PASSWORD_CHANGE_ALLOWED_PREFIXES) or path in _PASSWORD_CHANGE_ALLOWED_PATHS:
+        return True
+    if path.startswith(_AVATAR_READ_PREFIX):
+        rest = path[len(_AVATAR_READ_PREFIX) :]
+        return bool(rest) and "/" not in rest
+    return False
+
+
+async def get_current_web_session(
+    request: Request,
+    actor: Annotated[Actor, Depends(get_current_web_actor)],
+) -> ResolvedSession | None:
+    """The resolved session behind :func:`get_current_web_actor`, if it ran.
+
+    ``None`` when a test replaced the actor dependency: there is no cookie to
+    describe then, and the routes treat that as a session with nothing to
+    change.
+    """
+    resolved = getattr(request.state, "web_session", None)
+    if isinstance(resolved, ResolvedSession) and resolved.actor.user_id == actor.user_id:
+        return resolved
+    return None
 
 
 async def get_optional_web_actor(
@@ -348,6 +404,99 @@ def get_chat_memory_service(
     return ChatMemoryService(session, settings)
 
 
+def get_account_stats_service(
+    session: Annotated[AsyncSession, Depends(get_session)],
+) -> AccountStatsService:
+    """Per-person monthly figures, on this request's transaction."""
+    return AccountStatsService(session)
+
+
+def get_password_service(
+    session: Annotated[AsyncSession, Depends(get_session)],
+    settings: Annotated[Settings, Depends(get_app_settings)],
+    audit: Annotated[AuditService, Depends(get_audit_service)],
+    auth: Annotated[WebAuthService, Depends(get_web_auth_service)],
+) -> PasswordService:
+    """Password login and change, on this request's transaction."""
+    return PasswordService(session, settings, audit, auth)
+
+
+def get_password_reset_service(
+    session: Annotated[AsyncSession, Depends(get_session)],
+    settings: Annotated[Settings, Depends(get_app_settings)],
+    audit: Annotated[AuditService, Depends(get_audit_service)],
+    auth: Annotated[WebAuthService, Depends(get_web_auth_service)],
+) -> PasswordResetService:
+    """Temporary passwords sent by Telegram, on this request's transaction."""
+    return PasswordResetService(session, settings, audit, auth)
+
+
+def get_account_service(
+    session: Annotated[AsyncSession, Depends(get_session)],
+    audit: Annotated[AuditService, Depends(get_audit_service)],
+    auth: Annotated[WebAuthService, Depends(get_web_auth_service)],
+    stats: Annotated[AccountStatsService, Depends(get_account_stats_service)],
+    resets: Annotated[PasswordResetService, Depends(get_password_reset_service)],
+) -> AccountService:
+    """The account screen's reads and writes, on this request's transaction."""
+    return AccountService(session, audit, auth, stats, resets)
+
+
+def get_avatar_service(
+    session: Annotated[AsyncSession, Depends(get_session)],
+    audit: Annotated[AuditService, Depends(get_audit_service)],
+) -> AvatarService:
+    """Profile pictures (0047), on this request's transaction."""
+    return AvatarService(session, audit)
+
+
+def get_unit_directory(
+    session: Annotated[AsyncSession, Depends(get_session)],
+) -> UnitDirectoryService:
+    """Who belongs to which unit, on this request's transaction."""
+    return UnitDirectoryService(session)
+
+
+async def get_unit_membership(
+    request: Request,
+    actor: Annotated[Actor, Depends(get_current_web_actor)],
+    directory: Annotated[UnitDirectoryService, Depends(get_unit_directory)],
+) -> UnitMembership:
+    """The actor's unit tags, resolved once per request.
+
+    Cached on ``request.state`` so the gate on the router and the route body
+    that needs the same answer share one query. Units are deliberately not a
+    field on :class:`~meobot.domain.identity.models.Actor`: the actor is rebuilt
+    from the ``users`` row everywhere, and membership is a lookup beside it.
+    """
+    cached = getattr(request.state, "unit_membership", None)
+    if isinstance(cached, UnitMembership):
+        return cached
+    membership = await directory.membership_for(actor)
+    request.state.unit_membership = membership
+    return membership
+
+
+def require_unit(code: UnitCode) -> Callable[..., Awaitable[UnitMembership]]:
+    """A router-level gate: the caller must be tagged into ``code``.
+
+    Mounted at include time (``dependencies=[Depends(require_unit(UnitCode.PR))]``)
+    so no route body changes and the existing ``get_current_web_actor`` is still
+    in every route's dependency tree. An outsider gets the PR routes' usual
+    "not visible" 404, never a 403 that confirms the unit holds something.
+    """
+
+    async def _gate(
+        membership: Annotated[UnitMembership, Depends(get_unit_membership)],
+    ) -> UnitMembership:
+        if not membership.has(code):
+            raise UnitNotFoundError(NOT_VISIBLE, details={"reason": "unit_not_visible"})
+        return membership
+
+    _gate.__name__ = f"require_unit_{code.value.lower()}"
+    return _gate
+
+
 SettingsDep = Annotated[Settings, Depends(get_app_settings)]
 SessionDep = Annotated[AsyncSession, Depends(get_session)]
 ActorDep = Annotated[Actor, Depends(get_current_system_actor)]
@@ -378,3 +527,12 @@ CurrentActorDep = Annotated[Actor, Depends(get_current_web_actor)]
 #: route uses :data:`CurrentActorDep`.
 OptionalActorDep = Annotated[Actor | None, Depends(get_optional_web_actor)]
 PrServicesDep = Annotated[PrServices, Depends(get_pr_services)]
+#: The session behind :data:`CurrentActorDep` (``None`` under a test override).
+CurrentWebSessionDep = Annotated[ResolvedSession | None, Depends(get_current_web_session)]
+PasswordServiceDep = Annotated[PasswordService, Depends(get_password_service)]
+PasswordResetServiceDep = Annotated[PasswordResetService, Depends(get_password_reset_service)]
+AccountServiceDep = Annotated[AccountService, Depends(get_account_service)]
+AvatarServiceDep = Annotated[AvatarService, Depends(get_avatar_service)]
+UnitDirectoryDep = Annotated[UnitDirectoryService, Depends(get_unit_directory)]
+#: The caller's unit tags. Resolved once per request and cached on it.
+UnitMembershipDep = Annotated[UnitMembership, Depends(get_unit_membership)]

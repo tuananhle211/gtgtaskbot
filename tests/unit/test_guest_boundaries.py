@@ -72,7 +72,7 @@ def test_the_guest_prompt_carries_no_internal_context() -> None:
     context; a separate, smaller builder cannot leak what it never reads. This
     test states which words must never appear.
     """
-    profile = AssistantProfile(assistant_name="MeoBot")
+    profile = AssistantProfile(assistant_name="TasksBot")
     rendered = guest_prompt_context(a_guest(), profile)
 
     for forbidden in (
@@ -94,7 +94,7 @@ def test_the_guest_prompt_carries_no_internal_context() -> None:
 
 def test_the_guest_prompt_names_no_role() -> None:
     """A Guest has no Role, so nothing may describe them as having one."""
-    rendered = guest_prompt_context(a_guest(), AssistantProfile(assistant_name="MeoBot"))
+    rendered = guest_prompt_context(a_guest(), AssistantProfile(assistant_name="TasksBot"))
     for role in Role:
         assert role.value not in rendered
 

@@ -146,7 +146,7 @@ async def list_drive_folders(
     folders: DriveFolderServiceDep,
     active_only: bool = Query(default=False, description="Only return active folders."),
 ) -> list[DriveFolderResponse]:
-    """List the folders MeoBot may create files in."""
+    """List the folders TasksBot may create files in."""
     return [
         _folder_response(folder) for folder in await folders.list_folders(active_only=active_only)
     ]
@@ -205,7 +205,7 @@ async def list_sheet_templates(
     templates: SheetTemplateServiceDep,
     active_only: bool = Query(default=False),
 ) -> list[SheetTemplateResponse]:
-    """List the templates MeoBot can produce, seeding the built-ins."""
+    """List the templates TasksBot can produce, seeding the built-ins."""
     await templates.ensure_all_builtin()
     return [
         _template_response(template)
@@ -265,13 +265,13 @@ async def update_sheet_template(
 @router.get(
     "/created-spreadsheets",
     response_model=list[CreatedSpreadsheetResponse],
-    summary="List spreadsheets MeoBot created",
+    summary="List spreadsheets TasksBot created",
 )
 async def list_created_spreadsheets(
     creation: SpreadsheetCreationServiceDep,
     limit: int = Query(default=20, ge=1, le=100),
 ) -> list[CreatedSpreadsheetResponse]:
-    """List the spreadsheets MeoBot created, newest first."""
+    """List the spreadsheets TasksBot created, newest first."""
     return [_created_response(record) for record in await creation.list_created(limit=limit)]
 
 

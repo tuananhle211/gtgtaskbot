@@ -154,7 +154,7 @@ WINDOW_30D_END_EXTRA_KEY = "meta_window_30d_end"
 PROVIDER_LIMITATION_NOTES: Mapping[str, str] = {
     "FACEBOOK": (
         "Facebook không còn cung cấp reach/impressions ở cấp Trang (Graph v23), "
-        "nên MeoBot để trống thay vì ước lượng."
+        "nên TasksBot để trống thay vì ước lượng."
     ),
 }
 
@@ -223,7 +223,7 @@ AVAILABILITY_NOTES: Mapping[MetricAvailability, str] = {
     ),
     MetricAvailability.UNSUPPORTED: (
         "Meta hiện không còn cung cấp chỉ số này qua API đang dùng, "
-        "nên MeoBot để trống thay vì ước lượng."
+        "nên TasksBot để trống thay vì ước lượng."
     ),
 }
 

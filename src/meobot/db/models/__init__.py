@@ -42,6 +42,16 @@ from meobot.db.models.notifications import (
     TelegramChatAssignment,
 )
 from meobot.db.models.observed_user import ObservedTelegramUser
+from meobot.db.models.order import (
+    Order,
+    OrderApproval,
+    OrderCodeCounter,
+    OrderEvent,
+    OrderNode,
+    OrderSubmission,
+    OrderWorkRule,
+)
+from meobot.db.models.org_unit import OrgUnit, OrgUnitMember, UnitVideoKind
 from meobot.db.models.pr import (
     PrApprovalEvent,
     PrBrand,
@@ -129,7 +139,9 @@ from meobot.db.models.script_review import ScriptReview
 from meobot.db.models.script_type import ScriptType, ScriptTypeVersion
 from meobot.db.models.sheet_profile import SheetProfile
 from meobot.db.models.system_setting import SystemSetting
+from meobot.db.models.task import Task
 from meobot.db.models.user import User
+from meobot.db.models.user_avatar import UserAvatar
 from meobot.db.models.user_notification import UserNotification
 from meobot.db.models.web_session import WebSession, WebSessionKind
 
@@ -161,6 +173,15 @@ __all__ = [
     "MessageDispatchRecipient",
     "MessageDispatchRecipientPart",
     "ObservedTelegramUser",
+    "Order",
+    "OrderApproval",
+    "OrderCodeCounter",
+    "OrderEvent",
+    "OrderNode",
+    "OrderSubmission",
+    "OrderWorkRule",
+    "OrgUnit",
+    "OrgUnitMember",
     "OrganizationHoliday",
     "OutboundMessage",
     "PendingGuestAccessRequest",
@@ -236,12 +257,23 @@ __all__ = [
     "SheetProfile",
     "SheetTemplate",
     "SystemSetting",
+    "Task",
     "TelegramChat",
     "TelegramChatAssignment",
+    "UnitVideoKind",
     "User",
+    "UserAvatar",
     "UserNotification",
     "UserQuotaOverride",
     "WebSession",
     "WebSessionKind",
     "WorkSchedule",
 ]
+
+# The ``tasks`` projection is written from a flush hook, so that every write
+# path - web, Telegram, Celery - keeps it in step without knowing it exists.
+# Installed here because every process that writes a source row has imported
+# this package by then. Imported last: the hook module imports models.
+from meobot.application.tasks.sync import install_task_sync
+
+install_task_sync()

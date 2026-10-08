@@ -118,7 +118,7 @@ async def handle_add_sheet(
     await state.clear()
     await state.set_state(AddSheet.waiting_for_url)
     await message.answer(
-        "📎 Gửi cho MeoBot link Google Sheet (hoặc spreadsheet ID).\n\n"
+        "📎 Gửi cho TasksBot link Google Sheet (hoặc spreadsheet ID).\n\n"
         "Nhớ chia sẻ Sheet với email service account (quyền Editor nếu muốn ghi ngược).\n"
         "Gõ /cancel_flow để huỷ."
     )
@@ -347,7 +347,7 @@ async def handle_profile_name(
         args=(str(profile_id),),
         kwargs={"notify_chat_id": message.chat.id},
     )
-    await message.answer("⏳ Đang đồng bộ lần đầu, MeoBot sẽ báo lại khi xong.")
+    await message.answer("⏳ Đang đồng bộ lần đầu, TasksBot sẽ báo lại khi xong.")
 
 
 @router.message(Command("sync_sheets"))

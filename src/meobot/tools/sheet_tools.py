@@ -282,7 +282,7 @@ def build_sheet_tools(*, sheets: SheetsClient) -> list[ToolDefinition]:
         ),
         ToolDefinition(
             name="sheet_profile.create",
-            description="Tạo một sheet profile mới để MeoBot đọc được Google Sheet.",
+            description="Tạo một sheet profile mới để TasksBot đọc được Google Sheet.",
             handler=_create_handler,
             arguments_model=CreateSheetProfileArgs,
             risk_level=RiskLevel.MEDIUM,
@@ -300,7 +300,7 @@ def build_sheet_tools(*, sheets: SheetsClient) -> list[ToolDefinition]:
         ),
         ToolDefinition(
             name="sheet_profile.sync",
-            description="Đồng bộ kịch bản từ một Google Sheet vào MeoBot.",
+            description="Đồng bộ kịch bản từ một Google Sheet vào TasksBot.",
             handler=sync_handler,
             arguments_model=ProfileReferenceArgs,
             risk_level=RiskLevel.MEDIUM,

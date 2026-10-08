@@ -431,7 +431,7 @@ class TestFailureAlerts:
         for leak in ("Traceback", "TelegramBadRequest", "chat_write_forbidden", "400"):
             assert leak not in rendered
         assert str(row.telegram_chat_id) not in rendered
-        assert "MeoBot hiện không có quyền gửi tin trong group này." in rendered
+        assert "TasksBot hiện không có quyền gửi tin trong group này." in rendered
 
     def test_every_failure_category_has_a_human_reason(self) -> None:
         for category in FailureCategory:

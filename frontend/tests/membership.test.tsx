@@ -581,3 +581,78 @@ describe("7. the roles tab", () => {
     expect(screen.queryByRole("button", { name: /Sửa|Lưu|Tạo vai trò/ })).not.toBeInTheDocument();
   });
 });
+
+describe("9. the two teams on one roster", () => {
+  const UNITS_ME = {
+    units: [
+      { code: "PR", label: "Phòng PR", role: "MEMBER", role_label: "Thành viên", is_lead: false, member_code: null, personal_nas_url: null, settings: {} },
+      { code: "ADS", label: "Phòng Ads", role: "HEAD", role_label: "Trưởng phòng", is_lead: false, member_code: null, personal_nas_url: null, settings: {} },
+    ],
+    default_unit: "PR",
+    can_view_all: true,
+    can_admin: ["PR", "ADS"],
+  };
+  const directory = (units: Record<string, string[]>) =>
+    MEMBERS.map((row) => ({
+      user_id: row.user_id,
+      full_name: row.full_name,
+      base_role: row.role,
+      base_role_label: row.role_label,
+      active: true,
+      units: units[row.user_id] ?? [],
+    }));
+  const extra = (units: Record<string, string[]>): Route[] => [
+    { match: "/api/units/me", body: UNITS_ME },
+    { match: "/api/units/directory", body: directory(units) },
+    { match: "/api/units/PR/members", method: "POST", body: {} },
+  ];
+
+  it("tags every member with their teams and adds an Ads member to PR", async () => {
+    const fetchMock = await open(roster(), extra({ [HAO]: ["ADS"], [OWNER]: ["ADS", "PR"] }));
+    await waitFor(() => expect(card("Chị Chủ").getByText("PR")).toBeInTheDocument());
+    expect(card("Chị Chủ").getByText("ADS")).toBeInTheDocument();
+    const hao = card(MEMBERS[1].full_name);
+    expect(hao.getByText("ADS")).toBeInTheDocument();
+    // Ads only: may be added to PR; already in Ads: no "+ Đội Ads".
+    expect(hao.queryByRole("button", { name: "+ Đội Ads" })).not.toBeInTheDocument();
+    fireEvent.click(hao.getByRole("button", { name: "+ Đội PR" }));
+    await confirm();
+    await waitFor(() =>
+      expect(lastCall(fetchMock, "/api/units/PR/members").body).toEqual({
+        user_id: HAO,
+        role: "MEMBER",
+      }),
+    );
+  });
+
+  it("keeps three tabs, splits Thành viên and Quyền duyệt by Phòng PR / Phòng Ads", async () => {
+    await open(roster(), extra({ [HAO]: ["PR"] }));
+    expect(
+      screen
+        .getByRole("tablist", { name: "Thành viên & Phân quyền" })
+        .querySelectorAll('[role="tab"]').length,
+    ).toBe(3);
+    const teams = screen.getByRole("tablist", { name: "Phòng" });
+    expect(within(teams).getAllByRole("tab").map((tab) => tab.textContent)).toEqual([
+      "Phòng PR",
+      "Phòng Ads",
+    ]);
+    fireEvent.click(within(teams).getByRole("tab", { name: "Phòng Ads" }));
+    expect(NAV.current()).toBe("team=ads");
+    // "Vai trò & quyền" has no Phòng split.
+    fireEvent.click(screen.getByRole("tab", { name: /Vai trò & quyền/ }));
+    expect(NAV.current()).toBe("tab=roles");
+  });
+
+  it("sends a PR member to Phòng Ads with them picked, and filters by team", async () => {
+    await open(roster(), extra({ [HAO]: ["PR"] }));
+    const hao = card(MEMBERS[1].full_name);
+    await waitFor(() => expect(hao.getByRole("button", { name: "+ Đội Ads" })).toBeInTheDocument());
+    // A never-tagged account says so instead of showing nothing.
+    expect(card("Chị Chủ").getByText(/Chưa gắn đội/)).toBeInTheDocument();
+    fireEvent.change(screen.getByLabelText("Đội"), { target: { value: "PR" } });
+    expect(screen.getAllByTestId("member-card")).toHaveLength(1);
+    fireEvent.click(hao.getByRole("button", { name: "+ Đội Ads" }));
+    expect(NAV.current()).toBe(`team=ads&add=${HAO}`);
+  });
+});

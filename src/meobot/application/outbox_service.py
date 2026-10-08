@@ -44,6 +44,7 @@ from meobot.domain.notifications.models import (
     PrivacyClassification,
     RecipientType,
 )
+from meobot.domain.notifications.templates import TEMPLATES
 
 logger = get_logger(__name__)
 
@@ -241,6 +242,7 @@ class OutboxService:
         row.delivered_at = moment
         row.last_error_category = FailureCategory.NONE
         row.version += 1
+        self._scrub_secrets(row)
         await self._record_attempt(
             row,
             outcome=DeliveryOutcome.DELIVERED,
@@ -285,6 +287,8 @@ class OutboxService:
                 seconds=self.backoff_seconds(row.attempt_count, retry_after_seconds)
             )
 
+        if row.status is OutboxStatus.PERMANENT_FAILURE:
+            self._scrub_secrets(row)
         await self._record_attempt(
             row,
             outcome=outcome,
@@ -315,6 +319,7 @@ class OutboxService:
         row.status = OutboxStatus.CANCELLED
         row.failed_at = now or utcnow()
         row.version += 1
+        self._scrub_secrets(row)
         await self._session.flush()
 
     async def release(self, row: OutboundMessage, *, now: datetime | None = None) -> None:
@@ -343,6 +348,25 @@ class OutboxService:
         row.last_error_category = FailureCategory.NONE
         row.version += 1
         await self._session.flush()
+
+    @staticmethod
+    def _scrub_secrets(row: OutboundMessage) -> None:
+        """Blank the payload fields the template marks secret, once settled.
+
+        A temporary password has to sit in the payload until the worker has
+        sent it; after that the row is history and must not keep a working
+        credential. A new dict is assigned so the JSON column sees the change.
+        """
+        template = TEMPLATES.get(row.template_key)
+        if template is None or not template.secret_fields:
+            return
+        payload = dict(row.safe_payload_json or {})
+        if not any(payload.get(name) for name in template.secret_fields):
+            return
+        for name in template.secret_fields:
+            if name in payload:
+                payload[name] = ""
+        row.safe_payload_json = payload
 
     async def _record_attempt(
         self,

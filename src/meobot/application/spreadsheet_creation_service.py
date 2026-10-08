@@ -182,7 +182,7 @@ class SpreadsheetCreationService:
         folder = await self._folders.find_by_drive_id(request.folder_id)
         if folder is None:
             raise NotFoundError(
-                "Thư mục đích chưa được đăng ký với MeoBot. Dùng /add_drive_folder trước."
+                "Thư mục đích chưa được đăng ký với TasksBot. Dùng /add_drive_folder trước."
             )
         self._folders.assert_usable_by(folder, actor)
 

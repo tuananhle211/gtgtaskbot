@@ -1,3 +1,6 @@
+import Link from "next/link";
+import { Logo } from "@/components/logo";
+
 /**
  * Where a failed or spent login link lands, and where sign-out goes.
  *
@@ -16,6 +19,7 @@
 export default function LoginFailed() {
   return (
     <div className="mx-auto max-w-lg p-6 sm:p-8">
+      <Logo size={36} subtitle="Creative Ops" className="mb-5" />
       <h1 className="text-lg font-semibold">Chưa đăng nhập được</h1>
       <p className="mt-3 text-sm text-[var(--text-muted)]">
         Liên kết đăng nhập này không dùng được nữa. Thường là vì một trong hai lý do:
@@ -27,15 +31,22 @@ export default function LoginFailed() {
       {/* Names the command rather than the bot - see the note in states.tsx. */}
       <p className="mt-4 text-sm">
         Gửi lệnh <code className="rounded bg-[var(--surface-muted)] px-1.5 py-0.5">/web</code> trong
-        bot Telegram để đăng nhập MeoChat.
+        bot Telegram để đăng nhập TasksBot.
       </p>
       <p className="mt-3 text-sm text-[var(--text-muted)]">
         Muốn đăng nhập bằng Chrome hoặc Safari: sao chép liên kết trong tin nhắn rồi dán vào trình
         duyệt đó. Bấm thẳng trong Telegram sẽ mở bằng trình duyệt của Telegram, và phiên đăng nhập
         chỉ nằm trong đó.
       </p>
+      <p className="mt-4 text-sm">
+        Hoặc{" "}
+        <Link className="font-medium text-[var(--accent)] underline" href="/login">
+          đăng nhập bằng ID Telegram và mật khẩu
+        </Link>
+        .
+      </p>
       <p className="mt-6 text-xs text-[var(--text-muted)]">
-        MeoChat chỉ gửi liên kết trong tin nhắn riêng, và không gửi cho ai khác ngoài bạn.
+        TasksBot chỉ gửi liên kết trong tin nhắn riêng, và không gửi cho ai khác ngoài bạn.
       </p>
     </div>
   );

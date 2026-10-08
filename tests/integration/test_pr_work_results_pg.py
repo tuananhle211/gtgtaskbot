@@ -215,7 +215,7 @@ async def test_02_the_head_is_the_newest_revision_on_disk(database: Database) ->
         head = await session.scalar(text("SELECT version_num FROM alembic_version"))
     # ``0040`` is the content-work auto-provisioning revision: one nullable
     # column, no table, and it sits on top of this one.
-    assert head == alembic_head() == "0041"
+    assert head == alembic_head()
 
 
 # ===========================================================================
@@ -427,7 +427,7 @@ async def test_06_downgrade_and_upgrade_again(dsn: str, database: Database) -> N
     try:
         async with engine.connect() as connection:
             version = await connection.scalar(text("SELECT version_num FROM alembic_version"))
-            assert version == "0041"
+            assert version == alembic_head()
             counted = await connection.scalar(
                 text(
                     "SELECT counted_amount FROM pr_work_score_allocations "

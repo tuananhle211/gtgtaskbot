@@ -791,7 +791,7 @@ describe("160. the board carries no comments", () => {
     // Asserted on the interface rather than on the whole file, because Step
     // 1F.2.9 put a `comment_count` in this client for an entirely different
     // object - a TikTok video, whose counters come from the Display API and
-    // have nothing to do with MeoChat's own comments. A whole-file grep would
+    // have nothing to do with TasksBot's own comments. A whole-file grep would
     // have failed on that and said nothing true about the board.
     const start = client.indexOf("export interface ContentSummary");
     expect(start).toBeGreaterThan(-1);

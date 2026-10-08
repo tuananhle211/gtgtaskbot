@@ -39,8 +39,13 @@ class Notifier(Protocol):
         text: str,
         *,
         reply_markup: dict[str, Any] | None = None,
+        parse_mode: str | None = None,
     ) -> bool:
-        """Send ``text``; return True when Telegram accepted it."""
+        """Send ``text``; return True when Telegram accepted it.
+
+        ``parse_mode`` (``"HTML"``) only for a template that asks for it;
+        everything else is plain text, as it always was.
+        """
         ...
 
 
@@ -88,6 +93,7 @@ class FakeNotifier:
 
     sent: list[tuple[int, str]] = field(default_factory=list)
     markups: list[dict[str, Any] | None] = field(default_factory=list)
+    parse_modes: list[str | None] = field(default_factory=list)
     #: Canned probe answers, keyed by chat id. Anything absent reads healthy.
     probes: dict[int, ChatProbe] = field(default_factory=dict)
     #: Every chat this fake was asked about, so a test can assert that probing
@@ -100,9 +106,11 @@ class FakeNotifier:
         text: str,
         *,
         reply_markup: dict[str, Any] | None = None,
+        parse_mode: str | None = None,
     ) -> bool:
         self.sent.append((chat_id, text))
         self.markups.append(reply_markup)
+        self.parse_modes.append(parse_mode)
         return True
 
     async def probe_chat(self, chat_id: int) -> ChatProbe:
@@ -132,6 +140,7 @@ class NullNotifier:
         text: str,
         *,
         reply_markup: dict[str, Any] | None = None,
+        parse_mode: str | None = None,
     ) -> bool:
         logger.warning("telegram_notification_dropped", extra={"chat_id": chat_id})
         return False
@@ -175,6 +184,7 @@ class TelegramNotifier:
         text: str,
         *,
         reply_markup: dict[str, Any] | None = None,
+        parse_mode: str | None = None,
     ) -> bool:
         """Send a message, truncating it to Telegram's limit.
 
@@ -188,6 +198,8 @@ class TelegramNotifier:
         }
         if reply_markup is not None:
             body["reply_markup"] = reply_markup
+        if parse_mode is not None:
+            body["parse_mode"] = parse_mode
 
         async def attempt() -> bool:
             client = self._ensure_client()

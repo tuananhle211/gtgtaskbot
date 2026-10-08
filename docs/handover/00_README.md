@@ -162,3 +162,4 @@ danh sách P1/P2/P3: [13](13_KNOWN_ISSUES_AND_TECH_DEBT.md).
 | [13_KNOWN_ISSUES_AND_TECH_DEBT.md](13_KNOWN_ISSUES_AND_TECH_DEBT.md) | Nợ kỹ thuật có bằng chứng, điều không được làm |
 | [14_DEVELOPMENT_ROADMAP.md](14_DEVELOPMENT_ROADMAP.md) | Now / Next / Later |
 | [15_HANDOVER_CHECKLIST.md](15_HANDOVER_CHECKLIST.md) | Checklist làm quen dự án và tiêu chí hoàn thành onboarding |
+| [16_RELEASE_CREATIVE_OPS.md](16_RELEASE_CREATIVE_OPS.md) | Runbook đưa bản Creative Ops (PR + Ads, 0041 → 0047) lên production: sao lưu, deploy, migrate, kiểm tra, cấu hình, rollback |

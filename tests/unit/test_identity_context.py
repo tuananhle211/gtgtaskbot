@@ -68,7 +68,7 @@ def test_the_assistant_profile_is_built_from_configuration() -> None:
     """Nothing deployment-specific is hardcoded in a prompt."""
     profile = AssistantContextService(APEXMED).defaults()
 
-    assert profile.assistant_name == "MeoBot"
+    assert profile.assistant_name == "TasksBot"
     assert profile.organization_name == "Apexmed"
     assert profile.department_name == "Phòng PR Truyền thông"
     assert "Trưởng phòng PR Truyền thông" in profile.identity
@@ -352,7 +352,7 @@ def test_the_fallback_greeting_introduces_the_configured_assistant(
     )
 
     greeting = replies.greeting()
-    assert "MeoBot" in greeting
+    assert "TasksBot" in greeting
     assert "chị" in greeting
     assert "ngắn gọn hơn" not in greeting
 

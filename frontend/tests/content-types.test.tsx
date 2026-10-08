@@ -26,6 +26,7 @@ import {
   stubFetch,
   urlStore,
   VERSION,
+  readPrContentDetailSource,
 } from "./helpers";
 
 const SEARCH = { value: new URLSearchParams() };
@@ -46,7 +47,8 @@ vi.mock("next/navigation", () => ({
 }));
 
 const { default: ContentBoardPage } = await import("@/app/pr/content/page");
-const { default: ContentDetailPage } = await import("@/app/pr/content/[id]/page");
+const { default: ContentDetailPage } =
+  await import("@/app/pr/content/[id]/page");
 
 const BRAND = { id: CONTENT.brand_id, code: "BR-1", name: "Apexmed" };
 const CHANNEL = {
@@ -95,9 +97,15 @@ const boardBody = (items: unknown[], total = items.length) => ({
 
 const boardRoutes = (body: unknown) => [
   { match: "/api/pr/brands", body: [BRAND] },
-  { match: "/api/pr/platforms", body: [{ id: CHANNEL.platform_id, code: "TIKTOK", name: "TikTok" }] },
+  {
+    match: "/api/pr/platforms",
+    body: [{ id: CHANNEL.platform_id, code: "TIKTOK", name: "TikTok" }],
+  },
   { match: "/api/pr/channels", body: [CHANNEL] },
-  { match: "/api/pr/people", body: [{ user_id: SESSION.user_id, full_name: SESSION.full_name }] },
+  {
+    match: "/api/pr/people",
+    body: [{ user_id: SESSION.user_id, full_name: SESSION.full_name }],
+  },
   { match: "/api/pr/contents/board", body },
 ];
 
@@ -105,7 +113,9 @@ async function openBoard(items: unknown[]) {
   const stub = stubFetch(boardRoutes(boardBody(items)));
   renderWithQuery(<ContentBoardPage />);
   await waitFor(() =>
-    expect(screen.getByRole("region", { name: "Bảng nội dung" })).toBeInTheDocument(),
+    expect(
+      screen.getByRole("region", { name: "Bảng nội dung" }),
+    ).toBeInTheDocument(),
   );
   // Step 1F.2.3c2: the cards arrive per lane, after the figures do.
   await settleLanes();
@@ -139,14 +149,26 @@ const detailRoutes = (
     body: { content, current_version: VERSION, approvals: [], tasks: [] },
   },
   { match: `/api/pr/contents/${CONTENT.id}/versions`, body: [VERSION] },
-  { match: `/api/pr/contents/${CONTENT.id}/history`, body: { transitions: [] } },
-  { match: `/api/pr/contents/${CONTENT.id}/production`, body: { production_state: null } },
-  { match: `/api/pr/contents/${CONTENT.id}/ai-review`, body: { active: false, runs: [] } },
+  {
+    match: `/api/pr/contents/${CONTENT.id}/history`,
+    body: { transitions: [] },
+  },
+  {
+    match: `/api/pr/contents/${CONTENT.id}/production`,
+    body: { production_state: null },
+  },
+  {
+    match: `/api/pr/contents/${CONTENT.id}/ai-review`,
+    body: { active: false, runs: [] },
+  },
   {
     match: `/api/pr/contents/${CONTENT.id}`,
     body: { content, current_version: VERSION, targets: [], brand: BRAND },
   },
-  { match: "/api/pr/people", body: [{ user_id: SESSION.user_id, full_name: SESSION.full_name }] },
+  {
+    match: "/api/pr/people",
+    body: [{ user_id: SESSION.user_id, full_name: SESSION.full_name }],
+  },
 ];
 
 async function openDetail(
@@ -155,7 +177,12 @@ async function openDetail(
     content?: Record<string, unknown>;
     resources?: unknown[];
     tab?: string;
-    extra?: Array<{ match: string; status?: number; body?: unknown; method?: string }>;
+    extra?: Array<{
+      match: string;
+      status?: number;
+      body?: unknown;
+      method?: string;
+    }>;
   } = {},
 ) {
   const content = options.content ?? CONTENT;
@@ -191,10 +218,18 @@ beforeEach(() => {
 describe("103. creating content asks what kind of thing it is", () => {
   it("offers the six formats in Vietnamese and nothing else", async () => {
     await openBoard([]);
-    await userEvent.click(screen.getByRole("button", { name: "+ Tạo nội dung" }));
+    await userEvent.click(
+      screen.getByRole("button", { name: "+ Tạo nội dung" }),
+    );
 
-    const select = await screen.findByRole("combobox", { name: /Loại nội dung/ });
-    expect(within(select).getAllByRole("option").map((option) => option.textContent)).toEqual([
+    const select = await screen.findByRole("combobox", {
+      name: /Loại nội dung/,
+    });
+    expect(
+      within(select)
+        .getAllByRole("option")
+        .map((option) => option.textContent),
+    ).toEqual([
       "— chọn —",
       "Kịch bản siêu ngắn",
       "Kịch bản video ngắn",
@@ -205,21 +240,31 @@ describe("103. creating content asks what kind of thing it is", () => {
     ]);
     // "Chưa phân loại" is where a historical row starts, never something to
     // choose - so the create form must not offer it.
-    expect(within(select).queryByText("Chưa phân loại")).not.toBeInTheDocument();
+    expect(
+      within(select).queryByText("Chưa phân loại"),
+    ).not.toBeInTheDocument();
   });
 
   it("starts unanswered rather than guessing a format", async () => {
     await openBoard([]);
-    await userEvent.click(screen.getByRole("button", { name: "+ Tạo nội dung" }));
+    await userEvent.click(
+      screen.getByRole("button", { name: "+ Tạo nội dung" }),
+    );
     // Unlike priority, which is pre-set to its default: there is no sensible
     // default format, and a pre-filled one would record a choice nobody made.
-    expect(await screen.findByRole("combobox", { name: /Loại nội dung/ })).toHaveValue("");
+    expect(
+      await screen.findByRole("combobox", { name: /Loại nội dung/ }),
+    ).toHaveValue("");
   });
 
   it("does not show the raw codes to whoever is filling the form", async () => {
     await openBoard([]);
-    await userEvent.click(screen.getByRole("button", { name: "+ Tạo nội dung" }));
-    const select = await screen.findByRole("combobox", { name: /Loại nội dung/ });
+    await userEvent.click(
+      screen.getByRole("button", { name: "+ Tạo nội dung" }),
+    );
+    const select = await screen.findByRole("combobox", {
+      name: /Loại nội dung/,
+    });
     expect(select.textContent).not.toContain("SHORT_VIDEO_SCRIPT");
     expect(select.textContent).not.toContain("CORPORATE_TVC");
   });
@@ -233,7 +278,13 @@ describe("104. content type on the board", () => {
   it("badges every card, unclassified ones included", async () => {
     await openBoard([
       { ...CONTENT, id: "aaa", title: "Bài một", workflow_stage: "IDEA" },
-      { ...CONTENT, id: "bbb", title: "Bài hai", workflow_stage: "IDEA", content_type: null },
+      {
+        ...CONTENT,
+        id: "bbb",
+        title: "Bài hai",
+        workflow_stage: "IDEA",
+        content_type: null,
+      },
     ]);
     const board = screen.getByRole("region", { name: "Bảng nội dung" });
 
@@ -248,12 +299,20 @@ describe("104. content type on the board", () => {
     // Priority is the operational signal and keeps the front of the reading
     // order; the type is classification.
     await openBoard([
-      { ...CONTENT, id: "aaa", title: "Bài một", workflow_stage: "IDEA", priority: "CRITICAL" },
+      {
+        ...CONTENT,
+        id: "aaa",
+        title: "Bài một",
+        workflow_stage: "IDEA",
+        priority: "CRITICAL",
+      },
     ]);
     const board = screen.getByRole("region", { name: "Bảng nội dung" });
     const text = board.textContent ?? "";
     expect(text.indexOf("Rất gấp")).toBeGreaterThan(-1);
-    expect(text.indexOf("Rất gấp")).toBeLessThan(text.indexOf("Kịch bản video ngắn"));
+    expect(text.indexOf("Rất gấp")).toBeLessThan(
+      text.indexOf("Kịch bản video ngắn"),
+    );
   });
 
   it("offers the filter in Bộ lọc, with Chưa phân loại last", async () => {
@@ -261,8 +320,14 @@ describe("104. content type on the board", () => {
     await openBoard([]);
     const filters = screen.getByRole("region", { name: "Bộ lọc" });
 
-    const select = within(filters).getByRole("combobox", { name: "Lọc theo loại nội dung" });
-    expect(within(select).getAllByRole("option").map((option) => option.textContent)).toEqual([
+    const select = within(filters).getByRole("combobox", {
+      name: "Lọc theo loại nội dung",
+    });
+    expect(
+      within(select)
+        .getAllByRole("option")
+        .map((option) => option.textContent),
+    ).toEqual([
       "Mọi loại nội dung",
       "Kịch bản siêu ngắn",
       "Kịch bản video ngắn",
@@ -282,11 +347,13 @@ describe("104. content type on the board", () => {
     );
 
     await waitFor(() => expect(replaced.length).toBeGreaterThan(0));
-    expect(new URLSearchParams(replaced.at(-1)!.split("?")[1]).get("content_type")).toBe(
-      "PRESS_ARTICLE",
-    );
+    expect(
+      new URLSearchParams(replaced.at(-1)!.split("?")[1]).get("content_type"),
+    ).toBe("PRESS_ARTICLE");
     await waitFor(() =>
-      expect(boardRequests(stub).at(-1)!.get("content_type")).toBe("PRESS_ARTICLE"),
+      expect(boardRequests(stub).at(-1)!.get("content_type")).toBe(
+        "PRESS_ARTICLE",
+      ),
     );
   });
 
@@ -297,24 +364,34 @@ describe("104. content type on the board", () => {
       "UNCLASSIFIED",
     );
     await waitFor(() =>
-      expect(boardRequests(stub).at(-1)!.get("content_type")).toBe("UNCLASSIFIED"),
+      expect(boardRequests(stub).at(-1)!.get("content_type")).toBe(
+        "UNCLASSIFIED",
+      ),
     );
   });
 
   it("restores the filter from the URL and drops the page when it changes", async () => {
-    SEARCH.value = new URLSearchParams({ scope: "ALL", content_type: "FACEBOOK_POST", page: "2" });
+    SEARCH.value = new URLSearchParams({
+      scope: "ALL",
+      content_type: "FACEBOOK_POST",
+      page: "2",
+    });
     const stub = await openBoard([]);
-    expect(boardRequests(stub).at(-1)!.get("content_type")).toBe("FACEBOOK_POST");
-    expect(screen.getByRole("combobox", { name: "Lọc theo loại nội dung" })).toHaveValue(
+    expect(boardRequests(stub).at(-1)!.get("content_type")).toBe(
       "FACEBOOK_POST",
     );
+    expect(
+      screen.getByRole("combobox", { name: "Lọc theo loại nội dung" }),
+    ).toHaveValue("FACEBOOK_POST");
 
     await userEvent.selectOptions(
       screen.getByRole("combobox", { name: "Lọc theo loại nội dung" }),
       "PRESS_ARTICLE",
     );
     await waitFor(() => expect(replaced.length).toBeGreaterThan(0));
-    expect(new URLSearchParams(replaced.at(-1)!.split("?")[1]).get("page")).toBeNull();
+    expect(
+      new URLSearchParams(replaced.at(-1)!.split("?")[1]).get("page"),
+    ).toBeNull();
   });
 
   it("does not sort or group the board by content type", () => {
@@ -335,12 +412,19 @@ describe("104. content type on the board", () => {
 describe("105. content type on the detail page", () => {
   it("shows the format in words", async () => {
     await openDetail([], { tab: "Tổng quan" });
-    expect(await overviewCell("Loại nội dung")).toHaveTextContent("Kịch bản video ngắn");
+    expect(await overviewCell("Loại nội dung")).toHaveTextContent(
+      "Kịch bản video ngắn",
+    );
   });
 
   it("shows Chưa phân loại for a historical item, and still opens it", async () => {
-    await openDetail([], { content: { ...CONTENT, content_type: null }, tab: "Tổng quan" });
-    expect(await overviewCell("Loại nội dung")).toHaveTextContent("Chưa phân loại");
+    await openDetail([], {
+      content: { ...CONTENT, content_type: null },
+      tab: "Tổng quan",
+    });
+    expect(await overviewCell("Loại nội dung")).toHaveTextContent(
+      "Chưa phân loại",
+    );
   });
 
   it("is read-only when the server does not offer the action", async () => {
@@ -351,9 +435,9 @@ describe("105. content type on the detail page", () => {
 
   it("becomes a picker when the server offers SET_CONTENT_TYPE", async () => {
     await openDetail([{ action: "SET_CONTENT_TYPE" }], { tab: "Tổng quan" });
-    expect(await screen.findByRole("combobox", { name: "Loại nội dung" })).toHaveValue(
-      "SHORT_VIDEO_SCRIPT",
-    );
+    expect(
+      await screen.findByRole("combobox", { name: "Loại nội dung" }),
+    ).toHaveValue("SHORT_VIDEO_SCRIPT");
   });
 
   it("patches the chosen format", async () => {
@@ -363,7 +447,10 @@ describe("105. content type on the detail page", () => {
         {
           match: `/api/pr/contents/${CONTENT.id}/content-type`,
           method: "PATCH",
-          body: { content: { ...CONTENT, content_type: "PRESS_ARTICLE" }, targets: [] },
+          body: {
+            content: { ...CONTENT, content_type: "PRESS_ARTICLE" },
+            targets: [],
+          },
         },
       ],
     });
@@ -375,13 +462,19 @@ describe("105. content type on the detail page", () => {
     // Step 1F.2.8. The content type is matched by scoped approval grants, so
     // changing it can change who may approve the item - the confirmation says
     // so, and nothing is sent until it is accepted.
-    expect(dialog().getByText(/có thể đổi ai duyệt được nội dung này/)).toBeInTheDocument();
+    expect(
+      dialog().getByText(/có thể đổi ai duyệt được nội dung này/),
+    ).toBeInTheDocument();
     await confirm();
 
     const calls = (
-      stub as unknown as { calls: Array<{ url: string; method: string; body: unknown }> }
+      stub as unknown as {
+        calls: Array<{ url: string; method: string; body: unknown }>;
+      }
     ).calls;
-    const patch = calls.find((call) => call.method === "PATCH" && call.url.includes("content-type"));
+    const patch = calls.find(
+      (call) => call.method === "PATCH" && call.url.includes("content-type"),
+    );
     expect(patch).toBeTruthy();
     expect(patch!.body).toEqual({ content_type: "PRESS_ARTICLE" });
   });
@@ -391,10 +484,14 @@ describe("105. content type on the detail page", () => {
       content: { ...CONTENT, content_type: null },
       tab: "Tổng quan",
     });
-    const select = await screen.findByRole("combobox", { name: "Loại nội dung" });
+    const select = await screen.findByRole("combobox", {
+      name: "Loại nội dung",
+    });
     // It appears as the current value and is disabled - unclassified is where a
     // row starts, not somewhere to put one back.
-    const placeholder = within(select).getByRole("option", { name: "Chưa phân loại" });
+    const placeholder = within(select).getByRole("option", {
+      name: "Chưa phân loại",
+    });
     expect(placeholder).toBeDisabled();
   });
 });
@@ -406,13 +503,19 @@ describe("105. content type on the detail page", () => {
 describe("106. Tài nguyên & tham khảo", () => {
   it("says plainly when there is nothing", async () => {
     await openDetail([], { tab: "Duyệt" });
-    const section = await screen.findByRole("region", { name: "Tài nguyên & tham khảo" });
-    expect(within(section).getByText("Chưa có tài nguyên tham khảo.")).toBeInTheDocument();
+    const section = await screen.findByRole("region", {
+      name: "Tài nguyên & tham khảo",
+    });
+    expect(
+      within(section).getByText("Chưa có tài nguyên tham khảo."),
+    ).toBeInTheDocument();
   });
 
   it("shows the label, the type, the location and the note", async () => {
     await openDetail([], { tab: "Duyệt", resources: [RESOURCE] });
-    const section = await screen.findByRole("region", { name: "Tài nguyên & tham khảo" });
+    const section = await screen.findByRole("region", {
+      name: "Tài nguyên & tham khảo",
+    });
 
     expect(within(section).getByText("Brief khách hàng")).toBeInTheDocument();
     expect(within(section).getByText("Tài liệu tham khảo")).toBeInTheDocument();
@@ -423,21 +526,40 @@ describe("106. Tài nguyên & tham khảo", () => {
   it("renders the server's order rather than re-sorting it", async () => {
     // Required first. The server decided; this asserts the panel does not
     // second-guess it.
-    await openDetail([], { tab: "Duyệt", resources: [RESOURCE, OPTIONAL_RESOURCE] });
-    const section = await screen.findByRole("region", { name: "Tài nguyên & tham khảo" });
+    await openDetail([], {
+      tab: "Duyệt",
+      resources: [RESOURCE, OPTIONAL_RESOURCE],
+    });
+    const section = await screen.findByRole("region", {
+      name: "Tài nguyên & tham khảo",
+    });
     const text = section.textContent ?? "";
-    expect(text.indexOf("Brief khách hàng")).toBeLessThan(text.indexOf("Ảnh packshot sản phẩm"));
+    expect(text.indexOf("Brief khách hàng")).toBeLessThan(
+      text.indexOf("Ảnh packshot sản phẩm"),
+    );
   });
 
   it("marks required material with the words, not only a colour", async () => {
-    await openDetail([], { tab: "Duyệt", resources: [RESOURCE, OPTIONAL_RESOURCE] });
-    const section = await screen.findByRole("region", { name: "Tài nguyên & tham khảo" });
-    expect(within(section).getAllByText("Bắt buộc xem khi duyệt")).toHaveLength(1);
+    await openDetail([], {
+      tab: "Duyệt",
+      resources: [RESOURCE, OPTIONAL_RESOURCE],
+    });
+    const section = await screen.findByRole("region", {
+      name: "Tài nguyên & tham khảo",
+    });
+    expect(within(section).getAllByText("Bắt buộc xem khi duyệt")).toHaveLength(
+      1,
+    );
   });
 
   it("opens an http link safely, and leaves a NAS path as text", async () => {
-    await openDetail([], { tab: "Duyệt", resources: [RESOURCE, OPTIONAL_RESOURCE] });
-    const section = await screen.findByRole("region", { name: "Tài nguyên & tham khảo" });
+    await openDetail([], {
+      tab: "Duyệt",
+      resources: [RESOURCE, OPTIONAL_RESOURCE],
+    });
+    const section = await screen.findByRole("region", {
+      name: "Tài nguyên & tham khảo",
+    });
 
     const link = within(section).getByRole("link", { name: RESOURCE.location });
     expect(link).toHaveAttribute("target", "_blank");
@@ -447,12 +569,16 @@ describe("106. Tài nguyên & tham khảo", () => {
     expect(
       within(section).queryByRole("link", { name: OPTIONAL_RESOURCE.location }),
     ).not.toBeInTheDocument();
-    expect(within(section).getByText(OPTIONAL_RESOURCE.location)).toBeInTheDocument();
+    expect(
+      within(section).getByText(OPTIONAL_RESOURCE.location),
+    ).toBeInTheDocument();
   });
 
   it("never shows a resource id as something to read", async () => {
     await openDetail([], { tab: "Duyệt", resources: [RESOURCE] });
-    const section = await screen.findByRole("region", { name: "Tài nguyên & tham khảo" });
+    const section = await screen.findByRole("region", {
+      name: "Tài nguyên & tham khảo",
+    });
     expect(section.textContent).not.toContain(RESOURCE.id);
     expect(section.textContent).not.toContain("REFERENCE");
   });
@@ -465,30 +591,60 @@ describe("106. Tài nguyên & tham khảo", () => {
 describe("107. adding, editing and deleting resources", () => {
   it("offers no controls without MANAGE_CONTENT_RESOURCES", async () => {
     await openDetail([], { tab: "Duyệt", resources: [RESOURCE] });
-    const section = await screen.findByRole("region", { name: "Tài nguyên & tham khảo" });
+    const section = await screen.findByRole("region", {
+      name: "Tài nguyên & tham khảo",
+    });
 
-    expect(within(section).queryByRole("button", { name: /Thêm tài nguyên/ })).not.toBeInTheDocument();
-    expect(within(section).queryByRole("button", { name: "Sửa" })).not.toBeInTheDocument();
-    expect(within(section).queryByRole("button", { name: "Xóa" })).not.toBeInTheDocument();
+    expect(
+      within(section).queryByRole("button", { name: /Thêm tài nguyên/ }),
+    ).not.toBeInTheDocument();
+    expect(
+      within(section).queryByRole("button", { name: "Sửa" }),
+    ).not.toBeInTheDocument();
+    expect(
+      within(section).queryByRole("button", { name: "Xóa" }),
+    ).not.toBeInTheDocument();
   });
 
   it("offers the whole form when the server allows it", async () => {
-    await openDetail([{ action: "MANAGE_CONTENT_RESOURCES" }], { tab: "Duyệt" });
-    await userEvent.click(await screen.findByRole("button", { name: /Thêm tài nguyên/ }));
+    await openDetail([{ action: "MANAGE_CONTENT_RESOURCES" }], {
+      tab: "Duyệt",
+    });
+    await userEvent.click(
+      await screen.findByRole("button", { name: /Thêm tài nguyên/ }),
+    );
 
-    expect(screen.getByRole("combobox", { name: /Loại tài nguyên/ })).toBeInTheDocument();
-    expect(screen.getByRole("textbox", { name: /Tên \/ nhãn/ })).toBeInTheDocument();
-    expect(screen.getByRole("textbox", { name: /Đường dẫn \/ liên kết/ })).toBeInTheDocument();
-    expect(screen.getByRole("textbox", { name: /Ghi chú/ })).toBeInTheDocument();
-    expect(screen.getByRole("checkbox", { name: "Bắt buộc xem khi duyệt" })).toBeInTheDocument();
+    expect(
+      screen.getByRole("combobox", { name: /Loại tài nguyên/ }),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole("textbox", { name: /Tên \/ nhãn/ }),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole("textbox", { name: /Đường dẫn \/ liên kết/ }),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole("textbox", { name: /Ghi chú/ }),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole("checkbox", { name: "Bắt buộc xem khi duyệt" }),
+    ).toBeInTheDocument();
   });
 
   it("offers the seven resource types in Vietnamese", async () => {
-    await openDetail([{ action: "MANAGE_CONTENT_RESOURCES" }], { tab: "Duyệt" });
-    await userEvent.click(await screen.findByRole("button", { name: /Thêm tài nguyên/ }));
+    await openDetail([{ action: "MANAGE_CONTENT_RESOURCES" }], {
+      tab: "Duyệt",
+    });
+    await userEvent.click(
+      await screen.findByRole("button", { name: /Thêm tài nguyên/ }),
+    );
 
     const select = screen.getByRole("combobox", { name: /Loại tài nguyên/ });
-    expect(within(select).getAllByRole("option").map((option) => option.textContent)).toEqual([
+    expect(
+      within(select)
+        .getAllByRole("option")
+        .map((option) => option.textContent),
+    ).toEqual([
       "Tài liệu tham khảo",
       "Hình ảnh",
       "Video tham khảo",
@@ -511,17 +667,28 @@ describe("107. adding, editing and deleting resources", () => {
         },
       ],
     });
-    await userEvent.click(await screen.findByRole("button", { name: /Thêm tài nguyên/ }));
+    await userEvent.click(
+      await screen.findByRole("button", { name: /Thêm tài nguyên/ }),
+    );
 
-    await userEvent.type(screen.getByRole("textbox", { name: /Tên \/ nhãn/ }), "Brief khách hàng");
+    await userEvent.type(
+      screen.getByRole("textbox", { name: /Tên \/ nhãn/ }),
+      "Brief khách hàng",
+    );
     await userEvent.type(
       screen.getByRole("textbox", { name: /Đường dẫn \/ liên kết/ }),
       "https://example.com/brief",
     );
-    await userEvent.click(screen.getByRole("checkbox", { name: "Bắt buộc xem khi duyệt" }));
-    await userEvent.click(screen.getByRole("button", { name: "Thêm tài nguyên" }));
+    await userEvent.click(
+      screen.getByRole("checkbox", { name: "Bắt buộc xem khi duyệt" }),
+    );
+    await userEvent.click(
+      screen.getByRole("button", { name: "Thêm tài nguyên" }),
+    );
 
-    const calls = (stub as unknown as { calls: Array<{ method: string; body: unknown }> }).calls;
+    const calls = (
+      stub as unknown as { calls: Array<{ method: string; body: unknown }> }
+    ).calls;
     const posted = calls.find((call) => call.method === "POST");
     expect(posted?.body).toEqual({
       resource_type: "REFERENCE",
@@ -533,12 +700,19 @@ describe("107. adding, editing and deleting resources", () => {
   });
 
   it("will not submit without a label and a location", async () => {
-    await openDetail([{ action: "MANAGE_CONTENT_RESOURCES" }], { tab: "Duyệt" });
-    await userEvent.click(await screen.findByRole("button", { name: /Thêm tài nguyên/ }));
+    await openDetail([{ action: "MANAGE_CONTENT_RESOURCES" }], {
+      tab: "Duyệt",
+    });
+    await userEvent.click(
+      await screen.findByRole("button", { name: /Thêm tài nguyên/ }),
+    );
 
     const submit = screen.getByRole("button", { name: "Thêm tài nguyên" });
     expect(submit).toBeDisabled();
-    await userEvent.type(screen.getByRole("textbox", { name: /Tên \/ nhãn/ }), "Brief");
+    await userEvent.type(
+      screen.getByRole("textbox", { name: /Tên \/ nhãn/ }),
+      "Brief",
+    );
     expect(submit).toBeDisabled();
     await userEvent.type(
       screen.getByRole("textbox", { name: /Đường dẫn \/ liên kết/ }),
@@ -559,17 +733,22 @@ describe("107. adding, editing and deleting resources", () => {
         },
       ],
     });
-    const section = await screen.findByRole("region", { name: "Tài nguyên & tham khảo" });
+    const section = await screen.findByRole("region", {
+      name: "Tài nguyên & tham khảo",
+    });
 
     await userEvent.click(within(section).getByRole("button", { name: "Xóa" }));
     // Step 1F.2.8: the shared dialog, and still no `window.confirm` anywhere -
     // `tests/confirmation.test.tsx` asserts that across the whole panel.
     expect(dialog().getByText("Xóa tài nguyên này?")).toBeInTheDocument();
-    const calls = (stub as unknown as { calls: Array<{ method: string }> }).calls;
+    const calls = (stub as unknown as { calls: Array<{ method: string }> })
+      .calls;
     expect(calls.some((call) => call.method === "DELETE")).toBe(false);
 
     await confirm();
-    await waitFor(() => expect(calls.some((call) => call.method === "DELETE")).toBe(true));
+    await waitFor(() =>
+      expect(calls.some((call) => call.method === "DELETE")).toBe(true),
+    );
   });
 
   it("edits in place", async () => {
@@ -584,7 +763,9 @@ describe("107. adding, editing and deleting resources", () => {
         },
       ],
     });
-    const section = await screen.findByRole("region", { name: "Tài nguyên & tham khảo" });
+    const section = await screen.findByRole("region", {
+      name: "Tài nguyên & tham khảo",
+    });
 
     await userEvent.click(within(section).getByRole("button", { name: "Sửa" }));
     const label = screen.getByRole("textbox", { name: /Tên \/ nhãn/ });
@@ -593,7 +774,9 @@ describe("107. adding, editing and deleting resources", () => {
     await userEvent.type(label, "Brief mới");
     await userEvent.click(screen.getByRole("button", { name: "Lưu" }));
 
-    const calls = (stub as unknown as { calls: Array<{ method: string; body: unknown }> }).calls;
+    const calls = (
+      stub as unknown as { calls: Array<{ method: string; body: unknown }> }
+    ).calls;
     const patched = calls.find((call) => call.method === "PATCH");
     expect((patched?.body as { label: string }).label).toBe("Brief mới");
   });
@@ -613,12 +796,16 @@ describe("108. a reviewer sees the material without leaving the page", () => {
       resources: [RESOURCE],
     });
 
-    const section = await screen.findByRole("region", { name: "Tài nguyên & tham khảo" });
+    const section = await screen.findByRole("region", {
+      name: "Tài nguyên & tham khảo",
+    });
     expect(within(section).getByText("Brief khách hàng")).toBeInTheDocument();
 
     const page = section.closest("div");
     const text = page?.textContent ?? "";
-    expect(text.indexOf("Tài nguyên & tham khảo")).toBeLessThan(text.indexOf("Duyệt của người"));
+    expect(text.indexOf("Tài nguyên & tham khảo")).toBeLessThan(
+      text.indexOf("Duyệt của người"),
+    );
   });
 
   it("keeps review material and production submissions apart", () => {
@@ -626,10 +813,7 @@ describe("108. a reviewer sees the material without leaving the page", () => {
     // judged against, and the cut is what is judged. They are different
     // sections with different headings, and this guards the wording that keeps
     // them legible as different things.
-    const source = readFileSync(
-      path.resolve(__dirname, "../src/app/pr/content/[id]/page.tsx"),
-      "utf8",
-    );
+    const source = readPrContentDetailSource();
     expect(source).toContain("Tài nguyên &amp; tham khảo");
     expect(source).toContain("File sản xuất đã gửi");
     // The resources section says what it is not, in the panel itself.
@@ -643,20 +827,21 @@ describe("108. a reviewer sees the material without leaving the page", () => {
       tab: "Duyệt",
       resources: [RESOURCE, OPTIONAL_RESOURCE],
     });
-    const section = await screen.findByRole("region", { name: "Tài nguyên & tham khảo" });
+    const section = await screen.findByRole("region", {
+      name: "Tài nguyên & tham khảo",
+    });
 
     expect(within(section).getByText("Brief khách hàng")).toBeInTheDocument();
-    expect(within(section).getByText("Ảnh packshot sản phẩm")).toBeInTheDocument();
+    expect(
+      within(section).getByText("Ảnh packshot sản phẩm"),
+    ).toBeInTheDocument();
     expect(
       within(section).queryByRole("button", { name: /Thêm tài nguyên/ }),
     ).not.toBeInTheDocument();
   });
 
   it("does not decide for itself who may manage resources", () => {
-    const source = readFileSync(
-      path.resolve(__dirname, "../src/app/pr/content/[id]/page.tsx"),
-      "utf8",
-    );
+    const source = readPrContentDetailSource();
     expect(source).toContain('has(actions, "MANAGE_CONTENT_RESOURCES")');
     expect(source).not.toMatch(/role\s*===\s*"(ADMIN|OWNER|TEAM_LEAD)"/);
   });

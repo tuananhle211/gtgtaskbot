@@ -407,7 +407,7 @@ async def test_no_part_is_silently_truncated(
     # and what is left must be the announcement, character for character.
     arrived = "".join(text for _, text in notifier.sent)
     body = re.sub(r"📢 THÔNG BÁO TỪ TRƯỞNG PHÒNG(?: \(\d+/\d+\))?", "", arrived)
-    body = body.replace("— MeoBot gửi thay Trưởng phòng", "")
+    body = body.replace("— TasksBot gửi thay Trưởng phòng", "")
     assert "".join(body.split()) == "".join(LONG_BODY.split())
 
 

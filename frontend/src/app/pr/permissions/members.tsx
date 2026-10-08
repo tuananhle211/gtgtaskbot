@@ -19,6 +19,7 @@ import {
 import { Empty, ErrorBox, Loading, Pill } from "@/components/states";
 import { PrimaryButton, SecondaryButton, Select } from "@/components/pr";
 import { ConfirmButton } from "@/components/confirm";
+import { UnitTags } from "@/components/unit-panel";
 import {
   changeRoleConfirmation,
   deactivateMemberConfirmation,
@@ -43,8 +44,30 @@ import {
  * owned content, contributed work or approved something is history, and
  * history keeps its people.
  */
-export function MembersTab() {
+/** The two teams' tags, and who may add to which, for the roster. */
+function useTeams() {
+  const me = useQuery({ queryKey: ["units", "me"], queryFn: api.unitsMe });
+  const admins = me.data?.can_admin ?? [];
+  const directory = useQuery({
+    queryKey: ["units", "directory"],
+    queryFn: api.unitDirectory,
+    enabled: admins.length > 0,
+  });
+  const tagsOf = new Map(
+    (directory.data ?? []).map((user) => [user.user_id, user.units]),
+  );
+  return { admins, tagsOf, known: directory.isSuccess };
+}
+
+export function MembersTab({
+  onAddToAds,
+}: {
+  /** Open the "Đội Ads" tab with this person in its add-member picker. */
+  onAddToAds?: (userId: string) => void;
+} = {}) {
   const roster = useQuery({ queryKey: ["members"], queryFn: api.listMembers });
+  const teams = useTeams();
+  const [teamFilter, setTeamFilter] = useState("");
   const [search, setSearch] = useState("");
   const [roleFilter, setRoleFilter] = useState("");
   const [statusFilter, setStatusFilter] = useState("");
@@ -54,6 +77,10 @@ export function MembersTab() {
     const rows = roster.data?.members ?? [];
     const needle = search.trim().toLowerCase();
     return rows.filter((row) => {
+      if (teamFilter) {
+        const units = teams.tagsOf.get(row.user_id) ?? [];
+        if (teamFilter === "BOTH" ? units.length < 2 : !units.includes(teamFilter)) return false;
+      }
       if (roleFilter && row.role !== roleFilter) return false;
       if (statusFilter && row.status !== statusFilter) return false;
       if (!needle) return true;
@@ -63,7 +90,7 @@ export function MembersTab() {
         String(row.telegram_user_id ?? "").includes(needle)
       );
     });
-  }, [roster.data, search, roleFilter, statusFilter]);
+  }, [roster.data, search, roleFilter, statusFilter, teamFilter, teams.tagsOf]);
 
   if (roster.isPending) return <Loading label="Đang tải thành viên…" />;
   if (roster.isError) return <ErrorBox error={roster.error} onRetry={() => roster.refetch()} />;
@@ -99,7 +126,22 @@ export function MembersTab() {
         <AddMemberForm roster={data} onDone={() => setAdding(false)} />
       ) : null}
 
-      <section className="grid gap-2 sm:grid-cols-3">
+      <section className="grid gap-2 sm:grid-cols-4">
+        {teams.known ? (
+          <label className="text-sm">
+            Đội
+            <Select
+              value={teamFilter}
+              onChange={(event) => setTeamFilter(event.target.value)}
+              className="mt-1 w-full rounded border border-[var(--border)] bg-transparent px-2 py-1.5"
+            >
+              <option value="">Tất cả</option>
+              <option value="PR">Đội PR</option>
+              <option value="ADS">Đội Ads</option>
+              <option value="BOTH">Cả hai đội</option>
+            </Select>
+          </label>
+        ) : null}
         <label className="text-sm">
           Tìm theo tên, username hoặc Telegram ID
           <input
@@ -151,7 +193,14 @@ export function MembersTab() {
       ) : (
         <ul className="grid gap-3 lg:grid-cols-2">
           {visible.map((row) => (
-            <MemberCard key={row.user_id} member={row} roster={data} />
+            <MemberCard
+              key={row.user_id}
+              member={row}
+              roster={data}
+              units={teams.known ? (teams.tagsOf.get(row.user_id) ?? []) : null}
+              admins={teams.admins}
+              onAddToAds={onAddToAds}
+            />
           ))}
         </ul>
       )}
@@ -248,7 +297,7 @@ function AddMemberForm({ roster, onDone }: { roster: MemberList; onDone: () => v
         </label>
       </div>
       <p className="text-xs text-[var(--text-muted)]">
-        Thành viên được nhận diện bằng Telegram ID — đây là cách duy nhất MeoChat biết ai là ai. Sau
+        Thành viên được nhận diện bằng Telegram ID — đây là cách duy nhất TasksBot biết ai là ai. Sau
         khi thêm, họ gõ <code className="rounded bg-[var(--surface-muted)] px-1">/start</code> trong
         bot Telegram để bắt đầu; tên sẽ tự lấy từ Telegram nếu để trống. Thêm ở đây giống hệt lệnh{" "}
         <code className="rounded bg-[var(--surface-muted)] px-1">/add_user</code> của bot.
@@ -275,8 +324,28 @@ function statusTone(status: string): "good" | "warn" | "bad" | "neutral" {
   return "neutral";
 }
 
-function MemberCard({ member, roster }: { member: Member; roster: MemberList }) {
+function MemberCard({
+  member,
+  roster,
+  units,
+  admins,
+  onAddToAds,
+}: {
+  member: Member;
+  roster: MemberList;
+  /** The person's team tags; ``null`` while unknown (not a unit admin). */
+  units: string[] | null;
+  admins: string[];
+  onAddToAds?: (userId: string) => void;
+}) {
   const invalidate = useInvalidateMembership();
+  const queryClient = useQueryClient();
+  const joinPr = useMutation({
+    mutationFn: () => api.tagUnitMember("PR", { user_id: member.user_id, role: "MEMBER" }),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ["units"] });
+    },
+  });
   const [panel, setPanel] = useState<Panel>(null);
   const toggle = (next: Panel) => setPanel((current) => (current === next ? null : next));
 
@@ -299,7 +368,42 @@ function MemberCard({ member, roster }: { member: Member; roster: MemberList }) 
     >
       <div className="flex flex-wrap items-start justify-between gap-2">
         <div className="min-w-0">
-          <p className="truncate font-medium">{member.full_name || "(chưa có tên)"}</p>
+          <p className="flex flex-wrap items-center gap-2 font-medium">
+            <span className="truncate">{member.full_name || "(chưa có tên)"}</span>
+            {units && units.length > 0 ? <UnitTags units={units} /> : null}
+            {units && units.length === 0 ? (
+              <span
+                title="Chưa có tag đội nào: đang được tính là PR theo mặc định."
+                className="unit-tag bg-[var(--surface-muted)] text-[var(--text-muted)]"
+              >
+                Chưa gắn đội · mặc định PR
+              </span>
+            ) : null}
+          </p>
+          {units && live && !isOwner ? (
+            <p className="mt-1.5 flex flex-wrap gap-1.5">
+              {admins.includes("PR") && !units.includes("PR") ? (
+                <ConfirmButton
+                  spec={{
+                    title: `Thêm ${member.full_name} vào đội PR?`,
+                    description:
+                      "Người này giữ tag hiện có và có thêm tag PR: thấy task và màn hình của PR.",
+                    confirmLabel: "Thêm vào đội PR",
+                  }}
+                  onConfirm={() => joinPr.mutate()}
+                  pending={joinPr.isPending}
+                  error={joinPr.error}
+                >
+                  + Đội PR
+                </ConfirmButton>
+              ) : null}
+              {admins.includes("ADS") && !units.includes("ADS") && onAddToAds ? (
+                <SecondaryButton type="button" onClick={() => onAddToAds(member.user_id)}>
+                  + Đội Ads
+                </SecondaryButton>
+              ) : null}
+            </p>
+          ) : null}
           <p className="mt-1 flex flex-wrap gap-1.5">
             <Pill tone="neutral">{member.role_label}</Pill>
             <Pill tone={statusTone(member.status)}>{member.status_label}</Pill>

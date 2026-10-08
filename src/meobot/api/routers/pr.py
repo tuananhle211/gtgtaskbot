@@ -253,6 +253,13 @@ from meobot.integrations.tiktok.constants import RECENT_VIDEO_PAGE, VIDEO_PAGE_S
 
 router = APIRouter(prefix="/api/pr", tags=["pr"])
 
+#: The three OAuth callbacks. Same prefix, same file, a second router object,
+#: because ``main.py`` mounts ``router`` behind the PR unit gate and a callback
+#: arrives by redirect from another site with no session to gate on - it
+#: authenticates from its signed ``state`` instead (see
+#: :func:`~meobot.api.deps.get_optional_web_actor`). Their bodies are untouched.
+oauth_callback_router = APIRouter(prefix="/api/pr", tags=["pr"])
+
 #: Applied to every list route. A browser asking for everything is usually a
 #: page that will render everything, and neither the database nor the person
 #: benefits from ten thousand rows.
@@ -3442,7 +3449,7 @@ async def select_connection_account(
     )
 
 
-@router.get(
+@oauth_callback_router.get(
     "/channels/connections/meta/callback",
     summary="Where Meta sends the browser back",
     include_in_schema=False,
@@ -3472,7 +3479,7 @@ async def meta_connection_callback(
     )
 
 
-@router.get(
+@oauth_callback_router.get(
     "/channels/connections/tiktok/callback",
     summary="Where TikTok sends the browser back",
     include_in_schema=False,
@@ -3509,7 +3516,7 @@ async def tiktok_connection_callback(
     )
 
 
-@router.get(
+@oauth_callback_router.get(
     "/channels/connections/youtube/callback",
     summary="Where Google sends the browser back",
     include_in_schema=False,
@@ -3525,7 +3532,7 @@ async def youtube_connection_callback(
     """Finish an authorization, then send the browser somewhere safe.
 
     **Nothing in this query string is trusted.** The channel is read from the
-    state row MeoBot wrote when it started the flow, never from a parameter -
+    state row TasksBot wrote when it started the flow, never from a parameter -
     which is what stops a crafted callback from binding an account to a channel
     of the caller's choosing. ``code`` is passed straight to the token exchange
     and is never logged: it is a bearer credential for a few seconds.
@@ -3561,7 +3568,7 @@ async def _finish_oauth_callback(
     deployment built.
 
     **No session is required to reach here.** The browser arrives by redirect
-    from Google or Meta, so whether a MeoBot cookie is attached depends on
+    from Google or Meta, so whether a TasksBot cookie is attached depends on
     cross-site cookie policy - and a flow already carrying a single-use,
     expiring, user-and-channel-bound state must not additionally depend on that.
     Requiring one produced a 401 on every valid Meta callback in production.

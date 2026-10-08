@@ -69,7 +69,7 @@ from tests.unit.test_pr_production_lifecycle import (  # noqa: F401 - `world` is
     world,
 )
 
-pytestmark = pytest.mark.asyncio
+pytestmark = [pytest.mark.asyncio, pytest.mark.usefixtures("frozen_work_clock")]
 
 SAIGON = ZoneInfo("Asia/Ho_Chi_Minh")
 

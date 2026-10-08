@@ -4,7 +4,7 @@ name: meobot
 
 x-app-env: &app-env
   APP_ENV: ${APP_ENV:-production}
-  APP_NAME: ${APP_NAME:-MeoBot}
+  APP_NAME: ${APP_NAME:-TasksBot}
   APP_TIMEZONE: ${APP_TIMEZONE:-Asia/Ho_Chi_Minh}
   TZ: ${APP_TIMEZONE:-Asia/Ho_Chi_Minh}
   LOG_LEVEL: ${LOG_LEVEL:-INFO}

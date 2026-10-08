@@ -138,7 +138,7 @@ async def test_hello_gets_a_natural_answer(
     assert reply.tool_result is None
     assert FORBIDDEN_ADVICE not in reply.text
     assert "trục trặc" not in reply.text
-    assert "MeoBot" in reply.text
+    assert "TasksBot" in reply.text
 
 
 async def test_hello_still_works_when_every_provider_call_fails(
@@ -158,7 +158,7 @@ async def test_hello_still_works_when_every_provider_call_fails(
     assert reply.mode is ConversationMode.CHAT
     assert reply.tool_result is None
     assert FORBIDDEN_ADVICE not in reply.text
-    assert "MeoBot" in reply.text
+    assert "TasksBot" in reply.text
 
 
 async def test_route_failure_still_lets_an_ordinary_message_be_answered(

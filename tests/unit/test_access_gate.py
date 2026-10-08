@@ -241,7 +241,7 @@ async def test_an_unknown_mention_creates_one_request_and_calls_no_model(
     bot, session = bot_and_session
     await dispatcher.feed_update(
         bot,
-        make_group_update("MeoBot ơi giúp mình với", update_id=uid(10), user_id=STRANGER),
+        make_group_update("TasksBot ơi giúp mình với", update_id=uid(10), user_id=STRANGER),
     )
 
     requests = await rows_of(bot_database, PendingGuestAccessRequest)
@@ -372,7 +372,7 @@ async def test_a_guest_is_answered_in_the_approved_group(
     policy_id = await grant_guest(bot_database, telegram_user_id=STRANGER)
 
     await dispatcher.feed_update(
-        bot, make_group_update("chào MeoBot", update_id=uid(40), user_id=STRANGER)
+        bot, make_group_update("chào TasksBot", update_id=uid(40), user_id=STRANGER)
     )
 
     assert counting_llm.chat_calls == 1
@@ -426,7 +426,7 @@ async def test_a_guest_cannot_use_private_chat(
     await grant_guest(bot_database, telegram_user_id=STRANGER)
 
     await dispatcher.feed_update(
-        bot, make_update("chào MeoBot", user_id=STRANGER, update_id=uid(42), chat_id=STRANGER)
+        bot, make_update("chào TasksBot", user_id=STRANGER, update_id=uid(42), chat_id=STRANGER)
     )
 
     assert counting_llm.chat_calls == 0
@@ -820,7 +820,7 @@ async def test_operational_commands_still_work_after_the_quota_runs_out(
         bot, make_update("/help", user_id=MEMBER, chat_id=MEMBER, update_id=uid(250))
     )
 
-    assert "MeoBot" in session.combined_text()
+    assert "TasksBot" in session.combined_text()
 
 
 async def test_a_business_tool_turn_does_not_consume_chat_quota(

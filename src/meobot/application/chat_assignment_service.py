@@ -46,10 +46,10 @@ logger = get_logger(__name__)
 
 ONLY_OWNER_ASSIGNS = f"Chỉ {role_label(Role.OWNER)} được giao quyền quản lý group."
 TARGET_MUST_BE_TEAM_LEAD = (
-    f"MeoBot chỉ giao quyền quản lý group cho người đã là {role_label(Role.TEAM_LEAD)}.\n"
+    f"TasksBot chỉ giao quyền quản lý group cho người đã là {role_label(Role.TEAM_LEAD)}.\n"
     f"Bạn đổi vai trò cho người này trước, rồi giao lại quyền group nhé."
 )
-TARGET_NOT_ACTIVE = "Tài khoản này hiện không sử dụng được MeoBot."
+TARGET_NOT_ACTIVE = "Tài khoản này hiện không sử dụng được TasksBot."
 NO_SUCH_ASSIGNMENT = "Người này hiện không quản lý group đó."
 
 

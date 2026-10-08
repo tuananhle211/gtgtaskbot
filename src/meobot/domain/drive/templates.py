@@ -184,7 +184,7 @@ SCRIPT_TEMPLATE = TemplateSpec(
     code=SCRIPT_TEMPLATE_CODE,
     name="Sheet quản lý kịch bản",
     description=(
-        "Nguồn kịch bản cho MeoBot: nhập kịch bản, đồng bộ, review bằng AI, "
+        "Nguồn kịch bản cho TasksBot: nhập kịch bản, đồng bộ, review bằng AI, "
         "duyệt sản xuất và ghi kết quả ngược lại Sheet."
     ),
     kind=TemplateKind.SCRIPT_MANAGEMENT,
@@ -210,8 +210,8 @@ SCRIPT_TEMPLATE = TemplateSpec(
                 ("Mỗi dòng trong tab Scripts là một kịch bản.",),
                 ("Cột external_script_id là mã của team, phải duy nhất.",),
                 ("Cột script_body là nội dung kịch bản — bắt buộc có.",),
-                ("MeoBot chỉ ghi vào các cột meobot_status, review_*, approved_*.",),
-                ("Đừng đổi tên cột: đổi tên sẽ làm MeoBot dừng đồng bộ để hỏi lại.",),
+                ("TasksBot chỉ ghi vào các cột meobot_status, review_*, approved_*.",),
+                ("Đừng đổi tên cột: đổi tên sẽ làm TasksBot dừng đồng bộ để hỏi lại.",),
                 ("Duyệt kịch bản = được phép sản xuất, chưa phải duyệt đăng bài.",),
             ),
         ),

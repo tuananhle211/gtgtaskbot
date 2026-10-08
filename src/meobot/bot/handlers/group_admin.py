@@ -59,13 +59,13 @@ ONLY_OWNER = f"Chỉ {role_label(Role.OWNER)} được giao quyền quản lý g
 NEEDS_BOTH = (
     "Bạn cho mình biết tên người và tên group giúp nhé.\nVí dụ: “Gán Linh quản lý group Content.”"
 )
-NO_SUCH_PERSON = "MeoBot chưa tìm thấy ai tên như vậy trong danh sách thành viên."
-NO_SUCH_GROUP = "MeoBot chưa tìm thấy group nào đã đăng ký với tên đó."
+NO_SUCH_PERSON = "TasksBot chưa tìm thấy ai tên như vậy trong danh sách thành viên."
+NO_SUCH_GROUP = "TasksBot chưa tìm thấy group nào đã đăng ký với tên đó."
 AMBIGUOUS_GROUP = "Bạn muốn chọn group nào?"
-CANCELLED = "MeoBot chưa thay đổi quyền quản lý group nào."
+CANCELLED = "TasksBot chưa thay đổi quyền quản lý group nào."
 STALE = "Nút này không còn hiệu lực."
-ASSIGNED = "✅ MeoBot đã giao quyền quản lý group."
-REVOKED = "✅ MeoBot đã bỏ quyền quản lý group của người này."
+ASSIGNED = "✅ TasksBot đã giao quyền quản lý group."
+REVOKED = "✅ TasksBot đã bỏ quyền quản lý group của người này."
 
 
 @router.message(MemberIntentFilter(HANDLED))

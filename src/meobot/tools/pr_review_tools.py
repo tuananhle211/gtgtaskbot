@@ -224,7 +224,7 @@ async def _decide(
         reviewer_user_id = context.actor.user_id
         if reviewer_user_id is None:
             raise ToolExecutionError(
-                "Tài khoản của bạn chưa được đăng ký trong MeoBot nên chưa duyệt được.",
+                "Tài khoản của bạn chưa được đăng ký trong TasksBot nên chưa duyệt được.",
                 details={"reason": "actor_has_no_user_row"},
             )
 

@@ -78,7 +78,7 @@ def intent_of(text: str) -> MemberIntent:
         ("quota cua toi", MemberIntent.VIEW_AI_ALLOWANCE),
         # Home and help
         ("Bắt đầu", MemberIntent.HOME),
-        ("MeoBot ơi", MemberIntent.HOME),
+        ("TasksBot ơi", MemberIntent.HOME),
         ("Tôi cần làm gì?", MemberIntent.HOME),
         ("Mở menu", MemberIntent.HOME),
         ("Giúp tôi", MemberIntent.HELP),

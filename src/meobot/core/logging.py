@@ -76,6 +76,15 @@ SENSITIVE_KEYS: frozenset[str] = frozenset(
         "login_url",
         "set_cookie",
         "session_cookie",
+        # --- Web password login (0045) ---------------------------------------
+        # ``password`` above covers the request field. These are the other
+        # names the login, change and reset paths use.
+        "current_password",
+        "new_password",
+        "password_hash",
+        "web_default_password",
+        # --- Password reset (0046) ------------------------------------------
+        "temporary_password",
     }
 )
 

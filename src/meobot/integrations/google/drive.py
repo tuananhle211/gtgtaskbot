@@ -374,7 +374,7 @@ class NotConfiguredDriveClient:
     def _error(self, operation: str) -> IntegrationNotConfiguredError:
         return IntegrationNotConfiguredError(
             "Google Drive chưa được cấu hình (GOOGLE_SERVICE_ACCOUNT_FILE trống). "
-            "Các chức năng khác của MeoBot vẫn hoạt động bình thường.",
+            "Các chức năng khác của TasksBot vẫn hoạt động bình thường.",
             provider=self.provider,
             details={"operation": operation},
         )
@@ -669,7 +669,7 @@ class GoogleDriveClient:
                 )
             raise IntegrationAuthError(
                 "Google từ chối truy cập thư mục này. Hãy chia sẻ thư mục với "
-                "email service account của MeoBot, quyền Content manager "
+                "email service account của TasksBot, quyền Content manager "
                 "(hoặc Editor).",
                 provider=PROVIDER,
                 details=details,
@@ -677,12 +677,12 @@ class GoogleDriveClient:
         if status == httpx.codes.NOT_FOUND:
             raise NotFoundError(
                 "Không tìm thấy file hoặc thư mục trên Drive (có thể đã bị đổi "
-                "chỗ, bị xoá, hoặc chưa được chia sẻ với MeoBot).",
+                "chỗ, bị xoá, hoặc chưa được chia sẻ với TasksBot).",
                 details=details,
             )
         if status == httpx.codes.CONFLICT:
             raise IntegrationError(
-                "Google Drive báo trùng lặp khi tạo file. MeoBot đã dừng lại để "
+                "Google Drive báo trùng lặp khi tạo file. TasksBot đã dừng lại để "
                 "tránh tạo file thừa.",
                 provider=PROVIDER,
                 details=details,

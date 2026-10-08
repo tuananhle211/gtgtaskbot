@@ -91,7 +91,7 @@ async def _create_handler(context: ToolContext, arguments: CreateInviteArgs) -> 
             f"Dùng được {invite.max_uses} lần, hết hạn "
             f"{invite.expires_at.date().isoformat() if invite.expires_at else 'không'}.\n"
             "Nhân viên gõ: /join <mã>\n"
-            "_Mã chỉ hiện một lần; MeoBot chỉ lưu bản băm._"
+            "_Mã chỉ hiện một lần; TasksBot chỉ lưu bản băm._"
         ),
         # The plaintext code is never put in `data`: that dict is audited.
         data={
@@ -118,7 +118,7 @@ def build_invite_tools() -> list[ToolDefinition]:
         ),
         ToolDefinition(
             name="invite.create",
-            description="Tạo mã mời để nhân viên tự đăng ký với MeoBot.",
+            description="Tạo mã mời để nhân viên tự đăng ký với TasksBot.",
             handler=_create_handler,
             arguments_model=CreateInviteArgs,
             risk_level=RiskLevel.HIGH,

@@ -175,7 +175,7 @@ def render_access_request(request: PendingGuestAccessRequest, *, settings: Setti
     """
     tz = settings.timezone
     lines = [
-        "🔐 " + formatting.bold("Có người muốn nói chuyện với MeoBot"),
+        "🔐 " + formatting.bold("Có người muốn nói chuyện với TasksBot"),
         "",
         formatting.escape(f"Tên: {request.requester_display_name or 'không rõ'}"),
     ]

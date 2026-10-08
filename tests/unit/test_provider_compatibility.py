@@ -109,12 +109,12 @@ async def test_max_tokens_rejection_is_recovered_by_renaming_the_parameter() -> 
                 message="Unsupported parameter: 'max_tokens' is not supported with this "
                 "model. Use 'max_completion_tokens' instead.",
             )
-        return chat_response("Chào bạn, mình là MeoBot.")
+        return chat_response("Chào bạn, mình là TasksBot.")
 
     client = provider(handler)
     reply = await client.generate_chat_reply(ChatRequest(message="Hello"))
 
-    assert reply.text == "Chào bạn, mình là MeoBot."
+    assert reply.text == "Chào bạn, mình là TasksBot."
     assert MAX_TOKENS in sent[0], "the first attempt should use the common spelling"
     assert MAX_COMPLETION_TOKENS in sent[1], "the retry should use the name the model asked for"
     assert client.capabilities.max_tokens_parameter == MAX_COMPLETION_TOKENS
@@ -174,10 +174,10 @@ async def test_both_rejections_at_once_still_produce_an_answer() -> None:
             return error_response(400, code="unsupported_parameter", param=MAX_TOKENS)
         if "temperature" in body:
             return error_response(400, code="unsupported_value", param="temperature")
-        return chat_response("Chào bạn, mình là MeoBot.")
+        return chat_response("Chào bạn, mình là TasksBot.")
 
     reply = await provider(handler).generate_chat_reply(ChatRequest(message="Hello"))
-    assert "MeoBot" in reply.text
+    assert "TasksBot" in reply.text
 
 
 async def test_a_400_we_cannot_fix_is_still_reported() -> None:
@@ -418,7 +418,7 @@ async def test_chat_generation_sends_no_tools_and_no_schema() -> None:
         return chat_response("Chào bạn.")
 
     await provider(handler).generate_chat_reply(
-        ChatRequest(message="Hello", prompt_context="[ASSISTANT IDENTITY]\nTên: MeoBot")
+        ChatRequest(message="Hello", prompt_context="[ASSISTANT IDENTITY]\nTên: TasksBot")
     )
 
     assert "tools" not in captured
@@ -436,7 +436,7 @@ async def test_the_minimal_retry_keeps_identity_and_drops_the_rest() -> None:
         return chat_response("Chào bạn.")
 
     context = (
-        "[ASSISTANT IDENTITY]\nTên: MeoBot\n\n"
+        "[ASSISTANT IDENTITY]\nTên: TasksBot\n\n"
         "[CURRENT USER]\nXưng hô: gọi người dùng là 'anh'\n\n"
         "[AVAILABLE CAPABILITIES]\nrất nhiều dòng dài\n\n"
         "[RECENT MESSAGES]\nNgười dùng: ...\n"

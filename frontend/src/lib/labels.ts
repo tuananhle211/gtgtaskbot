@@ -606,7 +606,7 @@ const STAGE_GUIDANCE: Record<string, string> = {
   BRIEFING: "Brief đã rõ thì chuyển sang viết kịch bản.",
   SCRIPTING: "Viết xong kịch bản thì gửi duyệt.",
   AI_REVIEW:
-    "Đang chờ kết quả AI review. MeoChat không tự chạy — kết quả được ghi nhận từ bên ngoài.",
+    "Đang chờ kết quả AI review. TasksBot không tự chạy — kết quả được ghi nhận từ bên ngoài.",
   TEAM_LEAD_REVIEW: "Đang chờ Trưởng nhóm duyệt bản hiện tại.",
   HEAD_REVIEW: "Đang chờ Trưởng phòng duyệt bản hiện tại.",
   APPROVED: "Đã duyệt nội dung — có thể bắt đầu sản xuất.",

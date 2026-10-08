@@ -42,7 +42,7 @@ logger = get_logger(__name__)
 
 #: Said in the group when generation failed. Honest, and it does not blame the
 #: person who asked.
-GENERATION_FAILED = "Xin lỗi, MeoBot chưa trả lời được câu hỏi này. Bạn hỏi lại giúp mình nhé."
+GENERATION_FAILED = "Xin lỗi, TasksBot chưa trả lời được câu hỏi này. Bạn hỏi lại giúp mình nhé."
 
 
 @shared_task(

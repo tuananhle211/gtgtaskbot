@@ -95,7 +95,7 @@ REWRITE_HELP = (
 #: received anything. Saying so is the difference between a person retrying
 #: calmly and a person sending it again "just in case".
 DRAFT_STORAGE_FAILED = (
-    "MeoBot chưa tạo được bản xem trước cho thông báo này.\n\n"
+    "TasksBot chưa tạo được bản xem trước cho thông báo này.\n\n"
     "Chưa có nội dung nào được gửi.\n"
     "Bạn thử lại sau khi hệ thống được cập nhật nhé."
 )
@@ -105,18 +105,18 @@ DRAFT_STORAGE_FAILED = (
 #: matters is identical: the confirming transaction is all-or-nothing, so a
 #: failure means no dispatch, no recipient row and no outbox intent.
 CONFIRM_STORAGE_FAILED = (
-    "MeoBot chưa ghi nhận được lần gửi này.\n\n"
+    "TasksBot chưa ghi nhận được lần gửi này.\n\n"
     "Chưa có nội dung nào được gửi.\n"
     "Bạn thử lại sau khi hệ thống được cập nhật nhé."
 )
 
 NOT_FOUND = (
-    "MeoBot chưa tìm thấy group nào phù hợp trong danh sách đã đăng ký.\n"
-    "Bạn vào chính group đó và nhắn “đăng ký group này” để MeoBot ghi nhận nhé."
+    "TasksBot chưa tìm thấy group nào phù hợp trong danh sách đã đăng ký.\n"
+    "Bạn vào chính group đó và nhắn “đăng ký group này” để TasksBot ghi nhận nhé."
 )
 
 AMBIGUOUS = (
-    "Có nhiều group cùng tên nên MeoBot chưa chắc bạn muốn gửi vào đâu.\nBạn chọn giúp mình nhé."
+    "Có nhiều group cùng tên nên TasksBot chưa chắc bạn muốn gửi vào đâu.\nBạn chọn giúp mình nhé."
 )
 
 #: Every button this router draws. Matched as a group so aiogram hands it only
@@ -404,7 +404,7 @@ def _unmatched_card(
     """
     quoted = ", ".join(f"“{name}”" for name in missing) or "tên group bạn vừa nhắn"
     lines = [
-        formatting.escape(f"MeoBot chưa tìm thấy {quoted} trong danh sách group đang chọn."),
+        formatting.escape(f"TasksBot chưa tìm thấy {quoted} trong danh sách group đang chọn."),
         "",
         formatting.escape("Bạn chọn giúp mình bằng các nút phía dưới nhé."),
     ]
@@ -635,7 +635,7 @@ def _not_found_card(resolution: AudienceResolution) -> dispatch_cards.Card:
     quoted = ", ".join(f"“{name}”" for name in resolution.unresolved)
     lines = [
         formatting.escape(
-            f"MeoBot chưa tìm thấy group {quoted} trong danh sách đã đăng ký."
+            f"TasksBot chưa tìm thấy group {quoted} trong danh sách đã đăng ký."
             if quoted
             else NOT_FOUND
         ),
@@ -1044,7 +1044,7 @@ async def _retry(
     )
     await formatting.edit_callback(
         query,
-        formatting.escape(f"🔄 Đã xếp lại {destinations} group để MeoBot gửi tiếp."),
+        formatting.escape(f"🔄 Đã xếp lại {destinations} group để TasksBot gửi tiếp."),
     )
 
 

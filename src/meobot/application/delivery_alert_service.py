@@ -59,18 +59,18 @@ logger = get_logger(__name__)
 #: *what to do*, not about what Telegram returned.
 REASON_LABELS: dict[FailureCategory, str] = {
     FailureCategory.PRIVATE_CHAT_UNAVAILABLE: (
-        "Người nhận chưa bắt đầu cuộc trò chuyện với MeoBot, nên MeoBot chưa "
+        "Người nhận chưa bắt đầu cuộc trò chuyện với TasksBot, nên TasksBot chưa "
         "nhắn riêng cho họ được."
     ),
-    FailureCategory.BOT_NOT_IN_CHAT: "MeoBot không còn ở trong group này.",
-    FailureCategory.BOT_CANNOT_SEND: "MeoBot hiện không có quyền gửi tin trong group này.",
-    FailureCategory.CHAT_NOT_FOUND: "MeoBot không còn tìm thấy nơi nhận này.",
+    FailureCategory.BOT_NOT_IN_CHAT: "TasksBot không còn ở trong group này.",
+    FailureCategory.BOT_CANNOT_SEND: "TasksBot hiện không có quyền gửi tin trong group này.",
+    FailureCategory.CHAT_NOT_FOUND: "TasksBot không còn tìm thấy nơi nhận này.",
     FailureCategory.DESTINATION_REFUSED: "Nơi nhận này không được phép nhận loại tin đó.",
     FailureCategory.RATE_LIMITED: "Telegram đang giới hạn số tin gửi đi.",
     FailureCategory.NETWORK: "Kết nối tới Telegram không ổn định.",
     FailureCategory.PROVIDER_UNAVAILABLE: "Telegram tạm thời không phản hồi.",
-    FailureCategory.UNKNOWN: "MeoBot chưa xác định được nguyên nhân.",
-    FailureCategory.NONE: "MeoBot chưa xác định được nguyên nhân.",
+    FailureCategory.UNKNOWN: "TasksBot chưa xác định được nguyên nhân.",
+    FailureCategory.NONE: "TasksBot chưa xác định được nguyên nhân.",
 }
 
 UNKNOWN_DESTINATION = "Nơi nhận đã đăng ký"

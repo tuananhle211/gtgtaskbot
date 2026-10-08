@@ -34,10 +34,13 @@ import {
   dialog,
   renderWithQuery,
   stubFetch,
+  PR_CONTENT_DETAIL_FILES,
+  readPrContentDetailSource,
 } from "./helpers";
 
 const ROOT = path.resolve(__dirname, "..");
-const read = (relative: string) => readFileSync(path.join(ROOT, "src", relative), "utf8");
+const read = (relative: string) =>
+  readFileSync(path.join(ROOT, "src", relative), "utf8");
 
 vi.mock("next/navigation", () => ({
   useParams: () => ({ id: CONTENT.id }),
@@ -46,7 +49,8 @@ vi.mock("next/navigation", () => ({
   useRouter: () => ({ replace: vi.fn(), push: vi.fn() }),
 }));
 
-const { default: ContentDetailPage } = await import("@/app/pr/content/[id]/page");
+const { default: ContentDetailPage } =
+  await import("@/app/pr/content/[id]/page");
 
 const PRODUCER = {
   user_id: "88888888-8888-8888-8888-888888888888",
@@ -381,7 +385,12 @@ describe("101. the detail page is six sections, and none of them disappears", ()
     ]);
   });
 
-  for (const stage of ["READY_TO_PUBLISH", "PUBLISHED", "MEASURED", "ARCHIVED"]) {
+  for (const stage of [
+    "READY_TO_PUBLISH",
+    "PUBLISHED",
+    "MEASURED",
+    "ARCHIVED",
+  ]) {
     it(`keeps every section at ${stage}`, async () => {
       // The regression that matters most for this step: a page that quietly
       // dropped the script once the piece was published would be useless at
@@ -390,8 +399,18 @@ describe("101. the detail page is six sections, and none of them disappears", ()
       renderWithQuery(<ContentDetailPage />);
       await screen.findByRole("tab", { name: "Nội dung" });
 
-      for (const label of ["Tổng quan", "Nội dung", "Duyệt", "Sản phẩm", "Xuất bản", "Lịch sử"]) {
-        expect(screen.getByRole("tab", { name: label }), `${stage}/${label}`).toBeInTheDocument();
+      for (const label of [
+        "Tổng quan",
+        "Nội dung",
+        "Duyệt",
+        "Sản phẩm",
+        "Xuất bản",
+        "Lịch sử",
+      ]) {
+        expect(
+          screen.getByRole("tab", { name: label }),
+          `${stage}/${label}`,
+        ).toBeInTheDocument();
       }
     });
   }
@@ -401,7 +420,9 @@ describe("102. Tổng quan still carries what the piece is", () => {
   it("shows type, priority, brand, responsible person and producer", async () => {
     stubFetch(detailRoutes({ stage: "MEASURED" }));
     renderWithQuery(<ContentDetailPage />);
-    await userEvent.click(await screen.findByRole("tab", { name: "Tổng quan" }));
+    await userEvent.click(
+      await screen.findByRole("tab", { name: "Tổng quan" }),
+    );
 
     const page = document.body;
     // The header carries the title, the code, the stage and the priority; the
@@ -432,7 +453,9 @@ describe("103. the script survives publication", () => {
     // The content tab is the initial one, so this is the first render.
     await waitFor(() =>
       expect(
-        screen.getByText(new RegExp(`Kịch bản hiện tại \\(v${VERSION.version_no}\\)`)),
+        screen.getByText(
+          new RegExp(`Kịch bản hiện tại \\(v${VERSION.version_no}\\)`),
+        ),
       ).toBeInTheDocument(),
     );
     expect(screen.getByText(VERSION.script_text)).toBeInTheDocument();
@@ -460,8 +483,12 @@ describe("105. Sản phẩm holds the masters and the derivatives, separately", 
   it("renders both sections", async () => {
     await openTab("Sản phẩm", { derivatives: [CUTDOWN] });
 
-    expect(await screen.findByRole("region", { name: "Sản phẩm gốc" })).toBeInTheDocument();
-    expect(screen.getByRole("region", { name: "Sản phẩm phái sinh" })).toBeInTheDocument();
+    expect(
+      await screen.findByRole("region", { name: "Sản phẩm gốc" }),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole("region", { name: "Sản phẩm phái sinh" }),
+    ).toBeInTheDocument();
   });
 
   it("shows the original production output after publication", async () => {
@@ -471,7 +498,10 @@ describe("105. Sản phẩm holds the masters and the derivatives, separately", 
 
     const masters = await screen.findByRole("region", { name: "Sản phẩm gốc" });
     expect(within(masters).getByText("Video final 60s")).toBeInTheDocument();
-    expect(within(masters).getByRole("link", { name: DRIVE })).toHaveAttribute("href", DRIVE);
+    expect(within(masters).getByRole("link", { name: DRIVE })).toHaveAttribute(
+      "href",
+      DRIVE,
+    );
   });
 
   it("names an unlabelled master by its submission number, never by its id", async () => {
@@ -492,11 +522,18 @@ describe("106. a derivative says what it is, where it is and what it came from",
     });
     expect(within(lane).getByText("TikTok cut 25s")).toBeInTheDocument();
     expect(within(lane).getByText("Cắt ngắn")).toBeInTheDocument();
-    expect(within(lane).getByRole("link", { name: CUT })).toHaveAttribute("href", CUT);
+    expect(within(lane).getByRole("link", { name: CUT })).toHaveAttribute(
+      "href",
+      CUT,
+    );
     // The master it was cut from, by **its label** - resolved against the list
     // already on screen rather than sent a second time.
-    expect(within(lane).getByText("Cắt từ: Video final 60s")).toBeInTheDocument();
-    expect(within(lane).getByText("Ghi chú: Cắt cho kênh mới")).toBeInTheDocument();
+    expect(
+      within(lane).getByText("Cắt từ: Video final 60s"),
+    ).toBeInTheDocument();
+    expect(
+      within(lane).getByText("Ghi chú: Cắt cho kênh mới"),
+    ).toBeInTheDocument();
   });
 
   it("renders a NAS path as text to copy, because the server said so", async () => {
@@ -505,7 +542,9 @@ describe("106. a derivative says what it is, where it is and what it came from",
     const lane = await screen.findByRole("region", {
       name: "Sản phẩm phái sinh",
     });
-    expect(within(lane).queryByRole("link", { name: NAS })).not.toBeInTheDocument();
+    expect(
+      within(lane).queryByRole("link", { name: NAS }),
+    ).not.toBeInTheDocument();
     expect(within(lane).getByText(NAS)).toBeInTheDocument();
   });
 
@@ -515,14 +554,22 @@ describe("106. a derivative says what it is, where it is and what it came from",
     const board = await screen.findByRole("region", {
       name: "Sản phẩm phái sinh",
     });
-    for (const raw of ["CUTDOWN", "REFORMAT", "DRIVE_LINK", CUTDOWN.id, MASTER.id]) {
+    for (const raw of [
+      "CUTDOWN",
+      "REFORMAT",
+      "DRIVE_LINK",
+      CUTDOWN.id,
+      MASTER.id,
+    ]) {
       expect(board.textContent, raw).not.toContain(raw);
     }
   });
 
   it("says so plainly when there is nothing yet", async () => {
     await openTab("Sản phẩm", { derivatives: [] });
-    expect(await screen.findByText("Chưa có sản phẩm phái sinh nào.")).toBeInTheDocument();
+    expect(
+      await screen.findByText("Chưa có sản phẩm phái sinh nào."),
+    ).toBeInTheDocument();
   });
 });
 
@@ -559,13 +606,21 @@ describe("107. the add control is the server's decision", () => {
     expect(
       screen.queryByRole("button", { name: "+ Thêm sản phẩm phái sinh" }),
     ).not.toBeInTheDocument();
-    expect(within(lane).queryByRole("button", { name: "Sửa" })).not.toBeInTheDocument();
-    expect(within(lane).queryByRole("button", { name: "Xóa" })).not.toBeInTheDocument();
+    expect(
+      within(lane).queryByRole("button", { name: "Sửa" }),
+    ).not.toBeInTheDocument();
+    expect(
+      within(lane).queryByRole("button", { name: "Xóa" }),
+    ).not.toBeInTheDocument();
   });
 
   it("keeps no capability check of its own", () => {
-    const source = read("app/pr/content/[id]/page.tsx");
-    for (const forbidden of ["PR_PRODUCTION_EXECUTE", "PR_PUBLICATION_REGISTER", "role ==="]) {
+    const source = readPrContentDetailSource();
+    for (const forbidden of [
+      "PR_PRODUCTION_EXECUTE",
+      "PR_PUBLICATION_REGISTER",
+      "role ===",
+    ]) {
       expect(source, forbidden).not.toContain(forbidden);
     }
   });
@@ -574,14 +629,18 @@ describe("107. the add control is the server's decision", () => {
 describe("108. the derivative form offers the six types and the masters", () => {
   it("lists every type by its Vietnamese label", async () => {
     await openTab("Sản phẩm", { actions: [act("ADD_CONTENT_DERIVATIVE")] });
-    await userEvent.click(await screen.findByRole("button", { name: "+ Thêm sản phẩm phái sinh" }));
+    await userEvent.click(
+      await screen.findByRole("button", { name: "+ Thêm sản phẩm phái sinh" }),
+    );
 
     const picker = screen.getByRole("combobox", {
       name: /Loại sản phẩm phái sinh/,
     });
-    expect([...picker.querySelectorAll("option")].map((option) => option.textContent)).toEqual(
-      DERIVATIVE_TYPE_ORDER.map((code) => derivativeTypeLabel(code)),
-    );
+    expect(
+      [...picker.querySelectorAll("option")].map(
+        (option) => option.textContent,
+      ),
+    ).toEqual(DERIVATIVE_TYPE_ORDER.map((code) => derivativeTypeLabel(code)));
     // And none of the codes reaches the screen.
     for (const code of DERIVATIVE_TYPE_ORDER) {
       expect(picker.textContent, code).not.toContain(code);
@@ -590,12 +649,18 @@ describe("108. the derivative form offers the six types and the masters", () => 
 
   it("offers the masters by label, with an explicit 'unknown' option", async () => {
     await openTab("Sản phẩm", { actions: [act("ADD_CONTENT_DERIVATIVE")] });
-    await userEvent.click(await screen.findByRole("button", { name: "+ Thêm sản phẩm phái sinh" }));
+    await userEvent.click(
+      await screen.findByRole("button", { name: "+ Thêm sản phẩm phái sinh" }),
+    );
 
     const picker = screen.getByRole("combobox", {
       name: /Cắt từ sản phẩm gốc/,
     });
-    expect([...picker.querySelectorAll("option")].map((option) => option.textContent)).toEqual([
+    expect(
+      [...picker.querySelectorAll("option")].map(
+        (option) => option.textContent,
+      ),
+    ).toEqual([
       // Optional on purpose: a file re-cut from raw footage came from no tracked
       // submission, and requiring a link would store a guess.
       "Không xác định",
@@ -607,21 +672,33 @@ describe("108. the derivative form offers the six types and the masters", () => 
     const stub = await openTab("Sản phẩm", {
       actions: [act("ADD_CONTENT_DERIVATIVE")],
     });
-    await userEvent.click(await screen.findByRole("button", { name: "+ Thêm sản phẩm phái sinh" }));
+    await userEvent.click(
+      await screen.findByRole("button", { name: "+ Thêm sản phẩm phái sinh" }),
+    );
 
     await userEvent.selectOptions(
       screen.getByRole("combobox", { name: /Loại sản phẩm phái sinh/ }),
       "REFORMAT",
     );
-    await userEvent.type(screen.getByRole("textbox", { name: /Tên \/ nhãn/ }), "Reel 30s");
-    await userEvent.type(screen.getByRole("textbox", { name: /Link \/ đường dẫn sản phẩm/ }), NAS);
+    await userEvent.type(
+      screen.getByRole("textbox", { name: /Tên \/ nhãn/ }),
+      "Reel 30s",
+    );
+    await userEvent.type(
+      screen.getByRole("textbox", { name: /Link \/ đường dẫn sản phẩm/ }),
+      NAS,
+    );
     await userEvent.selectOptions(
       screen.getByRole("combobox", { name: /Cắt từ sản phẩm gốc/ }),
       MASTER.id,
     );
-    await userEvent.click(screen.getByRole("button", { name: "Thêm sản phẩm phái sinh" }));
+    await userEvent.click(
+      screen.getByRole("button", { name: "Thêm sản phẩm phái sinh" }),
+    );
 
-    await waitFor(() => expect(requests(stub).some((call) => call.method === "POST")).toBe(true));
+    await waitFor(() =>
+      expect(requests(stub).some((call) => call.method === "POST")).toBe(true),
+    );
     const post = requests(stub).find((call) => call.method === "POST")!;
     expect(post.url).toContain(`/contents/${CONTENT.id}/derivatives`);
     expect(post.body).toMatchObject({
@@ -637,18 +714,29 @@ describe("108. the derivative form offers the six types and the masters", () => 
       actions: [act("ADD_CONTENT_DERIVATIVE")],
       postFails: true,
     });
-    await userEvent.click(await screen.findByRole("button", { name: "+ Thêm sản phẩm phái sinh" }));
+    await userEvent.click(
+      await screen.findByRole("button", { name: "+ Thêm sản phẩm phái sinh" }),
+    );
 
-    await userEvent.type(screen.getByRole("textbox", { name: /Tên \/ nhãn/ }), "Reel 30s");
+    await userEvent.type(
+      screen.getByRole("textbox", { name: /Tên \/ nhãn/ }),
+      "Reel 30s",
+    );
     await userEvent.type(
       screen.getByRole("textbox", { name: /Link \/ đường dẫn sản phẩm/ }),
       "javascript:alert(1)",
     );
-    await userEvent.click(screen.getByRole("button", { name: "Thêm sản phẩm phái sinh" }));
+    await userEvent.click(
+      screen.getByRole("button", { name: "Thêm sản phẩm phái sinh" }),
+    );
 
-    await waitFor(() => expect(screen.getByText(/Đường dẫn không hợp lệ/)).toBeInTheDocument());
+    await waitFor(() =>
+      expect(screen.getByText(/Đường dẫn không hợp lệ/)).toBeInTheDocument(),
+    );
     // Nothing was cleared: somebody who pasted a long URL does not paste it twice.
-    expect(screen.getByRole("textbox", { name: /Tên \/ nhãn/ })).toHaveValue("Reel 30s");
+    expect(screen.getByRole("textbox", { name: /Tên \/ nhãn/ })).toHaveValue(
+      "Reel 30s",
+    );
   });
 });
 
@@ -683,12 +771,15 @@ describe("114. the destination links are their own section under Nội dung", ()
     const section = await screen.findByRole("region", {
       name: "Sản phẩm / đích đến",
     });
-    expect(await within(section).findByText("Landing page dịch vụ")).toBeInTheDocument();
-    expect(within(section).getByRole("link", { name: LANDING })).toHaveAttribute("href", LANDING);
-    expect(within(section).getByRole("link", { name: LANDING })).toHaveAttribute(
-      "rel",
-      "noreferrer noopener",
-    );
+    expect(
+      await within(section).findByText("Landing page dịch vụ"),
+    ).toBeInTheDocument();
+    expect(
+      within(section).getByRole("link", { name: LANDING }),
+    ).toHaveAttribute("href", LANDING);
+    expect(
+      within(section).getByRole("link", { name: LANDING }),
+    ).toHaveAttribute("rel", "noreferrer noopener");
     expect(section.textContent).not.toContain(DESTINATION.id);
   });
 
@@ -699,7 +790,10 @@ describe("114. the destination links are their own section under Nội dung", ()
       const section = await screen.findByRole("region", {
         name: "Sản phẩm / đích đến",
       });
-      expect(await within(section).findByText("Landing page dịch vụ"), stage).toBeInTheDocument();
+      expect(
+        await within(section).findByText("Landing page dịch vụ"),
+        stage,
+      ).toBeInTheDocument();
       view.unmount();
     }
   });
@@ -710,7 +804,9 @@ describe("114. the destination links are their own section under Nội dung", ()
     const section = await screen.findByRole("region", {
       name: "Sản phẩm / đích đến",
     });
-    expect(within(section).getByRole("button", { name: "+ Thêm link" })).toBeInTheDocument();
+    expect(
+      within(section).getByRole("button", { name: "+ Thêm link" }),
+    ).toBeInTheDocument();
   });
 
   it("hides it when the server did not", async () => {
@@ -719,26 +815,41 @@ describe("114. the destination links are their own section under Nội dung", ()
     const section = await screen.findByRole("region", {
       name: "Sản phẩm / đích đến",
     });
-    expect(within(section).queryByRole("button", { name: "+ Thêm link" })).not.toBeInTheDocument();
-    expect(within(section).queryByRole("button", { name: "Sửa" })).not.toBeInTheDocument();
+    expect(
+      within(section).queryByRole("button", { name: "+ Thêm link" }),
+    ).not.toBeInTheDocument();
+    expect(
+      within(section).queryByRole("button", { name: "Sửa" }),
+    ).not.toBeInTheDocument();
   });
 
   it("sends the label and the URL as typed", async () => {
-    const stub = stubFetch(detailRoutes({ actions: [act("MANAGE_CONTENT_DESTINATIONS")] }));
+    const stub = stubFetch(
+      detailRoutes({ actions: [act("MANAGE_CONTENT_DESTINATIONS")] }),
+    );
     renderWithQuery(<ContentDetailPage />);
     const section = await screen.findByRole("region", {
       name: "Sản phẩm / đích đến",
     });
-    await userEvent.click(within(section).getByRole("button", { name: "+ Thêm link" }));
+    await userEvent.click(
+      within(section).getByRole("button", { name: "+ Thêm link" }),
+    );
 
     await userEvent.type(
       within(section).getByRole("textbox", { name: /Tên \/ nhãn/ }),
       "Trang đặt lịch",
     );
-    await userEvent.type(within(section).getByRole("textbox", { name: /^Link/ }), LANDING);
-    await userEvent.click(within(section).getByRole("button", { name: "Thêm link" }));
+    await userEvent.type(
+      within(section).getByRole("textbox", { name: /^Link/ }),
+      LANDING,
+    );
+    await userEvent.click(
+      within(section).getByRole("button", { name: "Thêm link" }),
+    );
 
-    await waitFor(() => expect(requests(stub).some((call) => call.method === "POST")).toBe(true));
+    await waitFor(() =>
+      expect(requests(stub).some((call) => call.method === "POST")).toBe(true),
+    );
     const post = requests(stub).find((call) => call.method === "POST")!;
     expect(post.url).toContain(`/contents/${CONTENT.id}/destinations`);
     expect(post.body).toMatchObject({ label: "Trang đặt lịch", url: LANDING });
@@ -758,14 +869,23 @@ describe("119. the publication history says which file went where", () => {
 
     const section = await screen.findByRole("region", { name: "Đã xuất bản" });
     // The channel by name, never by id.
-    await waitFor(() => expect(within(section).getByText("Apexmed TikTok")).toBeInTheDocument());
+    await waitFor(() =>
+      expect(within(section).getByText("Apexmed TikTok")).toBeInTheDocument(),
+    );
     // Which file - resolved from the derivative list the page already loaded.
     expect(within(section).getByText("TikTok cut 25s")).toBeInTheDocument();
     // Where that file lives …
-    expect(within(section).getByRole("link", { name: CUT })).toHaveAttribute("href", CUT);
+    expect(within(section).getByRole("link", { name: CUT })).toHaveAttribute(
+      "href",
+      CUT,
+    );
     // … and, separately, where the post is. Two different things.
-    expect(within(section).getByRole("link", { name: POST_URL })).toHaveAttribute("href", POST_URL);
-    expect(within(section).getByText("Ghi chú: Đăng lại dịp khai trương")).toBeInTheDocument();
+    expect(
+      within(section).getByRole("link", { name: POST_URL }),
+    ).toHaveAttribute("href", POST_URL);
+    expect(
+      within(section).getByText("Ghi chú: Đăng lại dịp khai trương"),
+    ).toBeInTheDocument();
     expect(section.textContent).not.toContain(OCTOBER.id);
     expect(section.textContent).not.toContain(CHANNELS[1].id);
   });
@@ -774,9 +894,13 @@ describe("119. the publication history says which file went where", () => {
     await openTab("Xuất bản", { publications: [AUGUST] });
 
     const section = await screen.findByRole("region", { name: "Đã xuất bản" });
-    await waitFor(() => expect(within(section).getByText("Apexmed Facebook")).toBeInTheDocument());
+    await waitFor(() =>
+      expect(within(section).getByText("Apexmed Facebook")).toBeInTheDocument(),
+    );
     expect(within(section).getByText("Video final 60s")).toBeInTheDocument();
-    expect(within(section).getByRole("link", { name: DRIVE })).toBeInTheDocument();
+    expect(
+      within(section).getByRole("link", { name: DRIVE }),
+    ).toBeInTheDocument();
   });
 
   it("says so in words when a legacy row names no output", async () => {
@@ -790,7 +914,9 @@ describe("119. the publication history says which file went where", () => {
 
   it("renders zero publications as a sentence, not as a failure", async () => {
     await openTab("Xuất bản", { publications: [] });
-    expect(await screen.findByText("Chưa có bài đăng nào.")).toBeInTheDocument();
+    expect(
+      await screen.findByText("Chưa có bài đăng nào."),
+    ).toBeInTheDocument();
   });
 
   it("renders the whole history, newest first as the server sent it", async () => {
@@ -800,11 +926,15 @@ describe("119. the publication history says which file went where", () => {
     });
 
     const section = await screen.findByRole("region", { name: "Đã xuất bản" });
-    await waitFor(() => expect(within(section).getByText("Apexmed TikTok")).toBeInTheDocument());
+    await waitFor(() =>
+      expect(within(section).getByText("Apexmed TikTok")).toBeInTheDocument(),
+    );
     const text = section.textContent ?? "";
     // Order as given - re-sorting here would be a second opinion about the same
     // list, and the server's is total.
-    expect(text.indexOf("TikTok cut 25s")).toBeLessThan(text.indexOf("Video final 60s"));
+    expect(text.indexOf("TikTok cut 25s")).toBeLessThan(
+      text.indexOf("Video final 60s"),
+    );
   });
 });
 
@@ -817,27 +947,45 @@ describe("120. the publication form", () => {
 
   it("appears only when the server offered RECORD_PUBLICATION", async () => {
     await openTab("Xuất bản", { actions: [] });
-    expect(screen.queryByRole("button", { name: "+ Thêm kênh đã đăng" })).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole("button", { name: "+ Thêm kênh đã đăng" }),
+    ).not.toBeInTheDocument();
   });
 
   it("offers every field the step asked for", async () => {
     await withForm();
-    await userEvent.click(await screen.findByRole("button", { name: "+ Thêm kênh đã đăng" }));
+    await userEvent.click(
+      await screen.findByRole("button", { name: "+ Thêm kênh đã đăng" }),
+    );
 
     expect(screen.getByRole("combobox", { name: /^Kênh/ })).toBeInTheDocument();
-    expect(screen.getByRole("combobox", { name: /Sản phẩm đã đăng/ })).toBeInTheDocument();
-    expect(screen.getByRole("textbox", { name: /Link bài đăng/ })).toBeInTheDocument();
+    expect(
+      screen.getByRole("combobox", { name: /Sản phẩm đã đăng/ }),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole("textbox", { name: /Link bài đăng/ }),
+    ).toBeInTheDocument();
     expect(screen.getByLabelText(/Thời gian đăng/)).toBeInTheDocument();
-    expect(screen.getByRole("textbox", { name: /Ghi chú/ })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Lưu bài đã đăng" })).toBeInTheDocument();
+    expect(
+      screen.getByRole("textbox", { name: /Ghi chú/ }),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: "Lưu bài đã đăng" }),
+    ).toBeInTheDocument();
   });
 
   it("lists both masters and derivatives in the output picker, by label", async () => {
     await withForm();
-    await userEvent.click(await screen.findByRole("button", { name: "+ Thêm kênh đã đăng" }));
+    await userEvent.click(
+      await screen.findByRole("button", { name: "+ Thêm kênh đã đăng" }),
+    );
 
     const picker = screen.getByRole("combobox", { name: /Sản phẩm đã đăng/ });
-    expect([...picker.querySelectorAll("option")].map((option) => option.textContent)).toEqual([
+    expect(
+      [...picker.querySelectorAll("option")].map(
+        (option) => option.textContent,
+      ),
+    ).toEqual([
       "— chọn sản phẩm —",
       "Video final 60s",
       "TikTok cut 25s",
@@ -852,29 +1000,43 @@ describe("120. the publication form", () => {
     // The reuse case: a channel created after the plan was written is exactly
     // where a re-cut goes. The stub's content has no targets at all.
     await withForm();
-    await userEvent.click(await screen.findByRole("button", { name: "+ Thêm kênh đã đăng" }));
+    await userEvent.click(
+      await screen.findByRole("button", { name: "+ Thêm kênh đã đăng" }),
+    );
 
     const picker = screen.getByRole("combobox", { name: /^Kênh/ });
-    expect([...picker.querySelectorAll("option")].map((option) => option.textContent)).toEqual([
-      "— chọn kênh —",
-      "Apexmed Facebook",
-      "Apexmed TikTok",
-    ]);
+    expect(
+      [...picker.querySelectorAll("option")].map(
+        (option) => option.textContent,
+      ),
+    ).toEqual(["— chọn kênh —", "Apexmed Facebook", "Apexmed TikTok"]);
   });
 
   it("sends exactly one output reference - the derivative case", async () => {
     const stub = await withForm();
-    await userEvent.click(await screen.findByRole("button", { name: "+ Thêm kênh đã đăng" }));
+    await userEvent.click(
+      await screen.findByRole("button", { name: "+ Thêm kênh đã đăng" }),
+    );
 
-    await userEvent.selectOptions(screen.getByRole("combobox", { name: /^Kênh/ }), CHANNELS[1].id);
+    await userEvent.selectOptions(
+      screen.getByRole("combobox", { name: /^Kênh/ }),
+      CHANNELS[1].id,
+    );
     await userEvent.selectOptions(
       screen.getByRole("combobox", { name: /Sản phẩm đã đăng/ }),
       `DERIVATIVE:${CUTDOWN.id}`,
     );
-    await userEvent.type(screen.getByRole("textbox", { name: /Link bài đăng/ }), POST_URL);
-    await userEvent.click(screen.getByRole("button", { name: "Lưu bài đã đăng" }));
+    await userEvent.type(
+      screen.getByRole("textbox", { name: /Link bài đăng/ }),
+      POST_URL,
+    );
+    await userEvent.click(
+      screen.getByRole("button", { name: "Lưu bài đã đăng" }),
+    );
 
-    await waitFor(() => expect(requests(stub).some((call) => call.method === "POST")).toBe(true));
+    await waitFor(() =>
+      expect(requests(stub).some((call) => call.method === "POST")).toBe(true),
+    );
     const post = requests(stub).find((call) => call.method === "POST")!;
     expect(post.url).toContain(`/contents/${CONTENT.id}/publications`);
     expect(post.body).toMatchObject({
@@ -887,17 +1049,29 @@ describe("120. the publication form", () => {
 
   it("sends exactly one output reference - the master case", async () => {
     const stub = await withForm();
-    await userEvent.click(await screen.findByRole("button", { name: "+ Thêm kênh đã đăng" }));
+    await userEvent.click(
+      await screen.findByRole("button", { name: "+ Thêm kênh đã đăng" }),
+    );
 
-    await userEvent.selectOptions(screen.getByRole("combobox", { name: /^Kênh/ }), CHANNELS[0].id);
+    await userEvent.selectOptions(
+      screen.getByRole("combobox", { name: /^Kênh/ }),
+      CHANNELS[0].id,
+    );
     await userEvent.selectOptions(
       screen.getByRole("combobox", { name: /Sản phẩm đã đăng/ }),
       `SUBMISSION:${MASTER.id}`,
     );
-    await userEvent.type(screen.getByRole("textbox", { name: /Link bài đăng/ }), POST_URL);
-    await userEvent.click(screen.getByRole("button", { name: "Lưu bài đã đăng" }));
+    await userEvent.type(
+      screen.getByRole("textbox", { name: /Link bài đăng/ }),
+      POST_URL,
+    );
+    await userEvent.click(
+      screen.getByRole("button", { name: "Lưu bài đã đăng" }),
+    );
 
-    await waitFor(() => expect(requests(stub).some((call) => call.method === "POST")).toBe(true));
+    await waitFor(() =>
+      expect(requests(stub).some((call) => call.method === "POST")).toBe(true),
+    );
     const post = requests(stub).find((call) => call.method === "POST")!;
     expect(post.body).toMatchObject({
       production_submission_id: MASTER.id,
@@ -907,24 +1081,38 @@ describe("120. the publication form", () => {
 
   it("defaults the time to now and lets it be changed", async () => {
     const stub = await withForm();
-    await userEvent.click(await screen.findByRole("button", { name: "+ Thêm kênh đã đăng" }));
+    await userEvent.click(
+      await screen.findByRole("button", { name: "+ Thêm kênh đã đăng" }),
+    );
 
     const when = screen.getByLabelText(/Thời gian đăng/) as HTMLInputElement;
     expect(when.value).toMatch(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/);
 
     await userEvent.clear(when);
     await userEvent.type(when, "2026-10-18T20:10");
-    await userEvent.selectOptions(screen.getByRole("combobox", { name: /^Kênh/ }), CHANNELS[1].id);
+    await userEvent.selectOptions(
+      screen.getByRole("combobox", { name: /^Kênh/ }),
+      CHANNELS[1].id,
+    );
     await userEvent.selectOptions(
       screen.getByRole("combobox", { name: /Sản phẩm đã đăng/ }),
       `DERIVATIVE:${CUTDOWN.id}`,
     );
-    await userEvent.type(screen.getByRole("textbox", { name: /Link bài đăng/ }), POST_URL);
-    await userEvent.click(screen.getByRole("button", { name: "Lưu bài đã đăng" }));
+    await userEvent.type(
+      screen.getByRole("textbox", { name: /Link bài đăng/ }),
+      POST_URL,
+    );
+    await userEvent.click(
+      screen.getByRole("button", { name: "Lưu bài đã đăng" }),
+    );
 
-    await waitFor(() => expect(requests(stub).some((call) => call.method === "POST")).toBe(true));
+    await waitFor(() =>
+      expect(requests(stub).some((call) => call.method === "POST")).toBe(true),
+    );
     const post = requests(stub).find((call) => call.method === "POST")!;
-    expect((post.body as { published_at: string }).published_at).toContain("2026-10-18");
+    expect((post.body as { published_at: string }).published_at).toContain(
+      "2026-10-18",
+    );
   });
 
   it("keeps the form filled when the server refuses", async () => {
@@ -933,18 +1121,34 @@ describe("120. the publication form", () => {
       derivatives: [CUTDOWN],
       postFails: true,
     });
-    await userEvent.click(await screen.findByRole("button", { name: "+ Thêm kênh đã đăng" }));
+    await userEvent.click(
+      await screen.findByRole("button", { name: "+ Thêm kênh đã đăng" }),
+    );
 
-    await userEvent.selectOptions(screen.getByRole("combobox", { name: /^Kênh/ }), CHANNELS[1].id);
+    await userEvent.selectOptions(
+      screen.getByRole("combobox", { name: /^Kênh/ }),
+      CHANNELS[1].id,
+    );
     await userEvent.selectOptions(
       screen.getByRole("combobox", { name: /Sản phẩm đã đăng/ }),
       `DERIVATIVE:${CUTDOWN.id}`,
     );
-    await userEvent.type(screen.getByRole("textbox", { name: /Link bài đăng/ }), "tiktok.com/x");
-    await userEvent.click(screen.getByRole("button", { name: "Lưu bài đã đăng" }));
+    await userEvent.type(
+      screen.getByRole("textbox", { name: /Link bài đăng/ }),
+      "tiktok.com/x",
+    );
+    await userEvent.click(
+      screen.getByRole("button", { name: "Lưu bài đã đăng" }),
+    );
 
-    await waitFor(() => expect(screen.getByText(/Link bài đăng không hợp lệ/)).toBeInTheDocument());
-    expect(screen.getByRole("textbox", { name: /Link bài đăng/ })).toHaveValue("tiktok.com/x");
+    await waitFor(() =>
+      expect(
+        screen.getByText(/Link bài đăng không hợp lệ/),
+      ).toBeInTheDocument(),
+    );
+    expect(screen.getByRole("textbox", { name: /Link bài đăng/ })).toHaveValue(
+      "tiktok.com/x",
+    );
   });
 
   it("says why the form cannot be used when nothing has been produced", async () => {
@@ -953,10 +1157,16 @@ describe("120. the publication form", () => {
       masters: [],
       derivatives: [],
     });
-    await userEvent.click(await screen.findByRole("button", { name: "+ Thêm kênh đã đăng" }));
+    await userEvent.click(
+      await screen.findByRole("button", { name: "+ Thêm kênh đã đăng" }),
+    );
 
-    expect(screen.getByText(/Chưa có sản phẩm nào để chọn/)).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Lưu bài đã đăng" })).toBeDisabled();
+    expect(
+      screen.getByText(/Chưa có sản phẩm nào để chọn/),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: "Lưu bài đã đăng" }),
+    ).toBeDisabled();
   });
 });
 
@@ -974,7 +1184,9 @@ describe("131. a published piece is reused without any workflow reset", () => {
     });
 
     const section = await screen.findByRole("region", { name: "Đã xuất bản" });
-    await waitFor(() => expect(within(section).getByText("Apexmed TikTok")).toBeInTheDocument());
+    await waitFor(() =>
+      expect(within(section).getByText("Apexmed TikTok")).toBeInTheDocument(),
+    );
     // Both, and each naming the file that actually went out.
     expect(within(section).getByText("Apexmed Facebook")).toBeInTheDocument();
     expect(within(section).getByText("Video final 60s")).toBeInTheDocument();
@@ -996,15 +1208,22 @@ describe("131. a published piece is reused without any workflow reset", () => {
     // The stage badge still reads "Đã đăng", and nothing offers to restart
     // production - because the server offered no such action.
     expect(screen.getByText("Đã đăng")).toBeInTheDocument();
-    for (const gone of ["Bắt đầu sản xuất", "Gửi duyệt nội bộ", "Nhận sản xuất"]) {
-      expect(screen.queryByRole("button", { name: gone }), gone).not.toBeInTheDocument();
+    for (const gone of [
+      "Bắt đầu sản xuất",
+      "Gửi duyệt nội bộ",
+      "Nhận sản xuất",
+    ]) {
+      expect(
+        screen.queryByRole("button", { name: gone }),
+        gone,
+      ).not.toBeInTheDocument();
     }
   });
 
   it("never offers to duplicate the content", () => {
     // Reuse happens on the same content record. A "nhân bản" control would be
     // the workaround this whole step exists to remove.
-    const source = read("app/pr/content/[id]/page.tsx");
+    const source = readPrContentDetailSource();
     for (const forbidden of ["duplicateContent", "cloneContent", "Nhân bản"]) {
       expect(source, forbidden).not.toContain(forbidden);
     }
@@ -1020,19 +1239,33 @@ describe("135. a detail mutation refreshes detail data and nothing else", () => 
     const stub = await openTab("Sản phẩm", {
       actions: [act("ADD_CONTENT_DERIVATIVE")],
     });
-    await userEvent.click(await screen.findByRole("button", { name: "+ Thêm sản phẩm phái sinh" }));
-    await userEvent.type(screen.getByRole("textbox", { name: /Tên \/ nhãn/ }), "Reel 30s");
-    await userEvent.type(screen.getByRole("textbox", { name: /Link \/ đường dẫn sản phẩm/ }), CUT);
-    await userEvent.click(screen.getByRole("button", { name: "Thêm sản phẩm phái sinh" }));
+    await userEvent.click(
+      await screen.findByRole("button", { name: "+ Thêm sản phẩm phái sinh" }),
+    );
+    await userEvent.type(
+      screen.getByRole("textbox", { name: /Tên \/ nhãn/ }),
+      "Reel 30s",
+    );
+    await userEvent.type(
+      screen.getByRole("textbox", { name: /Link \/ đường dẫn sản phẩm/ }),
+      CUT,
+    );
+    await userEvent.click(
+      screen.getByRole("button", { name: "Thêm sản phẩm phái sinh" }),
+    );
 
-    await waitFor(() => expect(requests(stub).some((call) => call.method === "POST")).toBe(true));
+    await waitFor(() =>
+      expect(requests(stub).some((call) => call.method === "POST")).toBe(true),
+    );
     // No board request at all: a derivative is not a transition, so nothing
     // about the work queue can have changed. Step 1F.2.3c2's lanes are untouched.
-    expect(requests(stub).some((call) => call.url.includes("/contents/board"))).toBe(false);
+    expect(
+      requests(stub).some((call) => call.url.includes("/contents/board")),
+    ).toBe(false);
   });
 
   it("invalidates the board only where the stage can actually move", () => {
-    const source = read("app/pr/content/[id]/page.tsx");
+    const source = readPrContentDetailSource();
     // The publication form calls the page-wide `invalidate`, which does touch
     // the board - correctly, because the first publication from
     // READY_TO_PUBLISH moves the item to PUBLISHED. The derivative and
@@ -1090,7 +1323,9 @@ describe("139. the board still asks for lanes and nothing heavier", () => {
     }
     // No array of any of the three, which is the shape that would be the N+1.
     for (const collection of ["derivatives", "publications", "destinations"]) {
-      expect(summary, collection).not.toMatch(new RegExp(`\\b${collection}\\s*[?:]`));
+      expect(summary, collection).not.toMatch(
+        new RegExp(`\\b${collection}\\s*[?:]`),
+      );
     }
     expect(summary).toContain("published_at: string | null;");
     expect(summary).not.toContain("archive_reason");
@@ -1124,7 +1359,9 @@ describe("141. the standalone 'Đánh dấu đã đăng' is gone", () => {
     renderWithQuery(<ContentDetailPage />);
     await screen.findByRole("tab", { name: "Xuất bản" });
 
-    expect(screen.queryByRole("button", { name: "Đánh dấu đã đăng" })).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole("button", { name: "Đánh dấu đã đăng" }),
+    ).not.toBeInTheDocument();
     expect(document.body.textContent).not.toContain("Đánh dấu đã đăng");
   });
 
@@ -1132,7 +1369,7 @@ describe("141. the standalone 'Đánh dấu đã đăng' is gone", () => {
     // The label table is where a stale button would come back from, so the
     // entry is removed rather than merely unreferenced.
     expect(read("lib/labels.ts")).not.toContain("Đánh dấu đã đăng");
-    expect(read("app/pr/content/[id]/page.tsx")).not.toContain("Đánh dấu đã đăng");
+    expect(readPrContentDetailSource()).not.toContain("Đánh dấu đã đăng");
   });
 
   it("still offers the one authoritative action", async () => {
@@ -1142,8 +1379,12 @@ describe("141. the standalone 'Đánh dấu đã đăng' is gone", () => {
       publications: [],
     });
 
-    expect(await screen.findByText("Chưa có bài đăng nào.")).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "+ Thêm kênh đã đăng" })).toBeInTheDocument();
+    expect(
+      await screen.findByText("Chưa có bài đăng nào."),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: "+ Thêm kênh đã đăng" }),
+    ).toBeInTheDocument();
   });
 
   it("still records a first publication through it", async () => {
@@ -1152,20 +1393,32 @@ describe("141. the standalone 'Đánh dấu đã đăng' is gone", () => {
       actions: [act("RECORD_PUBLICATION")],
       publications: [],
     });
-    await userEvent.click(await screen.findByRole("button", { name: "+ Thêm kênh đã đăng" }));
+    await userEvent.click(
+      await screen.findByRole("button", { name: "+ Thêm kênh đã đăng" }),
+    );
 
-    await userEvent.selectOptions(screen.getByRole("combobox", { name: /^Kênh/ }), CHANNELS[0].id);
+    await userEvent.selectOptions(
+      screen.getByRole("combobox", { name: /^Kênh/ }),
+      CHANNELS[0].id,
+    );
     await userEvent.selectOptions(
       screen.getByRole("combobox", { name: /Sản phẩm đã đăng/ }),
       `SUBMISSION:${MASTER.id}`,
     );
-    await userEvent.type(screen.getByRole("textbox", { name: /Link bài đăng/ }), POST_URL);
-    await userEvent.click(screen.getByRole("button", { name: "Lưu bài đã đăng" }));
-
-    await waitFor(() => expect(requests(stub).some((call) => call.method === "POST")).toBe(true));
-    expect(requests(stub).find((call) => call.method === "POST")!.url).toContain(
-      `/contents/${CONTENT.id}/publications`,
+    await userEvent.type(
+      screen.getByRole("textbox", { name: /Link bài đăng/ }),
+      POST_URL,
     );
+    await userEvent.click(
+      screen.getByRole("button", { name: "Lưu bài đã đăng" }),
+    );
+
+    await waitFor(() =>
+      expect(requests(stub).some((call) => call.method === "POST")).toBe(true),
+    );
+    expect(
+      requests(stub).find((call) => call.method === "POST")!.url,
+    ).toContain(`/contents/${CONTENT.id}/publications`);
   });
 });
 
@@ -1179,14 +1432,18 @@ describe("142. correcting a publication", () => {
   it("shows Sửa when the server said this row may be corrected", async () => {
     await authorized();
     const section = await screen.findByRole("region", { name: "Đã xuất bản" });
-    expect(await within(section).findByRole("button", { name: "Sửa" })).toBeInTheDocument();
+    expect(
+      await within(section).findByRole("button", { name: "Sửa" }),
+    ).toBeInTheDocument();
   });
 
   it("hides it when the server did not", async () => {
     await openTab("Xuất bản", { actions: [], publications: [AUGUST] });
     const section = await screen.findByRole("region", { name: "Đã xuất bản" });
     await within(section).findByText("Video final 60s");
-    expect(within(section).queryByRole("button", { name: "Sửa" })).not.toBeInTheDocument();
+    expect(
+      within(section).queryByRole("button", { name: "Sửa" }),
+    ).not.toBeInTheDocument();
     expect(
       within(section).queryByRole("button", { name: "Hoàn tác đăng bài" }),
     ).not.toBeInTheDocument();
@@ -1195,30 +1452,46 @@ describe("142. correcting a publication", () => {
   it("offers the URL, the time and the note - and nothing that defines the row", async () => {
     await authorized();
     const section = await screen.findByRole("region", { name: "Đã xuất bản" });
-    await userEvent.click(await within(section).findByRole("button", { name: "Sửa" }));
+    await userEvent.click(
+      await within(section).findByRole("button", { name: "Sửa" }),
+    );
 
-    expect(screen.getByRole("textbox", { name: /Link bài đăng/ })).toHaveValue(AUGUST.url);
+    expect(screen.getByRole("textbox", { name: /Link bài đăng/ })).toHaveValue(
+      AUGUST.url,
+    );
     expect(screen.getByLabelText(/Thời gian đăng/)).toBeInTheDocument();
-    expect(screen.getByRole("textbox", { name: /Ghi chú/ })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Lưu thay đổi" })).toBeInTheDocument();
+    expect(
+      screen.getByRole("textbox", { name: /Ghi chú/ }),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: "Lưu thay đổi" }),
+    ).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Hủy" })).toBeInTheDocument();
     // The channel and the output define what the row means. A wrong one is
     // fixed by reversing and re-recording, not by rewriting history.
-    expect(screen.queryByRole("combobox", { name: /^Kênh/ })).not.toBeInTheDocument();
-    expect(screen.queryByRole("combobox", { name: /Sản phẩm đã đăng/ })).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole("combobox", { name: /^Kênh/ }),
+    ).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole("combobox", { name: /Sản phẩm đã đăng/ }),
+    ).not.toBeInTheDocument();
   });
 
   it("sends only the correctable fields", async () => {
     const stub = await authorized();
     const section = await screen.findByRole("region", { name: "Đã xuất bản" });
-    await userEvent.click(await within(section).findByRole("button", { name: "Sửa" }));
+    await userEvent.click(
+      await within(section).findByRole("button", { name: "Sửa" }),
+    );
 
     const url = screen.getByRole("textbox", { name: /Link bài đăng/ });
     await userEvent.clear(url);
     await userEvent.type(url, POST_URL);
     await userEvent.click(screen.getByRole("button", { name: "Lưu thay đổi" }));
 
-    await waitFor(() => expect(requests(stub).some((call) => call.method === "PATCH")).toBe(true));
+    await waitFor(() =>
+      expect(requests(stub).some((call) => call.method === "PATCH")).toBe(true),
+    );
     const patch = requests(stub).find((call) => call.method === "PATCH")!;
     expect(patch.url).toContain(`/publications/${AUGUST.id}`);
     expect(patch.body).toMatchObject({ url: POST_URL });
@@ -1242,7 +1515,9 @@ describe("143. taking a publication back", () => {
       await within(section).findByRole("button", { name: "Hoàn tác đăng bài" }),
     ).toBeInTheDocument();
     // Nothing is deleted, and the control must not say otherwise.
-    expect(within(section).queryByRole("button", { name: "Xóa" })).not.toBeInTheDocument();
+    expect(
+      within(section).queryByRole("button", { name: "Xóa" }),
+    ).not.toBeInTheDocument();
   });
 
   it("confirms first, and explains what will and will not happen", async () => {
@@ -1259,7 +1534,9 @@ describe("143. taking a publication back", () => {
     expect(box.getByText(/Thu hồi bản đăng trên/)).toBeInTheDocument();
     expect(box.getByText(/vẫn nằm trong lịch sử/)).toBeInTheDocument();
     expect(box.getByText(/Sẵn sàng đăng/)).toBeInTheDocument();
-    expect(box.getByRole("button", { name: "Thu hồi bản đăng" })).toBeInTheDocument();
+    expect(
+      box.getByRole("button", { name: "Thu hồi bản đăng" }),
+    ).toBeInTheDocument();
     expect(box.getByRole("button", { name: "Thôi" })).toBeInTheDocument();
   });
 
@@ -1271,7 +1548,9 @@ describe("143. taking a publication back", () => {
     );
     await confirm();
 
-    await waitFor(() => expect(requests(stub).some((call) => call.method === "POST")).toBe(true));
+    await waitFor(() =>
+      expect(requests(stub).some((call) => call.method === "POST")).toBe(true),
+    );
     const post = requests(stub).find((call) => call.method === "POST")!;
     expect(post.url).toContain(`/publications/${AUGUST.id}/reverse`);
     expect(requests(stub).some((call) => call.method === "DELETE")).toBe(false);
@@ -1286,12 +1565,18 @@ describe("144. a reversed publication stays in the history", () => {
     });
 
     const section = await screen.findByRole("region", { name: "Đã xuất bản" });
-    await waitFor(() => expect(within(section).getByText("Apexmed TikTok")).toBeInTheDocument());
+    await waitFor(() =>
+      expect(within(section).getByText("Apexmed TikTok")).toBeInTheDocument(),
+    );
     expect(within(section).getByText("Đã hoàn tác")).toBeInTheDocument();
     // Channel, output, output location, post URL and instant all still readable.
     expect(within(section).getByText("TikTok cut 25s")).toBeInTheDocument();
-    expect(within(section).getByRole("link", { name: CUT })).toBeInTheDocument();
-    expect(within(section).getByRole("link", { name: POST_URL })).toBeInTheDocument();
+    expect(
+      within(section).getByRole("link", { name: CUT }),
+    ).toBeInTheDocument();
+    expect(
+      within(section).getByRole("link", { name: POST_URL }),
+    ).toBeInTheDocument();
     expect(within(section).getByText(/Đăng lúc/)).toBeInTheDocument();
   });
 
@@ -1304,8 +1589,12 @@ describe("144. a reversed publication stays in the history", () => {
     });
 
     const section = await screen.findByRole("region", { name: "Đã xuất bản" });
-    await waitFor(() => expect(within(section).getByText("Đã hoàn tác")).toBeInTheDocument());
-    expect(within(section).queryByRole("button", { name: "Sửa" })).not.toBeInTheDocument();
+    await waitFor(() =>
+      expect(within(section).getByText("Đã hoàn tác")).toBeInTheDocument(),
+    );
+    expect(
+      within(section).queryByRole("button", { name: "Sửa" }),
+    ).not.toBeInTheDocument();
     expect(
       within(section).queryByRole("button", { name: "Hoàn tác đăng bài" }),
     ).not.toBeInTheDocument();
@@ -1319,10 +1608,14 @@ describe("144. a reversed publication stays in the history", () => {
     });
 
     const section = await screen.findByRole("region", { name: "Đã xuất bản" });
-    await waitFor(() => expect(within(section).getByText("Video final 60s")).toBeInTheDocument());
+    await waitFor(() =>
+      expect(within(section).getByText("Video final 60s")).toBeInTheDocument(),
+    );
     expect(within(section).getByText("Đã hoàn tác")).toBeInTheDocument();
     // One row still counts, so exactly one pair of controls is drawn.
-    expect(within(section).getAllByRole("button", { name: "Sửa" })).toHaveLength(1);
+    expect(
+      within(section).getAllByRole("button", { name: "Sửa" }),
+    ).toHaveLength(1);
   });
 
   it("shows no raw status code anywhere", async () => {
@@ -1332,7 +1625,9 @@ describe("144. a reversed publication stays in the history", () => {
     });
 
     const section = await screen.findByRole("region", { name: "Đã xuất bản" });
-    await waitFor(() => expect(within(section).getByText("Đã hoàn tác")).toBeInTheDocument());
+    await waitFor(() =>
+      expect(within(section).getByText("Đã hoàn tác")).toBeInTheDocument(),
+    );
     for (const code of ["REVERSED", "PUBLISHED", "UNAVAILABLE", "REMOVED"]) {
       expect(section.textContent, code).not.toContain(code);
     }
@@ -1345,7 +1640,7 @@ describe("145. the board follows a stage change and nothing else", () => {
     // moves within Hoàn tất. The row hands the page-wide `invalidate` - which
     // touches the board - rather than reading `stage_reverted` and deciding: the
     // panel keeps no copy of the rule behind it.
-    const source = read("app/pr/content/[id]/page.tsx");
+    const source = readPrContentDetailSource();
     expect(source).toContain("api.reversePublication");
     expect(source).toContain("onChanged();");
   });
@@ -1396,7 +1691,9 @@ describe("146. an asset location may be a path, not only a link", () => {
     await within(section).findByText("Bản gốc trên NAS");
     // `is_link` is the server's answer. A browser deciding from the string would
     // read `M:\…` as a scheme and wrap it in an anchor that opens nothing.
-    expect(within(section).queryByRole("link", { name: WINDOWS_PATH })).not.toBeInTheDocument();
+    expect(
+      within(section).queryByRole("link", { name: WINDOWS_PATH }),
+    ).not.toBeInTheDocument();
     expect(within(section).getByText(WINDOWS_PATH)).toBeInTheDocument();
   });
 
@@ -1433,7 +1730,7 @@ describe("146. an asset location may be a path, not only a link", () => {
 
 describe("147. the location field stops claiming to be link-only", () => {
   it("labels the submit field neutrally", () => {
-    const source = read("app/pr/content/[id]/page.tsx");
+    const source = readPrContentDetailSource();
     // "Link file sản xuất" told half the people using it that their value was
     // not welcome. The field takes a Drive link, a NAS link, a path on the
     // volume, a mapped drive or a shared-root location.
@@ -1459,14 +1756,18 @@ describe("147. the location field stops claiming to be link-only", () => {
     );
 
     const picker = screen.getByRole("combobox", { name: "Loại file sản xuất" });
-    expect([...picker.querySelectorAll("option")].map((option) => option.textContent)).toEqual([
-      "Google Drive",
-      "Link NAS",
-      "Đường dẫn trên NAS",
-      "Link khác",
-    ]);
+    expect(
+      [...picker.querySelectorAll("option")].map(
+        (option) => option.textContent,
+      ),
+    ).toEqual(["Google Drive", "Link NAS", "Đường dẫn trên NAS", "Link khác"]);
     // Words, never the codes.
-    for (const code of ["DRIVE_LINK", "NAS_LINK", "NAS_PATH", "EXTERNAL_LINK"]) {
+    for (const code of [
+      "DRIVE_LINK",
+      "NAS_LINK",
+      "NAS_PATH",
+      "EXTERNAL_LINK",
+    ]) {
       expect(picker.textContent, code).not.toContain(code);
     }
   });
@@ -1522,7 +1823,9 @@ describe("148. correcting a handed-in production file", () => {
     await userEvent.type(field, POSIX_PATH);
     await userEvent.click(screen.getByRole("button", { name: "Lưu thay đổi" }));
 
-    await waitFor(() => expect(requests(stub).some((call) => call.method === "PATCH")).toBe(true));
+    await waitFor(() =>
+      expect(requests(stub).some((call) => call.method === "PATCH")).toBe(true),
+    );
     const patch = requests(stub).find((call) => call.method === "PATCH")!;
     expect(patch.url).toContain(`/production-outputs/${MASTER.id}`);
     expect(patch.body).toMatchObject({
@@ -1554,10 +1857,14 @@ describe("148. correcting a handed-in production file", () => {
     await userEvent.type(field, RELATIVE_PATH);
     await userEvent.click(screen.getByRole("button", { name: "Lưu thay đổi" }));
 
-    await waitFor(() => expect(requests(stub).some((call) => call.method === "PATCH")).toBe(true));
+    await waitFor(() =>
+      expect(requests(stub).some((call) => call.method === "PATCH")).toBe(true),
+    );
     // The browser refuses nothing structural: the shape rule is the server's,
     // and the form's only job is not to send an empty box.
-    expect(requests(stub).find((call) => call.method === "PATCH")!.body).toMatchObject({
+    expect(
+      requests(stub).find((call) => call.method === "PATCH")!.body,
+    ).toMatchObject({
       location: RELATIVE_PATH,
     });
   });
@@ -1581,12 +1888,19 @@ describe("149. a contributor records a publication", () => {
       publications: [],
     });
 
-    expect(await screen.findByRole("button", { name: "+ Thêm kênh đã đăng" })).toBeInTheDocument();
+    expect(
+      await screen.findByRole("button", { name: "+ Thêm kênh đã đăng" }),
+    ).toBeInTheDocument();
   });
 
   it("keeps no role comparison anywhere on the page", () => {
-    const source = read("app/pr/content/[id]/page.tsx");
-    for (const forbidden of ['role === "OWNER"', 'role === "ADMIN"', "OWNER", "PUBLISH_SOCIAL"]) {
+    const source = readPrContentDetailSource();
+    for (const forbidden of [
+      'role === "OWNER"',
+      'role === "ADMIN"',
+      "OWNER",
+      "PUBLISH_SOCIAL",
+    ]) {
       expect(source, forbidden).not.toContain(forbidden);
     }
   });
@@ -1597,21 +1911,34 @@ describe("149. a contributor records a publication", () => {
       actions: [act("RECORD_PUBLICATION")],
       publications: [],
     });
-    await userEvent.click(await screen.findByRole("button", { name: "+ Thêm kênh đã đăng" }));
+    await userEvent.click(
+      await screen.findByRole("button", { name: "+ Thêm kênh đã đăng" }),
+    );
 
-    await userEvent.selectOptions(screen.getByRole("combobox", { name: /^Kênh/ }), CHANNELS[0].id);
+    await userEvent.selectOptions(
+      screen.getByRole("combobox", { name: /^Kênh/ }),
+      CHANNELS[0].id,
+    );
     await userEvent.selectOptions(
       screen.getByRole("combobox", { name: /Sản phẩm đã đăng/ }),
       `SUBMISSION:${MASTER.id}`,
     );
-    await userEvent.type(screen.getByRole("textbox", { name: /Link bài đăng/ }), POST_URL);
-    await userEvent.click(screen.getByRole("button", { name: "Lưu bài đã đăng" }));
+    await userEvent.type(
+      screen.getByRole("textbox", { name: /Link bài đăng/ }),
+      POST_URL,
+    );
+    await userEvent.click(
+      screen.getByRole("button", { name: "Lưu bài đã đăng" }),
+    );
 
-    await waitFor(() => expect(requests(stub).some((call) => call.method === "POST")).toBe(true));
+    await waitFor(() =>
+      expect(requests(stub).some((call) => call.method === "POST")).toBe(true),
+    );
     // The first publication moves the stage, so the detail is refetched.
     await waitFor(() =>
       expect(
-        requests(stub).filter((call) => call.url.includes("/review-context")).length,
+        requests(stub).filter((call) => call.url.includes("/review-context"))
+          .length,
       ).toBeGreaterThan(1),
     );
   });
@@ -1625,7 +1952,9 @@ describe("149. a contributor records a publication", () => {
 
     const section = await screen.findByRole("region", { name: "Đã xuất bản" });
     await waitFor(() =>
-      expect(within(section).getByText("Người ghi nhận: Phương Nhung")).toBeInTheDocument(),
+      expect(
+        within(section).getByText("Người ghi nhận: Phương Nhung"),
+      ).toBeInTheDocument(),
     );
     expect(section.textContent).not.toContain(PRODUCER.user_id);
   });
@@ -1635,7 +1964,9 @@ describe("150. the publication controls follow the row, not the page", () => {
   it("shows Sửa on the contributor's own publication", async () => {
     await openTab("Xuất bản", { actions: [], publications: [AUGUST_MINE] });
     const section = await screen.findByRole("region", { name: "Đã xuất bản" });
-    expect(await within(section).findByRole("button", { name: "Sửa" })).toBeInTheDocument();
+    expect(
+      await within(section).findByRole("button", { name: "Sửa" }),
+    ).toBeInTheDocument();
     // Creating publications is not administering them.
     expect(
       within(section).queryByRole("button", { name: "Hoàn tác đăng bài" }),
@@ -1646,13 +1977,18 @@ describe("150. the publication controls follow the row, not the page", () => {
     await openTab("Xuất bản", {
       actions: [],
       derivatives: [CUTDOWN],
-      publications: [AUGUST_MINE, { ...OCTOBER, can_edit: false, can_reverse: false }],
+      publications: [
+        AUGUST_MINE,
+        { ...OCTOBER, can_edit: false, can_reverse: false },
+      ],
     });
 
     const section = await screen.findByRole("region", { name: "Đã xuất bản" });
     await within(section).findByText("Video final 60s");
     // Two rows, one control - which is the whole reason the flag is per row.
-    expect(within(section).getAllByRole("button", { name: "Sửa" })).toHaveLength(1);
+    expect(
+      within(section).getAllByRole("button", { name: "Sửa" }),
+    ).toHaveLength(1);
   });
 
   it("shows Hoàn tác only where the server said so", async () => {
@@ -1667,7 +2003,7 @@ describe("150. the publication controls follow the row, not the page", () => {
   });
 
   it("reads the flags off the row rather than comparing ids", () => {
-    const source = read("app/pr/content/[id]/page.tsx");
+    const source = readPrContentDetailSource();
     expect(source).toContain("publication.can_edit");
     expect(source).toContain("publication.can_reverse");
     expect(source).toContain("submission.can_correct");
@@ -1684,19 +2020,33 @@ describe("151. the hidden control is not the boundary", () => {
       derivatives: [CUTDOWN],
       postFails: true,
     });
-    await userEvent.click(await screen.findByRole("button", { name: "+ Thêm kênh đã đăng" }));
+    await userEvent.click(
+      await screen.findByRole("button", { name: "+ Thêm kênh đã đăng" }),
+    );
 
-    await userEvent.selectOptions(screen.getByRole("combobox", { name: /^Kênh/ }), CHANNELS[1].id);
+    await userEvent.selectOptions(
+      screen.getByRole("combobox", { name: /^Kênh/ }),
+      CHANNELS[1].id,
+    );
     await userEvent.selectOptions(
       screen.getByRole("combobox", { name: /Sản phẩm đã đăng/ }),
       `DERIVATIVE:${CUTDOWN.id}`,
     );
-    await userEvent.type(screen.getByRole("textbox", { name: /Link bài đăng/ }), POST_URL);
-    await userEvent.click(screen.getByRole("button", { name: "Lưu bài đã đăng" }));
+    await userEvent.type(
+      screen.getByRole("textbox", { name: /Link bài đăng/ }),
+      POST_URL,
+    );
+    await userEvent.click(
+      screen.getByRole("button", { name: "Lưu bài đã đăng" }),
+    );
 
     // The panel does not pre-judge the channel rule; it renders what the server
     // said, which is what makes the server the boundary.
-    await waitFor(() => expect(screen.getByText(/Link bài đăng không hợp lệ/)).toBeInTheDocument());
+    await waitFor(() =>
+      expect(
+        screen.getByText(/Link bài đăng không hợp lệ/),
+      ).toBeInTheDocument(),
+    );
   });
 });
 
@@ -1735,7 +2085,9 @@ describe("153. an ordinary member records a publication", () => {
     // Requirement 51. The only offer is the narrow one, which is the point of
     // this step: the button must not need EDIT_ANY_PUBLICATION to appear.
     const stub = await asMember();
-    expect(await screen.findByRole("button", { name: "+ Thêm kênh đã đăng" })).toBeInTheDocument();
+    expect(
+      await screen.findByRole("button", { name: "+ Thêm kênh đã đăng" }),
+    ).toBeInTheDocument();
 
     const asked = requests(stub).map((call) => call.url);
     expect(asked.some((url) => url.includes("/available-actions"))).toBe(true);
@@ -1745,7 +2097,7 @@ describe("153. an ordinary member records a publication", () => {
     // Requirement 52, asserted against the source rather than one render,
     // because the failure this guards is a leftover string appearing on some
     // path a test did not walk. The refusal it belonged to no longer exists.
-    for (const file of ["app/pr/content/[id]/page.tsx", "lib/labels.ts"]) {
+    for (const file of [...PR_CONTENT_DETAIL_FILES, "lib/labels.ts"]) {
       const source = read(file);
       expect(source, file).not.toContain("ghi nhận bài đăng trên kênh này");
       expect(source, file).not.toContain("channel_not_yours");
@@ -1756,19 +2108,32 @@ describe("153. an ordinary member records a publication", () => {
     // Requirements 53 and 54, in one walk: the member fills the five fields the
     // form has always had, the POST goes out, and the list is re-read.
     const stub = await asMember({ derivatives: [CUTDOWN] });
-    await userEvent.click(await screen.findByRole("button", { name: "+ Thêm kênh đã đăng" }));
+    await userEvent.click(
+      await screen.findByRole("button", { name: "+ Thêm kênh đã đăng" }),
+    );
 
-    await userEvent.selectOptions(screen.getByRole("combobox", { name: /^Kênh/ }), CHANNELS[1].id);
+    await userEvent.selectOptions(
+      screen.getByRole("combobox", { name: /^Kênh/ }),
+      CHANNELS[1].id,
+    );
     await userEvent.selectOptions(
       screen.getByRole("combobox", { name: /Sản phẩm đã đăng/ }),
       `DERIVATIVE:${CUTDOWN.id}`,
     );
-    await userEvent.type(screen.getByRole("textbox", { name: /Link bài đăng/ }), POST_URL);
-    await userEvent.click(screen.getByRole("button", { name: "Lưu bài đã đăng" }));
+    await userEvent.type(
+      screen.getByRole("textbox", { name: /Link bài đăng/ }),
+      POST_URL,
+    );
+    await userEvent.click(
+      screen.getByRole("button", { name: "Lưu bài đã đăng" }),
+    );
 
     await waitFor(() =>
       expect(
-        requests(stub).some((call) => call.method === "POST" && call.url.includes("/publications")),
+        requests(stub).some(
+          (call) =>
+            call.method === "POST" && call.url.includes("/publications"),
+        ),
       ).toBe(true),
     );
     const posted = requests(stub).find(
@@ -1800,9 +2165,13 @@ describe("153. an ordinary member records a publication", () => {
 
     const section = await screen.findByRole("region", { name: "Đã xuất bản" });
     await waitFor(() =>
-      expect(within(section).getByText("Người ghi nhận: Phương Nhung")).toBeInTheDocument(),
+      expect(
+        within(section).getByText("Người ghi nhận: Phương Nhung"),
+      ).toBeInTheDocument(),
     );
-    expect(within(section).getAllByRole("button", { name: "Sửa" })).toHaveLength(1);
+    expect(
+      within(section).getAllByRole("button", { name: "Sửa" }),
+    ).toHaveLength(1);
   });
 
   it("is offered no Hoàn tác on any row", async () => {
@@ -1826,14 +2195,24 @@ describe("153. an ordinary member records a publication", () => {
     // Requirement 59. The same page with the administrator's answers still draws
     // both controls - widening creation took nothing away from the other end.
     await openTab("Xuất bản", {
-      actions: [act("RECORD_PUBLICATION"), act("EDIT_ANY_PUBLICATION"), act("REVERSE_PUBLICATION")],
+      actions: [
+        act("RECORD_PUBLICATION"),
+        act("EDIT_ANY_PUBLICATION"),
+        act("REVERSE_PUBLICATION"),
+      ],
       publications: [AUGUST_MANAGED],
     });
 
     const section = await screen.findByRole("region", { name: "Đã xuất bản" });
-    expect(await within(section).findByRole("button", { name: "Sửa" })).toBeInTheDocument();
-    expect(within(section).getByRole("button", { name: "Hoàn tác đăng bài" })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "+ Thêm kênh đã đăng" })).toBeInTheDocument();
+    expect(
+      await within(section).findByRole("button", { name: "Sửa" }),
+    ).toBeInTheDocument();
+    expect(
+      within(section).getByRole("button", { name: "Hoàn tác đăng bài" }),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: "+ Thêm kênh đã đăng" }),
+    ).toBeInTheDocument();
   });
 
   it("shows the real reason when a write is refused", async () => {
@@ -1841,17 +2220,31 @@ describe("153. an ordinary member records a publication", () => {
     // so a member who typed a bad link is told that, rather than being told
     // something about a channel permission that no longer decides anything.
     await asMember({ derivatives: [CUTDOWN], postFails: true });
-    await userEvent.click(await screen.findByRole("button", { name: "+ Thêm kênh đã đăng" }));
+    await userEvent.click(
+      await screen.findByRole("button", { name: "+ Thêm kênh đã đăng" }),
+    );
 
-    await userEvent.selectOptions(screen.getByRole("combobox", { name: /^Kênh/ }), CHANNELS[0].id);
+    await userEvent.selectOptions(
+      screen.getByRole("combobox", { name: /^Kênh/ }),
+      CHANNELS[0].id,
+    );
     await userEvent.selectOptions(
       screen.getByRole("combobox", { name: /Sản phẩm đã đăng/ }),
       `SUBMISSION:${MASTER.id}`,
     );
-    await userEvent.type(screen.getByRole("textbox", { name: /Link bài đăng/ }), "khong-phai-link");
-    await userEvent.click(screen.getByRole("button", { name: "Lưu bài đã đăng" }));
+    await userEvent.type(
+      screen.getByRole("textbox", { name: /Link bài đăng/ }),
+      "khong-phai-link",
+    );
+    await userEvent.click(
+      screen.getByRole("button", { name: "Lưu bài đã đăng" }),
+    );
 
-    await waitFor(() => expect(screen.getByText(/Link bài đăng không hợp lệ/)).toBeInTheDocument());
+    await waitFor(() =>
+      expect(
+        screen.getByText(/Link bài đăng không hợp lệ/),
+      ).toBeInTheDocument(),
+    );
     expect(screen.queryByText(/kênh này/)).not.toBeInTheDocument();
   });
 });

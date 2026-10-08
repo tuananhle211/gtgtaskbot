@@ -69,6 +69,8 @@ from tests.integration.test_dispatch_migrations import TEST_DATABASE_URL, upgrad
 pytestmark = [
     pytest.mark.integration,
     pytest.mark.asyncio(loop_scope="module"),
+    # Pinned to September 2026 like the unit Work suites - see tests/unit/work_clock.py.
+    pytest.mark.usefixtures("frozen_work_clock"),
     pytest.mark.skipif(
         not TEST_DATABASE_URL,
         reason="Set MEOBOT_TEST_DATABASE_URL to run integration tests",

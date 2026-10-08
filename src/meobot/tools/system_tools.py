@@ -48,7 +48,7 @@ def build_system_tools(health_service: HealthService) -> list[ToolDefinition]:
         ),
         ToolDefinition(
             name="system.info",
-            description="Xem thông tin cấu hình không nhạy cảm của MeoBot.",
+            description="Xem thông tin cấu hình không nhạy cảm của TasksBot.",
             handler=info_handler,
             arguments_model=NoArguments,
             risk_level=RiskLevel.LOW,

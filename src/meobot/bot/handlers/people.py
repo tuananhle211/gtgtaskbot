@@ -177,7 +177,7 @@ async def handle_allow_user(
             mode=GroupPolicyMode.ALLOW,
         )
         await _audit_policy(session, actor, request_id, row.id, target, "allow")
-        return f"✅ MeoBot sẽ trả lời {target.label} trong group này (theo quyền sẵn có)."
+        return f"✅ TasksBot sẽ trả lời {target.label} trong group này (theo quyền sẵn có)."
 
     await _run(
         message,
@@ -206,7 +206,7 @@ async def handle_ignore_user(
         )
         await _audit_policy(session, actor, request_id, row.id, target, "ignore")
         return (
-            f"🔕 MeoBot sẽ im lặng với {target.label} trong group này. "
+            f"🔕 TasksBot sẽ im lặng với {target.label} trong group này. "
             "Các group khác và chat riêng không thay đổi."
         )
 
@@ -608,7 +608,7 @@ async def handle_suspend_user(
         await users.suspend(actor=actor, request_id=request_id, user_id=user.id, reason=reason)
         await _archive_threads(session, settings, target.telegram_user_id)
         return (
-            f"🚫 Đã tạm khoá {user.full_name}. Họ không dùng được MeoBot ở chat riêng "
+            f"🚫 Đã tạm khoá {user.full_name}. Họ không dùng được TasksBot ở chat riêng "
             "hay bất kỳ group nào cho tới khi được mở lại."
         )
 
@@ -632,7 +632,7 @@ async def handle_enable_user(
             return f"{target.label} chưa phải thành viên hệ thống."
         await users.enable(actor=actor, request_id=request_id, user_id=user.id)
         await _archive_threads(session, settings, target.telegram_user_id)
-        return f"✅ {user.full_name} dùng lại được MeoBot. Mạch trò chuyện bắt đầu lại từ đầu."
+        return f"✅ {user.full_name} dùng lại được TasksBot. Mạch trò chuyện bắt đầu lại từ đầu."
 
     await _run(message, actor, settings, Permission.USER_STATUS_MANAGE, body, database)
 

@@ -77,7 +77,7 @@ class ChatTestReport:
             return (
                 "Dùng trò chuyện văn bản bình thường; định tuyến sẽ chạy bằng "
                 "quy tắc từ khoá và JSON fallback. Yêu cầu thao tác vẫn an toàn: "
-                "khi không chắc, MeoBot hỏi lại thay vì đoán."
+                "khi không chắc, TasksBot hỏi lại thay vì đoán."
             )
         if self.structured_routing.passed:
             return (

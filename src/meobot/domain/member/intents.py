@@ -480,6 +480,7 @@ RULES: tuple[IntentRule, ...] = (
         MemberIntent.HOME,
         any_of=(
             "bat dau",
+            "tasksbot oi",
             "meobot oi",
             "toi can lam gi",
             "mo menu",

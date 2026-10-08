@@ -806,7 +806,7 @@ describe("15. a team lead gains no quota controls", () => {
   /**
    * **The M1 scope model kept rather than regressed.** `PR_WORK_MANAGE` means
    * deciding whose job a piece of work is; deciding an arbitrary colleague's KPI
-   * targets is a different act, and MeoBot models no team that would make a
+   * targets is a different act, and TasksBot models no team that would make a
    * narrower middle ground honest.
    */
   it("shows the plan view and none of the configuration", async () => {

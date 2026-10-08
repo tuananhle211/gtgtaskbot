@@ -11,6 +11,7 @@ from __future__ import annotations
 
 from meobot.application.health_service import HealthService
 from meobot.core.logging import get_logger
+from meobot.domain.units.models import UnitCode
 from meobot.integrations.google.drive import DriveClient, NotConfiguredDriveClient
 from meobot.integrations.google.sheets import NotConfiguredSheetsClient, SheetsClient
 from meobot.integrations.llm.base import LLMProvider
@@ -26,6 +27,7 @@ from meobot.tools.script_tools import build_script_tools
 from meobot.tools.script_type_tools import build_script_type_tools
 from meobot.tools.sheet_tools import build_sheet_tools
 from meobot.tools.system_tools import build_system_tools
+from meobot.tools.unit_gate import gate_tools_by_unit
 
 logger = get_logger(__name__)
 
@@ -64,11 +66,18 @@ def build_default_registry(
         ),
         # PR and Communications (Step 1D). Every one of these is a translator
         # onto the Pr* application services - the same services a future web
-        # admin UI will call. None of them holds a workflow rule.
-        *build_pr_content_tools(),
-        *build_pr_review_tools(),
-        *build_pr_task_tools(),
-        *build_pr_admin_tools(),
+        # admin UI will call. None of them holds a workflow rule. Since units,
+        # every one of them is also behind the PR unit wall, exactly as the
+        # ``/api/pr/*`` routes are.
+        *gate_tools_by_unit(
+            [
+                *build_pr_content_tools(),
+                *build_pr_review_tools(),
+                *build_pr_task_tools(),
+                *build_pr_admin_tools(),
+            ],
+            UnitCode.PR,
+        ),
     ):
         registry.register(tool)
     logger.info("tool_registry_built", extra={"tool_count": len(registry)})

@@ -280,7 +280,7 @@ class WorkContributionResponse(BaseModel):
 
 
 class WorkEvidenceResponse(BaseModel):
-    """A text, or a link, proving the work. MeoBot stores no files - see the model.
+    """A text, or a link, proving the work. TasksBot stores no files - see the model.
 
     Two shapes share the row. A row written as **one free text** carries it in
     ``text`` (the member's words, links and all), a derived ``label``, and a
@@ -1289,7 +1289,7 @@ class ChangePriorityRequest(_Body):
 
 
 class AddEvidenceRequest(_Body):
-    """Evidence, in either of two shapes. MeoBot stores no files.
+    """Evidence, in either of two shapes. TasksBot stores no files.
 
     **One text** - ``text`` - is what the screen sends: a description, a link,
     several lines, any mix, and no URL required. The **legacy** shape is a

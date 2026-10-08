@@ -133,18 +133,18 @@ def test_fingerprint_notices_reordering() -> None:
 def test_write_back_columns_are_only_proposed_when_they_exist() -> None:
     assert propose_write_back(SHEET_A) == {}
 
-    with_columns = [*SHEET_A, "MeoBot Status", "Điểm AI", "Nhận xét AI"]
+    with_columns = [*SHEET_A, "TasksBot Status", "Điểm AI", "Nhận xét AI"]
     proposed = propose_write_back(with_columns)
-    assert proposed["meobot_status"] == "MeoBot Status"
+    assert proposed["meobot_status"] == "TasksBot Status"
     assert proposed["review_score"] == "Điểm AI"
     assert proposed["review_summary"] == "Nhận xét AI"
 
 
 def test_write_back_mapping_reports_whether_it_is_configured() -> None:
     assert WriteBackMapping().configured is False
-    assert WriteBackMapping(meobot_status="MeoBot Status").configured is True
-    assert WriteBackMapping(meobot_status="MeoBot Status").columns() == {
-        "meobot_status": "MeoBot Status"
+    assert WriteBackMapping(meobot_status="TasksBot Status").configured is True
+    assert WriteBackMapping(meobot_status="TasksBot Status").columns() == {
+        "meobot_status": "TasksBot Status"
     }
 
 

@@ -522,7 +522,7 @@ MAX_CREDIT_WEIGHT = Decimal("1.0000")
 #: assembled by string concatenation somewhere is a key that will one day be
 #: assembled wrongly and silently stop deduplicating.
 SOURCE_KEY_PATTERN: re.Pattern[str] = re.compile(
-    r"^(content|task|recurring|system):"
+    r"^(content|task|recurring|system|order):"
     r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}:"
     r"[A-Z][A-Z0-9_]{2,39}$"
 )

@@ -121,7 +121,7 @@ async def test_bat_dau_opens_the_member_home(
     ("text", "offset"),
     [
         ("Tôi cần làm gì?", 2),
-        ("MeoBot ơi", 3),
+        ("TasksBot ơi", 3),
         ("Mở menu", 4),
     ],
 )
@@ -187,7 +187,7 @@ async def test_help_is_member_scoped_and_free(
     )
 
     reply = session.combined_text()
-    assert "MEOBOT CÓ THỂ GIÚP BẠN" in reply
+    assert "TASKSBOT CÓ THỂ GIÚP BẠN" in reply
     assert "Bạn không cần nhớ câu lệnh" in reply
     assert counting_llm.chat_calls == 0
 

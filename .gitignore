@@ -54,3 +54,7 @@ tmp/
 
 # --- Next.js (stray root traces; frontend/.next is covered by frontend/.gitignore)
 /.next/
+
+# --- Local-only: production dump, encryption key, host overrides
+/handover/
+docker-compose.override.yml

@@ -50,6 +50,7 @@ from meobot.db.models.user import User
 from meobot.db.session import Database
 from meobot.domain.identity.models import Actor, Role
 from meobot.domain.pr.policy import PrCapability
+from tests.integration.legacy_rows import insert_legacy_user
 from tests.integration.test_dispatch_migrations import (
     TEST_DATABASE_URL,
     alembic_head,
@@ -456,10 +457,7 @@ async def test_0031_preserves_an_existing_grant_exactly(fresh_database: Database
     await downgrade_to(dsn, "0030")
 
     async with fresh_database.transaction() as session:
-        person = User(full_name="Legacy grantee", role=Role.ADMIN)
-        session.add(person)
-        await session.flush()
-        person_id = person.id
+        person_id = await insert_legacy_user(session, full_name="Legacy grantee", role="ADMIN")
         await session.execute(
             text(
                 "INSERT INTO pr_user_capabilities (id, user_id, capability, note) "
@@ -504,10 +502,7 @@ async def test_0031_leaves_new_grants_fail_closed(fresh_database: Database) -> N
     produces, and it refuses rather than admits.
     """
     async with fresh_database.transaction() as session:
-        person = User(full_name="Fresh grantee", role=Role.ADMIN)
-        session.add(person)
-        await session.flush()
-        person_id = person.id
+        person_id = await insert_legacy_user(session, full_name="Fresh grantee", role="ADMIN")
         await session.execute(
             text(
                 "INSERT INTO pr_user_capabilities (id, user_id, capability) "

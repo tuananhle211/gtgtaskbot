@@ -105,7 +105,7 @@ CHAT_DISABLED_REPLY = (
 #: Deterministic and free: producing it costs no provider call, so it must not
 #: cost the Guest one of their ten questions either.
 GUEST_TOOL_DENIED = (
-    "Guest chỉ có thể trò chuyện với MeoBot trong group này.\n"
+    "Guest chỉ có thể trò chuyện với TasksBot trong group này.\n"
     "Bạn không có quyền sử dụng công cụ hoặc truy cập dữ liệu nội bộ."
 )
 

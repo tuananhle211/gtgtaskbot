@@ -15,6 +15,7 @@ payload months later produces the same words the person confirmed.
 
 from __future__ import annotations
 
+import html
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -43,6 +44,15 @@ class MessageTemplate:
     required: tuple[str, ...]
     optional: tuple[str, ...] = ()
     renderer: Any = field(default=None, compare=False, repr=False)
+    #: Telegram ``parse_mode`` for the rendered text (``"HTML"``), or ``None``
+    #: for plain text - every template but the few that need markup. A
+    #: template that sets it escapes every payload value it prints.
+    parse_mode: str | None = None
+    #: Payload fields that must not outlive the message: the outbox blanks them
+    #: once the row is settled (delivered or given up). The renderer must cope
+    #: with a blanked value - a hand-made retry of a settled row then sends a
+    #: harmless sentence instead of the secret.
+    secret_fields: tuple[str, ...] = ()
 
     def render(self, payload: dict[str, Any]) -> str:
         """Render the message, refusing anything the template did not declare.
@@ -69,7 +79,7 @@ def _announcement_group(payload: dict[str, Any]) -> str:
 
 {payload["content"]}
 
-— MeoBot gửi thay Trưởng phòng"""
+— TasksBot gửi thay Trưởng phòng"""
 
 
 def _hr_request_to_approver(payload: dict[str, Any]) -> str:
@@ -132,7 +142,7 @@ Bạn chưa xác nhận đã đọc thông báo:
 # --- 0.6.0a2 ---------------------------------------------------------------
 def _access_request_to_owner(payload: dict[str, Any]) -> str:
     lines = [
-        "🔔 CÓ NGƯỜI MUỐN DÙNG MEOBOT",
+        "🔔 CÓ NGƯỜI MUỐN DÙNG TASKSBOT",
         "",
         f"Người gửi: {payload['requester_name']}",
         f"Nơi nhắn: {payload['chat_label']}",
@@ -176,7 +186,7 @@ def _reminder_group(payload: dict[str, Any]) -> str:
 
 {payload["content"]}
 
-— MeoBot nhắc theo lịch đã đặt"""
+— TasksBot nhắc theo lịch đã đặt"""
 
 
 def _delivery_failed_alert(payload: dict[str, Any]) -> str:
@@ -228,7 +238,7 @@ Nơi nhận:
 Tình trạng:
 {payload["health_label"]}
 
-MeoBot tạm thời chưa gửi được tin vào đây."""
+TasksBot tạm thời chưa gửi được tin vào đây."""
 
 
 def _destination_recovered(payload: dict[str, Any]) -> str:
@@ -237,7 +247,7 @@ def _destination_recovered(payload: dict[str, Any]) -> str:
 Nơi nhận:
 {payload["destination_label"]}
 
-MeoBot gửi tin vào đây bình thường trở lại."""
+TasksBot gửi tin vào đây bình thường trở lại."""
 
 
 def _dispatch_group_part(payload: dict[str, Any]) -> str:
@@ -256,7 +266,7 @@ def _dispatch_group_part(payload: dict[str, Any]) -> str:
     if not marker or payload.get("is_last_part"):
         # The signature closes the announcement, so it belongs on the last part
         # only - repeating it three times would read as three announcements.
-        body.extend(["", "— MeoBot gửi thay Trưởng phòng"])
+        body.extend(["", "— TasksBot gửi thay Trưởng phòng"])
     return "\n".join(body)
 
 
@@ -277,6 +287,45 @@ def _dispatch_summary(payload: dict[str, Any]) -> str:
     if payload.get("failed_lines"):
         lines.extend(["", "Chưa gửi được:", str(payload["failed_lines"])])
     return "\n".join(lines)
+
+
+def _order_update(payload: dict[str, Any]) -> str:
+    """One shape for every order hand-off: what happened, which order, a link.
+
+    The web inbox already carries the same heading and body; Telegram repeats
+    them for the units that opted in, so a person reads one sentence in both.
+    """
+    lines = [
+        str(payload["heading"]),
+        "",
+        f"{payload['title']} ({payload['code']})",
+        str(payload["body"]),
+    ]
+    note = str(payload.get("note", "")).strip()
+    if note:
+        lines.extend(["", f"Ghi chú: {note}"])
+    lines.extend(["", str(payload["link"])])
+    return "\n".join(lines)
+
+
+def _account_temporary_password(payload: dict[str, Any]) -> str:
+    """The temporary password, in ``<code>`` so one tap copies it. HTML mode.
+
+    A blanked payload (the outbox scrubs the password once the message is
+    settled) renders a sentence without one, so a manual retry of an old row
+    can never resend - or invent - a credential.
+    """
+    login_url = html.escape(str(payload["login_url"]))
+    password = str(payload["password"])
+    if not password:
+        return (
+            "Mật khẩu tạm TasksBot này đã hết hiệu lực. "
+            f"Cần mật khẩu mới thì bấm “Quên mật khẩu?” tại {login_url}"
+        )
+    return (
+        f"Mật khẩu tạm TasksBot của bạn: <code>{html.escape(password)}</code>. "
+        f"Đăng nhập tại {login_url} rồi đổi mật khẩu."
+    )
 
 
 def _pr_content_approved(payload: dict[str, Any]) -> str:
@@ -613,6 +662,29 @@ TEMPLATES: dict[str, MessageTemplate] = {
             classification=PrivacyClassification.PERSONAL_PRIVATE,
             required=("title", "content_code", "link"),
             renderer=_pr_internal_review_approved,
+        ),
+        # --- Ads order engine --------------------------------------------
+        # PERSONAL_PRIVATE like the PR ones: every hand-off names a person's
+        # work and somebody's decision on it.
+        MessageTemplate(
+            key="orders.update",
+            version=1,
+            classification=PrivacyClassification.PERSONAL_PRIVATE,
+            required=("heading", "title", "code", "body", "link"),
+            optional=("note",),
+            renderer=_order_update,
+        ),
+        # --- Account (0046) ---------------------------------------------
+        # A credential: only ever the owner's private chat, and the outbox
+        # blanks it once the row is settled.
+        MessageTemplate(
+            key="account.temporary_password",
+            version=1,
+            classification=PrivacyClassification.PERSONAL_PRIVATE,
+            required=("password", "login_url"),
+            renderer=_account_temporary_password,
+            parse_mode="HTML",
+            secret_fields=("password",),
         ),
         MessageTemplate(
             key="dispatch.summary",

@@ -64,7 +64,7 @@ from meobot.core.errors import AuthorizationError, ConfigurationError, Validatio
 from meobot.core.logging import get_logger
 from meobot.core.time import utcnow
 from meobot.db.models.user import User
-from meobot.db.models.web_session import WebSession, WebSessionKind
+from meobot.db.models.web_session import WebSession, WebSessionAuthMethod, WebSessionKind
 from meobot.domain.identity.models import Actor
 
 logger = get_logger(__name__)
@@ -100,6 +100,15 @@ def hash_token(token: str) -> str:
     return hashlib.sha256(token.encode("utf-8")).hexdigest()
 
 
+def password_change_due(user: User) -> bool:
+    """Whether a password session for ``user`` must choose a new password.
+
+    Still on the shared default (no hash), or on a temporary password MeoBot
+    generated and sent by Telegram.
+    """
+    return user.password_hash is None or bool(user.password_temporary)
+
+
 @dataclass(frozen=True)
 class IssuedLogin:
     """A magic link, returned once and unrecoverable afterwards."""
@@ -127,6 +136,24 @@ class IssuedSession:
     def __str__(self) -> str:  # pragma: no cover - defensive
         """Same reasoning as :meth:`IssuedLogin.__str__`."""
         return f"IssuedSession(user_id={self.actor.user_id}, expires_at={self.expires_at})"
+
+
+@dataclass(frozen=True)
+class ResolvedSession:
+    """A live browser session and what it may do.
+
+    ``must_change_password`` is derived, never stored: a session opened **with
+    the password** while the account is still on the default one
+    (``users.password_hash IS NULL``) or on a temporary one MeoBot sent by
+    Telegram (``users.password_temporary``, 0046). A Telegram-link session is
+    never held to it - that path proved identity through Telegram, as it
+    always has.
+    """
+
+    actor: Actor
+    session_id: uuid.UUID
+    auth_method: WebSessionAuthMethod
+    must_change_password: bool
 
 
 class WebAuthService:
@@ -247,12 +274,37 @@ class WebAuthService:
             raise ValidationError("Liên kết đăng nhập không hợp lệ hoặc đã hết hạn.")
 
         row.redeemed_at = now
+        issued = await self.issue_session(
+            user=user,
+            auth_method=WebSessionAuthMethod.TELEGRAM_LINK,
+            user_agent=user_agent,
+            ip=ip,
+        )
+        logger.info("web_login_redeemed", extra={"user_id": str(user.id)})
+        return issued
+
+    async def issue_session(
+        self,
+        *,
+        user: User,
+        auth_method: WebSessionAuthMethod,
+        user_agent: str | None = None,
+        ip: str | None = None,
+    ) -> IssuedSession:
+        """Mint a browser session for a person whose identity is already proven.
+
+        The caller has done the proving - a redeemed login token, or a verified
+        password - and this only writes the hashed row. Never reached from a
+        route without one of those two in front of it.
+        """
+        now = utcnow()
         session_token = secrets.token_urlsafe(_TOKEN_BYTES)
         expires_at = now + timedelta(seconds=self._settings.web_session_ttl_seconds)
         self._session.add(
             WebSession(
                 user_id=user.id,
                 kind=WebSessionKind.SESSION,
+                auth_method=auth_method,
                 token_hash=hash_token(session_token),
                 expires_at=expires_at,
                 user_agent=(user_agent or "")[:_USER_AGENT_MAX] or None,
@@ -260,7 +312,6 @@ class WebAuthService:
             )
         )
         await self._session.flush()
-        logger.info("web_login_redeemed", extra={"user_id": str(user.id)})
         return IssuedSession(
             token=session_token, expires_at=expires_at, actor=self._actor_for(user)
         )
@@ -279,6 +330,14 @@ class WebAuthService:
         effect on the next click, not whenever the cookie happens to expire.
         Somebody demoted at 09:00 stops being a TEAM_LEAD at 09:00.
         """
+        resolved = await self.resolve_web_session(token=token)
+        return None if resolved is None else resolved.actor
+
+    async def resolve_web_session(self, *, token: str | None) -> ResolvedSession | None:
+        """:meth:`resolve_session`, with the session row's id and its flag.
+
+        Same failure rule: ``None`` for every kind of unusable cookie.
+        """
         if not token:
             return None
         row = await self._lookup(token, kind=WebSessionKind.SESSION)
@@ -287,7 +346,15 @@ class WebAuthService:
         user = await self._session.get(User, row.user_id)
         if user is None or not user.active:
             return None
-        return self._actor_for(user)
+        auth_method = row.auth_method or WebSessionAuthMethod.TELEGRAM_LINK
+        return ResolvedSession(
+            actor=self._actor_for(user),
+            session_id=row.id,
+            auth_method=auth_method,
+            must_change_password=(
+                auth_method is WebSessionAuthMethod.PASSWORD and password_change_due(user)
+            ),
+        )
 
     # --- Revoking ---------------------------------------------------------
 
@@ -308,12 +375,17 @@ class WebAuthService:
         logger.info("web_session_revoked", extra={"user_id": str(row.user_id)})
         return True
 
-    async def revoke_all_for_user(self, *, user_id: uuid.UUID) -> int:
+    async def revoke_all_for_user(
+        self, *, user_id: uuid.UUID, except_session_id: uuid.UUID | None = None
+    ) -> int:
         """Sign a person out everywhere. Returns how many sessions closed.
 
         The operation somebody needs after losing a laptop, and the one an admin
         needs after deactivating an account. Login tokens go too - an unredeemed
         one is a session waiting to happen.
+
+        ``except_session_id`` keeps one session alive: the browser that just
+        changed the password signs everybody else out, not itself.
         """
         now = utcnow()
         # Loaded and stamped one by one rather than a bulk UPDATE ... RETURNING:
@@ -334,11 +406,14 @@ class WebAuthService:
             .scalars()
             .all()
         )
-        for row in rows:
+        closed = [row for row in rows if row.id != except_session_id]
+        for row in closed:
             row.revoked_at = now
         await self._session.flush()
-        logger.info("web_sessions_revoked_all", extra={"user_id": str(user_id), "count": len(rows)})
-        return len(rows)
+        logger.info(
+            "web_sessions_revoked_all", extra={"user_id": str(user_id), "count": len(closed)}
+        )
+        return len(closed)
 
     # --- Internals --------------------------------------------------------
 
@@ -407,6 +482,8 @@ __all__: list[str] = [
     "SESSION_COOKIE",
     "IssuedLogin",
     "IssuedSession",
+    "ResolvedSession",
     "WebAuthService",
     "hash_token",
+    "password_change_due",
 ]

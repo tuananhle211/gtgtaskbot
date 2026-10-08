@@ -325,6 +325,9 @@ async def test_the_models_and_the_migration_describe_the_same_quota_schema(
     # foreign key to ``pr_work_types``, so both appear in the match above. 0034's
     # own suite asserts them against a 0034 database.
     later = (
+        # 0042. The Ads order engine's KPI mapping, found through its foreign
+        # key to ``pr_work_types``.
+        "order_work_rules",
         # 0034
         "pr_content_work_rules",
         "pr_content_work_projections",

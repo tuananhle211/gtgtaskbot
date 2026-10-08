@@ -117,7 +117,7 @@ async def handle_help(message: Message, actor: Actor | None = None) -> None:
             render_help(Role.EMPLOYEE, unregistered=True)
             + "\n\n"
             + formatting.escape(
-                "Tài khoản này chưa được đăng ký với MeoBot. "
+                "Tài khoản này chưa được đăng ký với TasksBot. "
                 "Xin quản trị viên một mã mời rồi gõ /join <mã>."
             ),
         )
@@ -135,7 +135,7 @@ async def handle_capabilities(
     """Report what MeoBot can do for this actor, from live configuration."""
     report = CapabilityService(tool_registry, settings).report_for(actor)
     sections: list[str] = [
-        formatting.bold("MeoBot làm được gì"),
+        formatting.bold("TasksBot làm được gì"),
         formatting.escape(f"Vai trò của bạn: {actor_label(actor)}"),
     ]
 
@@ -170,7 +170,7 @@ async def handle_whoami(
         profile = await ActorProfileService(session, settings).profile_for(actor)
 
     lines = [
-        "👤 " + formatting.bold("MeoBot đang nói chuyện với"),
+        "👤 " + formatting.bold("TasksBot đang nói chuyện với"),
         formatting.escape(f"Tên: {profile.display_name or actor.full_name}"),
         formatting.escape(f"Vai trò (từ hệ thống định danh): {actor_label(actor)}"),
         formatting.escape(f"Cách xưng hô: {profile.address}"),
@@ -210,7 +210,7 @@ async def handle_assistant_profile(
         profile = await AssistantContextService(settings, session).load()
 
     lines = [
-        "🐱 " + formatting.bold(profile.assistant_name),
+        "🤖 " + formatting.bold(profile.assistant_name),
         formatting.escape(profile.identity),
         "",
         formatting.bold("Nhiệm vụ"),

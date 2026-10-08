@@ -34,23 +34,23 @@ class RouteVerdict:
 
 
 REFUSAL_PRIVATE_TO_GROUP = (
-    "Nội dung này là thông tin cá nhân nên MeoBot không gửi vào group. "
+    "Nội dung này là thông tin cá nhân nên TasksBot không gửi vào group. "
     "Mình chỉ gửi riêng cho người có thẩm quyền."
 )
 
 REFUSAL_SECRET = "Nội dung này không được phép gửi qua Telegram."  # noqa: S105
 
 REFUSAL_DISABLED = (
-    "Nơi nhận này đang tắt nên MeoBot chưa gửi được. "
+    "Nơi nhận này đang tắt nên TasksBot chưa gửi được. "
     "Bạn bật lại hoặc chọn nơi nhận khác giúp mình nhé."
 )
 
 REFUSAL_CANNOT_SEND = (
-    "MeoBot hiện không có quyền gửi tin trong group này.\n"
+    "TasksBot hiện không có quyền gửi tin trong group này.\n"
     "Quản trị viên cần kiểm tra lại quyền của bot."
 )
 
-REFUSAL_NOT_REGISTERED = "Nơi nhận này chưa được đăng ký với MeoBot nên mình chưa gửi được."
+REFUSAL_NOT_REGISTERED = "Nơi nhận này chưa được đăng ký với TasksBot nên mình chưa gửi được."
 
 
 def may_route(

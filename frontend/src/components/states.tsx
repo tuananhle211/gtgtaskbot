@@ -43,18 +43,25 @@ export function ErrorBox({ error, onRetry }: { error: unknown; onRetry?: () => v
         <p className="font-medium">Bạn cần đăng nhập lại.</p>
         {/*
           The instruction names the *command*, not the bot. Telling somebody to
-          message "MeoChat on Telegram" makes this sentence wrong the moment the
+          message "TasksBot on Telegram" makes this sentence wrong the moment the
           bot's display name differs from the product's - and the person reading
           it is already locked out, so a wrong name here costs them the one route
           back in. `/web` is the part that does not drift.
         */}
         <p className="mt-1 text-[var(--text-muted)]">
           Gửi lệnh <code className="rounded bg-[var(--surface-muted)] px-1">/web</code> trong bot
-          Telegram để đăng nhập MeoChat. Liên kết chỉ dùng được một lần.
+          Telegram để đăng nhập TasksBot. Liên kết chỉ dùng được một lần.
         </p>
         <p className="mt-1 text-[var(--text-muted)]">
           Muốn phiên đăng nhập nằm trong Chrome/Safari thì sao chép liên kết rồi mở trực tiếp bằng
           trình duyệt đó.
+        </p>
+        <p className="mt-2">
+          Hoặc{" "}
+          <Link className="font-medium text-[var(--accent)] underline" href="/login">
+            đăng nhập bằng ID Telegram và mật khẩu
+          </Link>
+          .
         </p>
       </div>
     );

@@ -11,7 +11,14 @@ from functools import lru_cache
 from typing import Annotated, Any, Literal
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
-from pydantic import BeforeValidator, Field, SecretStr, field_validator, model_validator
+from pydantic import (
+    AliasChoices,
+    BeforeValidator,
+    Field,
+    SecretStr,
+    field_validator,
+    model_validator,
+)
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 AppEnv = Literal["development", "staging", "production", "test"]
@@ -47,7 +54,7 @@ class Settings(BaseSettings):
 
     # --- Application ------------------------------------------------------
     app_env: AppEnv = "development"
-    app_name: str = "MeoBot"
+    app_name: str = "TasksBot"
     app_timezone: str = "Asia/Ho_Chi_Minh"
     log_level: str = "INFO"
     log_format: LogFormat = "json"
@@ -373,6 +380,20 @@ class Settings(BaseSettings):
     #: ever sees one origin. Step 1E installed CORS whenever ``web_base_url`` was
     #: set, which added a credentialed cross-origin path that nothing needed.
     web_extra_allowed_origins: str = ""
+    #: The password every account starts on (0045). Signing in with it works
+    #: but the session must choose a new one before anything else. Never
+    #: stored: ``users.password_hash IS NULL`` is what "still on the default"
+    #: looks like. Env ``MEOBOT_WEB_DEFAULT_PASSWORD``.
+    web_default_password: SecretStr = Field(
+        default=SecretStr("Apm@2026"),
+        validation_alias=AliasChoices(
+            "MEOBOT_WEB_DEFAULT_PASSWORD", "WEB_DEFAULT_PASSWORD", "web_default_password"
+        ),
+    )
+    #: Consecutive failed password logins before the account is locked, and
+    #: for how long. Telegram-link login is never locked.
+    web_login_max_failures: int = Field(default=5, ge=1, le=50)
+    web_login_lockout_seconds: int = Field(default=900, ge=60, le=86400)
 
     # --- The internal HTTP surface (Step 1E.1) ----------------------------
     #: Mount the milestone-1 ``/api/v1/*`` routers.
@@ -401,6 +422,14 @@ class Settings(BaseSettings):
             return value.replace("postgres://", "postgresql+asyncpg://", 1)
         if value.startswith("postgresql://"):
             return value.replace("postgresql://", "postgresql+asyncpg://", 1)
+        return value
+
+    @field_validator("web_default_password")
+    @classmethod
+    def _validate_default_password(cls, value: SecretStr) -> SecretStr:
+        """An empty or trivially short default would make every account open."""
+        if len(value.get_secret_value()) < 8:
+            raise ValueError("MEOBOT_WEB_DEFAULT_PASSWORD must be at least 8 characters.")
         return value
 
     @field_validator("app_timezone")

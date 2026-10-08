@@ -75,7 +75,7 @@ class AssistantContextService:
             organization_name=self._settings.meobot_organization_name,
             department_name=self._settings.meobot_department_name,
             department_size=self._settings.meobot_department_size,
-            assistant_name=self._settings.app_name or "MeoBot",
+            assistant_name=self._settings.app_name or "TasksBot",
         )
 
     async def load(self) -> AssistantProfile:
@@ -145,7 +145,7 @@ class AssistantContextService:
                 SystemSetting(
                     key=ASSISTANT_PROFILE_SETTING_KEY,
                     value=clean,
-                    description="Hồ sơ danh tính của MeoBot (do người vận hành chỉnh).",
+                    description="Hồ sơ danh tính của TasksBot (do người vận hành chỉnh).",
                     version=1,
                     updated_by=updated_by,
                 )

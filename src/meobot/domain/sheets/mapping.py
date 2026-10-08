@@ -119,7 +119,14 @@ FIELD_ALIASES: Mapping[str, tuple[str, ...]] = {
 
 #: Aliases for the optional write-back columns.
 WRITE_BACK_ALIASES: Mapping[str, tuple[str, ...]] = {
-    "meobot_status": ("meobot status", "trang thai meobot", "meobot"),
+    "meobot_status": (
+        "meobot status",
+        "trang thai meobot",
+        "meobot",
+        "tasksbot status",
+        "trang thai tasksbot",
+        "tasksbot",
+    ),
     "review_score": ("diem ai", "diem review", "review score", "ai score", "score"),
     "review_summary": ("nhan xet ai", "tom tat review", "review summary", "ai summary"),
     "reviewed_at": ("thoi diem review", "reviewed at", "ngay review"),

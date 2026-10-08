@@ -50,7 +50,7 @@ class TestReproductionAssistantIdentity:
         from meobot.domain.assistant.identity import NEVER_IMPERSONATE_RULE
 
         assert "không phải người dùng hiện tại" in NEVER_IMPERSONATE_RULE
-        assert "MeoBot" in NEVER_IMPERSONATE_RULE
+        assert "TasksBot" in NEVER_IMPERSONATE_RULE
 
     def test_system_prompt_carries_the_rule(self) -> None:
         from meobot.integrations.llm.prompts import SYSTEM_PROMPT
@@ -236,20 +236,20 @@ class TestReproductionGuestQuestionLost:
             requester_telegram_id=555,
             requester_display_name="Người lạ",
             requester_username=None,
-            text="MeoBot giúp được gì cho team nội dung?",
+            text="TasksBot giúp được gì cho team nội dung?",
             source_message_id=42,
         )
         service = DeferredGuestMessageService(session, settings)
         stored = await service.capture(
             request=request,
             bot_identity=1,
-            text="MeoBot giúp được gì cho team nội dung?",
+            text="TasksBot giúp được gì cho team nội dung?",
             reply_to_message_id=42,
         )
 
         assert stored is not None
         assert stored.status is DeferredMessageStatus.PENDING_APPROVAL
-        assert stored.sanitized_text == "MeoBot giúp được gì cho team nội dung?"
+        assert stored.sanitized_text == "TasksBot giúp được gì cho team nội dung?"
         assert stored.original_chat_id == -100
         assert stored.original_message_id == 42
 

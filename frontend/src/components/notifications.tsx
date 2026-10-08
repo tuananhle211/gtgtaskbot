@@ -52,10 +52,18 @@ const COUNT_REFRESH_MS = 60_000;
 /** How many rows the dropdown asks for. The server caps this at 50 regardless. */
 const PANEL_LIMIT = 15;
 
-/** Where a notification goes when clicked, or `null` if it links nowhere. */
+/**
+ * Where a notification goes when clicked, or `null` if it links nowhere.
+ *
+ * Both kinds open the one task screen: `/api/tasks/{ref}` accepts a PR content
+ * id and an order id as the ref, so the target id is enough.
+ */
 export function notificationHref(item: AppNotification): string | null {
-  if (item.target_kind === "pr_content" && item.target_id) {
-    return `/pr/content/${item.target_id}`;
+  if (
+    (item.target_kind === "pr_content" || item.target_kind === "order") &&
+    item.target_id
+  ) {
+    return `/tasks/${item.target_id}`;
   }
   return null;
 }
@@ -156,7 +164,9 @@ export function NotificationBell() {
           </div>
 
           {list.isPending ? <Loading label="Đang tải thông báo…" /> : null}
-          {list.isError ? <ErrorBox error={list.error} onRetry={() => list.refetch()} /> : null}
+          {list.isError ? (
+            <ErrorBox error={list.error} onRetry={() => list.refetch()} />
+          ) : null}
           {markAll.isError ? <ErrorBox error={markAll.error} /> : null}
 
           {list.data && list.data.items.length === 0 ? (
@@ -180,7 +190,13 @@ export function NotificationBell() {
   );
 }
 
-function NotificationRow({ item, onOpen }: { item: AppNotification; onOpen: () => void }) {
+function NotificationRow({
+  item,
+  onOpen,
+}: {
+  item: AppNotification;
+  onOpen: () => void;
+}) {
   const href = notificationHref(item);
   const unread = !item.read_at;
 
@@ -197,7 +213,9 @@ function NotificationRow({ item, onOpen }: { item: AppNotification; onOpen: () =
           className={`mt-1.5 h-2 w-2 shrink-0 rounded-full ${unread ? "bg-[var(--accent)]" : "bg-transparent"}`}
         />
         <span className="min-w-0">
-          <span className={`block text-sm leading-snug ${unread ? "font-semibold" : ""}`}>
+          <span
+            className={`block text-sm leading-snug ${unread ? "font-semibold" : ""}`}
+          >
             {item.title}
             {unread ? <span className="sr-only"> (chưa đọc)</span> : null}
           </span>

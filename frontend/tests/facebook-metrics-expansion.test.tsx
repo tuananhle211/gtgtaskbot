@@ -167,7 +167,7 @@ const FULL_ANALYTICS = analyticsFrom(SNAPSHOT, {
   },
   limitation_note:
     "Facebook không còn cung cấp reach/impressions ở cấp Trang (Graph v23), " +
-    "nên MeoBot để trống thay vì ước lượng.",
+    "nên TasksBot để trống thay vì ước lượng.",
 });
 
 const metricsBody = (analytics: unknown = FULL_ANALYTICS, over: Record<string, unknown> = {}) => ({

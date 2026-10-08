@@ -39,7 +39,7 @@ SAMPLE_ROW_LIMIT = 5
 
 MAPPING_SYSTEM_PROMPT = """\
 Bạn giúp ánh xạ (mapping) các cột của một Google Sheet kịch bản video ngắn sang \
-các trường chuẩn của MeoBot.
+các trường chuẩn của TasksBot.
 
 Các trường chuẩn: script_id, title, hook, script_body, production_notes, author, \
 deadline, source_status.

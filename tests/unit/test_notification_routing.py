@@ -12,7 +12,8 @@ a recorder or a deliberately broken one.
 from __future__ import annotations
 
 import uuid
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta
+from zoneinfo import ZoneInfo
 
 import pytest
 from sqlalchemy import select
@@ -74,6 +75,10 @@ GROUP = -900_100
 OWNER_TG = 777000111
 MEMBER_TG = 970_001
 TOMORROW = date(2026, 7, 31)
+#: The HR service refuses a day that has passed by the real Ho Chi Minh City
+#: clock, so the requests filed here use a moving day. The fixed ``TOMORROW``
+#: stays for payloads that are typed in by hand.
+NEXT_DAY = datetime.now(tz=ZoneInfo("Asia/Ho_Chi_Minh")).date() + timedelta(days=1)
 
 
 @pytest.fixture
@@ -432,7 +437,7 @@ async def hr_setup(session, owner: Actor, request_id: uuid.UUID) -> tuple[User, 
         ),
         request_id=request_id,
         request_type=HrRequestType.MORNING_LEAVE,
-        work_date=TOMORROW,
+        work_date=NEXT_DAY,
         schedule=DEFAULT_SCHEDULE,
         reason="Có việc gia đình",
     )
@@ -544,7 +549,7 @@ async def test_an_unreachable_member_does_not_invalidate_the_decision(
         ),
         request_id=request_id,
         request_type=HrRequestType.FULL_DAY_LEAVE,
-        work_date=TOMORROW,
+        work_date=NEXT_DAY,
         schedule=DEFAULT_SCHEDULE,
     )
     await HrRequestService(session, AuditService(session)).approve(
@@ -585,7 +590,7 @@ def test_the_member_summary_carries_no_reason() -> None:
     row = HrRequest(
         requester_user_id=uuid.uuid4(),
         request_type=HrRequestType.MORNING_LEAVE,
-        work_date=TOMORROW,
+        work_date=NEXT_DAY,
         reason="Chuyện rất riêng tư",
     )
     assert "riêng tư" not in summarise(row)

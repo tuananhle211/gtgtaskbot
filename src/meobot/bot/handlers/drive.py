@@ -149,7 +149,7 @@ async def handle_drive_status(
         lines.append(
             formatting.escape(
                 "Cần đặt GOOGLE_SERVICE_ACCOUNT_FILE và mount file service account. "
-                "Các chức năng khác của MeoBot vẫn chạy bình thường."
+                "Các chức năng khác của TasksBot vẫn chạy bình thường."
             )
         )
     await formatting.answer(message, "\n".join(lines))
@@ -172,7 +172,7 @@ async def handle_sheet_templates(
         await service.ensure_all_builtin()
         templates = list(await service.list_templates(active_only=False))
 
-    lines = ["🧩 " + formatting.bold("Mẫu Sheet MeoBot tạo được")]
+    lines = ["🧩 " + formatting.bold("Mẫu Sheet TasksBot tạo được")]
     for template in templates:
         method = (
             "sao chép mẫu có sẵn định dạng"
@@ -267,10 +267,10 @@ async def handle_created_sheets(
         ).list_created()
 
     if not records:
-        await formatting.answer(message, "MeoBot chưa tạo Sheet nào.")
+        await formatting.answer(message, "TasksBot chưa tạo Sheet nào.")
         return
 
-    lines = ["📄 " + formatting.bold("Sheet MeoBot đã tạo")]
+    lines = ["📄 " + formatting.bold("Sheet TasksBot đã tạo")]
     for record in records:
         when = (
             format_local(record.created_at, settings.timezone, "%d/%m/%Y %H:%M")
@@ -315,7 +315,7 @@ async def handle_add_drive_folder(
     await formatting.answer(
         message,
         "📁 Gửi link thư mục Google Drive (hoặc folder ID).\n\n"
-        "Nhớ chia sẻ thư mục đó với email service account của MeoBot, "
+        "Nhớ chia sẻ thư mục đó với email service account của TasksBot, "
         "quyền Content manager (hoặc Editor).\n"
         "Gõ /cancel_flow để huỷ.",
     )
@@ -402,7 +402,7 @@ async def handle_folder_purpose(message: Message, state: FSMContext) -> None:
         + " nếu dùng chung.\n\n"
         + formatting.escape(
             "Lưu ý: thư mục có giới hạn team chỉ ADMIN/OWNER tạo file được, "
-            "vì MeoBot chưa quản lý ai thuộc team nào."
+            "vì TasksBot chưa quản lý ai thuộc team nào."
         ),
     )
 
@@ -517,7 +517,7 @@ async def _start_creation(
     if not settings.google_enabled:
         await formatting.answer(
             message,
-            "⚠️ Google chưa được cấu hình, MeoBot chưa tạo được Sheet.\n"
+            "⚠️ Google chưa được cấu hình, TasksBot chưa tạo được Sheet.\n"
             "Cần đặt GOOGLE_SERVICE_ACCOUNT_FILE trước.",
         )
         return
@@ -782,7 +782,7 @@ def _render_preview(
 
     lines.append("")
     lines.append(
-        formatting.escape("MeoBot không có công cụ xoá file, nên hãy kiểm tra kỹ trước khi tạo.")
+        formatting.escape("TasksBot không có công cụ xoá file, nên hãy kiểm tra kỹ trước khi tạo.")
     )
     lines.append("Tạo Sheet này?")
     return "\n".join(lines)
@@ -833,7 +833,7 @@ async def handle_creation_confirmed(
 
     await formatting.answer_callback(
         query,
-        "⏳ Đang tạo Sheet trên Google Drive. MeoBot sẽ gửi link ngay khi xong.",
+        "⏳ Đang tạo Sheet trên Google Drive. TasksBot sẽ gửi link ngay khi xong.",
     )
 
 

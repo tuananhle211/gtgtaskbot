@@ -314,6 +314,9 @@ async def test_the_models_and_the_migration_describe_the_same_work_schema(
     # later revision exists. Each revision's own suite asserts its own tables
     # against a database standing at that revision.
     later = (
+        # 0042. The Ads order engine's KPI mapping, found through its foreign
+        # key to ``pr_work_types``.
+        "order_work_rules",
         # 0033
         "pr_work_plans",
         "pr_work_quotas",

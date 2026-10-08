@@ -253,7 +253,7 @@ describe("57. a YouTube channel is offered a connection", () => {
     await openChannel(CHANNEL.name);
 
     expect(await screen.findByRole("button", { name: "Kết nối YouTube" })).toBeInTheDocument();
-    expect(screen.getByText(/Kết nối để MeoChat tự lấy số liệu/)).toBeInTheDocument();
+    expect(screen.getByText(/Kết nối để TasksBot tự lấy số liệu/)).toBeInTheDocument();
   });
 });
 
@@ -473,7 +473,7 @@ describe("66. a revoked credential is stated clearly", () => {
 });
 
 describe("67. a sync failure never shows the provider's own words", () => {
-  it("renders MeoBot's sentence and no raw payload", async () => {
+  it("renders TasksBot's sentence and no raw payload", async () => {
     stubFetch(
       routes({
         ...CONNECTED_STATE,
@@ -521,7 +521,7 @@ describe("68-69. each reading says where it came from", () => {
     renderWithQuery(<ChannelsPage />);
     await openChannel(CHANNEL.name);
 
-    // "Ghi nhận" is when MeoBot fetched; this is what the figures span. The two
+    // "Ghi nhận" is when TasksBot fetched; this is what the figures span. The two
     // are different facts and the panel must not merge them into "cập nhật".
     expect(await screen.findByText(/dữ liệu YouTube Analytics từ/)).toBeInTheDocument();
     expect(screen.getByText(/20\/07\/2026 đến 18\/08\/2026/)).toBeInTheDocument();

@@ -588,7 +588,7 @@ describe("61. an expired grant is explained, and the history is not disowned", (
     expect(
       screen.getByText(/Số liệu đã lấy trước đó vẫn còn nguyên/),
     ).toBeInTheDocument();
-    // The message is MeoBot's sentence, never TikTok's own prose or a log id.
+    // The message is TasksBot's sentence, never TikTok's own prose or a log id.
     expect(
       screen.getByText(/Kết nối TikTok cần xác thực lại/),
     ).toBeInTheDocument();
@@ -652,7 +652,7 @@ describe("63. the connected panel shows who TikTok says this account is", () => 
     expect(screen.getAllByText("@bsvutrongtien").length).toBeGreaterThan(0);
     const avatar = document.querySelector('img[src*="tiktokcdn.com/avatar"]');
     expect(avatar).not.toBeNull();
-    // A referrer would tell TikTok's CDN which MeoChat page loaded the image.
+    // A referrer would tell TikTok's CDN which TasksBot page loaded the image.
     expect(avatar).toHaveAttribute("referrerpolicy", "no-referrer");
     expect(
       screen.getByRole("link", { name: "Mở hồ sơ trên TikTok" }),
@@ -719,7 +719,7 @@ describe("65. recent public videos come from video.list", () => {
       "href",
       "https://www.tiktok.com/@bsvutrongtien/video/1",
     );
-    // Opening somebody's TikTok must not hand that tab a handle on MeoChat.
+    // Opening somebody's TikTok must not hand that tab a handle on TasksBot.
     expect(links[0]).toHaveAttribute("rel", expect.stringContaining("noopener"));
   });
 
@@ -1002,7 +1002,7 @@ describe("71. Đồng bộ lại re-reads TikTok without a confirmation dialog",
     await screen.findByText(/Đã cập nhật dữ liệu TikTok/);
   });
 
-  it("shows a MeoChat sentence when TikTok refuses, never a raw payload", async () => {
+  it("shows a TasksBot sentence when TikTok refuses, never a raw payload", async () => {
     stubFetch([
       {
         match: "/connections/tiktok/refresh",
