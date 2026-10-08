@@ -3287,9 +3287,13 @@ export interface UnitSettingsInfo {
 export interface UnitEntry {
   code: string;
   label: string;
+  /** The chip text: "PR" / "ORD". Optional: older APIs omit it (see `unitShortLabel`). */
+  short_label?: string;
   role: string;
   role_label: string;
   is_lead: boolean;
+  /** ORD function roles only: "BT" / "TK" / "D". */
+  function_tag?: string | null;
   member_code: string | null;
   personal_nas_url: string | null;
   settings: UnitSettingsInfo;
@@ -3300,6 +3304,28 @@ export interface UnitsMe {
   default_unit: string | null;
   can_view_all: boolean;
   can_admin: string[];
+  /**
+   * The streams this person may tag / untag members in. Optional: an API that
+   * predates it is read as `can_admin` (see `canTagIn`).
+   */
+  can_tag?: string[];
+  /** No active stream tag at all. Optional, like `can_tag`. */
+  is_untagged?: boolean;
+}
+
+/** `GET /api/units/untagged`: active accounts with no stream yet. */
+export interface UntaggedUser {
+  user_id: Uuid;
+  full_name: string;
+  telegram_username: string | null;
+  role: string;
+  role_label: string;
+  created_at: string;
+  avatar_url?: string | null;
+}
+
+export interface UntaggedUserList {
+  users: UntaggedUser[];
 }
 
 export interface UnitMember {
@@ -3310,16 +3336,21 @@ export interface UnitMember {
   role: string;
   role_label: string;
   is_lead: boolean;
+  /** ORD function roles only: "BT" / "TK" / "D". */
+  function_tag?: string | null;
   member_code: string | null;
   personal_nas_url: string | null;
   joined_at: string;
   left_at: string | null;
   active: boolean;
+  /** Whether the account itself is active (false once deactivated). Optional. */
+  account_active?: boolean;
 }
 
 export interface UnitMemberList {
   unit: string;
   unit_label: string;
+  unit_short_label?: string;
   members: UnitMember[];
   /** Positions: a role, plus `is_lead` for a function's head (Trưởng phòng Biên kịch...). */
   assignable_roles: Array<{ role: string; label: string; is_lead?: boolean }>;
@@ -3382,6 +3413,8 @@ export interface TaskExtra {
 export interface TaskRow {
   unit: string;
   unit_label: string;
+  /** The chip text: "PR" / "ORD". Optional: older APIs omit it. */
+  unit_short_label?: string;
   id: Uuid;
   code: string;
   title: string;
@@ -3415,6 +3448,8 @@ export interface TaskRow {
   current_person_user_id?: string | null;
   /** True when `current_person_name` is "Chờ giao". */
   awaiting_assignment?: boolean;
+  /** The row waits on the viewer (same rule as `awaiting_me`). Optional. */
+  awaiting_me?: boolean;
   /** The newest file handed in. */
   latest_link: string | null;
   extras: TaskExtra[];
@@ -3449,6 +3484,8 @@ export interface BoardFilters {
   person?: string;
   mine?: boolean;
   awaiting_me?: boolean;
+  /** `todo_first`: the rows awaiting the viewer first, then the rest. */
+  order?: "todo_first";
   priority?: boolean;
   urgent?: boolean;
   q?: string;
@@ -3615,6 +3652,7 @@ export interface TaskInfo {
   id: Uuid;
   unit: "PR" | "ADS";
   unit_label: string;
+  unit_short_label?: string;
   code: string;
   title: string;
   kind: string;
@@ -3737,7 +3775,11 @@ export interface MemberStats {
 export interface AccountUnit {
   code: string;
   label: string;
+  short_label?: string;
   role_label: string;
+  is_lead?: boolean;
+  /** ORD function roles only: "BT" / "TK" / "D". */
+  function_tag?: string | null;
   member_code: string | null;
 }
 
@@ -3767,7 +3809,14 @@ export interface MemberRow {
   telegram_user_id: number | string;
   /** Unit codes, e.g. ["PR", "ADS"]. */
   units: string[];
+  /** The base role (OWNER, ADMIN, TEAM_LEAD, EMPLOYEE). Optional. */
+  role?: string;
   role_label: string;
+  /** Whether the account is active. Optional: older APIs list active ones only. */
+  active?: boolean;
+  /** The ORD function tag ("BT" / "TK" / "D") and whether they lead it. */
+  function_tag?: string | null;
+  is_lead?: boolean;
   last_login_at: string | null;
   has_custom_password: boolean;
   /** On a temporary password sent by a reset. Optional: older APIs omit it. */
@@ -3781,6 +3830,42 @@ export interface MemberRow {
 export interface AccountMembers {
   month: string;
   members: MemberRow[];
+}
+
+// --- Invites ------------------------------------------------------------------
+// Mirrors src/meobot/api/schemas/invites.py. The code is readable once, in the
+// create response, and never again (only its hash is stored).
+
+export interface Invite {
+  id: Uuid;
+  role: string;
+  role_label: string;
+  scope: string | null;
+  note: string | null;
+  expires_at: string | null;
+  max_uses: number;
+  use_count: number;
+  active: boolean;
+  created_at: string;
+}
+
+export interface CreatedInvite extends Invite {
+  code: string;
+  /** The bot's username for a `t.me` deep link, when the API knows it. */
+  bot_username?: string | null;
+}
+
+export interface InviteList {
+  items: Invite[];
+  total: number;
+  bot_username?: string | null;
+}
+
+export interface CreateInviteBody {
+  role?: string;
+  note?: string | null;
+  expires_in_days?: number;
+  max_uses?: number;
 }
 
 export interface PasswordLoginResult {
@@ -3832,8 +3917,21 @@ export const api = {
       new_password: next,
     }),
   /** 403 `account_members_forbidden` for somebody who may not see the roster. */
-  accountMembers: (month: string, unit: string) =>
-    get<AccountMembers>(`/api/account/members${query({ month, unit })}`),
+  accountMembers: (month: string, unit: string, includeInactive = false) =>
+    get<AccountMembers>(
+      `/api/account/members${query({ month, unit, include_inactive: includeInactive })}`,
+    ),
+  /** OWNER / ADMIN. 204; 403 `account_status_forbidden` for self or an OWNER. */
+  deactivateAccount: (userId: Uuid) =>
+    post<void>(`/api/account/members/${userId}/deactivate`),
+  reactivateAccount: (userId: Uuid) =>
+    post<void>(`/api/account/members/${userId}/reactivate`),
+
+  // Invites (TEAM_LEAD, ADMIN, OWNER). 403 for anybody else.
+  listInvites: () => get<InviteList>("/api/invites"),
+  createInvite: (body: CreateInviteBody) =>
+    post<CreatedInvite>("/api/invites", body),
+  disableInvite: (id: Uuid) => post<Invite>(`/api/invites/${id}/disable`),
   /**
    * A temporary password is sent to the member's Telegram; their sessions are
    * revoked. 204; 409 `password_reset_undeliverable` without a private chat.
@@ -3852,9 +3950,14 @@ export const api = {
 
   // Units, orders, board.
   unitsMe: () => get<UnitsMe>("/api/units/me"),
-  unitMembers: (code: string) =>
-    get<UnitMemberList>(`/api/units/${code}/members`),
+  /** `includeInactive` (OWNER / ADMIN) also lists deactivated accounts. */
+  unitMembers: (code: string, includeInactive = false) =>
+    get<UnitMemberList>(
+      `/api/units/${code}/members${query({ include_inactive: includeInactive })}`,
+    ),
   unitDirectory: () => get<DirectoryUser[]>("/api/units/directory"),
+  /** Active accounts with no stream tag. OWNER / ADMIN / a tagged TEAM_LEAD. */
+  unitsUntagged: () => get<UntaggedUserList>("/api/units/untagged"),
   unitHealth: (code: string) => get<UnitHealth>(`/api/units/${code}/health`),
   tagUnitMember: (
     code: string,

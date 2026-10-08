@@ -10,6 +10,7 @@ import { GrantsTab } from "./grants";
 import { MembersTab } from "./members";
 import { RolesTab } from "./roles";
 import { PermissionMatrix, SettingsForm, UnitPanel } from "@/components/unit-panel";
+import { STREAM_NAMES } from "@/lib/units";
 
 /**
  * *Thành viên & Phân quyền.* Three tabs, three concepts, kept apart on purpose:
@@ -49,9 +50,9 @@ function PermissionsWorkspace() {
   const queryClient = useQueryClient();
   const requested = params.get("tab");
   const units = useQuery({ queryKey: ["units", "me"], queryFn: api.unitsMe });
-  // The Ads side: for whoever may see Ads (the OWNER, an Ads member).
+  // The ORD side: for whoever may see ORD (OWNER / ADMIN, an ORD member).
   const seesAds = Boolean(units.data?.units.some((unit) => unit.code === "ADS"));
-  // `?tab=ads` was the Ads team's own tab before it moved under "Thành viên".
+  // `?tab=ads` was the ORD team's own tab before it moved under "Thành viên".
   const legacyAds = requested === "ads";
   const tab: Tab = requested === "roles" ? "roles" : requested === "grants" ? "grants" : "members";
   const team: Team = seesAds && (params.get("team") === "ads" || legacyAds) ? "ads" : "pr";
@@ -119,14 +120,14 @@ function PermissionsWorkspace() {
   );
 }
 
-/** Phòng PR / Phòng Ads under "Thành viên" and "Quyền duyệt cấp thêm". */
+/** Luồng PR / Luồng Order (ORD) under "Thành viên" and "Quyền duyệt cấp thêm". */
 function TeamTabs({ active, onSelect }: { active: Team; onSelect: (team: Team) => void }) {
   const teams: Array<{ key: Team; unit: string; label: string }> = [
-    { key: "pr", unit: "PR", label: "Phòng PR" },
-    { key: "ads", unit: "ADS", label: "Phòng Ads" },
+    { key: "pr", unit: "PR", label: STREAM_NAMES.PR },
+    { key: "ads", unit: "ADS", label: STREAM_NAMES.ADS },
   ];
   return (
-    <div role="tablist" aria-label="Phòng" className="unit-switch">
+    <div role="tablist" aria-label="Chọn luồng" className="unit-switch">
       {teams.map((team) => (
         <button
           key={team.key}

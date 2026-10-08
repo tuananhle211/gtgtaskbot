@@ -18,9 +18,9 @@ from collections.abc import Iterable
 from dataclasses import replace
 from datetime import date, datetime, time, timedelta
 from decimal import Decimal
-from typing import Protocol
+from typing import Any, Protocol
 
-from sqlalchemy import ColumnElement, Select, exists, func, or_, select
+from sqlalchemy import ColumnElement, Select, case, exists, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from meobot.application.board.holders import (
@@ -146,6 +146,10 @@ def _local_bounds(
 
 # --- PR ------------------------------------------------------------------------
 
+#: How many PR items the board reads at once when it has to filter or reorder
+#: in memory. The PR list is small; the same bound the phase filter always had.
+_OVERFETCH = 500
+
 
 class PrBoardSource:
     unit = UnitCode.PR
@@ -187,15 +191,31 @@ class PrBoardSource:
             offset=offset,
         )
 
+    async def _awaiting_ids(self, actor: Actor, query: BoardQuery) -> set[uuid.UUID]:
+        """The filter's items waiting on ``actor``: PR's own "Cần tôi xử lý"
+        (``MY_ACTIONS``), with the board's other filters."""
+        if query.awaiting_me:
+            return set()  # every row is; the caller marks them all
+        page = await self._queries.content_page(
+            actor=actor,
+            query=self._content_query(
+                replace(query, awaiting_me=True, mine=False), limit=_OVERFETCH, offset=0
+            ),
+            with_counts=False,
+        )
+        return {item.id for item in page.items}
+
     async def rows(self, actor: Actor, query: BoardQuery) -> BoardPage:
         # A phase or urgency filter narrows after the query, so over-fetch and
-        # page in memory; the PR list is small and both filters are rare.
-        narrow = query.phase is not None or query.urgent
+        # page in memory; the PR list is small and both filters are rare. The
+        # "todo first" order partitions the filter the same way.
+        narrow = query.phase is not None or query.urgent or query.todo_first
+        awaiting = await self._awaiting_ids(actor, query)
         page = await self._queries.content_page(
             actor=actor,
             query=self._content_query(
                 query,
-                limit=500 if narrow else query.limit,
+                limit=_OVERFETCH if narrow else query.limit,
                 offset=0 if narrow else query.offset,
             ),
             with_counts=False,
@@ -220,6 +240,7 @@ class PrBoardSource:
             replace(
                 self._row(item, names, brands, now, reviewers, assigners),
                 delivered_at=delivered.get(item.id),
+                awaiting_me=query.awaiting_me or item.id in awaiting,
             )
             for item in page.items
         ]
@@ -227,6 +248,11 @@ class PrBoardSource:
             rows = [row for row in rows if row.phase is query.phase]
         if query.urgent:
             rows = [row for row in rows if row.urgent]
+        if query.todo_first:
+            # Stable: each part keeps PR's own order.
+            rows = [row for row in rows if row.awaiting_me] + [
+                row for row in rows if not row.awaiting_me
+            ]
         if narrow:
             total = len(rows)
             rows = rows[query.offset : query.offset + query.limit]
@@ -594,17 +620,19 @@ class AdsBoardSource:
         returned_first = (Order.owner_user_id == user_id) & (
             Order.stage == OrderStage.ORDER_RETURNED
         )
-        ordered = (
-            base.order_by(
-                Order.is_priority.desc(),
-                returned_first.desc(),
-                Order.submitted_at.desc(),
-                Order.code.desc(),
-            )
-            .limit(query.limit)
-            .offset(query.offset)
-        )
+        order_by: list[Any] = []
+        if query.todo_first and user_id is not None and not query.awaiting_me:
+            # "Cần làm" first: the rows waiting on this person, then the rest.
+            order_by.append(case((self._awaiting(user_id), 0), else_=1).asc())
+        order_by += [
+            Order.is_priority.desc(),
+            returned_first.desc(),
+            Order.submitted_at.desc(),
+            Order.code.desc(),
+        ]
+        ordered = base.order_by(*order_by).limit(query.limit).offset(query.offset)
         orders = list((await self._session.scalars(ordered)).all())
+        awaiting = await self._awaiting_among(orders, query)
         nodes_by_order = await self._nodes(orders)
         names = await display_names(
             self._session,
@@ -622,10 +650,26 @@ class AdsBoardSource:
             await ads_approvers(self._session, orders[0].unit_id) if orders else AdsApprovers()
         )
         rows = tuple(
-            self._row(order, nodes_by_order.get(order.id, []), names, links, now, approvers)
+            replace(
+                self._row(order, nodes_by_order.get(order.id, []), names, links, now, approvers),
+                awaiting_me=order.id in awaiting,
+            )
             for order in orders
         )
         return BoardPage(rows=rows, total=int(total or 0), limit=query.limit, offset=query.offset)
+
+    async def _awaiting_among(self, orders: list[Order], query: BoardQuery) -> set[uuid.UUID]:
+        """Which of these orders wait on the viewer - the "Cần làm" marker."""
+        user_id = self._scope.user_id
+        if not orders or user_id is None:
+            return set()
+        ids = [order.id for order in orders]
+        if query.awaiting_me:
+            return set(ids)
+        found = await self._session.scalars(
+            select(Order.id).where(Order.id.in_(ids), self._awaiting(user_id))
+        )
+        return set(found.all())
 
     async def _latest_links(
         self, nodes_by_order: dict[uuid.UUID, list[OrderNode]]

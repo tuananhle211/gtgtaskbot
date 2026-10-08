@@ -88,7 +88,7 @@ OWN_MEANING: Mapping[AdsPermission, str] = MappingProxyType(
 
 ROLE_LABELS: Mapping[AdsRoleKey, str] = MappingProxyType(
     {
-        AdsRoleKey.HEAD: "Trưởng phòng Ads",
+        AdsRoleKey.HEAD: "Trưởng phòng ORD",
         AdsRoleKey.ADMIN: "Admin",
         AdsRoleKey.LEAD: "Trưởng phòng ban (Biên kịch / Design / Dựng)",
         AdsRoleKey.STAFF: "Nhân viên ban",

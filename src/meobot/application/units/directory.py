@@ -6,19 +6,12 @@ and the admin page all ask it, so the answer is a value object
 (:class:`~meobot.domain.units.models.UnitMembership`) built from the
 ``org_unit_members`` rows and nothing else.
 
-The legacy rule
+No tag, no unit
 ---------------
 
-A user with **no** membership row at all is a PR ``MEMBER``. Migration
-``0042`` tags every account that existed before units did, so in production
-the rule only ever applies to somebody invited afterwards and not yet tagged -
-who gets exactly what they got before units existed. It is also what keeps
-every test world that builds a ``User`` without a tag green behind the PR
-gate: the rule is a product decision ("untagged means PR"), and the tests
-exercise it rather than bypass it.
-
-A user whose rows have **all** been closed (``left_at`` set) belongs to no
-unit. That is a decision somebody made, and it is honoured.
+A user with no open membership row belongs to no unit (``entries=()``): they
+see neither stream until somebody tags them. The OWNER and the ADMIN see every
+unit whatever their rows (:attr:`UnitMembership.sees_all`).
 """
 
 from __future__ import annotations
@@ -41,7 +34,6 @@ from meobot.domain.units.models import (
     UnitMembership,
     UnitMembershipEntry,
     UnitSettings,
-    unit_seed_id,
 )
 
 #: The one sentence a person outside a unit reads, whatever they asked for.
@@ -83,7 +75,7 @@ class UnitDirectoryService:
         is_admin = actor.role is Role.ADMIN
         if actor.user_id is None:
             # The bootstrap owner and the worker's system actor have no row.
-            return UnitMembership(user_id=None, entries=(), is_owner=is_owner)
+            return UnitMembership(user_id=None, entries=(), is_owner=is_owner, is_admin=is_admin)
         rows = (
             await self._session.execute(
                 select(OrgUnitMember, OrgUnit.code)
@@ -92,13 +84,6 @@ class UnitDirectoryService:
                 .order_by(OrgUnit.code)
             )
         ).all()
-        if not rows:
-            return UnitMembership(
-                user_id=actor.user_id,
-                entries=(self._legacy_pr_entry(),),
-                is_owner=is_owner,
-                is_admin=is_admin,
-            )
         entries = tuple(
             UnitMembershipEntry(
                 unit_id=member.unit_id,
@@ -113,12 +98,6 @@ class UnitDirectoryService:
         )
         return UnitMembership(
             user_id=actor.user_id, entries=entries, is_owner=is_owner, is_admin=is_admin
-        )
-
-    @staticmethod
-    def _legacy_pr_entry() -> UnitMembershipEntry:
-        return UnitMembershipEntry(
-            unit_id=unit_seed_id(UnitCode.PR), unit_code=UnitCode.PR, role=UnitMemberRole.MEMBER
         )
 
     async def require(self, actor: Actor, code: UnitCode) -> UnitMembership:

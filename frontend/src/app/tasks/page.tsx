@@ -5,10 +5,18 @@ import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { Suspense, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api, type TaskCell, type TaskRow } from "@/lib/api";
-import { UnitSwitch } from "@/components/unit-switch";
+import { UnitSwitch, UntaggedState } from "@/components/unit-switch";
 import { formatAgo, formatShortDay } from "@/lib/labels";
 import { PROCESS_CODES, processCodeLabel } from "@/lib/ads-process";
-import { currentUnit, unitEntry } from "@/lib/units";
+import {
+  currentUnit,
+  isPlainStaff,
+  isUntagged,
+  unitEntry,
+  unitName,
+  unitShortLabel,
+  unitTagClass,
+} from "@/lib/units";
 import { ConfirmButton } from "@/components/confirm";
 import { Select } from "@/components/pr";
 import { Empty, ErrorBox, Loading, NoticeBox, Pill } from "@/components/states";
@@ -16,7 +24,7 @@ import { STEP_LEGEND, type StatusColor, stageColor, stepColor } from "@/lib/stat
 
 const PAGE_SIZE = 10;
 
-/** The Ads "Pha" filter, until the server's own list arrives. */
+/** The ORD "Pha" filter, until the server's own list arrives. */
 const ADS_STEPS = [
   { value: "ORDER", label: "Order" },
   { value: "BIEN_TAP", label: "Biên tập" },
@@ -33,7 +41,7 @@ export default function TasksPage() {
 }
 
 const QUICK = [
-  ["mine", "Việc của tôi"],
+  ["mine", "Task của tôi"],
   ["awaiting_me", "Chờ tôi xử lý"],
   ["priority", "Ưu tiên"],
   ["urgent", "Gấp"],
@@ -48,8 +56,13 @@ const field =
  *
  * Rows come from `/api/board/tasks` already shaped for the screen - phase,
  * cells, labels, who holds it and since when - so this file draws and never
- * interprets. The two inline decisions a head makes on an Ads row (approve or
+ * interprets. The two inline decisions a head makes on an ORD row (approve or
  * return the order) go through the same `/api/orders` actions as the detail.
+ *
+ * A plain staff member of the stream (base role EMPLOYEE, neither its head nor
+ * a function's lead) opens on "Task của tôi" with the rows waiting on them
+ * first (`order=todo_first`), unless the URL says otherwise: an explicit
+ * `mine=false` keeps it off. Everyone else opens on everything.
  */
 function TaskBoard() {
   const router = useRouter();
@@ -57,8 +70,17 @@ function TaskBoard() {
   const params = useSearchParams();
   const queryClient = useQueryClient();
   const me = useQuery({ queryKey: ["units", "me"], queryFn: api.unitsMe });
+  // The Shell's own session query (same key): the base role and who "me" is.
+  const session = useQuery({ queryKey: ["session"], queryFn: api.session, retry: false });
   const unit = currentUnit(params, me.data);
   const read = (key: string) => params.get(key) ?? "";
+  const untagged = isUntagged(me.data);
+  const staff = isPlainStaff(me.data, session.data?.role, unit);
+  const mineParam = params.get("mine");
+  const mine = mineParam === "true" || (mineParam === null && staff);
+  const order: "todo_first" | undefined =
+    (staff && mine) || read("order") === "todo_first" ? "todo_first" : undefined;
+  const viewerId = session.data?.user_id ?? null;
   const page = Number(read("page") || "1");
   const dense = read("view") === "compact";
   const filters = {
@@ -74,8 +96,9 @@ function TaskBoard() {
     owner: read("owner") || undefined,
     assignee: read("assignee") || undefined,
     person: read("person") || undefined,
-    mine: read("mine") === "true",
+    mine,
     awaiting_me: read("awaiting_me") === "true",
+    order,
     priority: read("priority") === "true",
     urgent: read("urgent") === "true",
     q: read("q") || undefined,
@@ -85,18 +108,20 @@ function TaskBoard() {
   const board = useQuery({
     queryKey: ["board", "tasks", filters],
     queryFn: () => api.boardTasks(filters),
-    enabled: me.isSuccess,
+    // Waits for the session too: a staff member's first request is already
+    // "Task của tôi", not everything followed by a second request.
+    enabled: me.isSuccess && !untagged && !session.isPending,
   });
   const members = useQuery({
     queryKey: ["units", unit, "members"],
     queryFn: () => api.unitMembers(unit),
-    enabled: me.isSuccess && unit !== "ALL",
+    enabled: me.isSuccess && !untagged && unit !== "ALL",
   });
   // The "Loại video" filter: the unit's active kinds, readable by any member.
   const videoKinds = useQuery({
     queryKey: ["units", "ADS", "video-kinds"],
     queryFn: () => api.unitVideoKinds("ADS"),
-    enabled: me.isSuccess && unit === "ADS",
+    enabled: me.isSuccess && !untagged && unit === "ADS",
   });
   const [search, setSearch] = useState(read("q"));
 
@@ -112,8 +137,13 @@ function TaskBoard() {
       scroll: false,
     });
   };
+  const isOn = (key: string) => (key === "mine" ? mine : read(key) === "true");
+  // "Task của tôi" is on by default for staff: turning it off has to be said
+  // on the URL (`mine=false`), and turning it back on is the default again.
   const toggle = (key: string) =>
-    setParams({ [key]: read(key) === "true" ? "" : "true" });
+    key === "mine"
+      ? setParams({ mine: mine ? (staff ? "false" : "") : staff ? "" : "true" })
+      : setParams({ [key]: read(key) === "true" ? "" : "true" });
   const activeFilters = [
     "from",
     "to",
@@ -130,14 +160,15 @@ function TaskBoard() {
   if (me.isPending) return <Loading />;
   if (me.isError)
     return <ErrorBox error={me.error} onRetry={() => me.refetch()} />;
+  if (untagged) return <UntaggedState title="Quản lý task" />;
 
   const entry = unitEntry(me.data, "ADS");
   const decides =
     unit === "ADS" && (me.data.can_view_all || entry?.role === "HEAD");
   const unitLabel =
     unit === "ALL"
-      ? "Cả hai ban"
-      : (me.data.units.find((item) => item.code === unit)?.label ?? unit);
+      ? "Cả hai luồng"
+      : unitName(unit, me.data.units.find((item) => item.code === unit)?.label);
   const first = board.data?.items[0];
   const cellHeads = first?.cells ?? [];
   const people = members.data?.members.filter((member) => member.active) ?? [];
@@ -151,8 +182,8 @@ function TaskBoard() {
             <UnitSwitch me={me.data} />
           </div>
           <p className="mt-1 text-sm text-[var(--text-muted)]">
-            {unitLabel} · Ưu tiên lên đầu · viền đậm là bước đang làm · bấm mã
-            để mở chi tiết
+            {unitLabel} · {order === "todo_first" ? "Việc chờ bạn lên đầu" : "Ưu tiên lên đầu"} ·
+            viền đậm là bước đang làm · bấm mã để mở chi tiết
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
@@ -208,10 +239,10 @@ function TaskBoard() {
               <button
                 key={key}
                 type="button"
-                aria-pressed={read(key) === "true"}
+                aria-pressed={isOn(key)}
                 onClick={() => toggle(key)}
                 className={`min-h-9 rounded-full border px-3.5 text-xs font-medium ${
-                  read(key) === "true"
+                  isOn(key)
                     ? "border-[var(--text)] bg-[var(--text)] text-[var(--surface)]"
                     : "border-[var(--border)] bg-[var(--surface)] text-[var(--text-muted)] hover:text-[var(--text)]"
                 }`}
@@ -416,6 +447,7 @@ function TaskBoard() {
                     key={`${row.unit}:${row.id}`}
                     row={row}
                     showUnit={unit === "ALL"}
+                    viewerId={viewerId}
                     decides={decides}
                     dense={dense}
                     onChanged={() =>
@@ -494,12 +526,15 @@ function Cell({ cell, dense, stage }: { cell: TaskCell; dense: boolean; stage: s
 function TaskTableRow({
   row,
   showUnit,
+  viewerId,
   decides,
   dense,
   onChanged,
 }: {
   row: TaskRow;
   showUnit: boolean;
+  /** The signed-in person, for "Cần làm" when the API sends no `awaiting_me`. */
+  viewerId: string | null;
   decides: boolean;
   dense: boolean;
   onChanged: () => void;
@@ -514,15 +549,17 @@ function TaskTableRow({
   });
   const pending =
     row.unit === "ADS" && row.status === "ORDER_PENDING" && decides;
+  // Waiting on the viewer: the server's flag, else "the holder is me".
+  const todo =
+    row.awaiting_me ??
+    (Boolean(viewerId) && row.current_person_user_id === viewerId);
   return (
     <tr className={row.is_priority ? "is-priority" : undefined}>
       <td className="whitespace-nowrap">
         <div className="flex items-center gap-1.5">
           {showUnit ? (
-            <span
-              className={`unit-tag ${row.unit === "ADS" ? "unit-tag-ads" : "unit-tag-pr"}`}
-            >
-              {row.unit}
+            <span className={`unit-tag ${unitTagClass(row.unit)}`}>
+              {unitShortLabel(row.unit, row.unit_short_label)}
             </span>
           ) : null}
           <Link
@@ -531,6 +568,11 @@ function TaskTableRow({
           >
             {row.code}
           </Link>
+          {todo ? (
+            <span className="rounded-full bg-[var(--accent-soft)] px-2 py-0.5 text-[11px] font-semibold text-[var(--accent-strong)]">
+              Cần làm
+            </span>
+          ) : null}
         </div>
         <span className="person block text-xs">{row.owner_name}</span>
         <span className="mt-1 flex flex-wrap items-center gap-1">

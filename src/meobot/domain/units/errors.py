@@ -4,7 +4,12 @@ admin reaching outside their unit a 403."""
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
+
 from meobot.core.errors import AuthorizationError, NotFoundError, ValidationError
+
+if TYPE_CHECKING:
+    from meobot.domain.units.models import UnitCode
 
 
 class UnitNotFoundError(NotFoundError):
@@ -23,4 +28,28 @@ class UnitAccessDeniedError(AuthorizationError):
     code = "unit_forbidden"
 
 
-__all__ = ["UnitAccessDeniedError", "UnitNotFoundError", "UnitValidationError"]
+class UnitTagForbiddenError(AuthorizationError):
+    """The actor sees the stream but may not tag or untag this person in it. 403.
+
+    ``code`` and ``details.reason`` are both ``unit_tag_forbidden``.
+    """
+
+    code = "unit_tag_forbidden"
+
+    def __init__(
+        self,
+        unit: UnitCode | None = None,
+        message: str = "Bạn không có quyền gắn hoặc gỡ thành viên ở luồng này.",
+    ) -> None:
+        details: dict[str, str] = {"reason": self.code}
+        if unit is not None:
+            details["unit"] = unit.value
+        super().__init__(message, details=details)
+
+
+__all__ = [
+    "UnitAccessDeniedError",
+    "UnitNotFoundError",
+    "UnitTagForbiddenError",
+    "UnitValidationError",
+]

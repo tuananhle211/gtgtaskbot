@@ -28,7 +28,7 @@ from meobot.domain.pr.policy import PrCapability
 from meobot.domain.units.models import UnitCode, UnitMemberRole, unit_seed_id
 from tests.unit.pr_world import World
 from tests.unit.test_order_commands import ads_world, create
-from tests.unit.test_units_gating import error_reason, seed_units, tag
+from tests.unit.test_units_gating import error_reason, seed_units, tag, untag
 
 pytestmark = pytest.mark.asyncio
 
@@ -134,7 +134,8 @@ async def test_04_the_pr_page_by_code_task_id_and_content_id(world: World) -> No
     body = by_code.json()
     summary = body["task"]
     assert summary["id"] == str(task_id) and summary["code"] == code
-    assert summary["unit"] == "PR" and summary["unit_label"] == "Phòng PR"
+    assert summary["unit"] == "PR" and summary["unit_label"] == "Luồng PR"
+    assert summary["unit_short_label"] == "PR"
     assert summary["phase"] == "ORDER" and summary["stage"] == "IDEA"
     assert summary["stage_label"] == "Ý tưởng" and summary["kind_label"] == "Kịch bản video ngắn"
     assert summary["source"] == {"type": "PR_CONTENT", "id": str(content_id)}
@@ -160,6 +161,7 @@ async def test_04_the_pr_page_by_code_task_id_and_content_id(world: World) -> No
 async def test_05_the_wall_holds_for_pr(world: World) -> None:
     units = await seed_units(world)
     _, code = await new_content(world)
+    await untag(world, units[UnitCode.PR], world.member)
     await tag(world, units[UnitCode.ADS], world.member, UnitMemberRole.ORDERER, member_code="HAO")
     world.act_as(world.member)
     response = world.client.get(f"/api/tasks/{code}")

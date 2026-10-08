@@ -99,6 +99,12 @@ def check_invite(facts: InviteFacts, *, now: datetime) -> InviteCheck:
     return InviteCheck(valid=True)
 
 
+def may_create_invites(actor_role: Role) -> bool:
+    """Whether ``actor_role`` may mint invite codes at all: a team lead
+    ("Trưởng nhóm") or above. An employee may not."""
+    return actor_role.rank >= Role.TEAM_LEAD.rank
+
+
 def can_invite_role(actor_role: Role, target_role: Role) -> bool:
     """True when ``actor_role`` may hand out ``target_role``.
 

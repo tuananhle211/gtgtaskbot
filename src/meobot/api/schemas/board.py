@@ -16,7 +16,7 @@ from meobot.domain.board.models import (
     Phase,
     TaskRow,
 )
-from meobot.domain.units.labels import unit_label
+from meobot.domain.units.labels import unit_label, unit_short_label
 
 
 class TaskCellResponse(BaseModel):
@@ -38,6 +38,8 @@ class ExtraResponse(BaseModel):
 class TaskRowResponse(BaseModel):
     unit: str
     unit_label: str
+    #: The chip tag: "PR" / "ORD".
+    unit_short_label: str
     id: uuid.UUID
     code: str
     title: str
@@ -65,12 +67,15 @@ class TaskRowResponse(BaseModel):
     latest_link: str | None = None
     delivered_at: datetime | None = None
     extras: list[ExtraResponse] = []
+    #: The row waits on the viewer (same rule as ``awaiting_me``): "Cần làm".
+    awaiting_me: bool = False
 
     @classmethod
     def from_domain(cls, row: TaskRow) -> TaskRowResponse:
         return cls(
             unit=row.unit.value,
             unit_label=unit_label(row.unit),
+            unit_short_label=unit_short_label(row.unit),
             id=row.id,
             code=row.code,
             title=row.title,
@@ -110,6 +115,7 @@ class TaskRowResponse(BaseModel):
             latest_link=row.latest_link,
             delivered_at=row.delivered_at,
             extras=[ExtraResponse(label=label, value=value) for label, value in row.extras],
+            awaiting_me=row.awaiting_me,
         )
 
 

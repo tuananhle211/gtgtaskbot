@@ -338,7 +338,31 @@ describe("43. the global header shows a person, not a capability model", () => {
 
 describe("the legal pages are reachable from the panel without crowding it", () => {
   it("puts both links in the footer and neither in the primary nav", async () => {
-    stubFetch([{ match: "/api/auth/session", body: SESSION }]);
+    // A PR member: the PR screens appear once /api/units/me says so (an
+    // account with no stream gets only the shared screens).
+    stubFetch([
+      { match: "/api/auth/session", body: SESSION },
+      {
+        match: "/api/units/me",
+        body: {
+          units: [
+            {
+              code: "PR",
+              label: "Luồng PR",
+              role: "MEMBER",
+              role_label: "Thành viên",
+              is_lead: false,
+              member_code: null,
+              personal_nas_url: null,
+              settings: {},
+            },
+          ],
+          default_unit: "PR",
+          can_view_all: false,
+          can_admin: [],
+        },
+      },
+    ]);
     renderWithQuery(<Shell>{null}</Shell>);
     await waitFor(() =>
       expect(screen.getByText(/Le Trưởng Nhóm/)).toBeInTheDocument(),
@@ -364,6 +388,9 @@ describe("the legal pages are reachable from the panel without crowding it", () 
     const primary = screen.getByRole("navigation", {
       name: "Điều hướng chính",
     });
+    await waitFor(() =>
+      expect(within(primary).getByRole("link", { name: /Công việc/ })).toBeInTheDocument(),
+    );
     const destinations = within(primary)
       .getAllByRole("link")
       .map((link) => link.getAttribute("href"));

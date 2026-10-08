@@ -14,8 +14,13 @@ from meobot.application.account.account_service import MemberView
 from meobot.application.account.stats_service import MemberStats
 from meobot.db.models.user import User
 from meobot.domain.identity.labels import role_label
-from meobot.domain.units.labels import unit_label, unit_role_label
-from meobot.domain.units.models import UnitMembership
+from meobot.domain.units.labels import (
+    function_tag,
+    unit_label,
+    unit_role_label,
+    unit_short_label,
+)
+from meobot.domain.units.models import UnitCode, UnitMemberRole, UnitMembership
 
 #: Password fields carry **no** schema constraint on purpose: FastAPI's 422 for
 #: a failed constraint echoes the offending ``input`` back in the body, and a
@@ -116,8 +121,35 @@ class MemberStatsResponse(BaseModel):
 class AccountUnitResponse(BaseModel):
     code: str
     label: str
+    #: Additive: the chip tag, "PR" / "ORD".
+    short_label: str = ""
+    #: Additive: the role in the stream (``UnitMemberRole``) and its lead flag.
+    role: str = ""
     role_label: str
+    is_lead: bool = False
+    #: Additive: ORD function roles only, "BT" / "TK" / "D"; null otherwise.
+    function_tag: str | None = None
     member_code: str | None
+
+    @classmethod
+    def build(
+        cls,
+        code: UnitCode,
+        role: UnitMemberRole,
+        *,
+        is_lead: bool,
+        member_code: str | None,
+    ) -> AccountUnitResponse:
+        return cls(
+            code=code.value,
+            label=unit_label(code),
+            short_label=unit_short_label(code),
+            role=role.value,
+            role_label=unit_role_label(role, is_lead),
+            is_lead=is_lead,
+            function_tag=function_tag(code, role),
+            member_code=member_code,
+        )
 
 
 class AccountMeResponse(BaseModel):
@@ -159,10 +191,10 @@ class AccountMeResponse(BaseModel):
             role=user.role.value,
             role_label=role_label(user.role),
             units=[
-                AccountUnitResponse(
-                    code=entry.unit_code.value,
-                    label=unit_label(entry.unit_code),
-                    role_label=unit_role_label(entry.role, entry.is_lead),
+                AccountUnitResponse.build(
+                    entry.unit_code,
+                    entry.role,
+                    is_lead=entry.is_lead,
                     member_code=entry.member_code,
                 )
                 for entry in membership.entries
@@ -181,6 +213,8 @@ class MemberRowResponse(BaseModel):
     full_name: str
     telegram_user_id: int | None
     units: list[str]
+    #: Additive: the base role code (``OWNER`` / ``ADMIN`` / ``TEAM_LEAD`` / ``EMPLOYEE``).
+    role: str = ""
     role_label: str
     last_login_at: datetime | None
     has_custom_password: bool
@@ -190,10 +224,30 @@ class MemberRowResponse(BaseModel):
     stats: MemberStatsResponse
     #: Additive (0047): null without a picture.
     avatar_url: str | None = None
+    #: Additive: false for a deactivated account (listed with ``include_inactive``).
+    active: bool = True
+    #: Additive: each open tag in full (``units`` keeps the bare codes).
+    unit_tags: list[AccountUnitResponse] = []
+    #: Additive: the ORD department tag ("BT" / "TK" / "D") and whether the
+    #: person leads it; null / false outside an ORD function.
+    function_tag: str | None = None
+    is_lead: bool = False
 
     @classmethod
     def from_view(cls, view: MemberView) -> MemberRowResponse:
+        tags = [
+            AccountUnitResponse.build(
+                unit.code, unit.role, is_lead=unit.is_lead, member_code=unit.member_code
+            )
+            for unit in view.units
+        ]
+        function = next((tag for tag in tags if tag.function_tag is not None), None)
         return cls(
+            role=view.user.role.value,
+            active=bool(view.user.active),
+            unit_tags=tags,
+            function_tag=None if function is None else function.function_tag,
+            is_lead=False if function is None else function.is_lead,
             user_id=view.user.id,
             full_name=view.user.full_name,
             telegram_user_id=view.user.telegram_user_id,

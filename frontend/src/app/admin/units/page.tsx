@@ -6,11 +6,13 @@ import { api } from "@/lib/api";
 import { PageHeader } from "@/components/pr";
 import { ErrorBox, Loading } from "@/components/states";
 import { UnitPanel } from "@/components/unit-panel";
+import { taggableUnits, unitName } from "@/lib/units";
 
 /**
- * Tags, roles and settings per unit. Who may administer which unit is the
- * server's decision: this page offers the units `/api/units/me` lists under
- * `can_admin`, and every write is refused there if it should be.
+ * Tags, roles and settings per stream. Who may administer or tag in which
+ * stream is the server's decision: this page offers the streams
+ * `/api/units/me` lists under `can_admin` or `can_tag` (a team lead tags in
+ * their own stream here), and every write is refused there if it should be.
  */
 export default function UnitsAdminPage() {
   const me = useQuery({ queryKey: ["units", "me"], queryFn: api.unitsMe });
@@ -19,13 +21,16 @@ export default function UnitsAdminPage() {
   if (me.isPending) return <Loading />;
   if (me.isError)
     return <ErrorBox error={me.error} onRetry={() => me.refetch()} />;
-  const units = me.data.can_admin;
+  const units = [
+    ...me.data.can_admin,
+    ...taggableUnits(me.data).filter((code) => !me.data.can_admin.includes(code)),
+  ];
   if (units.length === 0) {
     return (
       <div className="space-y-4">
         <PageHeader title="Quản trị đơn vị" />
         <p className="text-sm text-[var(--text-muted)]">
-          Bạn không quản trị đơn vị nào.
+          Bạn không quản trị luồng nào.
         </p>
       </div>
     );
@@ -35,12 +40,12 @@ export default function UnitsAdminPage() {
     <div className="space-y-4">
       <PageHeader
         title="Quản trị đơn vị"
-        subtitle="Gắn tag ban cho thành viên quyết định họ thấy task nào và có mặt trong chuỗi sản xuất của ban nào."
+        subtitle="Gắn luồng cho thành viên quyết định họ thấy task nào và có mặt trong chuỗi sản xuất của luồng nào. Tài khoản mới chưa thuộc luồng nào cho đến khi được gắn."
       />
       {units.length > 1 ? (
         <div
           role="tablist"
-          aria-label="Đơn vị"
+          aria-label="Luồng"
           className="flex gap-2 border-b border-[var(--border)]"
         >
           {units.map((unit) => (
@@ -52,7 +57,7 @@ export default function UnitsAdminPage() {
               onClick={() => setChosen(unit)}
               className={`min-h-11 px-3 text-sm ${unit === code ? "border-b-2 border-[var(--text)] font-medium" : "text-[var(--text-muted)]"}`}
             >
-              {me.data.units.find((item) => item.code === unit)?.label ?? unit}
+              {unitName(unit, me.data.units.find((item) => item.code === unit)?.label)}
             </button>
           ))}
         </div>

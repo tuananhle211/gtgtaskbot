@@ -199,6 +199,10 @@ async def test_04_defaults_and_constraints(database: Database) -> None:
 
 async def test_05_deleting_the_user_deletes_the_picture(database: Database) -> None:
     async with database.session() as session:
+        # 0048 tagged the account PR; a tag row keeps its user, so it goes first.
+        await session.execute(
+            text("DELETE FROM org_unit_members WHERE user_id = :id"), {"id": _ids["gone"]}
+        )
         await session.execute(text("DELETE FROM users WHERE id = :id"), {"id": _ids["gone"]})
         await session.commit()
         remaining = await session.scalar(

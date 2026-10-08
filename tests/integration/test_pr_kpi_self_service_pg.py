@@ -44,6 +44,7 @@ from tests.integration.test_dispatch_migrations import (
     downgrade_to,
     upgrade_to,
 )
+from tests.unit.streams import tag_pr
 from tests.unit.test_pr_kpi_self_service import approve, send_back, submit
 from tests.unit.test_pr_production_lifecycle import World
 from tests.unit.test_pr_work_quota import approved_plan, month, work_type
@@ -116,6 +117,7 @@ async def _build_world(session: AsyncSession) -> World:
     platform = PrPlatform(code="WEBSITE", name="Website")
     session.add_all([owner, lead, head, member, other, brand, platform])
     await session.flush()
+    await tag_pr(session, [lead, member, other])
     settings = Settings(web_base_url="https://pr.example.com", **SETTINGS_KWARGS)
     services = build_pr_services(session, settings)
     granter = Actor(user_id=owner.id, full_name=owner.full_name, role=Role.OWNER)
@@ -323,6 +325,7 @@ async def http(database: Database) -> AsyncIterator[tuple[object, dict[str, User
         }
         session.add_all(people.values())
         await session.flush()
+        await tag_pr(session, people.values())  # untagged sees no stream
         services = build_pr_services(session, settings)
         owner = Actor(user_id=people["owner"].id, full_name="Chị Chủ", role=Role.OWNER)
         period = await services.work_periods.ensure_month_period(

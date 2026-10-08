@@ -100,6 +100,17 @@ class PasswordResetForbiddenError(AuthorizationError):
         super().__init__(message, details={"reason": self.code})
 
 
+class AccountStatusForbiddenError(AuthorizationError):
+    """Deactivate/reactivate refused: not OWNER/ADMIN, oneself, or an OWNER. 403."""
+
+    code = "account_status_forbidden"
+
+    def __init__(
+        self, message: str = "Bạn không có quyền thay đổi trạng thái tài khoản này."
+    ) -> None:
+        super().__init__(message, details={"reason": self.code})
+
+
 class PasswordResetUndeliverableError(ConflictError):
     """An admin reset for somebody MeoBot cannot message privately. 409.
 
@@ -156,6 +167,7 @@ __all__ = [
     "PASSWORD_CHANGE_REQUIRED_MESSAGE",
     "AccountMembersForbiddenError",
     "AccountNotFoundError",
+    "AccountStatusForbiddenError",
     "AccountValidationError",
     "AvatarNotFoundError",
     "AvatarRejectedError",

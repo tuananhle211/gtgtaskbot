@@ -249,8 +249,10 @@ class OrderActorContext:
                     roles.append(AdsRoleKey.STAFF)
                     if entry.is_lead:
                         roles.append(AdsRoleKey.LEAD)
-                if membership.is_admin:
-                    roles.append(AdsRoleKey.ADMIN)
+            # An ADMIN sees every stream, tagged in it or not: the matrix's
+            # Admin column applies either way.
+            if membership.is_admin:
+                roles.append(AdsRoleKey.ADMIN)
             permissions = AdsPermissions.compute(
                 resolve_matrix(settings.permissions),
                 roles=roles,

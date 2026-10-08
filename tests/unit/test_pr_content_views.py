@@ -84,6 +84,7 @@ from meobot.domain.pr.models import (
 )
 from meobot.domain.pr.policy import PrCapability
 from meobot.domain.pr.workflow import RETIRED_STAGES
+from tests.unit.streams import tag_pr
 
 #: The zone every date assertion below is expressed in - the configured default,
 #: and the one that makes the UTC-versus-local question interesting.
@@ -184,6 +185,7 @@ async def world(session: AsyncSession) -> AsyncIterator[ViewWorld]:
     facebook = PrPlatform(code="FACEBOOK", name="Facebook")
     session.add_all([lead, head, writer, brand_a, brand_b, tiktok, facebook])
     await session.flush()
+    await tag_pr(session, [lead, head, writer])  # untagged sees no stream
 
     settings = Settings(web_base_url="https://pr.example.com", web_cookie_secure=False)
     audit = AuditService(session)

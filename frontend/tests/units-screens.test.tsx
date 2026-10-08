@@ -48,7 +48,7 @@ const ADS_ONLY = {
   units: [
     {
       code: "ADS",
-      label: "Phòng Ads",
+      label: "Luồng Order (ORD)",
       role: "HEAD",
       role_label: "Trưởng phòng",
       is_lead: false,
@@ -67,7 +67,7 @@ const OWNER_OF_BOTH = {
     {
       ...ADS_ONLY.units[0],
       code: "PR",
-      label: "Phòng PR",
+      label: "Luồng PR",
       role: "MEMBER",
       role_label: "Thành viên",
     },
@@ -83,7 +83,7 @@ const NODE_ID = "33333333-3333-3333-3333-333333333333";
 
 const ROW = {
   unit: "ADS",
-  unit_label: "Phòng Ads",
+  unit_label: "Luồng Order (ORD)",
   id: ORDER_ID,
   code: "TUAN-BTD-261007-01",
   title: "Kịch bản A",
@@ -255,7 +255,7 @@ describe("the nav follows the person's units", () => {
       expect(hrefs).toEqual(["/dashboard", "/tasks", "/orders/new"]);
     });
     expect(
-      screen.queryByRole("navigation", { name: "Chọn ban" }),
+      screen.queryByRole("navigation", { name: "Chọn luồng" }),
     ).not.toBeInTheDocument();
   });
 
@@ -278,7 +278,7 @@ describe("the nav follows the person's units", () => {
     });
     // The unit switch moved beside the page title; the top bar has none.
     expect(
-      screen.queryByRole("navigation", { name: "Chọn ban" }),
+      screen.queryByRole("navigation", { name: "Chọn luồng" }),
     ).not.toBeInTheDocument();
   });
 
@@ -316,13 +316,13 @@ describe("the nav follows the person's units", () => {
       { match: "/api/board/tasks", body: PAGE },
     ]);
     renderWithQuery(<TasksPage />);
-    const switcher = await screen.findByRole("navigation", { name: "Chọn ban" });
+    const switcher = await screen.findByRole("navigation", { name: "Chọn luồng" });
     expect(
       within(switcher)
         .getAllByRole("link")
         .map((link) => link.textContent),
-    ).toEqual(["Phòng PR", "Phòng Ads", "Tất cả"]);
-    expect(within(switcher).getByText("Phòng Ads")).toHaveAttribute(
+    ).toEqual(["Luồng PR", "Luồng Order (ORD)", "Tất cả"]);
+    expect(within(switcher).getByText("Luồng Order (ORD)")).toHaveAttribute(
       "href",
       "/tasks?unit=ADS",
     );
@@ -544,7 +544,7 @@ describe("the unit admin page", () => {
         match: "/api/units/PR/members",
         body: {
           unit: "PR",
-          unit_label: "Phòng PR",
+          unit_label: "Luồng PR",
           members: [],
           assignable_roles: [{ role: "MEMBER", label: "Thành viên" }],
         },
@@ -554,7 +554,7 @@ describe("the unit admin page", () => {
         method: "GET",
         body: {
           unit: "ADS",
-          unit_label: "Phòng Ads",
+          unit_label: "Luồng Order (ORD)",
           members: [
             {
               user_id: "55555555-5555-5555-5555-555555555555",
@@ -572,7 +572,7 @@ describe("the unit admin page", () => {
             },
           ],
           assignable_roles: [
-            { role: "HEAD", label: "Trưởng phòng Ads" },
+            { role: "HEAD", label: "Trưởng phòng ORD" },
             { role: "BIEN_TAP", label: "Trưởng phòng Biên kịch", is_lead: true },
             { role: "ORDERER", label: "Marketing (người order)" },
             { role: "BIEN_TAP", label: "Biên tập" },
@@ -605,17 +605,17 @@ describe("the unit admin page", () => {
     renderWithQuery(<UnitsAdminPage />);
     await waitFor(() =>
       expect(
-        screen.getByRole("tab", { name: "Phòng Ads" }),
+        screen.getByRole("tab", { name: "Luồng Order (ORD)" }),
       ).toBeInTheDocument(),
     );
-    await userEvent.click(screen.getByRole("tab", { name: "Phòng Ads" }));
+    await userEvent.click(screen.getByRole("tab", { name: "Luồng Order (ORD)" }));
     await waitFor(() =>
       expect(screen.getByText("Hiền Lương")).toBeInTheDocument(),
     );
     expect(screen.getByText("Ban chưa có Trưởng phòng.")).toBeInTheDocument();
     // A function's lead is shown as that function's head, in the role picker.
     expect(screen.getByLabelText("Vai trò của Hiền Lương")).toHaveValue("BIEN_TAP:LEAD");
-    expect(screen.getByText("Nhận việc của ban để phân công")).toBeInTheDocument();
+    expect(screen.getByText("Nhận việc của luồng để phân công")).toBeInTheDocument();
 
     await userEvent.selectOptions(
       screen.getByLabelText("Thêm thành viên"),
@@ -686,11 +686,11 @@ describe("the unit admin page", () => {
       { match: "/api/units/me", body: me },
       {
         match: "/api/units/ADS/members",
-        body: { unit: "ADS", unit_label: "Phòng Ads", members: [], assignable_roles: [] },
+        body: { unit: "ADS", unit_label: "Luồng Order (ORD)", members: [], assignable_roles: [] },
       },
       {
         match: "/api/units/PR/members",
-        body: { unit: "PR", unit_label: "Phòng PR", members: [], assignable_roles: [] },
+        body: { unit: "PR", unit_label: "Luồng PR", members: [], assignable_roles: [] },
       },
       { match: "/api/units/ADS/health", body: { unit: "ADS", warnings: [] } },
       { match: "/api/units/PR/health", body: { unit: "PR", warnings: [] } },
@@ -698,8 +698,8 @@ describe("the unit admin page", () => {
       { match: "/api/units/ADS/settings", method: "PATCH", body: settings },
     ]);
     renderWithQuery(<UnitsAdminPage />);
-    await userEvent.click(await screen.findByRole("tab", { name: "Phòng Ads" }));
-    const matrix = await screen.findByRole("region", { name: "Phân quyền ban Ads" });
+    await userEvent.click(await screen.findByRole("tab", { name: "Luồng Order (ORD)" }));
+    const matrix = await screen.findByRole("region", { name: "Phân quyền luồng ORD" });
     const cell = within(matrix).getByLabelText("Giao việc · Admin");
     expect(cell).toHaveValue("NONE");
     await userEvent.selectOptions(cell, "ALL");
@@ -740,7 +740,7 @@ describe("the dashboard", () => {
     });
     const summary = {
       unit: "ADS",
-      unit_label: "Phòng Ads",
+      unit_label: "Luồng Order (ORD)",
       date_from: "2026-10-01",
       date_to: "2026-10-31",
       total: 3,
@@ -756,11 +756,11 @@ describe("the dashboard", () => {
       { match: "/api/units/me", body: OWNER_OF_BOTH },
       {
         match: "/api/units/ADS/members",
-        body: { unit: "ADS", unit_label: "Phòng Ads", members: [member("u-2", "Tiến Đạt"), member("u-1", "Bảo Khánh")], assignable_roles: [] },
+        body: { unit: "ADS", unit_label: "Luồng Order (ORD)", members: [member("u-2", "Tiến Đạt"), member("u-1", "Bảo Khánh")], assignable_roles: [] },
       },
       {
         match: "/api/units/PR/members",
-        body: { unit: "PR", unit_label: "Phòng PR", members: [member("u-1", "Bảo Khánh"), member("u-3", "Hà Chi")], assignable_roles: [] },
+        body: { unit: "PR", unit_label: "Luồng PR", members: [member("u-1", "Bảo Khánh"), member("u-3", "Hà Chi")], assignable_roles: [] },
       },
       { match: "/api/board/dashboard", body: summary },
       { match: "/api/board/tasks", body: { ...PAGE, items: [], total: 0 } },

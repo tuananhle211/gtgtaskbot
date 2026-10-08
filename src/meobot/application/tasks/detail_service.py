@@ -95,13 +95,12 @@ from meobot.domain.pr.models import (
 )
 from meobot.domain.pr.policy import PrCapability
 from meobot.domain.pr.workflow import STAGE_APPROVAL_GATES, PrTransitionTrigger
+from meobot.domain.units.labels import UNIT_LABELS, UNIT_SHORT_LABELS
 from meobot.domain.units.models import UnitCode, UnitSettings
 
 Emphasis = Literal["PRIMARY", "SECONDARY", "DANGER"]
 FieldType = Literal["text", "longtext", "link", "date"]
 FieldGroup = Literal["common", "pr", "ads"]
-
-UNIT_LABELS: dict[UnitCode, str] = {UnitCode.PR: "Phòng PR", UnitCode.ADS: "Phòng Ads"}
 
 #: PR's words, the same ones the PR screens use (``frontend/src/lib/labels.ts``).
 PR_CONTENT_TYPE_LABELS: dict[PrContentType, str] = {
@@ -236,6 +235,8 @@ class TaskSummary:
     revisions: int
     version: int
     source: TaskSource
+    #: The chip tag: "PR" / "ORD".
+    unit_short_label: str = ""
 
 
 @dataclass(frozen=True, slots=True)
@@ -410,6 +411,7 @@ class TaskDetailService:
             id=task.id,
             unit=UnitCode.ADS.value,
             unit_label=UNIT_LABELS[UnitCode.ADS],
+            unit_short_label=UNIT_SHORT_LABELS[UnitCode.ADS],
             code=order.code,
             title=order.title,
             kind=order.video_type.value,
@@ -568,6 +570,7 @@ class TaskDetailService:
             id=task.id,
             unit=UnitCode.PR.value,
             unit_label=UNIT_LABELS[UnitCode.PR],
+            unit_short_label=UNIT_SHORT_LABELS[UnitCode.PR],
             code=content.code,
             title=content.title,
             kind=content.content_type.value if content.content_type else "",

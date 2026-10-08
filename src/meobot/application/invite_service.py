@@ -136,13 +136,20 @@ class InviteService:
         )
         return invite, code
 
-    async def list_invites(self, *, active_only: bool = True) -> Sequence[InviteCode]:
-        """List invites, newest first."""
+    async def list_invites(
+        self, *, active_only: bool = True, created_by: uuid.UUID | None = None
+    ) -> Sequence[InviteCode]:
+        """List invites, newest first; ``created_by`` narrows to one creator's."""
         statement = select(InviteCode).order_by(InviteCode.created_at.desc())
         if active_only:
             statement = statement.where(InviteCode.active.is_(True))
+        if created_by is not None:
+            statement = statement.where(InviteCode.created_by == created_by)
         result = await self._session.execute(statement)
         return result.scalars().all()
+
+    async def get(self, invite_id: uuid.UUID) -> InviteCode | None:
+        return await self._session.get(InviteCode, invite_id)
 
     async def disable(
         self,

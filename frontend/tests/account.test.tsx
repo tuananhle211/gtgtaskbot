@@ -567,8 +567,8 @@ describe("the account page", () => {
     expect(hero).toHaveTextContent("Thành viên");
     expect(hero).toHaveTextContent("123456789");
     expect(hero).toHaveTextContent("@tuan_ads");
-    const units = within(hero).getByRole("list", { name: "Ban của tôi" });
-    expect(within(units).getByText("ADS")).toHaveClass("unit-tag");
+    const units = within(hero).getByRole("list", { name: "Luồng của tôi" });
+    expect(within(units).getByText("ORD")).toHaveClass("unit-tag");
     expect(units).toHaveTextContent("Biên kịch");
     expect(units).toHaveTextContent("TUAN");
     // No picture yet: the initials.
@@ -586,7 +586,7 @@ describe("the account page", () => {
     await userEvent.click(await screen.findByRole("tab", { name: "Thông tin tài khoản" }));
     const identity = await screen.findByRole("region", { name: "Thông tin tài khoản" });
     expect(within(identity).getByText("123456789")).toBeInTheDocument();
-    expect(within(identity).getByText("ADS")).toHaveClass("unit-tag");
+    expect(within(identity).getByText("ORD")).toHaveClass("unit-tag");
     expect(within(identity).getByText("TUAN")).toBeInTheDocument();
     // No picture: nothing to remove.
     expect(screen.queryByRole("button", { name: "Xoá ảnh" })).not.toBeInTheDocument();
@@ -629,7 +629,7 @@ describe("the account page", () => {
     expect(card("Công đoạn hoàn thành")).toHaveTextContent("7");
     expect(card("Tỷ lệ đạt ngay")).toHaveTextContent("75%");
     expect(card("Mục KPI được tính")).toHaveTextContent("11");
-    const ads = within(performance).getByRole("region", { name: "Order Ads" });
+    const ads = within(performance).getByRole("region", { name: "Order ORD" });
     expect(within(ads).getByText("Đang làm").closest("li")).toHaveTextContent("3");
     expect(within(ads).getByText("Bị trả sửa").closest("li")).toHaveTextContent("2");
     expect(within(ads).getByText("Order đã tạo / hoàn thành").closest("li")).toHaveTextContent("4 / 1");

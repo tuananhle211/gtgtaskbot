@@ -1,8 +1,9 @@
 """Units: what the caller is in which unit, and the admin page behind it.
 
 ``GET /api/units/me`` is what the shell asks on every page load to draw the
-unit switch and the navigation; everything else is the administration of
-tags, roles and settings. Authority is decided inside
+stream switch and the navigation; ``GET /api/units/untagged`` lists the
+accounts waiting for a stream; everything else is the administration of tags,
+roles and settings. Authority is decided inside
 :class:`~meobot.application.units.admin.UnitAdminService`, never here.
 """
 
@@ -32,6 +33,8 @@ from meobot.api.schemas.units import (
     UnitMemberResponse,
     UnitMeResponse,
     UnitSettingsResponse,
+    UntaggedUserResponse,
+    UntaggedUsersResponse,
     UpdateMemberRequest,
     UpdateUnitSettingsRequest,
     UpdateVideoKindRequest,
@@ -39,12 +42,18 @@ from meobot.api.schemas.units import (
     VideoKindResponse,
     unit_entry,
 )
+from meobot.application.account.avatar_service import avatar_urls
 from meobot.application.audit_service import AuditService
 from meobot.application.units.admin import ROLES_BY_UNIT, UnitAdminService
 from meobot.core.errors import ValidationError
 from meobot.domain.identity.labels import role_label
 from meobot.domain.units.errors import UnitNotFoundError
-from meobot.domain.units.labels import LEAD_ROLE_LABELS, unit_label, unit_role_label
+from meobot.domain.units.labels import (
+    LEAD_ROLE_LABELS,
+    unit_label,
+    unit_role_label,
+    unit_short_label,
+)
 from meobot.domain.units.models import UnitCode, UnitMemberRole
 
 router = APIRouter(prefix="/api/units", tags=["units"])
@@ -77,7 +86,7 @@ def _parse_role(value: str) -> UnitMemberRole:
 
 
 def _roles_for(code: UnitCode) -> list[RoleOptionResponse]:
-    """The positions, heads first: Trưởng phòng Ads, then each function's
+    """The positions, heads first: Trưởng phòng ORD, then each function's
     head (Biên kịch, Design, Dựng), then Marketing and the function staff."""
     allowed = [role for role in UnitMemberRole if role in ROLES_BY_UNIT[code]]
     heads = [
@@ -118,7 +127,8 @@ async def my_units(
 
             settings = UnitSettings()
         if entry is None:
-            # The OWNER, in a unit they are not tagged into: acts as its head.
+            # The OWNER or the ADMIN, in a unit they are not tagged into:
+            # acts as its head.
             role = UnitMemberRole.HEAD if code is UnitCode.ADS else UnitMemberRole.MEMBER
             entries.append(
                 unit_entry(
@@ -142,7 +152,8 @@ async def my_units(
                 )
             )
     can_admin = [code.value for code in await admin.admin_units(actor)]
-    return UnitMeResponse.from_domain(membership, entries, can_admin=can_admin)
+    can_tag = [code.value for code in admin.tag_units(membership, actor)]
+    return UnitMeResponse.from_domain(membership, entries, can_admin=can_admin, can_tag=can_tag)
 
 
 @router.get("/directory", response_model=list[DirectoryUserResponse])
@@ -162,21 +173,54 @@ async def directory_users(actor: CurrentActorDep, admin: AdminDep) -> list[Direc
     ]
 
 
+@router.get("/untagged", response_model=UntaggedUsersResponse)
+async def untagged_users(
+    actor: CurrentActorDep,
+    admin: AdminDep,
+    session: Annotated[AsyncSession, Depends(get_session)],
+) -> UntaggedUsersResponse:
+    """Active accounts with no open tag, newest first. OWNER, ADMIN, and a
+    team lead tagged in some stream; anybody else 403 ``unit_tag_forbidden``."""
+    users = await admin.untagged(actor=actor)
+    avatars = await avatar_urls(session, [user.id for user in users])
+    return UntaggedUsersResponse(
+        users=[
+            UntaggedUserResponse(
+                user_id=user.id,
+                full_name=user.full_name,
+                telegram_username=user.telegram_username,
+                role=user.role.value,
+                role_label=role_label(user.role),
+                created_at=user.created_at,
+                avatar_url=avatars.get(user.id),
+            )
+            for user in users
+        ]
+    )
+
+
 @router.get("/{code}/members", response_model=UnitMemberListResponse)
 async def unit_members(
-    code: str, actor: CurrentActorDep, directory: UnitDirectoryDep
+    code: str,
+    actor: CurrentActorDep,
+    directory: UnitDirectoryDep,
+    session: Annotated[AsyncSession, Depends(get_session)],
 ) -> UnitMemberListResponse:
-    """The unit's open tags. Visible to its members and to the OWNER."""
+    """The unit's open tags. Visible to its members, the OWNER and the ADMIN."""
     unit_code = _parse_unit(code)
     await directory.require(actor, unit_code)
     unit = await directory.unit(unit_code)
-    rows = await directory.members(unit.id, active_only=False)
+    rows = [
+        row
+        for row in await directory.members(unit.id, active_only=False)
+        if row.membership.left_at is None
+    ]
+    avatars = await avatar_urls(session, [row.user.id for row in rows])
     return UnitMemberListResponse(
         unit=unit_code.value,
         unit_label=unit_label(unit_code),
-        members=[
-            UnitMemberResponse.from_row(row) for row in rows if row.membership.left_at is None
-        ],
+        unit_short_label=unit_short_label(unit_code),
+        members=[UnitMemberResponse.from_row(row, avatars.get(row.user.id)) for row in rows],
         assignable_roles=_roles_for(unit_code),
     )
 

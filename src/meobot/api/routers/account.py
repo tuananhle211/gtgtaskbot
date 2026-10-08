@@ -15,6 +15,7 @@ rather than JSON; its failures still use the envelope.
 from __future__ import annotations
 
 import uuid
+from typing import Any
 
 from fastapi import APIRouter, Query, Request, Response, status
 
@@ -226,13 +227,17 @@ async def members(
     settings: SettingsDep,
     month: str | None = Query(default=None, max_length=7),
     unit: str | None = Query(default=None, max_length=10),
+    include_inactive: bool = Query(default=False),
 ) -> MemberListResponse:
-    """The team's figures for one month. OWNER, ADMIN (own units), Ads HEAD."""
+    """The team's figures for one month. OWNER and ADMIN (everyone), ORD HEAD
+    (the ORD members). ``include_inactive=true`` (OWNER/ADMIN only) lists the
+    deactivated accounts too, with ``active: false``."""
     listing = await accounts.members(
         actor=actor,
         membership=membership,
         month=resolve_month(month, tz=settings.timezone),
         unit=unit,
+        include_inactive=include_inactive,
     )
     return MemberListResponse(
         month=listing.month.label,
@@ -262,6 +267,51 @@ async def reset_password(
     await accounts.reset_password(
         actor=actor, membership=membership, request_id=request_id, user_id=user_id
     )
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+
+_STATUS_RESPONSES: dict[int | str, dict[str, Any]] = {
+    403: {
+        "model": ErrorEnvelope,
+        "description": "account_status_forbidden - not OWNER/ADMIN, oneself, or an OWNER.",
+    },
+    404: {"model": ErrorEnvelope, "description": "account_not_found."},
+}
+
+
+@router.post(
+    "/members/{user_id}/deactivate",
+    status_code=status.HTTP_204_NO_CONTENT,
+    responses=_STATUS_RESPONSES,
+)
+async def deactivate_member(
+    user_id: uuid.UUID,
+    actor: CurrentActorDep,
+    accounts: AccountServiceDep,
+    request_id: RequestIdDep,
+) -> Response:
+    """*Vô hiệu hoá tài khoản.* OWNER and ADMIN. Signs the person out everywhere;
+    their tags and history stay, and reactivating brings them back."""
+    await accounts.set_active(actor=actor, request_id=request_id, user_id=user_id, active=False)
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+
+@router.post(
+    "/members/{user_id}/reactivate",
+    status_code=status.HTTP_204_NO_CONTENT,
+    responses={
+        **_STATUS_RESPONSES,
+        422: {"model": ErrorEnvelope, "description": "account_revoked."},
+    },
+)
+async def reactivate_member(
+    user_id: uuid.UUID,
+    actor: CurrentActorDep,
+    accounts: AccountServiceDep,
+    request_id: RequestIdDep,
+) -> Response:
+    """*Kích hoạt lại tài khoản.* OWNER and ADMIN."""
+    await accounts.set_active(actor=actor, request_id=request_id, user_id=user_id, active=True)
     return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 

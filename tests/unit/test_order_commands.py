@@ -39,7 +39,7 @@ from meobot.domain.pr.work_results import PrWorkResultSource
 from meobot.domain.units.member_code import derive_member_code
 from meobot.domain.units.models import UnitCode, UnitMemberRole, unit_seed_id
 from tests.unit.pr_world import World
-from tests.unit.test_units_gating import error_reason, seed_units, tag
+from tests.unit.test_units_gating import error_reason, seed_units, tag, untag
 
 pytestmark = pytest.mark.asyncio
 
@@ -76,8 +76,10 @@ async def ads_world(world: World) -> Ads:
     designer = await person(world, "Thùy Anh")
     lead_dung = await person(world, "Editor A")
     editor = await person(world, "Editor C")
-    outsider = world.lead  # untagged: PR by the legacy rule, outside Ads
+    outsider = world.lead  # tagged PR by the world, outside Ads
     await tag(world, ads, head, UnitMemberRole.HEAD)
+    # The orderer works in Ads only: the world tagged them PR, so close it.
+    await untag(world, units[UnitCode.PR], orderer)
     await tag(world, ads, orderer, UnitMemberRole.ORDERER, member_code="TUAN")
     await tag(world, ads, lead_bt, UnitMemberRole.BIEN_TAP, is_lead=True)
     await tag(world, ads, writer, UnitMemberRole.BIEN_TAP)

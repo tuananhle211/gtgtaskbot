@@ -52,6 +52,7 @@ from meobot.domain.pr.models import (
     PrDistributionMode,
     PrEntityStatus,
 )
+from tests.unit.streams import tag_pr
 
 pytestmark = pytest.mark.asyncio
 
@@ -89,6 +90,7 @@ async def world(session: AsyncSession) -> AsyncIterator[World]:
     brand = PrBrand(code="BRND-APEX", name="Apexmed")
     session.add_all([admin, lead, brand])
     await session.flush()
+    await tag_pr(session, [admin, lead])  # untagged sees no stream
 
     settings = _settings()
     app = create_app(settings)

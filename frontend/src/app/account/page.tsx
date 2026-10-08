@@ -21,10 +21,18 @@ import { AvatarDialog, RemoveAvatarButton } from "@/components/avatar-editor";
 import { ConfirmButton } from "@/components/confirm";
 import { PrimaryButton, Select } from "@/components/pr";
 import { ErrorBox, Loading } from "@/components/states";
-import { UnitTags } from "@/components/unit-panel";
+import {
+  AccountStatusButton,
+  DeactivatedPill,
+  mayChangeAccountStatus,
+  UnitTags,
+  UntaggedPanel,
+} from "@/components/unit-panel";
 import { resetMemberPasswordConfirmation } from "@/lib/confirmations";
 import { formatAgo, formatWhen, monthLabel } from "@/lib/labels";
 import { PasswordDialog, PasswordForm } from "./password";
+import { INVITER_ROLES, InvitePanel } from "./invites";
+import { STREAM_NAMES } from "@/lib/units";
 
 const FIELD =
   "min-h-10 w-full rounded-lg border border-[var(--border)] bg-[var(--surface)] px-3 text-[var(--text)] transition-colors focus-visible:border-[var(--accent)] focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-[var(--accent)]/15";
@@ -33,7 +41,7 @@ const FIELD =
 const QUIET_BUTTON =
   "inline-flex min-h-10 items-center justify-center gap-2 rounded-lg border border-[var(--border)] bg-[var(--surface)] px-3.5 text-sm font-medium shadow-[0_1px_2px_rgb(0_0_0/0.04)] transition-colors hover:bg-[var(--surface-muted)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--accent)] disabled:opacity-50";
 
-type Tab = "hieu-suat" | "tai-khoan" | "thanh-vien";
+type Tab = "hieu-suat" | "tai-khoan" | "thanh-vien" | "moi-thanh-vien";
 
 /** `YYYY-MM` of a date, in the browser's own calendar. */
 function monthOf(date: Date): string {
@@ -75,13 +83,15 @@ function Account({ me }: { me: AccountMe }) {
   const [notice, setNotice] = useState<string | null>(null);
   const [month, setMonth] = useState<string>(me.stats.month || monthOf(new Date()));
   const [unit, setUnit] = useState("ALL");
+  // OWNER / ADMIN may list deactivated accounts too, to bring them back.
+  const [includeInactive, setIncludeInactive] = useState(false);
 
   // The roster is offered only to somebody the server shows it to: a 403 hides
   // the tab. Once it has loaded, a later failure (a filter the server refuses)
   // is shown inside the tab instead of taking the tab away mid-use.
   const members = useQuery({
-    queryKey: ["account", "members", month, unit],
-    queryFn: () => api.accountMembers(month, unit),
+    queryKey: ["account", "members", month, unit, includeInactive],
+    queryFn: () => api.accountMembers(month, unit, includeInactive),
     enabled: !mustChange,
     placeholderData: keepPreviousData,
     retry: false,
@@ -96,11 +106,18 @@ function Account({ me }: { me: AccountMe }) {
 
   if (mustChange) return <ForcedPasswordChange me={me} onChanged={passwordChanged} />;
 
-  const activeTab: Tab = tab === "thanh-vien" && !membersSeen ? "hieu-suat" : tab;
+  // Invites are for system team leads (and ADMIN / OWNER); the server
+  // refuses anybody else, so the tab is not offered to them.
+  const mayInvite = INVITER_ROLES.has(me.role);
+  const activeTab: Tab =
+    (tab === "thanh-vien" && !membersSeen) || (tab === "moi-thanh-vien" && !mayInvite)
+      ? "hieu-suat"
+      : tab;
   const tabs: Array<{ key: Tab; label: string }> = [
     { key: "hieu-suat", label: "Hiệu suất của tôi" },
     { key: "tai-khoan", label: "Thông tin tài khoản" },
     ...(membersSeen ? [{ key: "thanh-vien" as const, label: "Thành viên" }] : []),
+    ...(mayInvite ? [{ key: "moi-thanh-vien" as const, label: "Mời thành viên" }] : []),
   ];
 
   return (
@@ -126,8 +143,18 @@ function Account({ me }: { me: AccountMe }) {
         />
       ) : null}
       {activeTab === "thanh-vien" ? (
-        <Members me={me} month={month} onMonth={setMonth} unit={unit} onUnit={setUnit} query={members} />
+        <Members
+          me={me}
+          month={month}
+          onMonth={setMonth}
+          unit={unit}
+          onUnit={setUnit}
+          includeInactive={includeInactive}
+          onIncludeInactive={setIncludeInactive}
+          query={members}
+        />
       ) : null}
+      {activeTab === "moi-thanh-vien" ? <InvitePanel role={me.role} /> : null}
 
       <PasswordDialog
         open={passwordOpen}
@@ -261,13 +288,13 @@ function ProfileHero({
           </div>
         </div>
         {me.units.length > 0 ? (
-          <ul aria-label="Ban của tôi" className="mt-4 flex flex-wrap gap-2">
+          <ul aria-label="Luồng của tôi" className="mt-4 flex flex-wrap gap-2">
             {me.units.map((item) => (
               <li
                 key={item.code}
                 className="inline-flex items-center gap-2 rounded-full border border-[var(--border)] bg-[var(--surface-muted)] py-1 pl-1 pr-3 text-xs"
               >
-                <UnitTags units={[item.code]} />
+                <UnitTags units={[item.code]} functionTag={item.function_tag} isLead={item.is_lead} />
                 <span className="font-medium">{item.role_label}</span>
                 {item.member_code ? (
                   <span className="text-[var(--text-muted)]">
@@ -428,14 +455,16 @@ function AccountSettings({
           ) : null}
         </SettingRow>
         <SettingRow label="Vai trò">{me.role_label}</SettingRow>
-        <SettingRow label="Ban">
+        <SettingRow label="Luồng">
           {me.units.length === 0 ? (
-            <span className="text-[var(--text-muted)]">Chưa thuộc ban nào</span>
+            <span className="text-[var(--text-muted)]">
+              Chưa thuộc luồng nào. Trưởng nhóm sẽ gắn luồng cho bạn.
+            </span>
           ) : (
             <ul className="space-y-2">
               {me.units.map((item) => (
                 <li key={item.code} className="flex flex-wrap items-center gap-2">
-                  <UnitTags units={[item.code]} />
+                  <UnitTags units={[item.code]} functionTag={item.function_tag} isLead={item.is_lead} />
                   <span>{item.role_label}</span>
                   {item.member_code ? (
                     <span className="text-xs text-[var(--text-muted)]">
@@ -625,7 +654,7 @@ function StatCards({ stats }: { stats: MemberStats }) {
     {
       label: "Mục KPI được tính",
       value: String(stats.work_items_counted),
-      hint: "Mục đã tính KPI trong tháng, cả PR và Ads",
+      hint: "Mục đã tính KPI trong tháng, cả PR và ORD",
       icon: "list",
       tone: "amber",
     },
@@ -637,7 +666,7 @@ function StatCards({ stats }: { stats: MemberStats }) {
   }> = [
     {
       unit: "ADS",
-      title: "Order Ads",
+      title: "Order ORD",
       items: [
         { label: "Đang làm", value: String(stats.nodes_in_progress), hint: "Đang giao cho bạn, mọi tháng" },
         { label: "Bị trả sửa", value: String(stats.revisions), warn: stats.revisions > 0 },
@@ -729,6 +758,8 @@ function Members({
   onMonth,
   unit,
   onUnit,
+  includeInactive,
+  onIncludeInactive,
   query,
 }: {
   me: AccountMe;
@@ -736,6 +767,8 @@ function Members({
   onMonth: (value: string) => void;
   unit: string;
   onUnit: (value: string) => void;
+  includeInactive: boolean;
+  onIncludeInactive: (value: boolean) => void;
   query: UseQueryResult<AccountMembers>;
 }) {
   const queryClient = useQueryClient();
@@ -744,6 +777,11 @@ function Members({
   // Who sees the reset control. A convenience only: the server checks every
   // reset again (ADMIN may not reset an OWNER, for one).
   const mayReset = me.role === "OWNER" || me.role === "ADMIN";
+  const viewer = { role: me.role, userId: me.user_id };
+  const refreshMembers = () => {
+    void queryClient.invalidateQueries({ queryKey: ["account", "members"] });
+    void queryClient.invalidateQueries({ queryKey: ["units"] });
+  };
 
   const reset = useMutation({
     mutationFn: (row: MemberRow) => api.resetMemberPassword(row.user_id),
@@ -777,15 +815,27 @@ function Members({
         <div className="flex flex-wrap items-center gap-3">
           <MonthField month={month} onMonth={onMonth} />
           <label className="inline-flex items-center gap-2 text-sm text-[var(--text-muted)]">
-            Ban
+            Luồng
             <Select value={unit} onChange={(event) => onUnit(event.target.value)} className="min-h-10 text-sm">
               <option value="ALL">Tất cả</option>
-              <option value="PR">PR</option>
-              <option value="ADS">Ads</option>
+              <option value="PR">{STREAM_NAMES.PR}</option>
+              <option value="ADS">{STREAM_NAMES.ADS}</option>
             </Select>
           </label>
+          {mayReset ? (
+            <label className="inline-flex min-h-10 items-center gap-2 text-sm text-[var(--text-muted)]">
+              <input
+                type="checkbox"
+                checked={includeInactive}
+                onChange={(event) => onIncludeInactive(event.target.checked)}
+              />
+              Hiện cả tài khoản đã vô hiệu hoá
+            </label>
+          ) : null}
         </div>
       </div>
+
+      <UntaggedPanel />
 
       {notice ? <Notice onDismiss={() => setNotice(null)}>{notice}</Notice> : null}
       {query.isError ? <ErrorBox error={query.error} onRetry={() => query.refetch()} /> : null}
@@ -798,7 +848,7 @@ function Members({
               <thead>
                 <tr>
                   <th>Thành viên</th>
-                  <th>Ban</th>
+                  <th>Luồng</th>
                   <th
                     className={th}
                     aria-sort={sort === "desc" ? "descending" : sort === "asc" ? "ascending" : "none"}
@@ -833,68 +883,94 @@ function Members({
                     </td>
                   </tr>
                 ) : null}
-                {rows.map((row) => (
-                  <tr key={row.user_id}>
-                    <td>
-                      <div className="flex items-center gap-2.5">
-                        <Avatar name={row.full_name} src={row.avatar_url} size={32} />
-                        <div className="min-w-0">
-                          <span className="person">{row.full_name}</span>
-                          <span className="block text-xs text-[var(--text-muted)]">
-                            {row.role_label} · {String(row.telegram_user_id)}
-                          </span>
-                        </div>
-                      </div>
-                    </td>
-                    <td>
-                      <UnitTags units={row.units} />
-                    </td>
-                    <td className="text-right font-semibold tabular-nums">{formatPoints(row.stats.points)}</td>
-                    <td className="text-right tabular-nums">{row.stats.nodes_done}</td>
-                    <td className="text-right tabular-nums">{row.stats.nodes_in_progress}</td>
-                    <td
-                      className={`text-right tabular-nums ${row.stats.revisions > 0 ? "text-[var(--warn)]" : ""}`}
+                {rows.map((row) => {
+                  const active = row.active ?? true;
+                  return (
+                    <tr
+                      key={row.user_id}
+                      data-inactive={active ? undefined : "true"}
+                      className={active ? undefined : "opacity-60"}
                     >
-                      {row.stats.revisions}
-                    </td>
-                    <td className="text-right tabular-nums">
-                      {row.stats.orders_created} / {row.stats.orders_completed}
-                    </td>
-                    <td className="text-right tabular-nums">{row.stats.pr_contents_owned}</td>
-                    <td className="text-right tabular-nums">{row.stats.pr_productions_done}</td>
-                    <td className="text-right tabular-nums">{row.stats.pr_approvals}</td>
-                    <td className="text-right tabular-nums">{row.stats.work_items_counted}</td>
-                    <td className="whitespace-nowrap text-[var(--text-muted)]">
-                      {row.last_login_at ? formatAgo(row.last_login_at) : "Chưa đăng nhập"}
-                    </td>
-                    <td>
-                      <PasswordStatus row={row} />
-                    </td>
-                    {mayReset ? (
-                      <td className="whitespace-nowrap">
-                        {row.user_id === me.user_id ? null : (
-                          <ConfirmButton
-                            spec={resetMemberPasswordConfirmation(row.full_name)}
-                            tone="danger"
-                            ariaLabel={`Đặt lại mật khẩu của ${row.full_name}`}
-                            className="min-h-9 px-3 text-xs"
-                            pending={reset.isPending && reset.variables?.user_id === row.user_id}
-                            error={reset.variables?.user_id === row.user_id ? reset.error : undefined}
-                            onOpenChange={(open) => {
-                              if (open) {
-                                reset.reset();
-                                setNotice(null);
-                              }
-                            }}
-                            onConfirm={() => reset.mutate(row)}
-                          >
-                            Đặt lại mật khẩu
-                          </ConfirmButton>
+                      <td>
+                        <div className="flex items-center gap-2.5">
+                          <Avatar name={row.full_name} src={row.avatar_url} size={32} />
+                          <div className="min-w-0">
+                            <span className="person">{row.full_name}</span>
+                            <span className="block text-xs text-[var(--text-muted)]">
+                              {row.role_label} · {String(row.telegram_user_id)}
+                            </span>
+                            {active ? null : (
+                              <span className="mt-0.5 block">
+                                <DeactivatedPill />
+                              </span>
+                            )}
+                          </div>
+                        </div>
+                      </td>
+                      <td>
+                        {row.units.length > 0 ? (
+                          <UnitTags units={row.units} functionTag={row.function_tag} isLead={row.is_lead} />
+                        ) : (
+                          <span className="text-xs text-[var(--text-muted)]">Chưa có luồng</span>
                         )}
                       </td>
-                    ) : null}
-                  </tr>
-                ))}
+                      <td className="text-right font-semibold tabular-nums">{formatPoints(row.stats.points)}</td>
+                      <td className="text-right tabular-nums">{row.stats.nodes_done}</td>
+                      <td className="text-right tabular-nums">{row.stats.nodes_in_progress}</td>
+                      <td
+                        className={`text-right tabular-nums ${row.stats.revisions > 0 ? "text-[var(--warn)]" : ""}`}
+                      >
+                        {row.stats.revisions}
+                      </td>
+                      <td className="text-right tabular-nums">
+                        {row.stats.orders_created} / {row.stats.orders_completed}
+                      </td>
+                      <td className="text-right tabular-nums">{row.stats.pr_contents_owned}</td>
+                      <td className="text-right tabular-nums">{row.stats.pr_productions_done}</td>
+                      <td className="text-right tabular-nums">{row.stats.pr_approvals}</td>
+                      <td className="text-right tabular-nums">{row.stats.work_items_counted}</td>
+                      <td className="whitespace-nowrap text-[var(--text-muted)]">
+                        {row.last_login_at ? formatAgo(row.last_login_at) : "Chưa đăng nhập"}
+                      </td>
+                      <td>
+                        <PasswordStatus row={row} />
+                      </td>
+                      {mayReset ? (
+                        <td className="whitespace-nowrap">
+                          <div className="flex flex-wrap items-center justify-end gap-1.5">
+                            {row.user_id === me.user_id || !active ? null : (
+                              <ConfirmButton
+                                spec={resetMemberPasswordConfirmation(row.full_name)}
+                                tone="danger"
+                                ariaLabel={`Đặt lại mật khẩu của ${row.full_name}`}
+                                className="min-h-9 px-3 text-xs"
+                                pending={reset.isPending && reset.variables?.user_id === row.user_id}
+                                error={reset.variables?.user_id === row.user_id ? reset.error : undefined}
+                                onOpenChange={(open) => {
+                                  if (open) {
+                                    reset.reset();
+                                    setNotice(null);
+                                  }
+                                }}
+                                onConfirm={() => reset.mutate(row)}
+                              >
+                                Đặt lại mật khẩu
+                              </ConfirmButton>
+                            )}
+                            {mayChangeAccountStatus(viewer, row) ? (
+                              <AccountStatusButton
+                                userId={row.user_id}
+                                name={row.full_name}
+                                active={active}
+                                onDone={refreshMembers}
+                              />
+                            ) : null}
+                          </div>
+                        </td>
+                      ) : null}
+                    </tr>
+                  );
+                })}
               </tbody>
             </table>
           </div>

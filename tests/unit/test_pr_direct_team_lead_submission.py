@@ -82,6 +82,7 @@ from meobot.domain.pr.models import (
 from meobot.domain.pr.policy import PrCapability
 from meobot.domain.pr.workflow import PrTransitionTrigger
 from meobot.tools.pr_content_tools import MANUAL_TARGETS
+from tests.unit.streams import tag_pr
 
 pytestmark = pytest.mark.asyncio
 
@@ -166,6 +167,7 @@ async def world(session: AsyncSession) -> AsyncIterator[World]:
     tiktok = PrPlatform(code="TIKTOK", name="TikTok")
     session.add_all([owner, lead, member, other, brand, website, tiktok])
     await session.flush()
+    await tag_pr(session, [owner, lead, member, other])  # untagged sees no stream
 
     settings = Settings(web_base_url="https://pr.example.com", web_cookie_secure=False)
     services = build_pr_services(session, settings)

@@ -16,7 +16,13 @@ from meobot.application.units.directory import UnitMemberRow
 from meobot.db.models.org_unit import UnitVideoKind
 from meobot.domain.identity.labels import role_label
 from meobot.domain.orders.permissions import ROLE_LABELS, SCOPE_LABELS, catalog, normalise_matrix
-from meobot.domain.units.labels import unit_label, unit_role_label
+from meobot.domain.units.labels import (
+    FUNCTION_TAGS,
+    function_tag,
+    unit_label,
+    unit_role_label,
+    unit_short_label,
+)
 from meobot.domain.units.models import UnitMemberRole, UnitMembership, UnitSettings
 
 
@@ -76,9 +82,13 @@ class UnitEntryResponse(BaseModel):
 
     code: str
     label: str
+    #: The chip tag: "PR" / "ORD".
+    short_label: str
     role: str
     role_label: str
     is_lead: bool
+    #: ORD function roles only: "BT" / "TK" / "D"; null otherwise.
+    function_tag: str | None = None
     member_code: str | None
     personal_nas_url: str | None
     settings: UnitSettingsResponse
@@ -89,11 +99,15 @@ class UnitMeResponse(BaseModel):
 
     units: list[UnitEntryResponse]
     default_unit: str | None
-    #: The OWNER's "all units" view.
+    #: The "all units" view: the OWNER and the ADMIN.
     can_view_all: bool
-    #: Units this caller may administer (OWNER: every unit; ADMIN: the ones
-    #: they are tagged in).
+    #: Units this caller may administer (the OWNER and the ADMIN: every unit).
     can_admin: list[str]
+    #: Streams this caller may tag people into and out of: OWNER/ADMIN every
+    #: stream, a team lead the streams they are tagged in, else none.
+    can_tag: list[str] = []
+    #: No open tag at all. ``units`` is then empty unless OWNER/ADMIN.
+    is_untagged: bool = False
 
     @classmethod
     def from_domain(
@@ -102,12 +116,15 @@ class UnitMeResponse(BaseModel):
         entries: list[UnitEntryResponse],
         *,
         can_admin: list[str],
+        can_tag: list[str] | None = None,
     ) -> UnitMeResponse:
         return cls(
             units=entries,
             default_unit=entries[0].code if entries else None,
-            can_view_all=membership.is_owner,
+            can_view_all=membership.sees_all,
             can_admin=can_admin,
+            can_tag=list(can_tag or []),
+            is_untagged=membership.is_untagged,
         )
 
 
@@ -119,16 +136,23 @@ class UnitMemberResponse(BaseModel):
     role: str
     role_label: str
     is_lead: bool
+    #: ORD function roles only: "BT" / "TK" / "D"; null otherwise.
+    function_tag: str | None = None
     member_code: str | None
     personal_nas_url: str | None
     joined_at: datetime
     left_at: datetime | None
     active: bool
+    #: Additive: the account itself is active (``users.active``), whatever the tag.
+    account_active: bool = True
+    #: Additive: the account's picture, null without one.
+    avatar_url: str | None = None
 
     @classmethod
-    def from_row(cls, row: UnitMemberRow) -> UnitMemberResponse:
+    def from_row(cls, row: UnitMemberRow, avatar_url: str | None = None) -> UnitMemberResponse:
         membership, user = row.membership, row.user
         return cls(
+            avatar_url=avatar_url,
             user_id=user.id,
             full_name=user.full_name,
             base_role=user.role.value,
@@ -136,17 +160,21 @@ class UnitMemberResponse(BaseModel):
             role=membership.role.value,
             role_label=unit_role_label(membership.role, membership.is_lead),
             is_lead=membership.is_lead,
+            function_tag=FUNCTION_TAGS.get(membership.role),
             member_code=membership.member_code,
             personal_nas_url=membership.personal_nas_url,
             joined_at=membership.joined_at,
             left_at=membership.left_at,
             active=membership.left_at is None and user.active,
+            account_active=bool(user.active),
         )
 
 
 class UnitMemberListResponse(BaseModel):
     unit: str
     unit_label: str
+    #: The chip tag: "PR" / "ORD".
+    unit_short_label: str
     members: list[UnitMemberResponse]
     #: What the admin page may offer in its role picker for this unit.
     assignable_roles: list[RoleOptionResponse]
@@ -170,6 +198,22 @@ class DirectoryUserResponse(BaseModel):
     base_role_label: str
     active: bool
     units: list[str]
+
+
+class UntaggedUserResponse(BaseModel):
+    """An active account with no open tag, waiting for a stream."""
+
+    user_id: uuid.UUID
+    full_name: str
+    telegram_username: str | None
+    role: str
+    role_label: str
+    created_at: datetime
+    avatar_url: str | None = None
+
+
+class UntaggedUsersResponse(BaseModel):
+    users: list[UntaggedUserResponse]
 
 
 class TagMemberRequest(BaseModel):
@@ -262,9 +306,11 @@ def unit_entry(
     return UnitEntryResponse(
         code=code,
         label=unit_label(UnitCode(code)),
+        short_label=unit_short_label(UnitCode(code)),
         role=role.value,
         role_label=unit_role_label(role, is_lead),
         is_lead=is_lead,
+        function_tag=function_tag(UnitCode(code), role),
         member_code=member_code,
         personal_nas_url=personal_nas_url,
         settings=UnitSettingsResponse.from_domain(settings),
@@ -283,6 +329,8 @@ __all__ = [
     "UnitMemberListResponse",
     "UnitMemberResponse",
     "UnitSettingsResponse",
+    "UntaggedUserResponse",
+    "UntaggedUsersResponse",
     "UpdateMemberRequest",
     "UpdateUnitSettingsRequest",
     "UpdateVideoKindRequest",

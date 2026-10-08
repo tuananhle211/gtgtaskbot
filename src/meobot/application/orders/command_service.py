@@ -180,7 +180,7 @@ class OrderCommandService:
         context = OrderActorContext.from_membership(membership, settings)
         if actor.user_id is None or not context.permissions.allows(AdsPermission.ORDER_CREATE):
             raise OrderValidationError(
-                "Bạn chưa có quyền tạo order trong ban Ads.",
+                "Bạn chưa có quyền tạo order trong luồng ORD.",
                 details={"reason": "not_an_orderer"},
             )
         self._validate_fields(
@@ -1189,7 +1189,7 @@ class OrderCommandService:
         rows = await self._directory.members(unit_id, role=wanted)
         if not any(row.user.id == user_id for row in rows):
             raise OrderValidationError(
-                "Người được chọn không thuộc đúng bộ phận của ban Ads.",
+                "Người được chọn không thuộc đúng bộ phận của luồng ORD.",
                 details={
                     "reason": "not_a_unit_function_member",
                     "node_type": node_type.value,

@@ -3,10 +3,22 @@
 Who may administer a unit
 -------------------------
 
-The OWNER, any unit. An ADMIN, only a unit they are tagged into - the ADMIN
-role widens what somebody may do *inside* a unit, never which units they can
-see. Everyone else is refused with a 403 that names the unit, because they
-are inside it and already know it exists.
+The OWNER and the ADMIN, any unit: settings, the permission matrix, video
+kinds. Everyone else is refused with a 403 that names the unit when they are
+inside it (an outsider reads the usual 404).
+
+Who may tag
+-----------
+
+Tagging (add to a stream, change the role or lead flag there, remove from it)
+is wider than administering:
+
+* the OWNER and the ADMIN tag anyone into any stream;
+* a ``TEAM_LEAD`` ("Trưởng nhóm") with an open tag in stream X tags people
+  into X only - an untagged person or one from the other stream - and changes
+  or closes tags in X. Never in the other stream, never an OWNER or ADMIN
+  account, never themselves;
+* everybody else: 403 ``unit_tag_forbidden``.
 
 What the writes guarantee
 -------------------------
@@ -54,6 +66,7 @@ from meobot.domain.orders.permissions import AdsPermissionMatrixError, normalise
 from meobot.domain.units.errors import (
     UnitAccessDeniedError,
     UnitNotFoundError,
+    UnitTagForbiddenError,
     UnitValidationError,
 )
 from meobot.domain.units.labels import LEAD_ROLE_LABELS
@@ -84,14 +97,52 @@ class UnitAdminService:
 
     @staticmethod
     def administers(membership: UnitMembership, actor: Actor, code: UnitCode) -> bool:
-        """Whether ``actor`` may administer ``code``. OWNER: any; ADMIN: tagged ones."""
-        if actor.role is Role.OWNER:
-            return True
-        return actor.role is Role.ADMIN and membership.entry(code) is not None
+        """Whether ``actor`` may administer ``code``: the OWNER and the ADMIN, any unit."""
+        del membership, code  # every unit, for both
+        return actor.role in (Role.OWNER, Role.ADMIN)
 
     async def admin_units(self, actor: Actor) -> list[UnitCode]:
         membership = await self._directory.membership_for(actor)
         return [code for code in UnitCode if self.administers(membership, actor, code)]
+
+    @staticmethod
+    def tags_in(membership: UnitMembership, actor: Actor, code: UnitCode) -> bool:
+        """Whether ``actor`` may tag people into (and out of) ``code``."""
+        if actor.role in (Role.OWNER, Role.ADMIN):
+            return True
+        return actor.role is Role.TEAM_LEAD and membership.entry(code) is not None
+
+    @classmethod
+    def tag_units(cls, membership: UnitMembership, actor: Actor) -> list[UnitCode]:
+        """The streams ``actor`` may tag in (``can_tag`` on ``/api/units/me``)."""
+        return [code for code in UnitCode if cls.tags_in(membership, actor, code)]
+
+    async def _require_tagger(self, actor: Actor, code: UnitCode, target_id: uuid.UUID) -> OrgUnit:
+        """The unit, when ``actor`` may tag ``target_id`` in it.
+
+        An outsider of the unit who tags nowhere reads the usual 404; anybody
+        else who may not tag here (an employee of the unit, a team lead of the
+        other stream, a team lead aiming at an OWNER/ADMIN account or at
+        themselves) a 403 ``unit_tag_forbidden``.
+        """
+        membership = await self._directory.membership_for(actor)
+        if not membership.has(code) and not self.tag_units(membership, actor):
+            # Somebody who tags nowhere is told nothing about another stream;
+            # a team lead of the other stream already knows it exists.
+            raise UnitNotFoundError("Không tìm thấy.", details={"reason": "unit_not_visible"})
+        if not self.tags_in(membership, actor, code):
+            raise UnitTagForbiddenError(code)
+        if actor.role is Role.TEAM_LEAD:
+            if actor.user_id is not None and target_id == actor.user_id:
+                raise UnitTagForbiddenError(
+                    code, "Bạn không thể tự gắn hoặc gỡ luồng của chính mình."
+                )
+            target = await self._session.get(User, target_id)
+            if target is not None and target.role in (Role.OWNER, Role.ADMIN):
+                raise UnitTagForbiddenError(
+                    code, "Trưởng nhóm không gắn hoặc gỡ luồng cho Quản trị viên hay Chủ sở hữu."
+                )
+        return await self._directory.unit(code)
 
     async def _require_admin(self, actor: Actor, code: UnitCode) -> OrgUnit:
         membership = await self._directory.membership_for(actor)
@@ -119,7 +170,7 @@ class UnitAdminService:
         member_code: str | None = None,
         personal_nas_url: str | None = None,
     ) -> UnitMemberRow:
-        unit = await self._require_admin(actor, code)
+        unit = await self._require_tagger(actor, code, user_id)
         user = await self._session.get(User, user_id)
         if user is None:
             raise UnitValidationError(
@@ -182,7 +233,7 @@ class UnitAdminService:
         personal_nas_url: str | None = None,
         clear_personal_nas_url: bool = False,
     ) -> UnitMemberRow:
-        unit = await self._require_admin(actor, code)
+        unit = await self._require_tagger(actor, code, user_id)
         row = await self._directory.member(unit.id, user_id)
         if row is None or row.left_at is not None:
             raise UnitNotFoundError(
@@ -221,7 +272,7 @@ class UnitAdminService:
     async def untag_member(
         self, *, actor: Actor, request_id: uuid.UUID, code: UnitCode, user_id: uuid.UUID
     ) -> UnitMemberRow:
-        unit = await self._require_admin(actor, code)
+        unit = await self._require_tagger(actor, code, user_id)
         row = await self._directory.member(unit.id, user_id)
         if row is None or row.left_at is not None:
             raise UnitNotFoundError(
@@ -255,11 +306,13 @@ class UnitAdminService:
     async def directory(self, *, actor: Actor) -> list[tuple[User, list[UnitCode]]]:
         """Every account with its open tags, for the add-member picker.
 
-        Only for somebody who administers at least one unit.
+        Only for somebody who may tag in at least one unit.
         """
-        if not await self.admin_units(actor):
+        membership = await self._directory.membership_for(actor)
+        if not self.tag_units(membership, actor):
             raise UnitAccessDeniedError(
-                "Bạn không có quyền quản trị ban nào.", details={"reason": "unit_admin_forbidden"}
+                "Bạn không có quyền quản trị luồng nào.",
+                details={"reason": "unit_admin_forbidden"},
             )
         users = (await self._session.scalars(select(User).order_by(User.full_name, User.id))).all()
         tags = (
@@ -273,6 +326,25 @@ class UnitAdminService:
         for user_id, unit_code in tags:
             by_user.setdefault(user_id, []).append(UnitCode(unit_code))
         return [(user, sorted(by_user.get(user.id, []))) for user in users]
+
+    async def untagged(self, *, actor: Actor) -> list[User]:
+        """Active accounts with no open tag, newest first - the people waiting
+        for a stream. For the OWNER, the ADMIN and any team lead tagged
+        somewhere (``unit_tag_forbidden`` otherwise)."""
+        membership = await self._directory.membership_for(actor)
+        if not self.tag_units(membership, actor):
+            raise UnitTagForbiddenError()
+        open_tag = exists(
+            select(OrgUnitMember.id).where(
+                OrgUnitMember.user_id == User.id, OrgUnitMember.left_at.is_(None)
+            )
+        )
+        statement = (
+            select(User)
+            .where(User.active.is_(True), ~open_tag)
+            .order_by(User.created_at.desc(), User.full_name, User.id)
+        )
+        return list((await self._session.scalars(statement)).all())
 
     # --- video kinds -----------------------------------------------------------
 
@@ -486,7 +558,9 @@ class UnitAdminService:
         if code is not UnitCode.ADS:
             return warnings
         if not await self._directory.heads(unit.id):
-            warnings.append(("no_head", "Ban chưa có Trưởng phòng Ads: không ai duyệt được order."))
+            warnings.append(
+                ("no_head", "Luồng ORD chưa có Trưởng phòng ORD: không ai duyệt được order.")
+            )
         for node_type in (OrderNodeType.BIEN_TAP, OrderNodeType.THIET_KE, OrderNodeType.DUNG):
             members = await self._directory.function_members(unit.id, node_type)
             if members and not any(row.membership.is_lead for row in members):
@@ -495,7 +569,7 @@ class UnitAdminService:
                         f"no_lead_{node_type.value.lower()}",
                         f"Ban {node_type_label(node_type)} có thành viên nhưng chưa có "
                         f"{LEAD_ROLE_LABELS[ROLE_FOR_NODE[node_type]]}: việc tới sẽ dồn về "
-                        "Trưởng phòng Ads.",
+                        "Trưởng phòng ORD.",
                     )
                 )
         orderers = await self._directory.members(unit.id, role=UnitMemberRole.ORDERER)

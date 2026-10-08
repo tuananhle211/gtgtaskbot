@@ -2,18 +2,21 @@
 
 Authority lives here, not in the router:
 
-* **the member list** - the OWNER sees everyone; an ADMIN sees the members of
-  the units they are tagged in; the Ads HEAD sees the Ads members. Anybody else
-  is refused with ``account_members_forbidden``;
+* **the member list** - the OWNER and the ADMIN see everyone (and, with
+  ``include_inactive``, the deactivated accounts too); the ORD head
+  ("Trưởng phòng ORD") sees the ORD members. Anybody else is refused with
+  ``account_members_forbidden``;
 * **a password reset** - the OWNER for anyone but themselves; an ADMIN for
-  somebody in one of their units who is not an OWNER. A reset gives the account
+  anyone but themselves and an OWNER;
+* **deactivate / reactivate** - the OWNER and the ADMIN, never on themselves
+  nor on an OWNER (``account_status_forbidden``). Deactivating closes every web
+  session of the account. A reset gives the account
   a random temporary password sent to the person's Telegram (the same flow as
   "Quên mật khẩu?", :mod:`~meobot.application.account.password_reset_service`),
   clears the lockout and signs the person out everywhere.
 
-Unit membership follows the units module's legacy rule: a user with no
-``org_unit_members`` row at all is a PR member; a user whose rows are all
-closed belongs to no unit.
+A user with no open ``org_unit_members`` row belongs to no stream; their row
+lists no unit.
 """
 
 from __future__ import annotations
@@ -36,9 +39,11 @@ from meobot.core.time import ensure_utc, utcnow
 from meobot.db.models.org_unit import OrgUnit, OrgUnitMember
 from meobot.db.models.user import User
 from meobot.db.models.web_session import WebSession, WebSessionKind
+from meobot.domain.access.models import UserStatus
 from meobot.domain.account.errors import (
     AccountMembersForbiddenError,
     AccountNotFoundError,
+    AccountStatusForbiddenError,
     AccountValidationError,
     PasswordResetForbiddenError,
     PasswordResetUndeliverableError,
@@ -90,11 +95,9 @@ class _Visibility:
 
 
 def _visibility(actor: Actor, membership: UnitMembership) -> _Visibility | None:
-    if actor.role is Role.OWNER:
+    if actor.role in (Role.OWNER, Role.ADMIN):
         return _Visibility(everyone=True, units=frozenset(UnitCode))
     units: set[UnitCode] = set()
-    if actor.role is Role.ADMIN:
-        units |= {entry.unit_code for entry in membership.entries}
     ads = membership.entry(UnitCode.ADS)
     if ads is not None and ads.role is UnitMemberRole.HEAD:
         units.add(UnitCode.ADS)
@@ -184,19 +187,21 @@ class AccountService:
         membership: UnitMembership,
         month: Month,
         unit: str | None,
+        include_inactive: bool = False,
     ) -> MemberListing:
         visibility = _visibility(actor, membership)
         if visibility is None:
+            raise AccountMembersForbiddenError()
+        if include_inactive and actor.role not in (Role.OWNER, Role.ADMIN):
             raise AccountMembersForbiddenError()
         wanted = self._parse_unit_filter(unit)
         if wanted is not None and wanted not in visibility.units:
             raise AccountMembersForbiddenError()
 
-        users = (
-            await self._session.scalars(
-                select(User).where(User.active.is_(True)).order_by(User.full_name, User.id)
-            )
-        ).all()
+        statement = select(User).order_by(User.full_name, User.id)
+        if not include_inactive:
+            statement = statement.where(User.active.is_(True))
+        users = (await self._session.scalars(statement)).all()
         units_by_user = await self._units_of([user.id for user in users])
 
         listed: list[tuple[User, tuple[MemberUnit, ...]]] = []
@@ -253,8 +258,7 @@ class AccountService:
         Raises:
             PasswordResetForbiddenError: not OWNER/ADMIN, an ADMIN aiming at an
                 OWNER, or anybody aiming at themselves (use the change form).
-            AccountNotFoundError: no such account, or (for an ADMIN) one outside
-                every unit they are tagged in.
+            AccountNotFoundError: no such account.
             PasswordResetUndeliverableError: MeoBot cannot DM the member (no
                 Telegram id, or they never started the bot); nothing changes.
         """
@@ -267,13 +271,8 @@ class AccountService:
         target = await self._session.get(User, user_id)
         if target is None:
             raise AccountNotFoundError()
-        if actor.role is Role.ADMIN:
-            if target.role is Role.OWNER:
-                raise PasswordResetForbiddenError()
-            mine = {entry.unit_code for entry in membership.entries}
-            theirs = {unit.code for unit in (await self._units_of([target.id])).get(target.id, ())}
-            if not mine & theirs:
-                raise AccountNotFoundError()
+        if actor.role is Role.ADMIN and target.role is Role.OWNER:
+            raise PasswordResetForbiddenError()
 
         chat_id = await self._resets.private_chat_of(target)
         if chat_id is None:
@@ -292,6 +291,86 @@ class AccountService:
         )
         return revoked
 
+    # --- status ---------------------------------------------------------------------
+
+    async def set_active(
+        self,
+        *,
+        actor: Actor,
+        request_id: uuid.UUID,
+        user_id: uuid.UUID,
+        active: bool,
+    ) -> User:
+        """Deactivate (``active=False``) or reactivate an account.
+
+        The same lifecycle the PR members screen and ``/suspend_user`` write
+        (status ``SUSPENDED`` <-> ``ACTIVE``), stream-neutral and open to the
+        ADMIN as well as the OWNER. Deactivating closes every web session of
+        the account. A no-op when the account is already in that state.
+
+        Raises:
+            AccountStatusForbiddenError: not OWNER/ADMIN, on oneself, or on an
+                OWNER account.
+            AccountNotFoundError: no such account.
+            AccountValidationError: ``account_revoked`` - a revoked account is
+                restored deliberately elsewhere, never reactivated here.
+        """
+        if actor.role not in (Role.OWNER, Role.ADMIN):
+            raise AccountStatusForbiddenError()
+        if actor.user_id == user_id:
+            raise AccountStatusForbiddenError(
+                "Bạn không thể tự vô hiệu hoá hoặc kích hoạt tài khoản của chính mình."
+            )
+        target = await self._session.get(User, user_id)
+        if target is None:
+            raise AccountNotFoundError()
+        if target.role is Role.OWNER:
+            raise AccountStatusForbiddenError("Không thể thay đổi trạng thái tài khoản Chủ sở hữu.")
+        if active and target.status is UserStatus.REVOKED:
+            raise AccountValidationError(
+                "account_revoked",
+                "Tài khoản này đã bị loại khỏi hệ thống và không thể kích hoạt lại tại đây.",
+            )
+        already = (
+            target.active and target.status is UserStatus.ACTIVE if active else not target.active
+        )
+        if already:
+            return target
+        before = target.status
+        now = utcnow()
+        revoked = 0
+        if active:
+            target.status = UserStatus.ACTIVE
+            target.active = True
+            target.suspended_at = None
+            target.suspended_by_user_id = None
+            target.status_reason = None
+        else:
+            target.status = UserStatus.SUSPENDED
+            target.active = False
+            target.suspended_at = now
+            target.suspended_by_user_id = actor.user_id
+        target.last_status_changed_at = now
+        await self._session.flush()
+        if not active:
+            revoked = await self._auth.revoke_all_for_user(user_id=target.id)
+        await self._audit.record_action(
+            request_id=request_id,
+            actor=actor,
+            action=(AuditAction.USER_ENABLED if active else AuditAction.USER_SUSPENDED).value,
+            result=AuditResult.SUCCESS,
+            entity_type="user",
+            entity_id=str(target.id),
+            before_data={"status": before.value if before is not None else None},
+            after_data={
+                "status": target.status.value,
+                "active": target.active,
+                "via": "account",
+                "sessions_revoked": revoked,
+            },
+        )
+        return target
+
     # --- internals ----------------------------------------------------------------------
 
     @staticmethod
@@ -306,7 +385,7 @@ class AccountService:
             ) from error
 
     async def _units_of(self, user_ids: list[uuid.UUID]) -> dict[uuid.UUID, tuple[MemberUnit, ...]]:
-        """Each person's open tags, with the legacy rule. One query."""
+        """Each person's open tags (none when untagged). One query."""
         if not user_ids:
             return {}
         rows = (
@@ -324,10 +403,8 @@ class AccountService:
                 .order_by(OrgUnit.code)
             )
         ).all()
-        has_rows: set[uuid.UUID] = set()
         units: dict[uuid.UUID, list[MemberUnit]] = defaultdict(list)
         for user_id, code, role, is_lead, member_code, left_at in rows:
-            has_rows.add(user_id)
             if left_at is None:
                 units[user_id].append(
                     MemberUnit(
@@ -337,11 +414,7 @@ class AccountService:
                         member_code=member_code,
                     )
                 )
-        legacy = (MemberUnit(code=UnitCode.PR, role=UnitMemberRole.MEMBER),)
-        return {
-            user_id: (tuple(units[user_id]) if user_id in has_rows else legacy)
-            for user_id in user_ids
-        }
+        return {user_id: tuple(units.get(user_id, ())) for user_id in user_ids}
 
     async def _last_logins(self, user_ids: list[uuid.UUID]) -> dict[uuid.UUID, datetime]:
         if not user_ids:
