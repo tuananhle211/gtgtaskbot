@@ -37,9 +37,17 @@ jobs:
           username: ${{ secrets.VPS_DEV_USERNAME }}
           password: ${{ secrets.VPS_DEV_PASSWORD }}
           port: ${{ secrets.VPS_DEV_PORT }}
+          # Any failing line stops the deploy: the old code keeps running.
+          script_stop: true
           script: |
             cd /root/gtgtask
             git fetch origin
             git reset --hard origin/dev
             docker compose --profile web --profile tunnel build
+            # Back up the database first, keeping the 10 newest dumps.
+            mkdir -p ~/db-backups
+            docker compose exec -T postgres sh -c 'pg_dump -U "$POSTGRES_USER" -d "$POSTGRES_DB" -Fc' > ~/db-backups/before-deploy-$(date +%F-%H%M).dump
+            ls -t ~/db-backups/*.dump | tail -n +11 | xargs -r rm
+            # Migrate with the new image before the new api starts.
+            docker compose --profile web --profile tunnel run --rm api alembic upgrade head
             docker compose --profile web --profile tunnel up -d
