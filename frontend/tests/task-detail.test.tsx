@@ -510,6 +510,116 @@ describe("an Ads task", () => {
   });
 });
 
+describe("an Ads task handed out but not accepted", () => {
+  const ASSIGNED: UnifiedTaskDetail = {
+    ...ADS,
+    task: {
+      ...ADS.task,
+      stage: "DUNG",
+      stage_label: "Dựng · Đã giao Quỳnh Như",
+      state: "DA_GIAO",
+      current_person: { user_id: EDITOR_ID, name: "Quỳnh Như" },
+    },
+    steps: [
+      {
+        key: "BIEN_TAP",
+        label: "Biên tập",
+        person_name: "Hiền Lương",
+        status: "HOAN_THANH",
+        status_label: "Hoàn thành",
+        is_current: false,
+        since: "2026-10-07T03:00:00+00:00",
+        revisions: 0,
+      },
+      {
+        key: "THIET_KE",
+        label: "Thiết kế",
+        person_name: "Thảo Vy",
+        status: "CHO_PHAN_CONG",
+        status_label: "Chờ Thảo Vy phân công",
+        is_current: false,
+        since: null,
+        revisions: 0,
+      },
+      {
+        key: "DUNG",
+        label: "Dựng",
+        person_name: "Quỳnh Như",
+        status: "DA_GIAO",
+        status_label: "Đã giao Quỳnh Như",
+        is_current: true,
+        since: "2026-10-07T04:00:00+00:00",
+        revisions: 0,
+      },
+      {
+        key: "FINAL",
+        label: "Duyệt final",
+        person_name: "Tuấn Marketing",
+        status: "CHO_DUYET",
+        status_label: "Chờ Tuấn Marketing duyệt final",
+        is_current: false,
+        since: null,
+        revisions: 0,
+      },
+    ],
+    actions: [
+      {
+        key: "ads:SUBMIT_WORK:n-3",
+        label: "Nộp sản phẩm · Dựng",
+        emphasis: "PRIMARY",
+        requires_note: false,
+        inputs: ["link", "note"],
+        assignee_options: [],
+        required_inputs: ["link"],
+      },
+    ],
+  };
+
+  it("shows Đã giao and every waiting step in amber, with no Gắn link step", async () => {
+    stubFetch([{ match: `/api/tasks/${ADS.task.code}`, body: ASSIGNED }]);
+    renderWithQuery(<TaskDetailPage />);
+    const strip = await screen.findByRole("region", { name: "Tiến trình" });
+    expect(within(strip).queryByText(/Gắn link/)).not.toBeInTheDocument();
+    expect(within(strip).getByText("Duyệt final")).toBeInTheDocument();
+    const badge = (text: string) =>
+      within(strip).getByText(text).closest(".st") as HTMLElement;
+    expect(badge("Đã giao Quỳnh Như")).toHaveClass("st-amber");
+    expect(badge("Chờ Thảo Vy phân công")).toHaveClass("st-amber");
+    expect(badge("Chờ Tuấn Marketing duyệt final")).toHaveClass("st-amber");
+    expect(badge("Hoàn thành")).toHaveClass("st-green");
+    // The header says who it was handed to, in amber.
+    const header = screen.getAllByText("Dựng · Đã giao Quỳnh Như")[0];
+    expect(header).toHaveClass("bg-amber-500/15");
+  });
+
+  it("will not send the last node's hand-in without the product link", async () => {
+    const stub = stubFetch([
+      { match: `/api/tasks/${ADS_TASK_ID}/actions`, method: "POST", body: ASSIGNED },
+      { match: `/api/tasks/${ADS.task.code}`, body: ASSIGNED },
+    ]);
+    renderWithQuery(<TaskDetailPage />);
+    await userEvent.click(
+      await screen.findByRole("button", { name: "Nộp sản phẩm · Dựng" }),
+    );
+    const dialog = await screen.findByRole("dialog");
+    const confirm = within(dialog).getByRole("button", { name: "Nộp sản phẩm · Dựng" });
+    expect(confirm).toBeDisabled();
+    await userEvent.type(
+      within(dialog).getByLabelText("Link sản phẩm (bắt buộc)"),
+      "https://drive.example.com/final.mp4",
+    );
+    expect(confirm).toBeEnabled();
+    await userEvent.click(confirm);
+    await waitFor(() =>
+      expect(posts(stub)[0]?.body).toEqual({
+        key: "ads:SUBMIT_WORK:n-3",
+        version: 4,
+        link: "https://drive.example.com/final.mp4",
+      }),
+    );
+  });
+});
+
 describe("a PR task", () => {
   it("draws the PR fields only, and offers the PR editors as tabs", async () => {
     currentRef = CONTENT_ID;

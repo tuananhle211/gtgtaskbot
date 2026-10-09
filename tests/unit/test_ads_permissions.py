@@ -159,6 +159,7 @@ async def test_06_who_a_review_waits_for_follows_the_matrix(world: World) -> Non
     detail = act(
         world, ads.lead_dung, f"/nodes/{dung}/assign", detail, assignee_user_id=str(ads.editor.id)
     )
+    detail = act(world, ads.editor, f"/nodes/{dung}/accept", detail)
     detail = act(world, ads.editor, f"/nodes/{dung}/submit", detail, link="https://example.com/c")
 
     def holder() -> str:

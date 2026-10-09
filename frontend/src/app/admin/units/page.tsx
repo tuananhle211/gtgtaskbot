@@ -6,7 +6,7 @@ import { api } from "@/lib/api";
 import { PageHeader } from "@/components/pr";
 import { ErrorBox, Loading } from "@/components/states";
 import { UnitPanel } from "@/components/unit-panel";
-import { taggableUnits, unitName } from "@/lib/units";
+import { taggableUnits, unitName, byStreamOrder } from "@/lib/units";
 
 /**
  * Tags, roles and settings per stream. Who may administer or tag in which
@@ -48,7 +48,7 @@ export default function UnitsAdminPage() {
           aria-label="Luồng"
           className="flex gap-2 border-b border-[var(--border)]"
         >
-          {units.map((unit) => (
+          {byStreamOrder(units).map((unit) => (
             <button
               key={unit}
               type="button"

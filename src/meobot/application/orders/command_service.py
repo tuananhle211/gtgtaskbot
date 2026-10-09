@@ -7,9 +7,14 @@ is one), audit, notify. All on the caller's session, so the request's one
 transaction commits all of it or none.
 
 The pipeline's rules are in :mod:`meobot.domain.orders.pipeline`; this
-module only knows about rows. The invariant "one active node per order" is
-kept by flushing a node's completion **before** the next one is activated -
-the partial unique index would otherwise see both inside one statement.
+module only knows about rows. The last production node's hand-in is the
+product: it must carry the link, and its completion opens the gates (the
+script lead's video review where it applies, then the orderer's final review).
+A gate sending the product back reopens that node for the same person.
+
+The invariant "one active node per order" is kept by flushing a node's
+completion **before** the next one is activated - the partial unique index
+would otherwise see both inside one statement.
 """
 
 from __future__ import annotations
@@ -33,7 +38,7 @@ from meobot.application.units.directory import ROLE_FOR_NODE, UnitDirectoryServi
 from meobot.core.config import Settings
 from meobot.core.time import utcnow
 from meobot.db.models.order import Order, OrderApproval, OrderEvent, OrderNode, OrderSubmission
-from meobot.db.models.org_unit import OrgUnitMember, UnitVideoKind
+from meobot.db.models.org_unit import OrgUnitMember, UnitDuration, UnitPlatform, UnitVideoKind
 from meobot.domain.audit.models import AuditAction
 from meobot.domain.identity.models import Actor
 from meobot.domain.orders.errors import (
@@ -42,6 +47,7 @@ from meobot.domain.orders.errors import (
     OrderValidationError,
 )
 from meobot.domain.orders.models import (
+    ACTIVE_NODE_STATUSES,
     OrderApprovalDecision,
     OrderApprovalGate,
     OrderEventKind,
@@ -50,6 +56,7 @@ from meobot.domain.orders.models import (
     OrderScriptSource,
     OrderStage,
     OrderVideoType,
+    last_production_node,
     needs_design_link,
 )
 from meobot.domain.orders.permissions import AdsPermission
@@ -61,8 +68,9 @@ from meobot.domain.orders.pipeline import (
     activation_status,
     assert_allowed,
     first_node,
+    function_node,
+    hands_in_product,
     initial_node_statuses,
-    link_attacher_node,
     next_node,
     node_needs_review,
     stage_for_node,
@@ -87,6 +95,9 @@ class CreateOrderCommand:
     #: The video kind from the unit's catalogue. Required while the unit
     #: offers at least one active kind.
     video_kind_id: uuid.UUID | None = None
+    platform_id: uuid.UUID | None = None
+    duration_id: uuid.UUID | None = None
+    note: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -102,6 +113,9 @@ class OrderEdit:
     preassigned: dict[OrderNodeType, uuid.UUID] | None = None
     #: A different video kind; its name and points are snapshotted again.
     video_kind_id: uuid.UUID | None = None
+    platform_id: uuid.UUID | None = None
+    duration_id: uuid.UUID | None = None
+    note: str | None = None
 
 
 @dataclass(slots=True)
@@ -136,15 +150,18 @@ class _Loaded:
 
     def active(self) -> OrderNode | None:
         for node in self.nodes.values():
-            if node.status in (
-                OrderNodeStatus.CHUA_GIAO,
-                OrderNodeStatus.DANG_LAM,
-                OrderNodeStatus.AI_DANG_REVIEW,
-                OrderNodeStatus.CHO_DUYET,
-                OrderNodeStatus.DANG_SUA,
-            ):
+            if node.status in ACTIVE_NODE_STATUSES:
                 return node
         return None
+
+    def product(self) -> OrderNode:
+        """The node whose hand-in is the product: the process's last one."""
+        return self.nodes[last_production_node(self.order.video_type)]
+
+    def legacy_link(self) -> OrderNode | None:
+        """The old "Gắn link" node, on an order created before it was folded
+        into the last production node."""
+        return self.nodes.get(OrderNodeType.GAN_LINK)
 
 
 class OrderCommandService:
@@ -186,8 +203,10 @@ class OrderCommandService:
         self._validate_fields(
             command.video_type, command.title, command.order_content, command.design_link
         )
-        await self._validate_preassigned(unit.id, command.video_type, command.preassigned, settings)
+        await self._validate_preassigned(unit.id, command.video_type, command.preassigned)
         kind = await self._video_kind(unit.id, command.video_kind_id, required=True)
+        platform = await self._platform(unit.id, command.platform_id, required=True)
+        duration = await self._duration(unit.id, command.duration_id, required=True)
 
         member_code = None if entry is None else entry.member_code
         if member_code is None:
@@ -208,11 +227,17 @@ class OrderCommandService:
             video_kind_id=None if kind is None else kind.id,
             video_kind_name=None if kind is None else kind.name,
             video_kind_points=None if kind is None else Decimal(kind.points),
+            platform_id=None if platform is None else platform.id,
+            platform_name=None if platform is None else platform.name,
+            duration_id=None if duration is None else duration.id,
+            duration_name=None if duration is None else duration.name,
+            duration_points=None if duration is None else Decimal(duration.points),
             order_content=command.order_content.strip(),
             script_source=command.script_source,
             design_link=_blank_to_none(command.design_link),
             reference_link=_blank_to_none(command.reference_link),
             source_link=_blank_to_none(command.source_link),
+            note=_blank_to_none(command.note),
             owner_user_id=actor.user_id,
             stage=OrderStage.ORDER_PENDING,
             submitted_at=now,
@@ -268,10 +293,21 @@ class OrderCommandService:
             order.video_kind_id = kind.id
             order.video_kind_name = kind.name
             order.video_kind_points = Decimal(kind.points)
+        if edit.platform_id is not None:
+            plat = await self._platform(order.unit_id, edit.platform_id, required=False)
+            assert plat is not None
+            order.platform_id = plat.id
+            order.platform_name = plat.name
+        if edit.duration_id is not None:
+            dur = await self._duration(order.unit_id, edit.duration_id, required=False)
+            assert dur is not None
+            order.duration_id = dur.id
+            order.duration_name = dur.name
+            order.duration_points = Decimal(dur.points)
+        if edit.note is not None:
+            order.note = _blank_to_none(edit.note)
         if edit.preassigned is not None:
-            await self._validate_preassigned(
-                order.unit_id, order.video_type, edit.preassigned, loaded.settings
-            )
+            await self._validate_preassigned(order.unit_id, order.video_type, edit.preassigned)
             for node_type, node in loaded.nodes.items():
                 node.preassigned_user_id = edit.preassigned.get(node_type)
         order.stage = OrderStage.ORDER_PENDING
@@ -363,7 +399,6 @@ class OrderCommandService:
             loaded.order.unit_id,
             node.node_type,
             assignee_user_id,
-            loaded.settings,
             video_type=loaded.order.video_type,
         )
         before = self._snapshot(loaded.order)
@@ -444,6 +479,12 @@ class OrderCommandService:
             node_id=node.id,
         )
         link, script_text = _blank_to_none(link), _blank_to_none(script_text)
+        if link is None and hands_in_product(loaded.order.video_type, node.node_type):
+            # The last node's hand-in is the product the orderer reviews.
+            raise OrderValidationError(
+                "Công đoạn cuối cần nộp link sản phẩm.",
+                details={"reason": "link_required", "field": "link"},
+            )
         if link is None and script_text is None:
             raise OrderValidationError(
                 "Nộp bài cần có link hoặc nội dung kịch bản.",
@@ -469,6 +510,16 @@ class OrderCommandService:
         await self._audit_order(
             actor, request_id, AuditAction.ORDER_NODE_SUBMITTED, loaded.order, before=before
         )
+        if node.node_type is OrderNodeType.GAN_LINK:
+            # A legacy order caught at the old link step: the link is in, the
+            # step is over, the gates open. Never counted.
+            node.status = OrderNodeStatus.HOAN_THANH
+            node.version += 1
+            await self._session.flush()
+            await self._open_gates(loaded, node, actor, submission)
+            self._bump(loaded.order)
+            await self._session.flush()
+            return loaded.order
         if not node_needs_review(loaded.settings, node.node_type):
             # No Leader review for this node (a unit setting): handing in
             # finishes it and the next node starts straight away.
@@ -519,7 +570,8 @@ class OrderCommandService:
         *,
         note: str | None,
     ) -> None:
-        """Finish a production node, count it, and start the next one.
+        """Finish a production node, count it, and start the next one - or,
+        after the last node, open the gates with its hand-in as the product.
 
         Reached from a Leader's approval, or straight from the hand-in when
         the unit does not review that node.
@@ -550,8 +602,39 @@ class OrderCommandService:
         following = next_node(order.video_type, node.node_type)
         if following is not None:
             await self._activate(loaded, loaded.nodes[following], actor, now, first=False)
+        else:
+            await self._open_gates(loaded, node, actor, latest)
         self._bump(order)
         await self._session.flush()
+
+    async def _open_gates(
+        self,
+        loaded: _Loaded,
+        node: OrderNode,
+        actor: Actor,
+        latest: OrderSubmission | None,
+    ) -> None:
+        """The product is in: the script lead watches it first where that
+        review applies, otherwise it goes straight to the orderer."""
+        order = loaded.order
+        if latest is not None and latest.link:
+            order.product_link = latest.link
+        order.stage = (
+            OrderStage.DUYET_VIDEO_BT
+            if video_review_applies(loaded.settings, order.video_type)
+            else OrderStage.FINAL_REVIEW
+        )
+        await self._session.flush()
+        await self._notify.submission_ready(
+            actor=actor,
+            order=order,
+            node=node,
+            unit=loaded.settings,
+            approver_node=OrderNodeType.BIEN_TAP
+            if order.stage is OrderStage.DUYET_VIDEO_BT
+            else None,
+            to_owner=order.stage is OrderStage.FINAL_REVIEW,
+        )
 
     async def return_node(
         self,
@@ -588,69 +671,7 @@ class OrderCommandService:
         )
         return loaded.order
 
-    # --- the link and the two last gates ----------------------------------------------
-
-    async def attach_link(
-        self,
-        *,
-        actor: Actor,
-        request_id: uuid.UUID,
-        order_id: uuid.UUID,
-        expected_version: int,
-        link: str,
-        note: str | None,
-    ) -> Order:
-        loaded = await self._load(actor, order_id, expected_version)
-        node = loaded.nodes[OrderNodeType.GAN_LINK]
-        assert_allowed(
-            OrderActionKind.ATTACH_LINK,
-            loaded.view(),
-            loaded.node_views(),
-            loaded.scope.context,
-            node_id=node.id,
-        )
-        cleaned = _blank_to_none(link)
-        if cleaned is None:
-            raise OrderValidationError(
-                "Cần dán link sản phẩm.", details={"reason": "link_missing", "field": "link"}
-            )
-        order = loaded.order
-        before = self._snapshot(order)
-        submission = await self._submission(node, actor, link=cleaned, script_text=None, note=note)
-        node.status = OrderNodeStatus.CHO_DUYET
-        node.submitted_at = utcnow()
-        node.version += 1
-        order.stage = (
-            OrderStage.DUYET_VIDEO_BT
-            if video_review_applies(loaded.settings, order.video_type)
-            else OrderStage.FINAL_REVIEW
-        )
-        self._bump(order)
-        await self._session.flush()
-        await self._event(
-            order, OrderEventKind.LINK_ATTACHED, actor, node=node, submission=submission, note=note
-        )
-        await self._audit_order(
-            actor, request_id, AuditAction.ORDER_LINK_ATTACHED, order, before=before
-        )
-        if order.stage is OrderStage.DUYET_VIDEO_BT:
-            await self._notify.submission_ready(
-                actor=actor,
-                order=order,
-                node=node,
-                unit=loaded.settings,
-                approver_node=OrderNodeType.BIEN_TAP,
-            )
-        else:
-            await self._notify.submission_ready(
-                actor=actor,
-                order=order,
-                node=node,
-                unit=loaded.settings,
-                approver_node=None,
-                to_owner=True,
-            )
-        return order
+    # --- the two last gates ------------------------------------------------------------
 
     async def approve_video(
         self, *, actor: Actor, request_id: uuid.UUID, order_id: uuid.UUID, expected_version: int
@@ -660,9 +681,9 @@ class OrderCommandService:
             OrderActionKind.APPROVE_VIDEO, loaded.view(), loaded.node_views(), loaded.scope.context
         )
         order = loaded.order
-        node = loaded.nodes[OrderNodeType.GAN_LINK]
+        node = loaded.product()
         before = self._snapshot(order)
-        latest = await self._latest_submission(node)
+        latest = await self._latest_product(loaded)
         order.stage = OrderStage.FINAL_REVIEW
         await self._approval(
             order,
@@ -701,7 +722,7 @@ class OrderCommandService:
             OrderActionKind.RETURN_VIDEO, loaded.view(), loaded.node_views(), loaded.scope.context
         )
         note = _require_note(note)
-        return await self._send_link_back(
+        return await self._send_product_back(
             loaded,
             actor,
             request_id,
@@ -726,19 +747,24 @@ class OrderCommandService:
             OrderActionKind.APPROVE_FINAL, loaded.view(), loaded.node_views(), loaded.scope.context
         )
         order = loaded.order
-        node = loaded.nodes[OrderNodeType.GAN_LINK]
+        node = loaded.product()
         before = self._snapshot(order)
         now = utcnow()
-        latest = await self._latest_submission(node)
-        node.status = OrderNodeStatus.HOAN_THANH
-        node.approved_by_user_id = actor.user_id
-        if node.approved_at is None:
-            node.approved_at = now
-        node.version += 1
+        latest = await self._latest_product(loaded)
+        legacy = loaded.legacy_link()
+        if legacy is not None and legacy.status in ACTIVE_NODE_STATUSES:
+            # A legacy order whose link was attached on the old link step.
+            legacy.status = OrderNodeStatus.HOAN_THANH
+            legacy.approved_by_user_id = actor.user_id
+            if legacy.approved_at is None:
+                legacy.approved_at = now
+            legacy.version += 1
         order.stage = OrderStage.COMPLETED
         order.completed_at = now
-        order.product_link = _blank_to_none(product_link) or (
-            None if latest is None else latest.link
+        order.product_link = (
+            _blank_to_none(product_link)
+            or (None if latest is None else latest.link)
+            or order.product_link
         )
         await self._approval(
             order, OrderApprovalGate.FINAL, OrderApprovalDecision.APPROVED, actor, submission=latest
@@ -766,7 +792,7 @@ class OrderCommandService:
             OrderActionKind.RETURN_FINAL, loaded.view(), loaded.node_views(), loaded.scope.context
         )
         note = _require_note(note)
-        return await self._send_link_back(
+        return await self._send_product_back(
             loaded,
             actor,
             request_id,
@@ -884,14 +910,11 @@ class OrderCommandService:
     async def _activate(
         self, loaded: _Loaded, node: OrderNode, actor: Actor, now: datetime, *, first: bool
     ) -> None:
-        """Bring a node up, assigning it straight away when somebody was chosen."""
+        """Bring a node up, assigning it straight away when somebody was chosen.
+
+        Assigned is not accepted: the assignee still presses "Nhận việc"."""
         order = loaded.order
         assignee = node.preassigned_user_id
-        if node.node_type is OrderNodeType.GAN_LINK:
-            # Whoever finished the attacher's node - the last production node
-            # of the process (on BTD, the unit's choice) - hands the link over.
-            attacher = loaded.nodes[link_attacher_node(loaded.settings, order.video_type)]
-            assignee = attacher.assignee_user_id or node.preassigned_user_id
         if assignee is None:
             # Nobody chosen: the node goes to its Leader (else the head) to
             # hand out, rather than hanging as "Chờ giao". Only a unit with
@@ -913,7 +936,7 @@ class OrderCommandService:
             actor=actor, order=order, node=node, unit=loaded.settings, first=first
         )
 
-    async def _send_link_back(
+    async def _send_product_back(
         self,
         loaded: _Loaded,
         actor: Actor,
@@ -925,14 +948,23 @@ class OrderCommandService:
         note: str,
         final: bool,
     ) -> Order:
+        """A gate returns the product: the last production node reopens for
+        the same person ("Đang sửa"), who hands in a new version."""
         order = loaded.order
-        node = loaded.nodes[OrderNodeType.GAN_LINK]
+        node = loaded.product()
         before = self._snapshot(order)
-        latest = await self._latest_submission(node)
+        latest = await self._latest_product(loaded)
+        legacy = loaded.legacy_link()
+        if legacy is not None and legacy.status in ACTIVE_NODE_STATUSES:
+            # The old link step is over for good: the product node takes it
+            # from here. Flushed first - one active node per order.
+            legacy.status = OrderNodeStatus.BO_QUA
+            legacy.version += 1
+            await self._session.flush()
         node.status = OrderNodeStatus.DANG_SUA
         node.revision_count += 1
         node.version += 1
-        order.stage = OrderStage.GAN_LINK
+        order.stage = stage_for_node(node.node_type)
         await self._approval(
             order, gate, OrderApprovalDecision.RETURNED, actor, submission=latest, comment=note
         )
@@ -967,6 +999,21 @@ class OrderCommandService:
         self._session.add(submission)
         await self._session.flush()
         return submission
+
+    async def _latest_product(self, loaded: _Loaded) -> OrderSubmission | None:
+        """The newest hand-in carrying a link on the product node (or on a
+        legacy link node): what the gates review and the order delivers."""
+        node_ids = [loaded.product().id]
+        legacy = loaded.legacy_link()
+        if legacy is not None:
+            node_ids.append(legacy.id)
+        latest: OrderSubmission | None = await self._session.scalar(
+            select(OrderSubmission)
+            .where(OrderSubmission.node_id.in_(node_ids), OrderSubmission.link.is_not(None))
+            .order_by(OrderSubmission.created_at.desc(), OrderSubmission.submission_no.desc())
+            .limit(1)
+        )
+        return latest
 
     async def _latest_submission(self, node: OrderNode) -> OrderSubmission | None:
         latest: OrderSubmission | None = await self._session.scalar(
@@ -1117,6 +1164,64 @@ class OrderCommandService:
             )
         return kind
 
+    async def _platform(
+        self, unit_id: uuid.UUID, platform_id: uuid.UUID | None, *, required: bool
+    ) -> UnitPlatform | None:
+        if platform_id is None:
+            if not required:
+                return None
+            offered = await self._session.scalar(
+                select(UnitPlatform.id)
+                .where(UnitPlatform.unit_id == unit_id, UnitPlatform.active.is_(True))
+                .limit(1)
+            )
+            if offered is not None:
+                raise OrderValidationError(
+                    "Cần chọn nền tảng.",
+                    details={"reason": "platform_required", "field": "platform_id"},
+                )
+            return None
+        row = await self._session.get(UnitPlatform, platform_id)
+        if row is None or row.unit_id != unit_id or not row.active:
+            raise OrderValidationError(
+                "Nền tảng không hợp lệ hoặc đã ngừng dùng.",
+                details={
+                    "reason": "platform_invalid",
+                    "field": "platform_id",
+                    "value": str(platform_id),
+                },
+            )
+        return row
+
+    async def _duration(
+        self, unit_id: uuid.UUID, duration_id: uuid.UUID | None, *, required: bool
+    ) -> UnitDuration | None:
+        if duration_id is None:
+            if not required:
+                return None
+            offered = await self._session.scalar(
+                select(UnitDuration.id)
+                .where(UnitDuration.unit_id == unit_id, UnitDuration.active.is_(True))
+                .limit(1)
+            )
+            if offered is not None:
+                raise OrderValidationError(
+                    "Cần chọn thời lượng.",
+                    details={"reason": "duration_required", "field": "duration_id"},
+                )
+            return None
+        row = await self._session.get(UnitDuration, duration_id)
+        if row is None or row.unit_id != unit_id or not row.active:
+            raise OrderValidationError(
+                "Thời lượng không hợp lệ hoặc đã ngừng dùng.",
+                details={
+                    "reason": "duration_invalid",
+                    "field": "duration_id",
+                    "value": str(duration_id),
+                },
+            )
+        return row
+
     async def _assign_member_code(self, unit_id: uuid.UUID, actor: Actor, *, tagged: bool) -> str:
         """A code for an orderer nobody gave one, made from their name.
 
@@ -1153,7 +1258,6 @@ class OrderCommandService:
         unit_id: uuid.UUID,
         video_type: OrderVideoType,
         preassigned: dict[OrderNodeType, uuid.UUID],
-        settings: UnitSettings,
     ) -> None:
         planned = set(initial_node_statuses(video_type))
         for node_type, user_id in preassigned.items():
@@ -1167,25 +1271,18 @@ class OrderCommandService:
                     "Loại video này không đi qua công đoạn đó.",
                     details={"reason": "preassign_not_in_plan", "node_type": node_type.value},
                 )
-            await self._check_function_member(
-                unit_id, node_type, user_id, settings, video_type=video_type
-            )
+            await self._check_function_member(unit_id, node_type, user_id, video_type=video_type)
 
     async def _check_function_member(
         self,
         unit_id: uuid.UUID,
         node_type: OrderNodeType,
         user_id: uuid.UUID,
-        settings: UnitSettings,
         *,
         video_type: OrderVideoType,
     ) -> None:
         """The person must be an active Ads member of the node's function."""
-        wanted = (
-            ROLE_FOR_NODE[link_attacher_node(settings, video_type)]
-            if node_type is OrderNodeType.GAN_LINK
-            else ROLE_FOR_NODE[node_type]
-        )
+        wanted = ROLE_FOR_NODE[function_node(node_type, video_type)]
         rows = await self._directory.members(unit_id, role=wanted)
         if not any(row.user.id == user_id for row in rows):
             raise OrderValidationError(

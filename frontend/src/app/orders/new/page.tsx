@@ -4,7 +4,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 import { useMutation, useQuery } from "@tanstack/react-query";
-import { api, type CreateOrderBody, type UnitMember } from "@/lib/api";
+import { api, type CreateOrderBody } from "@/lib/api";
 import {
   hasUnit,
   isUntagged,
@@ -168,26 +168,32 @@ function PrCreateSection({ onCreated }: { onCreated: () => void }) {
 
 function AdsOrderForm({ memberCode }: { memberCode: string | null }) {
   const router = useRouter();
-  const members = useQuery({
-    queryKey: ["units", "ADS", "members"],
-    queryFn: () => api.unitMembers("ADS"),
-  });
   const kinds = useQuery({
     queryKey: ["units", "ADS", "video-kinds"],
     queryFn: () => api.unitVideoKinds("ADS"),
   });
+  const platformsQ = useQuery({
+    queryKey: ["units", "ADS", "platforms"],
+    queryFn: () => api.unitPlatforms("ADS"),
+  });
+  const durationsQ = useQuery({
+    queryKey: ["units", "ADS", "durations"],
+    queryFn: () => api.unitDurations("ADS"),
+  });
   const [form, setForm] = useState({
     title: "",
     video_kind_id: "",
+    platform_id: "",
+    duration_id: "",
     script_source: "AI",
     order_content: "",
     design_link: "",
     reference_link: "",
     source_link: "",
+    note: "",
   });
   // "Quy trình": Order is always on and not part of the list; Dựng starts ticked.
   const [ticked, setTicked] = useState<ProcessNode[]>(["DUNG"]);
-  const [preassigned, setPreassigned] = useState<Record<string, string>>({});
   const create = useMutation({
     mutationFn: (body: CreateOrderBody) => api.createOrder(body),
     onSuccess: (detail) => router.push(`/tasks/${detail.order.code}`),
@@ -197,13 +203,20 @@ function AdsOrderForm({ memberCode }: { memberCode: string | null }) {
   const route = [
     "Order",
     ...nodes.map((node) => NODE_LABELS[node]),
-    "Gắn link",
     "Người order duyệt final",
   ].join(" › ");
   const activeKinds = (kinds.data?.kinds ?? [])
     .filter((kind) => kind.active)
     .sort((a, b) => a.sort_order - b.sort_order);
+  const activePlatforms = (platformsQ.data?.platforms ?? [])
+    .filter((p) => p.active)
+    .sort((a, b) => a.sort_order - b.sort_order);
+  const activeDurations = (durationsQ.data?.durations ?? [])
+    .filter((d) => d.active)
+    .sort((a, b) => a.sort_order - b.sort_order);
   const needsKind = activeKinds.length > 0;
+  const needsPlatform = activePlatforms.length > 0;
+  const needsDuration = activeDurations.length > 0;
   // Dựng without Design works from a design the orderer already has.
   const needsDesignLink = nodes.includes("DUNG") && !nodes.includes("THIET_KE");
   const toggleNode = (node: ProcessNode) =>
@@ -220,30 +233,26 @@ function AdsOrderForm({ memberCode }: { memberCode: string | null }) {
       >,
     ) =>
       setForm((current) => ({ ...current, [key]: event.target.value }));
-  const people = (node: string): UnitMember[] =>
-    (members.data?.members ?? []).filter(
-      (member) => member.role === node && member.active,
-    );
   const body: CreateOrderBody = {
     title: form.title,
     process: nodes,
     video_kind_id: form.video_kind_id || null,
+    platform_id: form.platform_id || null,
+    duration_id: form.duration_id || null,
     order_content: form.order_content,
     script_source: form.script_source,
     design_link: form.design_link || null,
     reference_link: form.reference_link || null,
     source_link: form.source_link || null,
-    preassigned: Object.fromEntries(
-      Object.entries(preassigned).filter(
-        ([node, user]) => user && nodes.includes(node as ProcessNode),
-      ),
-    ),
+    note: form.note || null,
   };
   const ready =
     nodes.length > 0 &&
     form.title.trim() &&
     form.order_content.trim() &&
     (!needsKind || form.video_kind_id) &&
+    (!needsPlatform || form.platform_id) &&
+    (!needsDuration || form.duration_id) &&
     (!needsDesignLink || form.design_link.trim());
   const field =
     "min-h-11 w-full rounded-lg border border-[var(--border)] bg-[var(--surface)] px-3 text-sm text-[var(--text)]";
@@ -329,6 +338,42 @@ function AdsOrderForm({ memberCode }: { memberCode: string | null }) {
             </span>
           </label>
         ) : null}
+        <div className="grid gap-3 sm:grid-cols-2">
+          {needsPlatform ? (
+            <label className="block text-sm font-medium">
+              Nền tảng
+              <Select
+                value={form.platform_id}
+                onChange={set("platform_id")}
+                className="mt-1 w-full"
+              >
+                <option value="">Chọn nền tảng…</option>
+                {activePlatforms.map((p) => (
+                  <option key={p.id} value={p.id}>
+                    {p.name}
+                  </option>
+                ))}
+              </Select>
+            </label>
+          ) : null}
+          {needsDuration ? (
+            <label className="block text-sm font-medium">
+              Thời lượng
+              <Select
+                value={form.duration_id}
+                onChange={set("duration_id")}
+                className="mt-1 w-full"
+              >
+                <option value="">Chọn thời lượng…</option>
+                {activeDurations.map((d) => (
+                  <option key={d.id} value={d.id}>
+                    {`${d.name} · ${formatPoints(d.points)} điểm`}
+                  </option>
+                ))}
+              </Select>
+            </label>
+          ) : null}
+        </div>
         <div className="space-y-1">
           <p className="text-sm font-medium">4 · Khung nhập kịch bản</p>
           <div className="flex gap-4 text-sm">
@@ -393,45 +438,15 @@ function AdsOrderForm({ memberCode }: { memberCode: string | null }) {
             />
           </label>
         </div>
-        <div className="space-y-1">
-          <p className="text-sm font-medium">
-            8 · Người phụ trách{" "}
-            <span className="font-normal text-[var(--text-muted)]">
-              (chọn sẵn hoặc để trống)
-            </span>
-          </p>
-          <div className="grid gap-3 sm:grid-cols-3">
-            {nodes.map((node) => (
-              <label
-                key={node}
-                className="block text-xs text-[var(--text-muted)]"
-              >
-                {NODE_LABELS[node]}
-                <Select
-                  value={preassigned[node] ?? ""}
-                  onChange={(event) =>
-                    setPreassigned((current) => ({
-                      ...current,
-                      [node]: event.target.value,
-                    }))
-                  }
-                  className="mt-1 w-full"
-                >
-                  <option value="">Để trống – bộ phận tự phân</option>
-                  {people(node).map((member) => (
-                    <option key={member.user_id} value={member.user_id}>
-                      {member.full_name}
-                    </option>
-                  ))}
-                </Select>
-              </label>
-            ))}
-          </div>
-          <p className="text-xs text-[var(--text-muted)]">
-            Chỉ hiện công đoạn đã chọn trong quy trình và thành viên gắn tag ORD
-            đúng chức năng.
-          </p>
-        </div>
+        <label className="block text-sm font-medium">
+          8 · Note yêu cầu
+          <textarea
+            value={form.note}
+            onChange={set("note")}
+            placeholder="Yêu cầu thêm, lưu ý cho team sản xuất…"
+            className={`mt-1 ${field} min-h-20`}
+          />
+        </label>
         <div className="flex flex-wrap items-center justify-end gap-2">
           {nodes.length === 0 ? (
             <span className="text-xs text-[var(--text-muted)]">
@@ -470,18 +485,15 @@ function AdsOrderForm({ memberCode }: { memberCode: string | null }) {
           <ol className="mt-2 space-y-1">
             <li>ORD lên order</li>
             <li>Trưởng phòng ORD duyệt order</li>
-            {nodes.map((node) => (
+            {nodes.map((node, index) => (
               <li key={node}>
                 {NODE_LABELS[node]} · tự giao cho {NODE_HEADS[node]} để phân
                 công
+                {index === nodes.length - 1
+                  ? " · người làm nộp luôn link sản phẩm"
+                  : ""}
               </li>
             ))}
-            <li>
-              Gắn link sản phẩm
-              {nodes.length > 0
-                ? ` · do người làm ${NODE_LABELS[nodes[nodes.length - 1]]}`
-                : ""}
-            </li>
             <li>Bạn (người order) duyệt final</li>
           </ol>
         </section>

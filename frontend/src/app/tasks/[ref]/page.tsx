@@ -9,6 +9,7 @@ import {
   api,
   type TaskAction,
   type TaskActionBody,
+  type TaskActionInput,
   type TaskField,
   type TaskStep,
   type UnifiedTaskDetail,
@@ -29,6 +30,11 @@ import {
 import { ContentResources } from "@/components/pr-content-detail/resources";
 import { AiReviewPanel } from "@/components/pr-content-detail/review";
 import { has } from "@/components/pr-content-detail/util";
+import {
+  WAITING_STATES,
+  isWaitingLabel,
+  stepColor,
+} from "@/lib/status-colors";
 
 /**
  * One task, whichever unit it belongs to.
@@ -48,25 +54,25 @@ import { has } from "@/components/pr-content-detail/util";
 
 type Tone = "neutral" | "warn" | "good" | "bad" | "critical";
 
-/** Step status → pill tone. Same table as the task board's cells. */
-function stepTone(status: string): Tone {
-  if (
-    status === "HOAN_THANH" ||
-    status === "DONE" ||
-    status === "DANG_LAM" ||
-    status === "CURRENT"
-  ) {
-    return "good";
-  }
-  if (status === "CHO_DUYET" || status === "CHUA_GIAO") return "warn";
-  if (status === "DANG_SUA") return "bad";
-  return "neutral";
-}
-
-function phaseTone(phase: string): Tone {
+/**
+ * The header's tone: amber while the task waits for somebody (a decision, a
+ * Leader to hand it out, the assignee to accept - by the server's `state`, or
+ * a label that starts with "Chờ"), else by phase.
+ */
+function headerTone(phase: string, state?: string | null, label?: string): Tone {
+  if ((state && WAITING_STATES.has(state)) || isWaitingLabel(label)) return "warn";
   if (phase === "DONE") return "good";
   if (phase === "REVIEW" || phase === "FINAL_REVIEW") return "warn";
   return "neutral";
+}
+
+/** A step's status badge, coloured exactly like the task table's cells. */
+function StepBadge({ step }: { step: TaskStep }) {
+  return (
+    <span className={`st st-${stepColor(step.status, undefined, step.status_label)}`}>
+      <span>{step.status_label}</span>
+    </span>
+  );
 }
 
 const PR_TABS = [
@@ -190,7 +196,9 @@ function TaskHeader({ detail }: { detail: UnifiedTaskDetail }) {
             {unitShortLabel(task.unit, task.unit_short_label)}
           </span>
           <span className="font-mono text-sm font-semibold">{task.code}</span>
-          <Pill tone={phaseTone(task.phase)}>{task.stage_label}</Pill>
+          <Pill tone={headerTone(task.phase, task.state, task.stage_label)}>
+            {task.stage_label}
+          </Pill>
           {task.phase_label && task.phase_label !== task.stage_label ? (
             <span className="text-xs text-[var(--text-muted)]">
               {task.phase_label}
@@ -259,7 +267,7 @@ function StepStrip({ steps }: { steps: TaskStep[] }) {
       >
         {steps.map((step) => {
           const skipped = step.status === "BO_QUA";
-          const tone = stepTone(step.status);
+          const done = step.status === "HOAN_THANH" || step.status === "DONE";
           return (
             <li
               key={step.key}
@@ -268,7 +276,7 @@ function StepStrip({ steps }: { steps: TaskStep[] }) {
                 step.is_current
                   ? "border-2 border-[var(--text)]"
                   : "border-[var(--border)]"
-              } ${tone === "good" && !step.is_current ? "bg-[var(--good-soft)]/40" : ""} ${skipped ? "opacity-50" : ""}`}
+              } ${done && !step.is_current ? "bg-[var(--good-soft)]/40" : ""} ${skipped ? "opacity-50" : ""}`}
             >
               <span className="text-[11px] font-semibold uppercase tracking-wide text-[var(--text-muted)]">
                 {step.label}
@@ -285,7 +293,7 @@ function StepStrip({ steps }: { steps: TaskStep[] }) {
                 {step.person_name ??
                   (skipped ? "—" : step.is_current ? "Chờ giao" : "–")}
               </span>
-              <Pill tone={tone}>{step.status_label}</Pill>
+              <StepBadge step={step} />
               {step.since ? (
                 <span className="text-[11px] text-[var(--text-muted)]">
                   {formatWhen(step.since)}
@@ -566,9 +574,12 @@ function ActionPanel({
     }));
   const wantsNote = (action: TaskAction) =>
     action.requires_note || action.inputs.includes("note");
+  const required = (action: TaskAction, input: TaskActionInput) =>
+    (action.required_inputs ?? []).includes(input);
   const missing = (action: TaskAction) =>
     (action.requires_note && !valueOf(action, "note").trim()) ||
-    (action.inputs.includes("assignee") && !valueOf(action, "assignee"));
+    (action.inputs.includes("assignee") && !valueOf(action, "assignee")) ||
+    (action.required_inputs ?? []).some((input) => !valueOf(action, input).trim());
 
   const bodyFor = (action: TaskAction): TaskActionBody => {
     const body: TaskActionBody = { key: action.key, version: task.version };
@@ -610,7 +621,7 @@ function ActionPanel({
     if (action.inputs.includes("link")) {
       parts.push(
         <label key="link" className="block text-xs text-[var(--text)]">
-          Link
+          {required(action, "link") ? "Link sản phẩm (bắt buộc)" : "Link"}
           <input
             type="url"
             value={valueOf(action, "link")}

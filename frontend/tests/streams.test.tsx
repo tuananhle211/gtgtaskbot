@@ -202,8 +202,8 @@ describe("the nav and the stream switch follow the tags", () => {
     renderWithQuery(<TasksPage />);
     const switcher = await screen.findByRole("navigation", { name: "Chọn luồng" });
     expect(within(switcher).getAllByRole("link").map((link) => link.textContent)).toEqual([
-      "Luồng PR",
       "Luồng Order (ORD)",
+      "Luồng PR",
     ]);
   });
 

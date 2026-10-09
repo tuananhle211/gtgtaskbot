@@ -51,7 +51,13 @@ from meobot.db.models.order import (
     OrderSubmission,
     OrderWorkRule,
 )
-from meobot.db.models.org_unit import OrgUnit, OrgUnitMember, UnitVideoKind
+from meobot.db.models.org_unit import (
+    OrgUnit,
+    OrgUnitMember,
+    UnitDuration,
+    UnitPlatform,
+    UnitVideoKind,
+)
 from meobot.db.models.pr import (
     PrApprovalEvent,
     PrBrand,
@@ -260,6 +266,8 @@ __all__ = [
     "Task",
     "TelegramChat",
     "TelegramChatAssignment",
+    "UnitDuration",
+    "UnitPlatform",
     "UnitVideoKind",
     "User",
     "UserAvatar",

@@ -138,8 +138,8 @@ export function MembersTab({
               className="mt-1 w-full rounded border border-[var(--border)] bg-transparent px-2 py-1.5"
             >
               <option value="">Tất cả</option>
-              <option value="PR">Luồng PR</option>
               <option value="ADS">Luồng ORD</option>
+              <option value="PR">Luồng PR</option>
               <option value="BOTH">Cả hai luồng</option>
             </Select>
           </label>

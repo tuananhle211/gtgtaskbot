@@ -122,9 +122,9 @@ const ROW = {
       is_current: false,
     },
     {
-      key: "GAN_LINK",
-      label: "Gắn link",
-      person_name: null,
+      key: "FINAL",
+      label: "Duyệt final",
+      person_name: "Tuấn",
       status: "CHUA_TOI",
       status_label: "Chưa tới",
       is_current: false,
@@ -321,7 +321,7 @@ describe("the nav follows the person's units", () => {
       within(switcher)
         .getAllByRole("link")
         .map((link) => link.textContent),
-    ).toEqual(["Luồng PR", "Luồng Order (ORD)", "Tất cả"]);
+    ).toEqual(["Luồng Order (ORD)", "Luồng PR", "Tất cả"]);
     expect(within(switcher).getByText("Luồng Order (ORD)")).toHaveAttribute(
       "href",
       "/tasks?unit=ADS",
@@ -419,6 +419,46 @@ describe("the task table", () => {
     const holder = within(table).getByText("Đang giữ:").parentElement as HTMLElement;
     expect(within(holder).getByText("Chờ giao")).toBeInTheDocument();
     expect(within(table).queryByText("Trưởng phòng")).not.toBeInTheDocument();
+  });
+
+  it("colours a step handed out but not accepted, and its row, amber", async () => {
+    stubFetch([
+      { match: "/api/units/me", body: ADS_ONLY },
+      {
+        match: "/api/board/tasks",
+        body: {
+          ...PAGE,
+          items: [
+            {
+              ...ROW,
+              phase: "PRODUCTION",
+              status: "DUNG",
+              status_label: "Dựng · Đã giao Quỳnh Như",
+              state: "DA_GIAO",
+              current_person_name: "Quỳnh Như",
+              cells: ROW.cells.map((cell) =>
+                cell.key === "DUNG"
+                  ? {
+                      ...cell,
+                      person_name: "Quỳnh Như",
+                      status: "DA_GIAO",
+                      status_label: "Đã giao Quỳnh Như",
+                      is_current: true,
+                    }
+                  : cell,
+              ),
+            },
+          ],
+        },
+      },
+    ]);
+    renderWithQuery(<TasksPage />);
+    const table = await screen.findByRole("table");
+    // The cell drops the name it already shows above the badge.
+    expect(within(table).getByText("Đã giao").closest(".st")).toHaveClass("st-amber");
+    const status = within(table).getAllByText(/Dựng · Đã giao/)[0].closest(".st");
+    expect(status).toHaveClass("st-amber");
+    expect(within(table).queryByText("Gắn link")).not.toBeInTheDocument();
   });
 
   it("filters Ads by its four steps and sends them as step", async () => {

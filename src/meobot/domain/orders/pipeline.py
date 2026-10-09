@@ -5,7 +5,9 @@ Three things live here and nowhere else:
 * **the pipeline** - which nodes a process visits, which node comes next,
   which stage the order shows while a node is active, and how a node starts
   (assigned straight away when the orderer chose somebody, otherwise waiting
-  for its Leader);
+  for its Leader). The last production node's hand-in is the product: once
+  it completes, the order goes to the gates (script lead's video review where
+  it applies, then the orderer's final review);
 * **the actions** - every verb a person can apply to an order, and from which
   stage each is allowed;
 * **the policy** - who may apply which action, given their standing in the
@@ -30,12 +32,13 @@ from meobot.domain.orders.models import (
     ACTIVE_NODE_STATUSES,
     NODE_PLAN,
     NODE_STAGE,
+    PRODUCTION_NODES,
     TERMINAL_STAGES,
     OrderNodeStatus,
     OrderNodeType,
     OrderStage,
     OrderVideoType,
-    production_nodes,
+    last_production_node,
 )
 from meobot.domain.orders.permissions import (
     AdsPermission,
@@ -49,11 +52,12 @@ from meobot.domain.units.models import UnitMemberRole, UnitMembership, UnitSetti
 
 
 def initial_node_statuses(video_type: OrderVideoType) -> dict[OrderNodeType, OrderNodeStatus]:
-    """All four nodes at submission: planned ones wait, the rest are skipped."""
+    """The three production nodes at submission: planned ones wait, the rest
+    are skipped. No link node: the last production node hands the link in."""
     planned = set(NODE_PLAN[video_type])
     return {
         node_type: (OrderNodeStatus.CHUA_TOI if node_type in planned else OrderNodeStatus.BO_QUA)
-        for node_type in OrderNodeType
+        for node_type in PRODUCTION_NODES
     }
 
 
@@ -62,7 +66,10 @@ def first_node(video_type: OrderVideoType) -> OrderNodeType:
 
 
 def next_node(video_type: OrderVideoType, current: OrderNodeType) -> OrderNodeType | None:
-    """The node after ``current`` for this video type, or ``None`` after the last."""
+    """The node after ``current`` for this video type, or ``None`` after the
+    last (and for the legacy link node, which is past every production node)."""
+    if current is OrderNodeType.GAN_LINK:
+        return None
     plan = NODE_PLAN[video_type]
     index = plan.index(current)
     return plan[index + 1] if index + 1 < len(plan) else None
@@ -70,6 +77,13 @@ def next_node(video_type: OrderVideoType, current: OrderNodeType) -> OrderNodeTy
 
 def stage_for_node(node_type: OrderNodeType) -> OrderStage:
     return NODE_STAGE[node_type]
+
+
+def hands_in_product(video_type: OrderVideoType, node_type: OrderNodeType) -> bool:
+    """Whether this node's hand-in is the finished product - the last
+    production node of the process (or a legacy link node) - and so must
+    carry the product link."""
+    return node_type is OrderNodeType.GAN_LINK or node_type is last_production_node(video_type)
 
 
 def activation_status(preassigned: bool) -> OrderNodeStatus:
@@ -105,7 +119,6 @@ class OrderActionKind(StrEnum):
     SUBMIT_WORK = "SUBMIT_WORK"
     APPROVE_NODE = "APPROVE_NODE"
     RETURN_NODE = "RETURN_NODE"
-    ATTACH_LINK = "ATTACH_LINK"
     APPROVE_VIDEO = "APPROVE_VIDEO"
     RETURN_VIDEO = "RETURN_VIDEO"
     APPROVE_FINAL = "APPROVE_FINAL"
@@ -125,8 +138,10 @@ ACTION_STAGES: dict[OrderActionKind, frozenset[OrderStage] | None] = {
     OrderActionKind.ACCEPT: frozenset(
         {OrderStage.BIEN_TAP, OrderStage.THIET_KE, OrderStage.DUNG, OrderStage.GAN_LINK}
     ),
+    # ``GAN_LINK``: a legacy order still waiting at the old link step hands
+    # the link in as the last production node would.
     OrderActionKind.SUBMIT_WORK: frozenset(
-        {OrderStage.BIEN_TAP, OrderStage.THIET_KE, OrderStage.DUNG}
+        {OrderStage.BIEN_TAP, OrderStage.THIET_KE, OrderStage.DUNG, OrderStage.GAN_LINK}
     ),
     OrderActionKind.APPROVE_NODE: frozenset(
         {OrderStage.BIEN_TAP, OrderStage.THIET_KE, OrderStage.DUNG}
@@ -134,7 +149,6 @@ ACTION_STAGES: dict[OrderActionKind, frozenset[OrderStage] | None] = {
     OrderActionKind.RETURN_NODE: frozenset(
         {OrderStage.BIEN_TAP, OrderStage.THIET_KE, OrderStage.DUNG}
     ),
-    OrderActionKind.ATTACH_LINK: frozenset({OrderStage.GAN_LINK}),
     OrderActionKind.APPROVE_VIDEO: frozenset({OrderStage.DUYET_VIDEO_BT}),
     OrderActionKind.RETURN_VIDEO: frozenset({OrderStage.DUYET_VIDEO_BT}),
     OrderActionKind.APPROVE_FINAL: frozenset({OrderStage.FINAL_REVIEW}),
@@ -168,7 +182,6 @@ ACTION_LABELS: dict[OrderActionKind, str] = {
     OrderActionKind.SUBMIT_WORK: "Nộp bài",
     OrderActionKind.APPROVE_NODE: "Duyệt",
     OrderActionKind.RETURN_NODE: "Trả sửa",
-    OrderActionKind.ATTACH_LINK: "Gắn link",
     OrderActionKind.APPROVE_VIDEO: "Duyệt video",
     OrderActionKind.RETURN_VIDEO: "Trả video",
     OrderActionKind.APPROVE_FINAL: "Duyệt Final",
@@ -212,9 +225,6 @@ class OrderActorContext:
     #: What this person may manage, from the unit's permission matrix. Every
     #: decision below reads this, never the role directly.
     permissions: AdsPermissions = field(default_factory=AdsPermissions)
-    #: Whose function attaches the link on a ``BTD`` order (a unit setting).
-    #: Every other process hands the link to its last production node.
-    btd_link_attacher: OrderNodeType = OrderNodeType.DUNG
 
     @classmethod
     def from_membership(
@@ -229,9 +239,6 @@ class OrderActorContext:
         leads: set[OrderNodeType] = set()
         members: set[OrderNodeType] = set()
         if entry is not None and entry.role in ROLE_NODES:
-            # The link node is not a function of its own: whose it is depends
-            # on the order's process (:func:`link_attacher_node`), so the
-            # policy reads it per order rather than per person.
             node_type = ROLE_NODES[entry.role]
             members.add(node_type)
             if entry.is_lead:
@@ -266,7 +273,6 @@ class OrderActorContext:
             lead_node_types=frozenset(leads),
             member_node_types=frozenset(members),
             permissions=permissions,
-            btd_link_attacher=btd_link_attacher(settings),
         )
 
 
@@ -277,36 +283,11 @@ ROLE_NODES: dict[UnitMemberRole, OrderNodeType] = {
 }
 
 
-def btd_link_attacher(settings: UnitSettings) -> OrderNodeType:
-    """Whose people attach the link on a ``BTD`` order: the editors, or the
-    script team (the unit setting ``btd_link_attacher``)."""
-    return ROLE_NODES.get(settings.btd_link_attacher, OrderNodeType.DUNG)
-
-
-def link_attacher_for(
-    video_type: OrderVideoType, btd_attacher: OrderNodeType = OrderNodeType.DUNG
-) -> OrderNodeType:
-    """The production node whose assignee attaches the link: the last one in
-    the plan, except on a ``BTD`` order, where the unit setting decides."""
-    if video_type is OrderVideoType.BTD:
-        return btd_attacher
-    return production_nodes(video_type)[-1]
-
-
-def link_attacher_node(settings: UnitSettings, video_type: OrderVideoType) -> OrderNodeType:
-    """Whose people attach the product link on an order of this process."""
-    return link_attacher_for(video_type, btd_link_attacher(settings))
-
-
-def function_node(
-    node_type: OrderNodeType,
-    video_type: OrderVideoType,
-    btd_attacher: OrderNodeType = OrderNodeType.DUNG,
-) -> OrderNodeType:
-    """The function a node belongs to: itself, or for the link node, the
-    function of the node whose assignee attaches the link."""
+def function_node(node_type: OrderNodeType, video_type: OrderVideoType) -> OrderNodeType:
+    """The function a node belongs to: itself, or for a legacy link node, the
+    process's last production node (whose people hand the product in)."""
     if node_type is OrderNodeType.GAN_LINK:
-        return link_attacher_for(video_type, btd_attacher)
+        return last_production_node(video_type)
     return node_type
 
 
@@ -344,10 +325,17 @@ def active_node(nodes: tuple[NodeView, ...]) -> NodeView | None:
 
 
 def node_of(nodes: tuple[NodeView, ...], node_type: OrderNodeType) -> NodeView:
+    found = find_node(nodes, node_type)
+    if found is None:
+        raise KeyError(node_type)
+    return found
+
+
+def find_node(nodes: tuple[NodeView, ...], node_type: OrderNodeType) -> NodeView | None:
     for node in nodes:
         if node.node_type is node_type:
             return node
-    raise KeyError(node_type)
+    return None
 
 
 def available_actions(
@@ -378,42 +366,48 @@ def available_actions(
         add(OrderActionKind.RESUBMIT)
 
     if current is not None and order.stage in NODE_ACTION_STAGES:
-        # The link node is managed by the function that attaches it.
-        managed = function_node(current.node_type, order.video_type, ctx.btd_link_attacher)
+        # A legacy link node is managed by the last production node's function.
+        managed = function_node(current.node_type, order.video_type)
         assigns = managed in may.nodes(AdsPermission.NODE_ASSIGN)
         reviews = current.node_type in may.nodes(AdsPermission.NODE_REVIEW)
-        assignee = ctx.user_id == current.assignee_user_id
+        working = ctx.user_id == current.assignee_user_id and current.status in (
+            OrderNodeStatus.DANG_LAM,
+            OrderNodeStatus.DANG_SUA,
+        )
         if assigns and current.status in (
             OrderNodeStatus.CHUA_GIAO,
             OrderNodeStatus.DANG_LAM,
             OrderNodeStatus.DANG_SUA,
         ):
             add(OrderActionKind.ASSIGN, current.id)
-        if assignee and current.status is OrderNodeStatus.DANG_LAM and current.accepted_at is None:
+        # Assigned is not accepted: the assignee presses "Nhận việc" first,
+        # and only then may hand the work in.
+        if working and current.accepted_at is None:
             add(OrderActionKind.ACCEPT, current.id)
-        if current.node_type is OrderNodeType.GAN_LINK:
-            if assignee and current.status in (OrderNodeStatus.DANG_LAM, OrderNodeStatus.DANG_SUA):
-                add(OrderActionKind.ATTACH_LINK, current.id)
-        else:
-            if assignee and current.status in (OrderNodeStatus.DANG_LAM, OrderNodeStatus.DANG_SUA):
-                add(OrderActionKind.SUBMIT_WORK, current.id)
-            if reviews and current.status is OrderNodeStatus.CHO_DUYET:
-                add(OrderActionKind.APPROVE_NODE, current.id)
-                add(OrderActionKind.RETURN_NODE, current.id)
+        if working and current.accepted_at is not None:
+            add(OrderActionKind.SUBMIT_WORK, current.id)
+        if (
+            reviews
+            and current.status is OrderNodeStatus.CHO_DUYET
+            and current.node_type is not OrderNodeType.GAN_LINK
+        ):
+            add(OrderActionKind.APPROVE_NODE, current.id)
+            add(OrderActionKind.RETURN_NODE, current.id)
 
+    # The gates act on the product: the last production node's hand-in.
+    product = find_node(nodes, last_production_node(order.video_type))
+    product_id = None if product is None else product.id
     if order.stage is OrderStage.DUYET_VIDEO_BT and OrderNodeType.BIEN_TAP in may.nodes(
         AdsPermission.VIDEO_REVIEW
     ):
-        link = node_of(nodes, OrderNodeType.GAN_LINK)
-        add(OrderActionKind.APPROVE_VIDEO, link.id)
-        add(OrderActionKind.RETURN_VIDEO, link.id)
+        add(OrderActionKind.APPROVE_VIDEO, product_id)
+        add(OrderActionKind.RETURN_VIDEO, product_id)
     # The final review is the orderer's; a holder of FINAL_REVIEW stands in.
     if order.stage is OrderStage.FINAL_REVIEW and (
         is_owner or may.allows(AdsPermission.FINAL_REVIEW)
     ):
-        link = node_of(nodes, OrderNodeType.GAN_LINK)
-        add(OrderActionKind.APPROVE_FINAL, link.id)
-        add(OrderActionKind.RETURN_FINAL, link.id)
+        add(OrderActionKind.APPROVE_FINAL, product_id)
+        add(OrderActionKind.RETURN_FINAL, product_id)
 
     if may.allows(AdsPermission.PRIORITY):
         add(OrderActionKind.SET_PRIORITY)
@@ -469,14 +463,13 @@ __all__ = [
     "active_node",
     "assert_allowed",
     "available_actions",
-    "btd_link_attacher",
+    "find_node",
     "first_node",
     "format_order_code",
     "function_node",
+    "hands_in_product",
     "initial_node_statuses",
     "is_urgent",
-    "link_attacher_for",
-    "link_attacher_node",
     "next_node",
     "node_of",
     "stage_for_node",

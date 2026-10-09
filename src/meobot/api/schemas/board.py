@@ -52,6 +52,9 @@ class TaskRowResponse(BaseModel):
     phase_label: str
     status: str
     status_label: str
+    #: What the row waits on (``CHO_DUYET``, ``CHO_PHAN_CONG``, ``DA_GIAO``,
+    #: ``CHUA_GIAO``) or the node's own status; the screens colour by it.
+    state: str | None = None
     cells: list[TaskCellResponse]
     product_link: str | None
     returned_at: datetime | None
@@ -88,6 +91,7 @@ class TaskRowResponse(BaseModel):
             phase_label=row.phase_label,
             status=row.status,
             status_label=row.status_label,
+            state=row.state,
             cells=[
                 TaskCellResponse(
                     key=cell.key,

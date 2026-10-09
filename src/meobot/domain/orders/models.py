@@ -1,24 +1,32 @@
 """Vocabulary of the Ads order engine.
 
 An **order** is one video the Ads department asks the Media team for. It moves
-through a fixed sequence of **nodes** - script (``BIEN_TAP``), design
-(``THIET_KE``), edit (``DUNG``) and the product-link hand-off (``GAN_LINK``) -
-and which of the first three it visits is decided once, by the **process**
-("Quy trình") ticked when the order is placed. The process is stored in
-``orders.video_type`` as a code: the letters of the ticked production nodes,
-in pipeline order - ``B`` (Biên kịch), ``T`` (Design), ``D`` (Dựng):
+through a sequence of production **nodes** - script (``BIEN_TAP``), design
+(``THIET_KE``) and edit (``DUNG``) - and which of them it visits is decided
+once, by the **process** ("Quy trình") ticked when the order is placed. The
+process is stored in ``orders.video_type`` as a code: the letters of the
+ticked production nodes, in pipeline order - ``B`` (Biên kịch), ``T``
+(Design), ``D`` (Dựng):
 
 ===== ==========================================
 Code  Nodes
 ===== ==========================================
-B     BIEN_TAP → GAN_LINK
-T     THIET_KE → GAN_LINK
-D     DUNG → GAN_LINK
-BT    BIEN_TAP → THIET_KE → GAN_LINK
-BD    BIEN_TAP → DUNG → GAN_LINK
-TD    THIET_KE → DUNG → GAN_LINK
-BTD   BIEN_TAP → THIET_KE → DUNG → GAN_LINK
+B     BIEN_TAP
+T     THIET_KE
+D     DUNG
+BT    BIEN_TAP → THIET_KE
+BD    BIEN_TAP → DUNG
+TD    THIET_KE → DUNG
+BTD   BIEN_TAP → THIET_KE → DUNG
 ===== ==========================================
+
+The **last** production node's hand-in is the finished product: it must carry
+the product link, and once that node completes (its Leader approves, or the
+hand-in itself when the unit does not review it) the order goes straight to
+the orderer's final review. There used to be a fourth node, ``GAN_LINK``
+("Gắn link"), where somebody pasted the link after the edit; new orders no
+longer get one. The enum value stays so that rows created before the change
+still load; every read hides them and the engine treats them as skipped.
 
 ``D``, ``TD`` and ``BTD`` are the three fixed video types the engine started
 with; the other four arrived with the flexible process (``0044``).
@@ -75,6 +83,7 @@ class OrderStage(StrEnum):
     BIEN_TAP = "BIEN_TAP"
     THIET_KE = "THIET_KE"
     DUNG = "DUNG"
+    #: Legacy: no new order reaches it (see the module docstring).
     GAN_LINK = "GAN_LINK"
     DUYET_VIDEO_BT = "DUYET_VIDEO_BT"
     FINAL_REVIEW = "FINAL_REVIEW"
@@ -83,7 +92,9 @@ class OrderStage(StrEnum):
 
 
 class OrderNodeType(StrEnum):
-    """The four production nodes, in pipeline order."""
+    """The production nodes, in pipeline order. ``GAN_LINK`` is legacy: only
+    orders created before the link step was folded into the last production
+    node have one (see the module docstring)."""
 
     BIEN_TAP = "BIEN_TAP"
     THIET_KE = "THIET_KE"
@@ -124,6 +135,7 @@ class OrderEventKind(StrEnum):
     WORK_SUBMITTED = "WORK_SUBMITTED"
     NODE_APPROVED = "NODE_APPROVED"
     NODE_RETURNED = "NODE_RETURNED"
+    #: Legacy: written by the old link step only.
     LINK_ATTACHED = "LINK_ATTACHED"
     VIDEO_APPROVED = "VIDEO_APPROVED"
     VIDEO_RETURNED = "VIDEO_RETURNED"
@@ -160,25 +172,30 @@ PROCESS_LETTERS: MappingProxyType[OrderNodeType, str] = MappingProxyType(
 
 
 def _plan(code: OrderVideoType) -> tuple[OrderNodeType, ...]:
-    production = tuple(node for node in PRODUCTION_NODES if PROCESS_LETTERS[node] in code.value)
-    return (*production, OrderNodeType.GAN_LINK)
+    return tuple(node for node in PRODUCTION_NODES if PROCESS_LETTERS[node] in code.value)
 
 
-#: The nodes each process visits, in order. ``GAN_LINK`` is always last.
+#: The nodes each process visits, in order. The last one hands in the product.
 NODE_PLAN: MappingProxyType[OrderVideoType, tuple[OrderNodeType, ...]] = MappingProxyType(
     {code: _plan(code) for code in OrderVideoType}
 )
 
 
 def production_nodes(code: OrderVideoType) -> tuple[OrderNodeType, ...]:
-    """The production nodes a process visits, in pipeline order (no link)."""
-    return NODE_PLAN[code][:-1]
+    """The production nodes a process visits, in pipeline order."""
+    return NODE_PLAN[code]
+
+
+def last_production_node(code: OrderVideoType) -> OrderNodeType:
+    """The node whose hand-in is the finished product (its link is the
+    order's product link) and whose completion opens the final review."""
+    return NODE_PLAN[code][-1]
 
 
 def process_code(nodes: Iterable[OrderNodeType]) -> OrderVideoType | None:
     """The code for a set of ticked production nodes, in any order; ``None``
     when none is ticked. Raises ``ValueError`` for a node that is not a
-    production node (``GAN_LINK`` is always visited and never ticked)."""
+    production node (the legacy ``GAN_LINK`` is never ticked)."""
     ticked = set(nodes)
     stray = ticked - set(PRODUCTION_NODES)
     if stray:
@@ -214,12 +231,13 @@ NODE_STAGE: MappingProxyType[OrderNodeType, OrderStage] = MappingProxyType(
         OrderNodeType.BIEN_TAP: OrderStage.BIEN_TAP,
         OrderNodeType.THIET_KE: OrderStage.THIET_KE,
         OrderNodeType.DUNG: OrderStage.DUNG,
+        # Legacy: an order created before the link step was folded in.
         OrderNodeType.GAN_LINK: OrderStage.GAN_LINK,
     }
 )
 
-#: The nodes whose first approval is a KPI result. Attaching the link is a
-#: hand-off, not work that is measured.
+#: The nodes whose first completion is a KPI result. The legacy link node
+#: was a hand-off, never measured.
 KPI_NODE_TYPES: frozenset[OrderNodeType] = frozenset(
     {OrderNodeType.BIEN_TAP, OrderNodeType.THIET_KE, OrderNodeType.DUNG}
 )
@@ -241,6 +259,7 @@ __all__ = [
     "OrderScriptSource",
     "OrderStage",
     "OrderVideoType",
+    "last_production_node",
     "needs_design_link",
     "process_code",
     "production_nodes",

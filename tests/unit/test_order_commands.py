@@ -5,11 +5,16 @@ saw, exactly as the screens will send it, and every assertion reads the
 detail the same route returns. What the tests pin:
 
 * the full pipeline for D, TD and BTD, including who is told what;
-* a chosen person starts at once, an unchosen node waits for its Leader, and
-  a Leader may only hand work to somebody in their own function;
+* a chosen person is handed the node at once, an unchosen node waits for its
+  Leader, and a Leader may only hand work to somebody in their own function;
+* handed out is not accepted: the assignee presses "Nhận việc" before they
+  may hand in;
+* there is no link step: the last production node hands in the product link
+  (required), its completion opens the gates, and a gate sending it back
+  reopens that node for the same person;
 * a Leader's first approval lands one result in the KPI ledger, counted when
   the Leader is not the worker, pending when they are; a second approval
-  after a return adds nothing; the link hand-off is never counted;
+  after a return adds nothing;
 * a stale version is a 409, a wrong stage a 409, a wrong person a 403, an
   outsider a 404;
 * cancel keeps what was counted.
@@ -170,7 +175,7 @@ async def kpi_rows(world: World) -> list[PrWorkResult]:
 # --- create ---------------------------------------------------------------------
 
 
-async def test_01_an_order_is_submitted_with_its_code_and_four_nodes(world: World) -> None:
+async def test_01_an_order_is_submitted_with_its_code_and_three_nodes(world: World) -> None:
     ads = await ads_world(world)
     detail = create(world, ads)
     order = detail["order"]
@@ -182,7 +187,6 @@ async def test_01_an_order_is_submitted_with_its_code_and_four_nodes(world: Worl
         "BIEN_TAP": "CHUA_TOI",
         "THIET_KE": "CHUA_TOI",
         "DUNG": "CHUA_TOI",
-        "GAN_LINK": "CHUA_TOI",
     }
     assert [event["kind"] for event in detail["events"]] == ["SUBMITTED"]
     assert {action["kind"] for action in detail["available_actions"]} == {"CANCEL"}
@@ -194,7 +198,6 @@ async def test_01_an_order_is_submitted_with_its_code_and_four_nodes(world: Worl
         "BIEN_TAP": "BO_QUA",
         "THIET_KE": "BO_QUA",
         "DUNG": "CHUA_TOI",
-        "GAN_LINK": "CHUA_TOI",
     }
 
 
@@ -245,11 +248,12 @@ async def test_03_a_full_pipeline_order_runs_from_submission_to_the_product_link
     detail = create(world, ads, preassigned={"BIEN_TAP": str(ads.writer.id)})
     order_id = detail["order"]["id"]
 
-    # The head approves: the script node starts at once with the chosen writer.
+    # The head approves: the script node is handed to the chosen writer.
     detail = act(world, ads.head, "/approve", detail)
     assert detail["order"]["stage"] == "BIEN_TAP"
     assert node(detail, "BIEN_TAP")["status"] == "DANG_LAM"
     assert node(detail, "BIEN_TAP")["assignee_user_id"] == str(ads.writer.id)
+    assert node(detail, "BIEN_TAP")["accepted_at"] is None
     assert node(detail, "BIEN_TAP")["is_current"] is True
     assert [a["gate"] + ":" + a["decision"] for a in detail["approvals"]] == ["ORDER:APPROVED"]
     assert await inbox(world, ads.lead_bt) == [("order_approved", "Có order mới")]
@@ -276,6 +280,7 @@ async def test_03_a_full_pipeline_order_runs_from_submission_to_the_product_link
     assert node(detail, "BIEN_TAP")["status"] == "DANG_SUA"
     assert node(detail, "BIEN_TAP")["revision_count"] == 1
     assert ("order_node_returned", "Bài của bạn cần sửa") in await inbox(world, ads.writer)
+    # Already accepted: the fix goes straight in.
     detail = act(world, ads.writer, f"/nodes/{bt}/submit", detail, script_text="Kịch bản v2")
     assert node(detail, "BIEN_TAP")["submission_count"] == 2
     detail = act(world, ads.lead_bt, f"/nodes/{bt}/approve", detail)
@@ -292,20 +297,23 @@ async def test_03_a_full_pipeline_order_runs_from_submission_to_the_product_link
     assert results[0].status.value == "COUNTED"
     assert results[0].source_key == f"order:{bt}:BIEN_TAP"
 
-    # The design lead assigns the designer, who hands in; the lead approves.
+    # The design lead assigns the designer, who accepts and hands in.
     tk = node(detail, "THIET_KE")["id"]
     detail = act(
         world, ads.lead_tk, f"/nodes/{tk}/assign", detail, assignee_user_id=str(ads.designer.id)
     )
     assert node(detail, "THIET_KE")["status"] == "DANG_LAM"
+    assert node(detail, "THIET_KE")["accepted_at"] is None
     assert ("order_node_assigned", "Bạn được giao một công đoạn") in await inbox(
         world, ads.designer
     )
+    detail = act(world, ads.designer, f"/nodes/{tk}/accept", detail)
     detail = act(world, ads.designer, f"/nodes/{tk}/submit", detail, link="https://example.com/tk")
     detail = act(world, ads.lead_tk, f"/nodes/{tk}/approve", detail)
     assert detail["order"]["stage"] == "DUNG"
 
     # The editing lead does the edit themselves: the result waits for the head.
+    # The cut is the last node's hand-in: it is the product, link and all.
     dung = node(detail, "DUNG")["id"]
     detail = act(
         world,
@@ -314,47 +322,59 @@ async def test_03_a_full_pipeline_order_runs_from_submission_to_the_product_link
         detail,
         assignee_user_id=str(ads.lead_dung.id),
     )
+    detail = act(world, ads.lead_dung, f"/nodes/{dung}/accept", detail)
     detail = act(
-        world, ads.lead_dung, f"/nodes/{dung}/submit", detail, link="https://example.com/cut"
+        world, ads.lead_dung, f"/nodes/{dung}/submit", detail, link="https://example.com/final_V1"
     )
     detail = act(world, ads.lead_dung, f"/nodes/{dung}/approve", detail)
-    assert detail["order"]["stage"] == "GAN_LINK"
-    # The link node went straight to the editor who made the cut.
-    assert node(detail, "GAN_LINK")["status"] == "DANG_LAM"
-    assert node(detail, "GAN_LINK")["assignee_user_id"] == str(ads.lead_dung.id)
+    # No link step: the approved cut goes to the script lead first (BTD).
+    assert detail["order"]["stage"] == "DUYET_VIDEO_BT"
+    assert detail["order"]["product_link"] == "https://example.com/final_V1"
+    assert node(detail, "DUNG")["status"] == "HOAN_THANH"
+    assert [n["node_type"] for n in detail["nodes"]] == ["BIEN_TAP", "THIET_KE", "DUNG"]
+    assert ("order_submission_ready", "Có bài chờ bạn duyệt") in await inbox(world, ads.lead_bt)
     by_node = {row.source_key.split(":")[-1]: row for row in await kpi_rows(world)}
     assert set(by_node) == {"BIEN_TAP", "THIET_KE", "DUNG"}
     assert by_node["DUNG"].status.value == "PENDING"
     assert by_node["THIET_KE"].status.value == "COUNTED"
 
-    # The link goes to the script lead first (BTD), who sends it back once.
-    detail = act(world, ads.lead_dung, "/link", detail, link="https://example.com/final_V1")
-    assert detail["order"]["stage"] == "DUYET_VIDEO_BT"
-    assert ("order_submission_ready", "Có bài chờ bạn duyệt") in await inbox(world, ads.lead_bt)
+    # The script lead sends the cut back: the edit reopens for the same editor.
     detail = act(world, ads.lead_bt, "/video/return", detail, note="Thiếu logo")
-    assert detail["order"]["stage"] == "GAN_LINK"
-    assert node(detail, "GAN_LINK")["status"] == "DANG_SUA"
-    detail = act(world, ads.lead_dung, "/link", detail, link="https://example.com/final_V2")
+    assert detail["order"]["stage"] == "DUNG"
+    assert node(detail, "DUNG")["status"] == "DANG_SUA"
+    assert node(detail, "DUNG")["assignee_user_id"] == str(ads.lead_dung.id)
+    assert node(detail, "DUNG")["revision_count"] == 1
+    detail = act(
+        world, ads.lead_dung, f"/nodes/{dung}/submit", detail, link="https://example.com/final_V2"
+    )
+    detail = act(world, ads.lead_dung, f"/nodes/{dung}/approve", detail)
+    assert detail["order"]["stage"] == "DUYET_VIDEO_BT"
     detail = act(world, ads.lead_bt, "/video/approve", detail)
     assert detail["order"]["stage"] == "FINAL_REVIEW"
     # The final review is the orderer's: they are told, not the head.
     assert ("order_submission_ready", "Có bài chờ bạn duyệt") in await inbox(world, ads.orderer)
     assert ("order_submission_ready", "Có bài chờ bạn duyệt") not in await inbox(world, ads.head)
 
-    # The head, a stand-in by the default matrix, returns once, then
-    # approves. The orderer gets the link.
+    # The head, a stand-in by the default matrix, returns once: back to the
+    # last production node, the same editor, one more revision.
     detail = act(world, ads.head, "/final/return", detail, note="Đổi nhạc")
-    assert detail["order"]["stage"] == "GAN_LINK"
+    assert detail["order"]["stage"] == "DUNG"
+    assert node(detail, "DUNG")["status"] == "DANG_SUA"
+    assert node(detail, "DUNG")["assignee_user_id"] == str(ads.lead_dung.id)
+    assert node(detail, "DUNG")["revision_count"] == 2
     assert ("order_final_returned", "Sản phẩm cần sửa lại") in await inbox(world, ads.lead_dung)
-    # A fresh link goes through the script lead again before the head sees it.
-    detail = act(world, ads.lead_dung, "/link", detail, link="https://example.com/final_V3")
+    # A fresh cut goes through review and the script lead again.
+    detail = act(
+        world, ads.lead_dung, f"/nodes/{dung}/submit", detail, link="https://example.com/final_V3"
+    )
+    detail = act(world, ads.lead_dung, f"/nodes/{dung}/approve", detail)
     assert detail["order"]["stage"] == "DUYET_VIDEO_BT"
     detail = act(world, ads.lead_bt, "/video/approve", detail)
     detail = act(world, ads.head, "/final/approve", detail)
     order = detail["order"]
     assert order["stage"] == "COMPLETED" and order["completed_at"] is not None
     assert order["product_link"] == "https://example.com/final_V3"
-    assert node(detail, "GAN_LINK")["status"] == "HOAN_THANH"
+    assert node(detail, "DUNG")["status"] == "HOAN_THANH"
     assert ("order_completed", "Order đã hoàn thành") in await inbox(world, ads.orderer)
     assert detail["available_actions"] == []
     gates = [
@@ -368,8 +388,9 @@ async def test_03_a_full_pipeline_order_runs_from_submission_to_the_product_link
         "VIDEO_BT:3:APPROVED",
         "FINAL:2:APPROVED",
     ]
-    # Still three results: the link hand-off is never counted.
+    # Still three results: a node approved again after a return adds nothing.
     assert len(await kpi_rows(world)) == 3
+    assert "LINK_ATTACHED" not in {event["kind"] for event in detail["events"]}
     # The detail is also reachable by its code.
     world.act_as(ads.orderer)
     assert world.client.get(f"/api/orders/{order['code']}").json()["order"]["id"] == order_id
@@ -385,14 +406,15 @@ async def test_04_a_quick_edit_skips_two_nodes_and_needs_no_script_lead(world: W
     detail = act(
         world, ads.lead_dung, f"/nodes/{dung}/assign", detail, assignee_user_id=str(ads.editor.id)
     )
+    detail = act(world, ads.editor, f"/nodes/{dung}/accept", detail)
     detail = act(world, ads.editor, f"/nodes/{dung}/submit", detail, link="https://example.com/cut")
     detail = act(world, ads.lead_dung, f"/nodes/{dung}/approve", detail)
-    assert detail["order"]["stage"] == "GAN_LINK"
-    detail = act(world, ads.editor, "/link", detail, link="https://example.com/final")
-    # No script lead on a D order: the link goes straight to the head.
+    # No script lead on a D order: the approved cut goes straight to the orderer.
     assert detail["order"]["stage"] == "FINAL_REVIEW"
+    assert detail["order"]["product_link"] == "https://example.com/cut"
     detail = act(world, ads.head, "/final/approve", detail)
     assert detail["order"]["stage"] == "COMPLETED"
+    assert detail["order"]["product_link"] == "https://example.com/cut"
     assert len(await kpi_rows(world)) == 1
 
 
@@ -405,6 +427,7 @@ async def test_05_design_plus_edit_runs_the_two_production_nodes(world: World) -
     tk = node(detail, "THIET_KE")["id"]
     # Design is not reviewed by default: handing in finishes the node and the
     # edit starts at once, with nothing waiting on the design Leader.
+    detail = act(world, ads.designer, f"/nodes/{tk}/accept", detail)
     detail = act(world, ads.designer, f"/nodes/{tk}/submit", detail, link="https://example.com/tk")
     assert detail["order"]["stage"] == "DUNG"
     assert statuses(detail)["THIET_KE"] == "HOAN_THANH"
@@ -419,10 +442,11 @@ async def test_05_design_plus_edit_runs_the_two_production_nodes(world: World) -
         assignee_user_id=str(ads.editor.id),
     )
     dung = node(detail, "DUNG")["id"]
+    detail = act(world, ads.editor, f"/nodes/{dung}/accept", detail)
     detail = act(world, ads.editor, f"/nodes/{dung}/submit", detail, link="https://example.com/cut")
     assert statuses(detail)["DUNG"] == "CHO_DUYET"
-    # The strip reads in pipeline order.
-    assert [n["node_type"] for n in detail["nodes"]] == ["BIEN_TAP", "THIET_KE", "DUNG", "GAN_LINK"]
+    # The strip reads in pipeline order; there is no link node.
+    assert [n["node_type"] for n in detail["nodes"]] == ["BIEN_TAP", "THIET_KE", "DUNG"]
 
 
 # --- refusals ---------------------------------------------------------------------
@@ -506,8 +530,10 @@ async def test_09_priority_is_a_flag_and_cancel_keeps_what_was_counted(world: Wo
     detail = act(
         world, ads.lead_dung, f"/nodes/{dung}/assign", detail, assignee_user_id=str(ads.editor.id)
     )
+    detail = act(world, ads.editor, f"/nodes/{dung}/accept", detail)
     detail = act(world, ads.editor, f"/nodes/{dung}/submit", detail, link="https://example.com/cut")
     detail = act(world, ads.lead_dung, f"/nodes/{dung}/approve", detail)
+    assert detail["order"]["stage"] == "FINAL_REVIEW"
     assert len(await kpi_rows(world)) == 1
     detail = act(world, ads.head, "/cancel", detail, note="Khách đổi ý")
     assert detail["order"]["stage"] == "CANCELLED"
@@ -605,8 +631,8 @@ async def test_12_every_process_combination_plans_its_nodes_and_its_code(world: 
         )
         assert order["process"] == nodes
         assert statuses(detail) == {
-            node_type: ("CHUA_TOI" if node_type in nodes or node_type == "GAN_LINK" else "BO_QUA")
-            for node_type in ("BIEN_TAP", "THIET_KE", "DUNG", "GAN_LINK")
+            node_type: ("CHUA_TOI" if node_type in nodes else "BO_QUA")
+            for node_type in ("BIEN_TAP", "THIET_KE", "DUNG")
         }
         # The approval starts the first ticked node.
         detail = act(world, ads.head, "/approve", detail)
@@ -644,51 +670,87 @@ async def test_13_the_process_is_validated(world: World) -> None:
         assert response.status_code == 201, (code, response.json())
 
 
-async def test_14_the_link_goes_to_whoever_did_the_last_production_node(world: World) -> None:
+async def test_14_the_last_production_node_hands_in_the_product_link(world: World) -> None:
     ads = await ads_world(world)
-    # Script only: the writer who wrote it attaches the link.
+    # Script only: the writer's hand-in is the product, so it needs a link.
     detail = create(world, ads, video_type="B", preassigned={"BIEN_TAP": str(ads.writer.id)})
     detail = act(world, ads.head, "/approve", detail)
     bt = node(detail, "BIEN_TAP")["id"]
-    detail = act(world, ads.writer, f"/nodes/{bt}/submit", detail, script_text="Kịch bản")
-    # Script review is off by default: the hand-in finishes it.
-    assert detail["order"]["stage"] == "GAN_LINK"
-    assert node(detail, "GAN_LINK")["assignee_user_id"] == str(ads.writer.id)
-    detail = act(world, ads.writer, "/link", detail, link="https://example.com/final")
+    detail = act(world, ads.writer, f"/nodes/{bt}/accept", detail)
+    world.act_as(ads.writer)
+    no_link = world.client.post(
+        f"/api/orders/{detail['order']['id']}/nodes/{bt}/submit",
+        json={"version": detail["order"]["version"], "script_text": "Kịch bản"},
+    )
+    assert no_link.status_code == 422 and error_reason(no_link.json()) == "link_required"
+    detail = act(
+        world,
+        ads.writer,
+        f"/nodes/{bt}/submit",
+        detail,
+        script_text="Kịch bản",
+        link="https://example.com/final",
+    )
+    # Script review is off by default: the hand-in finishes it - final review.
     assert detail["order"]["stage"] == "FINAL_REVIEW"
+    assert detail["order"]["product_link"] == "https://example.com/final"
+    assert ("order_submission_ready", "Có bài chờ bạn duyệt") in await inbox(world, ads.orderer)
+    assert all(action["kind"] != "ATTACH_LINK" for action in detail["available_actions"])
+    # The old link route is gone.
+    world.act_as(ads.writer)
+    gone = world.client.post(
+        f"/api/orders/{detail['order']['id']}/link",
+        json={"version": detail["order"]["version"], "link": "https://example.com/x"},
+    )
+    assert gone.status_code in (404, 405)
 
-    # Script then design: the designer attaches it.
+    # Script then design: the script needs no link, the design (last) does.
     detail = create(world, ads, video_type="BT", preassigned={"THIET_KE": str(ads.designer.id)})
     detail = act(world, ads.head, "/approve", detail)
     bt = node(detail, "BIEN_TAP")["id"]
     detail = act(
         world, ads.lead_bt, f"/nodes/{bt}/assign", detail, assignee_user_id=str(ads.writer.id)
     )
+    detail = act(world, ads.writer, f"/nodes/{bt}/accept", detail)
     detail = act(world, ads.writer, f"/nodes/{bt}/submit", detail, script_text="Kịch bản")
+    assert detail["order"]["stage"] == "THIET_KE"
     tk = node(detail, "THIET_KE")["id"]
-    detail = act(world, ads.designer, f"/nodes/{tk}/submit", detail, link="https://example.com/tk")
-    assert detail["order"]["stage"] == "GAN_LINK"
-    assert node(detail, "GAN_LINK")["assignee_user_id"] == str(ads.designer.id)
+    assert node(detail, "THIET_KE")["assignee_user_id"] == str(ads.designer.id)
+    # Handed to the chosen designer, who has not accepted: no hand-in yet.
+    world.act_as(ads.designer)
+    early = world.client.post(
+        f"/api/orders/{detail['order']['id']}/nodes/{tk}/submit",
+        json={"version": detail["order"]["version"], "link": "https://example.com/tk"},
+    )
+    assert early.status_code == 403
+    mine = world.client.get(f"/api/orders/{detail['order']['id']}").json()
+    assert {a["kind"] for a in mine["available_actions"]} == {"ACCEPT"}
+    detail = act(world, ads.designer, f"/nodes/{tk}/accept", detail)
+    world.act_as(ads.designer)
+    text_only = world.client.post(
+        f"/api/orders/{detail['order']['id']}/nodes/{tk}/submit",
+        json={"version": detail["order"]["version"], "script_text": "Ghi chú thiết kế"},
+    )
+    assert text_only.status_code == 422 and error_reason(text_only.json()) == "link_required"
+    detail = act(world, ads.designer, f"/nodes/{tk}/submit", detail, link="https://e.com/tk_V1")
+    assert detail["order"]["stage"] == "FINAL_REVIEW"
+    assert detail["order"]["product_link"] == "https://e.com/tk_V1"
 
-    # With nobody on the link, it is routed to the attaching function's Leader:
-    # the design lead may hand it out, the editing lead may not.
-    gan = node(detail, "GAN_LINK")["id"]
-    detail = act(
-        world, ads.lead_tk, f"/nodes/{gan}/assign", detail, assignee_user_id=str(ads.lead_tk.id)
-    )
-    world.act_as(ads.lead_dung)
-    refused = world.client.post(
-        f"/api/orders/{detail['order']['id']}/nodes/{gan}/assign",
-        json={"version": detail["order"]["version"], "assignee_user_id": str(ads.editor.id)},
-    )
-    assert refused.status_code in (403, 404)
-    # An editor is not of the attaching function.
-    world.act_as(ads.lead_tk)
-    wrong = world.client.post(
-        f"/api/orders/{detail['order']['id']}/nodes/{gan}/assign",
-        json={"version": detail["order"]["version"], "assignee_user_id": str(ads.editor.id)},
-    )
-    assert wrong.status_code == 422 and error_reason(wrong.json()) == "not_a_unit_function_member"
+    # The orderer sends it back: the design reopens for the same designer,
+    # who fixes it without accepting again.
+    detail = act(world, ads.orderer, "/final/return", detail, note="Đổi màu")
+    assert detail["order"]["stage"] == "THIET_KE"
+    assert node(detail, "THIET_KE")["status"] == "DANG_SUA"
+    assert node(detail, "THIET_KE")["assignee_user_id"] == str(ads.designer.id)
+    assert node(detail, "THIET_KE")["revision_count"] == 1
+    assert ("order_final_returned", "Sản phẩm cần sửa lại") in await inbox(world, ads.designer)
+    detail = act(world, ads.designer, f"/nodes/{tk}/submit", detail, link="https://e.com/tk_V2")
+    assert detail["order"]["stage"] == "FINAL_REVIEW"
+    detail = act(world, ads.orderer, "/final/approve", detail)
+    assert detail["order"]["stage"] == "COMPLETED"
+    assert detail["order"]["product_link"] == "https://e.com/tk_V2"
+    # One result per node, recorded on the first completion only.
+    assert len(await kpi_rows(world)) == 3
 
 
 async def test_15_the_orderer_decides_the_final_review(world: World) -> None:
@@ -705,12 +767,15 @@ async def test_15_the_orderer_decides_the_final_review(world: World) -> None:
     )
     detail = act(world, ads.head, "/approve", detail)
     bt = node(detail, "BIEN_TAP")["id"]
+    detail = act(world, ads.writer, f"/nodes/{bt}/accept", detail)
     detail = act(world, ads.writer, f"/nodes/{bt}/submit", detail, script_text="Kịch bản")
     dung = node(detail, "DUNG")["id"]
-    detail = act(world, ads.editor, f"/nodes/{dung}/submit", detail, link="https://example.com/cut")
+    assert node(detail, "DUNG")["assignee_user_id"] == str(ads.editor.id)
+    detail = act(world, ads.editor, f"/nodes/{dung}/accept", detail)
+    detail = act(
+        world, ads.editor, f"/nodes/{dung}/submit", detail, link="https://example.com/final_V1"
+    )
     detail = act(world, ads.lead_dung, f"/nodes/{dung}/approve", detail)
-    assert node(detail, "GAN_LINK")["assignee_user_id"] == str(ads.editor.id)
-    detail = act(world, ads.editor, "/link", detail, link="https://example.com/final_V1")
     assert detail["order"]["stage"] == "DUYET_VIDEO_BT"
     detail = act(world, ads.lead_bt, "/video/approve", detail)
     assert detail["order"]["stage"] == "FINAL_REVIEW"
@@ -720,11 +785,17 @@ async def test_15_the_orderer_decides_the_final_review(world: World) -> None:
     world.act_as(ads.orderer)
     mine = world.client.get(f"/api/orders/{detail['order']['id']}").json()
     assert {"APPROVE_FINAL", "RETURN_FINAL"} <= {a["kind"] for a in mine["available_actions"]}
+    final = next(a for a in mine["available_actions"] if a["kind"] == "APPROVE_FINAL")
+    assert final["node_id"] == dung
     # The orderer sends it back; the editor fixes it; the orderer approves.
     detail = act(world, ads.orderer, "/final/return", detail, note="Đổi nhạc")
-    assert detail["order"]["stage"] == "GAN_LINK"
+    assert detail["order"]["stage"] == "DUNG"
+    assert node(detail, "DUNG")["status"] == "DANG_SUA"
     assert ("order_final_returned", "Sản phẩm cần sửa lại") in await inbox(world, ads.editor)
-    detail = act(world, ads.editor, "/link", detail, link="https://example.com/final_V2")
+    detail = act(
+        world, ads.editor, f"/nodes/{dung}/submit", detail, link="https://example.com/final_V2"
+    )
+    detail = act(world, ads.lead_dung, f"/nodes/{dung}/approve", detail)
     detail = act(world, ads.lead_bt, "/video/approve", detail)
     detail = act(world, ads.orderer, "/final/approve", detail)
     assert detail["order"]["stage"] == "COMPLETED"
@@ -739,8 +810,8 @@ async def test_15_the_orderer_decides_the_final_review(world: World) -> None:
     second = create(world, ads, video_type="T", preassigned={"THIET_KE": str(ads.designer.id)})
     second = act(world, ads.head, "/approve", second)
     tk = node(second, "THIET_KE")["id"]
+    second = act(world, ads.designer, f"/nodes/{tk}/accept", second)
     second = act(world, ads.designer, f"/nodes/{tk}/submit", second, link="https://example.com/t")
-    second = act(world, ads.designer, "/link", second, link="https://example.com/t_final")
     assert second["order"]["stage"] == "FINAL_REVIEW"
     world.act_as(other)
     refused = world.client.post(
@@ -795,3 +866,125 @@ async def test_16_the_video_kind_is_required_valid_and_snapshotted(world: World)
     await world.session.flush()
     plain = create(world, ads, video_type="TD")
     assert plain["order"]["video_kind_id"] is None and plain["order"]["video_kind_points"] is None
+
+
+# --- no link step: orders created before it was folded in --------------------------
+
+
+async def legacy_link_node(world: World, detail: dict[str, Any], **values: Any) -> None:
+    """Give an order the old "Gắn link" node, as orders created before the
+    link step was folded into the last production node have."""
+    from meobot.db.models.order import Order, OrderNode
+    from meobot.domain.orders.models import OrderNodeStatus, OrderStage
+
+    order = await world.session.get(Order, uuid.UUID(detail["order"]["id"]))
+    assert order is not None
+    status = values.pop("status", OrderNodeStatus.DANG_LAM)
+    stage = values.pop("stage", OrderStage.GAN_LINK)
+    world.session.add(
+        OrderNode(order_id=order.id, node_type=OrderNodeType.GAN_LINK, status=status, **values)
+    )
+    order.stage = stage
+    await world.session.flush()
+
+
+async def test_17_a_legacy_order_at_the_old_link_step_hides_it_and_still_finishes(
+    world: World,
+) -> None:
+    from meobot.core.time import utcnow
+    from meobot.db.models.order import Order, OrderNode
+    from meobot.domain.orders.models import OrderNodeStatus, OrderStage
+
+    ads = await ads_world(world)
+    detail = create(
+        world,
+        ads,
+        video_type="D",
+        design_link="https://example.com/design",
+        preassigned={"DUNG": str(ads.editor.id)},
+    )
+    detail = act(world, ads.head, "/approve", detail)
+    dung = node(detail, "DUNG")["id"]
+    detail = act(world, ads.editor, f"/nodes/{dung}/accept", detail)
+    detail = act(world, ads.editor, f"/nodes/{dung}/submit", detail, link="https://e.com/cut")
+    detail = act(world, ads.lead_dung, f"/nodes/{dung}/approve", detail)
+    # Rewind it to what the old engine left: the link node up, nothing attached.
+    order = await world.session.get(Order, uuid.UUID(detail["order"]["id"]))
+    assert order is not None
+    order.product_link = None
+    now = utcnow()
+    await legacy_link_node(
+        world,
+        detail,
+        assignee_user_id=ads.editor.id,
+        activated_at=now,
+        assigned_at=now,
+    )
+    world.act_as(ads.editor)
+    detail = world.client.get(f"/api/orders/{order.id}").json()
+    assert detail["order"]["stage"] == "GAN_LINK"
+    # Hidden on every screen: no node in the detail, no cell on the board.
+    assert [n["node_type"] for n in detail["nodes"]] == ["BIEN_TAP", "THIET_KE", "DUNG"]
+    rows = world.client.get("/api/board/tasks", params={"unit": "ADS"}).json()["items"]
+    row = next(item for item in rows if item["code"] == detail["order"]["code"])
+    assert [cell["key"] for cell in row["cells"]] == ["BIEN_TAP", "THIET_KE", "DUNG", "FINAL"]
+    assert "Gắn link" not in row["status_label"]
+    # Its holder takes it and hands the link in like the last node would.
+    assert {a["kind"] for a in detail["available_actions"]} == {"ACCEPT"}
+    link = next(a for a in detail["available_actions"] if a["kind"] == "ACCEPT")["node_id"]
+    detail = act(world, ads.editor, f"/nodes/{link}/accept", detail)
+    world.act_as(ads.editor)
+    empty = world.client.post(
+        f"/api/orders/{order.id}/nodes/{link}/submit",
+        json={"version": detail["order"]["version"], "script_text": "x"},
+    )
+    assert empty.status_code == 422 and error_reason(empty.json()) == "link_required"
+    detail = act(world, ads.editor, f"/nodes/{link}/submit", detail, link="https://e.com/old")
+    assert detail["order"]["stage"] == "FINAL_REVIEW"
+    assert detail["order"]["product_link"] == "https://e.com/old"
+    # Sent back: the edit reopens; the old link step never comes back.
+    detail = act(world, ads.orderer, "/final/return", detail, note="Sửa")
+    assert detail["order"]["stage"] == "DUNG" and node(detail, "DUNG")["status"] == "DANG_SUA"
+    detail = act(world, ads.editor, f"/nodes/{dung}/submit", detail, link="https://e.com/new")
+    detail = act(world, ads.lead_dung, f"/nodes/{dung}/approve", detail)
+    detail = act(world, ads.orderer, "/final/approve", detail)
+    assert detail["order"]["stage"] == "COMPLETED"
+    assert detail["order"]["product_link"] == "https://e.com/new"
+    assert len(await kpi_rows(world)) == 1
+
+    # One waiting at the final review with its link on the old node: the
+    # orderer returns it (the old node is skipped for good), then approves.
+    second = create(
+        world,
+        ads,
+        video_type="D",
+        design_link="https://example.com/design",
+        preassigned={"DUNG": str(ads.editor.id)},
+    )
+    second = act(world, ads.head, "/approve", second)
+    dung2 = node(second, "DUNG")["id"]
+    second = act(world, ads.editor, f"/nodes/{dung2}/accept", second)
+    second = act(world, ads.editor, f"/nodes/{dung2}/submit", second, link="https://e.com/c2")
+    second = act(world, ads.lead_dung, f"/nodes/{dung2}/approve", second)
+    assert second["order"]["stage"] == "FINAL_REVIEW"
+    await legacy_link_node(
+        world,
+        second,
+        status=OrderNodeStatus.CHO_DUYET,
+        assignee_user_id=ads.editor.id,
+        stage=OrderStage.FINAL_REVIEW,
+    )
+    world.act_as(ads.orderer)
+    second = world.client.get(f"/api/orders/{second['order']['id']}").json()
+    second = act(world, ads.orderer, "/final/return", second, note="Sửa")
+    assert second["order"]["stage"] == "DUNG"
+    legacy = (
+        await world.session.scalars(
+            select(OrderNode).where(
+                OrderNode.order_id == uuid.UUID(second["order"]["id"]),
+                OrderNode.node_type == OrderNodeType.GAN_LINK,
+            )
+        )
+    ).one()
+    await world.session.refresh(legacy)
+    assert legacy.status is OrderNodeStatus.BO_QUA

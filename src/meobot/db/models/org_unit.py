@@ -13,6 +13,10 @@ Two tables, added by ``0042`` beside the PR schema without touching it:
   ("Loại video") and the points each is worth. Never deleted: a kind that is
   no longer offered is deactivated, and orders keep a snapshot of its name
   and points, so editing the catalogue never rewrites an old order.
+* ``unit_platforms`` (``0049``) - the unit's catalogue of target platforms
+  ("Nền tảng": TikTok, Facebook, YouTube…). No points.
+* ``unit_durations`` (``0049``) - the unit's catalogue of video durations
+  ("Thời lượng": 30s, 1p, 1p30s…) with configurable points.
 
 What is deliberately **not** here: no hierarchy, no manager link, no team
 under a unit. The Work ledger and the capability grants still infer nothing
@@ -49,6 +53,8 @@ from meobot.domain.units.models import UnitCode, UnitMemberRole
 ORG_UNITS = "org_units"
 ORG_UNIT_MEMBERS = "org_unit_members"
 UNIT_VIDEO_KINDS = "unit_video_kinds"
+UNIT_PLATFORMS = "unit_platforms"
+UNIT_DURATIONS = "unit_durations"
 
 #: A tag is active while it has not been closed.
 ACTIVE_MEMBERSHIP = text("left_at IS NULL")
@@ -155,12 +161,62 @@ class UnitVideoKind(Base, UUIDPrimaryKeyMixin, TimestampMixin):
     )
 
 
+class UnitPlatform(Base, UUIDPrimaryKeyMixin, TimestampMixin):
+    """One target platform a unit offers on its order form ("Nền tảng")."""
+
+    __tablename__ = UNIT_PLATFORMS
+    __table_args__ = (
+        CheckConstraint(_not_empty("name"), name="name_not_empty"),
+        Index("uq_unit_platforms_unit_name", "unit_id", text("lower(name)"), unique=True),
+    )
+
+    unit_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey(f"{ORG_UNITS}.id", ondelete=RESTRICT), nullable=False
+    )
+    name: Mapped[str] = mapped_column(String(120), nullable=False)
+    active: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=True, server_default=text("true")
+    )
+    sort_order: Mapped[int] = mapped_column(
+        Integer, nullable=False, default=0, server_default=text("0")
+    )
+
+
+class UnitDuration(Base, UUIDPrimaryKeyMixin, TimestampMixin):
+    """One video duration a unit offers on its order form ("Thời lượng")."""
+
+    __tablename__ = UNIT_DURATIONS
+    __table_args__ = (
+        CheckConstraint(_not_empty("name"), name="name_not_empty"),
+        CheckConstraint("points >= 0", name="points_not_negative"),
+        Index("uq_unit_durations_unit_name", "unit_id", text("lower(name)"), unique=True),
+    )
+
+    unit_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey(f"{ORG_UNITS}.id", ondelete=RESTRICT), nullable=False
+    )
+    name: Mapped[str] = mapped_column(String(120), nullable=False)
+    points: Mapped[Decimal] = mapped_column(
+        Numeric(6, 2), nullable=False, default=Decimal("1"), server_default=text("1")
+    )
+    active: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=True, server_default=text("true")
+    )
+    sort_order: Mapped[int] = mapped_column(
+        Integer, nullable=False, default=0, server_default=text("0")
+    )
+
+
 __all__ = [
     "ACTIVE_MEMBERSHIP",
     "ORG_UNITS",
     "ORG_UNIT_MEMBERS",
+    "UNIT_DURATIONS",
+    "UNIT_PLATFORMS",
     "UNIT_VIDEO_KINDS",
     "OrgUnit",
     "OrgUnitMember",
+    "UnitDuration",
+    "UnitPlatform",
     "UnitVideoKind",
 ]

@@ -1,7 +1,7 @@
 """One column layout for both units on the "Tất cả" tab.
 
-PR keeps five phases and Ads four nodes; side by side in one table that is two
-different sets of columns under one header. The merged view rewrites every
+PR keeps five phases and Ads three nodes plus its final review; side by side
+in one table that is two different sets of columns under one header. The merged view rewrites every
 row's cells into the same five:
 
     Order · Biên kịch · Thiết kế · Dựng / Sản xuất · Duyệt final
@@ -11,8 +11,9 @@ row's cells into the same five:
   equivalent of having the order approved.
 * **Biên kịch**, **Thiết kế** - Ads nodes. PR has neither: "—".
 * **Dựng / Sản xuất** - Ads "Dựng"; PR production.
-* **Duyệt final** - Ads link attached and the orderer's final review; PR
-  internal review and publishing.
+* **Duyệt final** - Ads: the gates the product goes through once the last
+  production node is done (the script lead's video review where it applies,
+  then the orderer's final review); PR internal review and publishing.
 
 Read-only reshaping of rows the sources already built: no rule is decided here.
 """
@@ -94,7 +95,7 @@ def unify_row(row: TaskRow) -> TaskRow:
             _relabel(cells.get("BIEN_TAP"), "BIEN_TAP"),
             _relabel(cells.get("THIET_KE"), "THIET_KE"),
             _relabel(cells.get("DUNG"), "PRODUCTION"),
-            _relabel(cells.get("GAN_LINK"), "FINAL"),
+            _relabel(cells.get("FINAL"), "FINAL"),
         )
     else:
         unified = (

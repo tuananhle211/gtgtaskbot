@@ -34,6 +34,7 @@ from meobot.domain.orders.models import (
     OrderNodeType,
     OrderScriptSource,
     OrderVideoType,
+    last_production_node,
     needs_design_link,
 )
 from meobot.domain.units.models import UnitMemberRole
@@ -89,8 +90,10 @@ TITLES = [
 
 # (video type, where to stop, priority, age in days)
 # stops: PENDING, RETURNED, CANCELLED_EARLY, or (node, state) with state in
-# UNASSIGNED / ASSIGNED / ACCEPTED / RETURNED / REVIEW; then GAN_LINK,
-# FINAL_REVIEW, FINAL_RETURNED, DONE, CANCELLED_LATE.
+# UNASSIGNED / ASSIGNED / ACCEPTED / RETURNED / REVIEW; then FINAL_REVIEW,
+# FINAL_RETURNED, DONE, CANCELLED_LATE. There is no link step: the last
+# production node hands the product link in, and its completion opens the
+# final review (after the script lead's video review where that applies).
 SCENARIOS: list[tuple[str, Any, bool, int]] = [
     ("BTD", "PENDING", False, 0),
     ("D", "PENDING", True, 1),
@@ -109,8 +112,8 @@ SCENARIOS: list[tuple[str, Any, bool, int]] = [
     ("D", ("DUNG", "REVIEW"), True, 3),
     ("BTD", ("DUNG", "REVIEW"), False, 5),
     ("TD", ("DUNG", "RETURNED"), False, 6),
-    ("D", "GAN_LINK", False, 4),
-    ("BTD", "GAN_LINK", True, 5),
+    ("D", ("DUNG", "ASSIGNED"), False, 4),
+    ("BTD", ("DUNG", "ACCEPTED"), True, 5),
     ("TD", "FINAL_REVIEW", False, 5),
     ("BTD", "FINAL_REVIEW", False, 7),
     ("D", "FINAL_RETURNED", False, 6),
@@ -126,7 +129,7 @@ SCENARIOS: list[tuple[str, Any, bool, int]] = [
     ("BD", "PENDING", False, 0),
     ("B", ("BIEN_TAP", "ACCEPTED"), False, 1),
     ("T", "FINAL_REVIEW", False, 2),
-    ("BT", "GAN_LINK", False, 3),
+    ("BT", ("THIET_KE", "ACCEPTED"), False, 3),
     ("BD", "DONE", False, 4),
 ]
 
@@ -199,7 +202,6 @@ async def main() -> None:
         ).all()
 
         actors = {username: actor_of(user) for username, user in people.items()}
-        by_id = {user.id: actors[username] for username, user in people.items()}
         services = build_order_services(session, settings)
         cmd = services.commands
         head = actors["demo_head"]
@@ -324,13 +326,17 @@ async def main() -> None:
                     if here and stop[1] == "ACCEPTED":
                         return
                     o, _ = await fresh(oid)
+                    # The last node's hand-in is the product (link required).
+                    last = node_type is last_production_node(o.video_type)
                     await cmd.submit_work(
                         actor=worker,
                         request_id=rid(),
                         order_id=oid,
                         node_id=node.id,
                         expected_version=o.version,
-                        link=f"https://drive.example.com/{node_type.value.lower()}/{index}",
+                        link=f"https://drive.example.com/final/{index}.mp4"
+                        if last
+                        else f"https://drive.example.com/{node_type.value.lower()}/{index}",
                         script_text="Kịch bản: 0-3s hook, 3-15s vấn đề, 15-30s giải pháp."
                         if node_type is OrderNodeType.BIEN_TAP
                         else None,
@@ -357,28 +363,15 @@ async def main() -> None:
                             node_id=node.id,
                             expected_version=o.version,
                         )
-                if stop == "GAN_LINK":
-                    return
-                o, nodes = await fresh(oid)
-                link_node = nodes[OrderNodeType.GAN_LINK]
-                attacher = by_id.get(link_node.assignee_user_id) or actors["demo_dung_lead"]
-                if link_node.accepted_at is None:
-                    await cmd.accept(
-                        actor=attacher,
+                o, _ = await fresh(oid)
+                if o.stage.value == "DUYET_VIDEO_BT":
+                    # The unit has the script lead's video review on.
+                    await cmd.approve_video(
+                        actor=actors[LEADS[OrderNodeType.BIEN_TAP]],
                         request_id=rid(),
                         order_id=oid,
-                        node_id=link_node.id,
                         expected_version=o.version,
                     )
-                    o, _ = await fresh(oid)
-                await cmd.attach_link(
-                    actor=attacher,
-                    request_id=rid(),
-                    order_id=oid,
-                    expected_version=o.version,
-                    link=f"https://drive.example.com/final/{index}.mp4",
-                    note="Bản final 9:16.",
-                )
                 if stop == "FINAL_REVIEW":
                     return
                 o, _ = await fresh(oid)

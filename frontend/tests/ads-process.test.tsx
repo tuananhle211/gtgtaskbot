@@ -139,31 +139,26 @@ describe("the create form's Quy trình", () => {
     expect(screen.getByRole("checkbox", { name: "Dựng" })).toBeChecked();
     expect(screen.getByRole("checkbox", { name: "Biên kịch" })).not.toBeChecked();
     expect(screen.getByRole("checkbox", { name: "Design" })).not.toBeChecked();
-    expect(route()).toBe("Order › Dựng › Gắn link › Người order duyệt final");
+    expect(route()).toBe("Order › Dựng › Người order duyệt final");
     expect(codePreview()).toBe("TUAN-D-yymmdd-nn");
   });
 
-  it("changes the route, the code preview and the pre-assign pickers as boxes are ticked", async () => {
+  it("changes the route and the code preview as boxes are ticked", async () => {
     stubCreateForm();
     renderWithQuery(<NewOrderPage />);
     await userEvent.click(await screen.findByRole("checkbox", { name: "Biên kịch" }));
     expect(route()).toBe(
-      "Order › Biên kịch › Dựng › Gắn link › Người order duyệt final",
+      "Order › Biên kịch › Dựng › Người order duyệt final",
     );
     expect(codePreview()).toBe("TUAN-BD-yymmdd-nn");
-    // A picker per ticked node only.
-    expect(screen.getByRole("combobox", { name: "Biên kịch" })).toBeInTheDocument();
-    expect(screen.getByRole("combobox", { name: "Dựng" })).toBeInTheDocument();
-    expect(screen.queryByRole("combobox", { name: "Design" })).not.toBeInTheDocument();
 
     await userEvent.click(screen.getByRole("checkbox", { name: "Design" }));
     expect(codePreview()).toBe("TUAN-BTD-yymmdd-nn");
     expect(route()).toBe(
-      "Order › Biên kịch › Design › Dựng › Gắn link › Người order duyệt final",
+      "Order › Biên kịch › Design › Dựng › Người order duyệt final",
     );
     await userEvent.click(screen.getByRole("checkbox", { name: "Dựng" }));
     expect(codePreview()).toBe("TUAN-BT-yymmdd-nn");
-    expect(screen.queryByRole("combobox", { name: "Dựng" })).not.toBeInTheDocument();
     // The side panel names the orderer as the final reviewer.
     expect(screen.getByText("Bạn (người order) duyệt final")).toBeInTheDocument();
   });
@@ -190,10 +185,6 @@ describe("the create form's Quy trình", () => {
     // The kind is required while the unit has any.
     expect(submit()).toBeDisabled();
     await userEvent.selectOptions(kind, KIND_FULL);
-    await userEvent.selectOptions(
-      screen.getByRole("combobox", { name: "Biên kịch" }),
-      "11111111-1111-1111-1111-111111111111",
-    );
     expect(submit()).toBeEnabled();
     await userEvent.click(submit());
     const dialog = await screen.findByRole("dialog");
@@ -207,9 +198,9 @@ describe("the create form's Quy trình", () => {
         process: ["BIEN_TAP", "DUNG"],
         video_kind_id: KIND_FULL,
         design_link: "https://drive.example.com/design",
-        preassigned: { BIEN_TAP: "11111111-1111-1111-1111-111111111111" },
       });
       expect(sent?.body).not.toHaveProperty("video_type");
+      expect(sent?.body).not.toHaveProperty("preassigned");
     });
   });
 

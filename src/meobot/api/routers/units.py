@@ -23,8 +23,14 @@ from meobot.api.deps import (
     get_session,
 )
 from meobot.api.schemas.units import (
+    CreateDurationRequest,
+    CreatePlatformRequest,
     CreateVideoKindRequest,
     DirectoryUserResponse,
+    DurationListResponse,
+    DurationResponse,
+    PlatformListResponse,
+    PlatformResponse,
     RoleOptionResponse,
     TagMemberRequest,
     UnitHealthResponse,
@@ -35,7 +41,9 @@ from meobot.api.schemas.units import (
     UnitSettingsResponse,
     UntaggedUserResponse,
     UntaggedUsersResponse,
+    UpdateDurationRequest,
     UpdateMemberRequest,
+    UpdatePlatformRequest,
     UpdateUnitSettingsRequest,
     UpdateVideoKindRequest,
     VideoKindListResponse,
@@ -363,6 +371,124 @@ async def update_video_kind(
         sort_order=body.sort_order,
     )
     return VideoKindResponse.from_row(row)
+
+
+# --- platforms ----------------------------------------------------------------
+
+
+@router.get("/{code}/platforms", response_model=PlatformListResponse)
+async def list_platforms(
+    code: str,
+    actor: CurrentActorDep,
+    admin: AdminDep,
+    include_inactive: Annotated[bool, Query()] = False,
+) -> PlatformListResponse:
+    rows = await admin.platforms(
+        actor=actor, code=_parse_unit(code), include_inactive=include_inactive
+    )
+    return PlatformListResponse(platforms=[PlatformResponse.from_row(row) for row in rows])
+
+
+@router.post(
+    "/{code}/platforms", response_model=PlatformResponse, status_code=status.HTTP_201_CREATED
+)
+async def create_platform(
+    code: str,
+    body: CreatePlatformRequest,
+    actor: CurrentActorDep,
+    request_id: RequestIdDep,
+    admin: AdminDep,
+) -> PlatformResponse:
+    row = await admin.create_platform(
+        actor=actor,
+        request_id=request_id,
+        code=_parse_unit(code),
+        name=body.name,
+        active=body.active,
+        sort_order=body.sort_order,
+    )
+    return PlatformResponse.from_row(row)
+
+
+@router.patch("/{code}/platforms/{item_id}", response_model=PlatformResponse)
+async def update_platform(
+    code: str,
+    item_id: uuid.UUID,
+    body: UpdatePlatformRequest,
+    actor: CurrentActorDep,
+    request_id: RequestIdDep,
+    admin: AdminDep,
+) -> PlatformResponse:
+    row = await admin.update_platform(
+        actor=actor,
+        request_id=request_id,
+        code=_parse_unit(code),
+        item_id=item_id,
+        name=body.name,
+        active=body.active,
+        sort_order=body.sort_order,
+    )
+    return PlatformResponse.from_row(row)
+
+
+# --- durations ----------------------------------------------------------------
+
+
+@router.get("/{code}/durations", response_model=DurationListResponse)
+async def list_durations(
+    code: str,
+    actor: CurrentActorDep,
+    admin: AdminDep,
+    include_inactive: Annotated[bool, Query()] = False,
+) -> DurationListResponse:
+    rows = await admin.durations(
+        actor=actor, code=_parse_unit(code), include_inactive=include_inactive
+    )
+    return DurationListResponse(durations=[DurationResponse.from_row(row) for row in rows])
+
+
+@router.post(
+    "/{code}/durations", response_model=DurationResponse, status_code=status.HTTP_201_CREATED
+)
+async def create_duration(
+    code: str,
+    body: CreateDurationRequest,
+    actor: CurrentActorDep,
+    request_id: RequestIdDep,
+    admin: AdminDep,
+) -> DurationResponse:
+    row = await admin.create_duration(
+        actor=actor,
+        request_id=request_id,
+        code=_parse_unit(code),
+        name=body.name,
+        points=body.points,
+        active=body.active,
+        sort_order=body.sort_order,
+    )
+    return DurationResponse.from_row(row)
+
+
+@router.patch("/{code}/durations/{item_id}", response_model=DurationResponse)
+async def update_duration(
+    code: str,
+    item_id: uuid.UUID,
+    body: UpdateDurationRequest,
+    actor: CurrentActorDep,
+    request_id: RequestIdDep,
+    admin: AdminDep,
+) -> DurationResponse:
+    row = await admin.update_duration(
+        actor=actor,
+        request_id=request_id,
+        code=_parse_unit(code),
+        item_id=item_id,
+        name=body.name,
+        points=body.points,
+        active=body.active,
+        sort_order=body.sort_order,
+    )
+    return DurationResponse.from_row(row)
 
 
 @router.get("/{code}/health", response_model=UnitHealthResponse)

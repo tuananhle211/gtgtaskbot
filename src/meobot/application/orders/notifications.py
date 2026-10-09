@@ -33,7 +33,7 @@ from meobot.domain.notifications.models import NotificationEvent
 from meobot.domain.notifications.web import web_title
 from meobot.domain.orders.labels import node_type_label
 from meobot.domain.orders.models import OrderNodeType
-from meobot.domain.orders.pipeline import link_attacher_node
+from meobot.domain.orders.pipeline import function_node
 from meobot.domain.units.models import UnitSettings
 
 logger = get_logger(__name__)
@@ -81,13 +81,8 @@ class OrderNotificationService:
     async def node_turn(
         self, *, actor: Actor, order: Order, node: OrderNode, unit: UnitSettings, first: bool
     ) -> None:
-        """The node came up: its Leaders, and whoever was chosen for it. The
-        link node's Leaders are those of the function attaching it."""
-        function = (
-            link_attacher_node(unit, order.video_type)
-            if node.node_type is OrderNodeType.GAN_LINK
-            else node.node_type
-        )
+        """The node came up: its Leaders, and whoever was chosen for it."""
+        function = function_node(node.node_type, order.video_type)
         leads = await self._directory.leads(order.unit_id, function)
         recipients = [row.user.id for row in leads]
         if node.assignee_user_id is not None:

@@ -40,6 +40,19 @@ class UnitCode(StrEnum):
     ADS = "ADS"
 
 
+#: The order streams are listed in everywhere a person picks one:
+#: "Luồng Order (ORD)" first, then "Luồng PR".
+STREAM_ORDER: tuple[UnitCode, ...] = (UnitCode.ADS, UnitCode.PR)
+
+
+def stream_rank(code: str) -> int:
+    """Sort key for unit codes in :data:`STREAM_ORDER`; unknown codes last."""
+    for index, unit in enumerate(STREAM_ORDER):
+        if unit.value == code:
+            return index
+    return len(STREAM_ORDER)
+
+
 #: The namespace migration ``0042`` derives the seeded unit ids from. Kept
 #: here as well so code that must name a unit before it has read the row - the
 #: task mirror's PR rows in :mod:`meobot.application.tasks.sync` - names the
@@ -93,10 +106,9 @@ class UnitSettings(BaseModel):
     #: Links to the shared storage, shown as buttons on the dashboard.
     media_nas_url: str | None = None
     design_nas_url: str | None = None
-    #: Who attaches the product link on a full-pipeline (BTD) order once the
-    #: editor's cut is approved: the editor (``DUNG``) or the script lead
-    #: (``BIEN_TAP``). The brief left this open; the editor is the default.
-    #: Every other process hands the link to its last production node.
+    #: Obsolete and ignored: it chose who attached the product link on a BTD
+    #: order at the old "Gắn link" step. The last production node now hands
+    #: the link in with its work. Kept so stored settings still load.
     btd_link_attacher: UnitMemberRole = UnitMemberRole.DUNG
     #: Whether order notifications are also sent to Telegram. The web inbox is
     #: always written; Telegram is opt-in per unit.

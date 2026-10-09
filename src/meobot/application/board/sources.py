@@ -24,6 +24,7 @@ from sqlalchemy import ColumnElement, Select, case, exists, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from meobot.application.board.holders import (
+    AWAITING_ASSIGNMENT,
     NOBODY,
     AdsApprovers,
     Holder,
@@ -66,14 +67,16 @@ from meobot.domain.orders.labels import (
 )
 from meobot.domain.orders.models import (
     ACTIVE_NODE_STATUSES,
+    PRODUCTION_NODES,
     TERMINAL_STAGES,
     OrderNodeStatus,
     OrderNodeType,
     OrderStage,
     OrderVideoType,
+    last_production_node,
 )
 from meobot.domain.orders.permissions import AdsPermission
-from meobot.domain.orders.pipeline import is_urgent, link_attacher_for
+from meobot.domain.orders.pipeline import is_urgent
 from meobot.domain.pr.content_views import PrContentViewScope
 from meobot.domain.pr.models import PrContentType, PrPriority, PrWorkflowStage
 from meobot.domain.pr.workflow import STAGE_APPROVAL_GATES
@@ -92,6 +95,53 @@ PR_PENDING_REVIEW: frozenset[PrWorkflowStage] = frozenset(
 ADS_PENDING_REVIEW: frozenset[OrderStage] = frozenset(
     {OrderStage.ORDER_PENDING, OrderStage.DUYET_VIDEO_BT, OrderStage.FINAL_REVIEW}
 )
+
+# The display states a cell (or a row, in ``TaskRow.state``) can be in on top
+# of the node statuses. The screens colour every waiting state amber:
+#: Somebody has to decide: a hand-in, an order, the video or the final review.
+STATE_CHO_DUYET = "CHO_DUYET"
+#: The node came up with nobody chosen and was routed to a Leader to hand out.
+STATE_CHO_PHAN_CONG = "CHO_PHAN_CONG"
+#: Handed to a staff member who has not pressed "Nhận việc" yet.
+STATE_DA_GIAO = "DA_GIAO"
+#: Needs somebody and nobody may hand it out ("Chờ giao").
+STATE_CHUA_GIAO = "CHUA_GIAO"
+#: Every state that means "waiting for somebody", for the screens' colours.
+WAITING_STATES: frozenset[str] = frozenset(
+    {STATE_CHO_DUYET, STATE_CHO_PHAN_CONG, STATE_DA_GIAO, STATE_CHUA_GIAO}
+)
+
+
+def awaiting_hand_out(node: OrderNode) -> bool:
+    """A node that came up with nobody chosen and was routed to a Leader (or
+    the head) to hand out, who has neither handed it out nor taken it.
+
+    Read from the row alone: activation routes it (``assigned_at`` =
+    ``activated_at``, an assignee who was not the orderer's choice); an
+    explicit hand-out stamps a later ``assigned_at``; taking it stamps
+    ``accepted_at``.
+    """
+    if (
+        node.status is not OrderNodeStatus.DANG_LAM
+        or node.accepted_at is not None
+        or node.assignee_user_id is None
+        or node.assignee_user_id == node.preassigned_user_id
+    ):
+        return False
+    if node.assigned_at is not None and node.activated_at is not None:
+        return ensure_utc(node.assigned_at) <= ensure_utc(node.activated_at)
+    return True
+
+
+def awaiting_acceptance(node: OrderNode) -> bool:
+    """Handed to somebody who has not pressed "Nhận việc" yet."""
+    return (
+        node.status in (OrderNodeStatus.DANG_LAM, OrderNodeStatus.DANG_SUA)
+        and node.assignee_user_id is not None
+        and node.accepted_at is None
+        and not awaiting_hand_out(node)
+    )
+
 
 PR_STAGE_LABELS: dict[PrWorkflowStage, str] = {
     PrWorkflowStage.IDEA: "Ý tưởng",
@@ -340,18 +390,21 @@ class PrBoardSource:
             else Person(item.producer_user_id, producer)
         )
         status_label = PR_STAGE_LABELS[stage]
+        state: str | None = None
         holder: Holder
         if stage in STAGE_APPROVAL_GATES:
             # A review gate: the named reviewer whose grant reaches this item.
             reviewer = (reviewers or {}).get(item.id, ())
             holder = held_by(reviewer)
             status_label = waiting_for(reviewer)
+            state = STATE_CHO_DUYET
         elif stage in (PrWorkflowStage.APPROVED, PrWorkflowStage.PRODUCTION):
             if producer_person is not None:
                 holder = held_by(producer_person)
             else:
                 # Nobody producing yet: it waits for whoever may hand it out.
                 holder = held_by(assigners)
+                state = STATE_CHO_PHAN_CONG if assigners else STATE_CHUA_GIAO
                 status_label = (
                     f"{status_label} · {waiting_for(assigners, 'giao sản xuất')}"
                     if assigners
@@ -396,6 +449,7 @@ class PrBoardSource:
             phase_label=PHASE_LABELS[phase],
             status=stage.value,
             status_label=status_label,
+            state=state,
             cells=cells,
             product_link=None,
             returned_at=None,
@@ -541,8 +595,8 @@ class AdsBoardSource:
                     )
                 )
             )
-        # A hand-in waiting for its Leader. The link node is never reviewed by
-        # a Leader: a link "Chờ duyệt" waits for the video or final gate.
+        # A hand-in waiting for its Leader. A legacy link node is never
+        # reviewed by a Leader.
         reviewing = may.nodes(AdsPermission.NODE_REVIEW) - {OrderNodeType.GAN_LINK}
         if reviewing:
             conditions.append(
@@ -556,8 +610,9 @@ class AdsBoardSource:
             )
         assigns = may.nodes(AdsPermission.NODE_ASSIGN)
         if assigns:
-            # Routed to a Leader (or the head) to hand out and not taken yet:
-            # it waits on every Leader of that function, not only the routed one.
+            # Routed to a Leader (or the head) to hand out and not taken yet
+            # (:func:`awaiting_hand_out`): it waits on everybody who may hand
+            # that function out, not only the routed one.
             routing = select(OrgUnitMember.user_id).where(
                 OrgUnitMember.unit_id == Order.unit_id,
                 OrgUnitMember.left_at.is_(None),
@@ -574,6 +629,15 @@ class AdsBoardSource:
                         OrderNode.status == OrderNodeStatus.DANG_LAM,
                         OrderNode.accepted_at.is_(None),
                         OrderNode.assignee_user_id.in_(routing),
+                        or_(
+                            OrderNode.preassigned_user_id.is_(None),
+                            OrderNode.preassigned_user_id != OrderNode.assignee_user_id,
+                        ),
+                        or_(
+                            OrderNode.assigned_at.is_(None),
+                            OrderNode.activated_at.is_(None),
+                            OrderNode.assigned_at <= OrderNode.activated_at,
+                        ),
                     )
                 )
             )
@@ -593,15 +657,14 @@ class AdsBoardSource:
 
     def _managed(self, nodes: frozenset[OrderNodeType]) -> ColumnElement[bool]:
         """The order's nodes a person manages, given the node types their
-        permission reaches. The link node is managed by the function that
-        attaches it, which depends on the order's process."""
+        permission reaches. A legacy link node is managed by the function of
+        the process's last production node."""
         functions = sorted(nodes - {OrderNodeType.GAN_LINK}, key=lambda n: n.value)
         condition: ColumnElement[bool] = OrderNode.node_type.in_(functions)
         if OrderNodeType.GAN_LINK in nodes:
             return or_(condition, OrderNode.node_type == OrderNodeType.GAN_LINK)
-        attacher = self._scope.context.btd_link_attacher
         processes = sorted(
-            (code for code in OrderVideoType if link_attacher_for(code, attacher) in nodes),
+            (code for code in OrderVideoType if last_production_node(code) in nodes),
             key=lambda code: code.value,
         )
         if not processes:
@@ -735,58 +798,42 @@ class AdsBoardSource:
         by_type = {node.node_type: node for node in nodes}
         phase = ADS_STAGE_PHASE[order.stage]
         cells = []
-        current: OrderNode | None = None
-        for node_type in OrderNodeType:
+        # A legacy link node may still be the active one; it has no cell.
+        current: OrderNode | None = next(
+            (node for node in nodes if node.status in ACTIVE_NODE_STATUSES), None
+        )
+        for node_type in PRODUCTION_NODES:
             node = by_type.get(node_type)
             if node is None:
                 continue
-            status = node.status
-            label = node_status_label(status)
-            if status is OrderNodeStatus.CHUA_GIAO:
-                label = "Chờ giao"
-            elif (
-                status is OrderNodeStatus.DANG_LAM
-                and node.accepted_at is None
-                and node.assignee_user_id is not None
-                and (routed := approvers.assigner(node_type, order.video_type)) is not None
-                and routed.user_id == node.assignee_user_id
-            ):
-                label = waiting_for(
-                    approvers.assigners_of(node_type, order.video_type), "phân công"
-                )
-            elif status is OrderNodeStatus.CHO_DUYET and node_type is not OrderNodeType.GAN_LINK:
-                label = waiting_for(approvers.lead(node_type))
-            if node_type is OrderNodeType.GAN_LINK and order.stage is OrderStage.DUYET_VIDEO_BT:
-                label = waiting_for(approvers.video, "duyệt video")
-            elif node_type is OrderNodeType.GAN_LINK and order.stage is OrderStage.FINAL_REVIEW:
-                label = waiting_for(_orderer(order, names), "duyệt final")
-            active = status in ACTIVE_NODE_STATUSES
-            if active:
-                current = node
+            cell_state, label = self._node_state(node, order, names, approvers)
             since = node.approved_at or node.submitted_at or node.assigned_at or node.activated_at
             cells.append(
                 TaskCell(
                     key=node_type.value,
                     label=node_type_label(node_type),
                     person_name=self._cell_person(node, names, approvers, order.video_type),
-                    status=status.value,
+                    status=cell_state,
                     status_label=label,
-                    is_current=active,
+                    is_current=node.status in ACTIVE_NODE_STATUSES,
                     since=None if since is None else ensure_utc(since),
                     revisions=node.revision_count,
                 )
             )
+        cells.append(self._final_cell(order, by_type, names, approvers))
         submitted = ensure_utc(order.submitted_at)
         if order.stage is OrderStage.COMPLETED and order.completed_at is not None:
             stage_since: datetime | None = ensure_utc(order.completed_at)
         elif current is not None and current.activated_at is not None:
             stage_since = ensure_utc(current.activated_at)
+        elif (handed := _product_handed_in(order, by_type)) is not None:
+            stage_since = handed
         elif order.order_approved_at is not None:
             stage_since = ensure_utc(order.order_approved_at)
         else:
             stage_since = submitted
         owner_name = names.get(order.owner_user_id, "")
-        holder, status_label = self._holder(order, current, names, owner_name, approvers)
+        holder, status_label, state = self._holder(order, current, names, owner_name, approvers)
         extras: list[tuple[str, str]] = []
         if order.script_source is not None:
             extras.append(("Source", "AI" if order.script_source.value == "AI" else "Quay thực tế"))
@@ -811,6 +858,7 @@ class AdsBoardSource:
             phase_label=PHASE_LABELS[phase],
             status=order.stage.value,
             status_label=status_label,
+            state=state,
             cells=tuple(cells),
             product_link=order.product_link if order.stage is OrderStage.COMPLETED else None,
             returned_at=None if order.completed_at is None else ensure_utc(order.completed_at),
@@ -829,7 +877,7 @@ class AdsBoardSource:
             current_person_user_id=holder.user_id,
             awaiting_assignment=holder.awaiting,
             latest_link=links.get(order.id),
-            delivered_at=_delivered_at(by_type.get(OrderNodeType.GAN_LINK)),
+            delivered_at=_product_handed_in(order, by_type),
             extras=tuple(extras),
         )
 
@@ -852,14 +900,90 @@ class AdsBoardSource:
         return f"{format_names(team)} giao" if team else None
 
     @staticmethod
+    def _node_state(
+        node: OrderNode,
+        order: Order,
+        names: dict[uuid.UUID, str],
+        approvers: AdsApprovers,
+    ) -> tuple[str, str]:
+        """A step's state and words, waiting states told apart: routed to a
+        Leader to hand out ("Chờ X phân công"), handed out but not taken yet
+        ("Đã giao X"), waiting for review ("Chờ X duyệt")."""
+        status = node.status
+        if status is OrderNodeStatus.CHUA_GIAO:
+            return STATE_CHUA_GIAO, AWAITING_ASSIGNMENT
+        if awaiting_hand_out(node):
+            return STATE_CHO_PHAN_CONG, waiting_for(
+                _hand_out_team(node, order, names, approvers), "phân công"
+            )
+        if awaiting_acceptance(node):
+            assert node.assignee_user_id is not None
+            return STATE_DA_GIAO, f"Đã giao {names.get(node.assignee_user_id, '')}".rstrip()
+        if status is OrderNodeStatus.CHO_DUYET:
+            return STATE_CHO_DUYET, waiting_for(approvers.lead(node.node_type))
+        return status.value, node_status_label(status)
+
+    @staticmethod
+    def _final_cell(
+        order: Order,
+        by_type: dict[OrderNodeType, OrderNode],
+        names: dict[uuid.UUID, str],
+        approvers: AdsApprovers,
+    ) -> TaskCell:
+        """ "Duyệt final": the gates the product goes through once the last
+        production node is done - the script lead's video review where it
+        applies, then the orderer's final review."""
+        orderer = _orderer(order, names)
+        handed = _product_handed_in(order, by_type)
+        if order.stage is OrderStage.DUYET_VIDEO_BT:
+            return TaskCell(
+                key="FINAL",
+                label="Duyệt final",
+                person_name=format_names(approvers.video) or None,
+                status=STATE_CHO_DUYET,
+                status_label=waiting_for(approvers.video, "duyệt video"),
+                is_current=True,
+                since=handed,
+            )
+        if order.stage is OrderStage.FINAL_REVIEW:
+            return TaskCell(
+                key="FINAL",
+                label="Duyệt final",
+                person_name=orderer.name,
+                status=STATE_CHO_DUYET,
+                status_label=waiting_for(orderer, "duyệt final"),
+                is_current=True,
+                since=handed,
+            )
+        if order.stage is OrderStage.COMPLETED:
+            return TaskCell(
+                key="FINAL",
+                label="Duyệt final",
+                person_name=orderer.name,
+                status=OrderNodeStatus.HOAN_THANH.value,
+                status_label=node_status_label(OrderNodeStatus.HOAN_THANH),
+                is_current=False,
+                since=None if order.completed_at is None else ensure_utc(order.completed_at),
+            )
+        return TaskCell(
+            key="FINAL",
+            label="Duyệt final",
+            person_name=orderer.name,
+            status=OrderNodeStatus.CHUA_TOI.value,
+            status_label=node_status_label(OrderNodeStatus.CHUA_TOI),
+            is_current=False,
+        )
+
+    @staticmethod
     def _holder(
         order: Order,
         current: OrderNode | None,
         names: dict[uuid.UUID, str],
         owner_name: str,
         approvers: AdsApprovers,
-    ) -> tuple[Holder, str]:
-        """The one member holding the order, and the status naming them.
+    ) -> tuple[Holder, str, str | None]:
+        """The member(s) holding the order, the status naming them, and the
+        row's state (a waiting state, or the node's status).
 
         Approval steps name the head or the Leader; a node names its worker,
         or its Leader while the hand-in waits for review. Nobody to name is
@@ -867,45 +991,78 @@ class AdsBoardSource:
         """
         stage = order.stage
         label = stage_label(stage)
+        if stage is OrderStage.COMPLETED:
+            return NOBODY, label, OrderNodeStatus.HOAN_THANH.value
         if stage in TERMINAL_STAGES:
-            return NOBODY, label
+            return NOBODY, label, None
         if stage is OrderStage.ORDER_PENDING:
-            return held_by(approvers.head), waiting_for(approvers.head, "duyệt order")
+            return (
+                held_by(approvers.head),
+                waiting_for(approvers.head, "duyệt order"),
+                STATE_CHO_DUYET if approvers.head else STATE_CHUA_GIAO,
+            )
         if stage is OrderStage.ORDER_RETURNED:
-            return Holder((Person(order.owner_user_id, owner_name),)), f"Trả {owner_name} sửa"
+            return (
+                Holder((Person(order.owner_user_id, owner_name),)),
+                f"Trả {owner_name} sửa",
+                OrderNodeStatus.DANG_SUA.value,
+            )
         if stage is OrderStage.DUYET_VIDEO_BT:
-            return held_by(approvers.video), waiting_for(approvers.video, "duyệt video")
+            return (
+                held_by(approvers.video),
+                waiting_for(approvers.video, "duyệt video"),
+                STATE_CHO_DUYET if approvers.video else STATE_CHUA_GIAO,
+            )
         if stage is OrderStage.FINAL_REVIEW:
             # The orderer's review. Stand-ins may decide, but are not named.
             orderer = Person(order.owner_user_id, owner_name)
-            return Holder((orderer,)), waiting_for(orderer, "duyệt final")
+            return Holder((orderer,)), waiting_for(orderer, "duyệt final"), STATE_CHO_DUYET
         if current is None:
-            return held_by(None), f"{label} · Chờ giao"
+            return held_by(None), f"{label} · Chờ giao", STATE_CHUA_GIAO
         if current.status is OrderNodeStatus.CHO_DUYET:
             lead = approvers.lead(current.node_type)
-            return held_by(lead), waiting_for(lead)
+            return (
+                held_by(lead),
+                waiting_for(lead),
+                STATE_CHO_DUYET if lead else STATE_CHUA_GIAO,
+            )
         if current.assignee_user_id is None:
-            return held_by(None), f"{label} · Chờ giao"
+            return held_by(None), f"{label} · Chờ giao", STATE_CHUA_GIAO
         worker = Person(current.assignee_user_id, names.get(current.assignee_user_id, ""))
-        routed = approvers.assigner(current.node_type, order.video_type)
-        if (
-            routed is not None
-            and routed.user_id == worker.user_id
-            and current.accepted_at is None
-            and current.status is OrderNodeStatus.DANG_LAM
-        ):
+        if awaiting_hand_out(current):
             # Routed to the Leader to hand out, not yet taken by anybody: any
             # of the function's Leaders may hand it out, the routed one first.
-            team = (
-                worker,
-                *(
-                    p
-                    for p in approvers.assigners_of(current.node_type, order.video_type)
-                    if p != worker
-                ),
+            team = _hand_out_team(current, order, names, approvers)
+            return (
+                Holder(team),
+                f"{label} · Chờ {format_names(team)} phân công",
+                STATE_CHO_PHAN_CONG,
             )
-            return Holder(team), f"{label} · Chờ {format_names(team)} phân công"
-        return Holder((worker,)), label
+        if awaiting_acceptance(current):
+            # Handed out, not taken yet: it is theirs to accept.
+            return Holder((worker,)), f"{label} · Đã giao {worker.name}", STATE_DA_GIAO
+        return (
+            Holder((worker,)),
+            f"{label} · {node_status_label(current.status)}",
+            current.status.value,
+        )
+
+
+def _hand_out_team(
+    node: OrderNode, order: Order, names: dict[uuid.UUID, str], approvers: AdsApprovers
+) -> People:
+    """Who may hand a routed node out: the person it was routed to first,
+    then everybody else who may assign that function."""
+    assert node.assignee_user_id is not None
+    routed = Person(node.assignee_user_id, names.get(node.assignee_user_id, ""))
+    return (
+        routed,
+        *(
+            person
+            for person in approvers.assigners_of(node.node_type, order.video_type)
+            if person.user_id != routed.user_id
+        ),
+    )
 
 
 def _orderer(order: Order, names: dict[uuid.UUID, str]) -> Person:
@@ -926,21 +1083,41 @@ def ads_kind_label(order: Order) -> str:
     return order.video_kind_name or video_type_label(order.video_type)
 
 
-def _delivered_at(link_node: OrderNode | None) -> datetime | None:
-    """When the product link was attached on "Gắn link"."""
-    if link_node is None or link_node.submitted_at is None:
+def _product_handed_in(order: Order, by_type: dict[OrderNodeType, OrderNode]) -> datetime | None:
+    """When the finished product (the last production node's hand-in, or a
+    legacy link node's) was handed over - once production is over."""
+    if order.stage not in (
+        OrderStage.DUYET_VIDEO_BT,
+        OrderStage.FINAL_REVIEW,
+        OrderStage.COMPLETED,
+    ):
         return None
-    return ensure_utc(link_node.submitted_at)
+    stamps = [
+        ensure_utc(node.submitted_at)
+        for node in (
+            by_type.get(last_production_node(order.video_type)),
+            by_type.get(OrderNodeType.GAN_LINK),
+        )
+        if node is not None and node.submitted_at is not None
+    ]
+    return max(stamps) if stamps else None
 
 
 __all__ = [
     "ADS_PENDING_REVIEW",
     "PR_PENDING_REVIEW",
     "PR_STAGE_LABELS",
+    "STATE_CHO_DUYET",
+    "STATE_CHO_PHAN_CONG",
+    "STATE_CHUA_GIAO",
+    "STATE_DA_GIAO",
+    "WAITING_STATES",
     "AdsBoardSource",
     "BoardSource",
     "PrBoardSource",
     "ads_kind_label",
+    "awaiting_acceptance",
+    "awaiting_hand_out",
     "display_names",
     "format_points",
 ]

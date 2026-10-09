@@ -56,7 +56,13 @@ from meobot.application.audit_service import AuditService
 from meobot.application.units.directory import ROLE_FOR_NODE, UnitDirectoryService, UnitMemberRow
 from meobot.core.time import utcnow
 from meobot.db.models.order import Order, OrderNode
-from meobot.db.models.org_unit import OrgUnit, OrgUnitMember, UnitVideoKind
+from meobot.db.models.org_unit import (
+    OrgUnit,
+    OrgUnitMember,
+    UnitDuration,
+    UnitPlatform,
+    UnitVideoKind,
+)
 from meobot.db.models.user import User
 from meobot.domain.audit.models import AuditAction, AuditResult
 from meobot.domain.identity.models import Actor, Role
@@ -504,6 +510,186 @@ class UnitAdminService:
             "sort_order": row.sort_order,
         }
 
+    # --- platforms ------------------------------------------------------------
+
+    async def platforms(
+        self, *, actor: Actor, code: UnitCode, include_inactive: bool = False
+    ) -> list[UnitPlatform]:
+        if include_inactive:
+            unit = await self._require_admin(actor, code)
+        else:
+            await self._directory.require(actor, code)
+            unit = await self._directory.unit(code)
+        statement = select(UnitPlatform).where(UnitPlatform.unit_id == unit.id)
+        if not include_inactive:
+            statement = statement.where(UnitPlatform.active.is_(True))
+        statement = statement.order_by(
+            UnitPlatform.sort_order, func.lower(UnitPlatform.name), UnitPlatform.id
+        )
+        return list((await self._session.scalars(statement)).all())
+
+    async def create_platform(
+        self,
+        *,
+        actor: Actor,
+        request_id: uuid.UUID,
+        code: UnitCode,
+        name: str,
+        active: bool = True,
+        sort_order: int | None = None,
+    ) -> UnitPlatform:
+        unit = await self._require_admin(actor, code)
+        cleaned = self._catalogue_name(name, "nền tảng")
+        await self._check_catalogue_name(
+            UnitPlatform, unit.id, cleaned, exclude=None, label="nền tảng"
+        )
+        if sort_order is None:
+            last = await self._session.scalar(
+                select(func.max(UnitPlatform.sort_order)).where(UnitPlatform.unit_id == unit.id)
+            )
+            sort_order = 0 if last is None else int(last) + 1
+        row = UnitPlatform(unit_id=unit.id, name=cleaned, active=active, sort_order=sort_order)
+        self._session.add(row)
+        await self._session.flush()
+        await self._audit_catalogue(
+            actor, request_id, AuditAction.UNIT_PLATFORM_CREATED, "unit_platform", row, before=None
+        )
+        return row
+
+    async def update_platform(
+        self,
+        *,
+        actor: Actor,
+        request_id: uuid.UUID,
+        code: UnitCode,
+        item_id: uuid.UUID,
+        name: str | None = None,
+        active: bool | None = None,
+        sort_order: int | None = None,
+    ) -> UnitPlatform:
+        unit = await self._require_admin(actor, code)
+        row = await self._session.get(UnitPlatform, item_id)
+        if row is None or row.unit_id != unit.id:
+            raise UnitNotFoundError(
+                "Không tìm thấy nền tảng.", details={"reason": "platform_not_found"}
+            )
+        before = self._catalogue_snapshot(row)
+        if name is not None:
+            cleaned = self._catalogue_name(name, "nền tảng")
+            await self._check_catalogue_name(
+                UnitPlatform, unit.id, cleaned, exclude=row.id, label="nền tảng"
+            )
+            row.name = cleaned
+        if active is not None:
+            row.active = active
+        if sort_order is not None:
+            row.sort_order = sort_order
+        await self._session.flush()
+        await self._audit_catalogue(
+            actor,
+            request_id,
+            AuditAction.UNIT_PLATFORM_UPDATED,
+            "unit_platform",
+            row,
+            before=before,
+        )
+        return row
+
+    # --- durations ------------------------------------------------------------
+
+    async def durations(
+        self, *, actor: Actor, code: UnitCode, include_inactive: bool = False
+    ) -> list[UnitDuration]:
+        if include_inactive:
+            unit = await self._require_admin(actor, code)
+        else:
+            await self._directory.require(actor, code)
+            unit = await self._directory.unit(code)
+        statement = select(UnitDuration).where(UnitDuration.unit_id == unit.id)
+        if not include_inactive:
+            statement = statement.where(UnitDuration.active.is_(True))
+        statement = statement.order_by(
+            UnitDuration.sort_order, func.lower(UnitDuration.name), UnitDuration.id
+        )
+        return list((await self._session.scalars(statement)).all())
+
+    async def create_duration(
+        self,
+        *,
+        actor: Actor,
+        request_id: uuid.UUID,
+        code: UnitCode,
+        name: str,
+        points: Decimal,
+        active: bool = True,
+        sort_order: int | None = None,
+    ) -> UnitDuration:
+        unit = await self._require_admin(actor, code)
+        cleaned = self._catalogue_name(name, "thời lượng")
+        await self._check_catalogue_name(
+            UnitDuration, unit.id, cleaned, exclude=None, label="thời lượng"
+        )
+        if sort_order is None:
+            last = await self._session.scalar(
+                select(func.max(UnitDuration.sort_order)).where(UnitDuration.unit_id == unit.id)
+            )
+            sort_order = 0 if last is None else int(last) + 1
+        row = UnitDuration(
+            unit_id=unit.id,
+            name=cleaned,
+            points=self._video_kind_points(points),
+            active=active,
+            sort_order=sort_order,
+        )
+        self._session.add(row)
+        await self._session.flush()
+        await self._audit_catalogue(
+            actor, request_id, AuditAction.UNIT_DURATION_CREATED, "unit_duration", row, before=None
+        )
+        return row
+
+    async def update_duration(
+        self,
+        *,
+        actor: Actor,
+        request_id: uuid.UUID,
+        code: UnitCode,
+        item_id: uuid.UUID,
+        name: str | None = None,
+        points: Decimal | None = None,
+        active: bool | None = None,
+        sort_order: int | None = None,
+    ) -> UnitDuration:
+        unit = await self._require_admin(actor, code)
+        row = await self._session.get(UnitDuration, item_id)
+        if row is None or row.unit_id != unit.id:
+            raise UnitNotFoundError(
+                "Không tìm thấy thời lượng.", details={"reason": "duration_not_found"}
+            )
+        before = self._catalogue_snapshot(row)
+        if name is not None:
+            cleaned = self._catalogue_name(name, "thời lượng")
+            await self._check_catalogue_name(
+                UnitDuration, unit.id, cleaned, exclude=row.id, label="thời lượng"
+            )
+            row.name = cleaned
+        if points is not None:
+            row.points = self._video_kind_points(points)
+        if active is not None:
+            row.active = active
+        if sort_order is not None:
+            row.sort_order = sort_order
+        await self._session.flush()
+        await self._audit_catalogue(
+            actor,
+            request_id,
+            AuditAction.UNIT_DURATION_UPDATED,
+            "unit_duration",
+            row,
+            before=before,
+        )
+        return row
+
     # --- settings and health ------------------------------------------------
 
     async def update_settings(
@@ -583,6 +769,77 @@ class UnitAdminService:
                 )
             )
         return warnings
+
+    # --- shared catalogue helpers (platforms, durations) ---------------------
+
+    @staticmethod
+    def _catalogue_name(value: str, label: str) -> str:
+        cleaned = " ".join(value.split())
+        if not cleaned:
+            raise UnitValidationError(
+                f"Cần nhập tên {label}.",
+                details={"reason": f"{label}_name_missing", "field": "name"},
+            )
+        if len(cleaned) > 120:
+            raise UnitValidationError(
+                f"Tên {label} tối đa 120 ký tự.",
+                details={"reason": f"{label}_name_too_long", "field": "name"},
+            )
+        return cleaned
+
+    async def _check_catalogue_name(
+        self,
+        model: type[UnitPlatform] | type[UnitDuration],
+        unit_id: uuid.UUID,
+        name: str,
+        *,
+        exclude: uuid.UUID | None,
+        label: str,
+    ) -> None:
+        statement = select(model.id).where(
+            model.unit_id == unit_id,
+            func.lower(model.name) == name.lower(),
+        )
+        if exclude is not None:
+            statement = statement.where(model.id != exclude)
+        if await self._session.scalar(statement.limit(1)) is not None:
+            raise UnitValidationError(
+                f"Tên {label} này đã có trong ban.",
+                details={"reason": f"{label}_name_taken", "field": "name"},
+            )
+
+    async def _audit_catalogue(
+        self,
+        actor: Actor,
+        request_id: uuid.UUID,
+        action: AuditAction,
+        entity_type: str,
+        row: UnitPlatform | UnitDuration,
+        *,
+        before: dict[str, Any] | None,
+    ) -> None:
+        await self._audit.record_action(
+            request_id=request_id,
+            actor=actor,
+            action=action.value,
+            result=AuditResult.SUCCESS,
+            entity_type=entity_type,
+            entity_id=str(row.id),
+            before_data=before,
+            after_data=self._catalogue_snapshot(row),
+        )
+
+    @staticmethod
+    def _catalogue_snapshot(row: UnitPlatform | UnitDuration) -> dict[str, Any]:
+        data: dict[str, Any] = {
+            "unit_id": str(row.unit_id),
+            "name": row.name,
+            "active": row.active,
+            "sort_order": row.sort_order,
+        }
+        if hasattr(row, "points"):
+            data["points"] = str(row.points)
+        return data
 
     # --- helpers ------------------------------------------------------------
 

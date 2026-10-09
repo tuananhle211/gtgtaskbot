@@ -93,8 +93,10 @@ ADS_STAGE_PHASE: MappingProxyType[OrderStage, Phase] = MappingProxyType(
 @dataclass(frozen=True, slots=True)
 class TaskCell:
     """One column of a row: a person and a status, and whether it is the step
-    the row is at. The Ads board has four of these per row (the nodes); the PR
-    board shows its five phases the same way."""
+    the row is at. The Ads board has four of these per row (the three
+    production nodes and "Duyệt final"); the PR board shows its five phases
+    the same way. ``status`` is the node status, or one of the waiting states
+    (``CHO_PHAN_CONG``, ``DA_GIAO``) the board derives."""
 
     key: str
     label: str
@@ -143,14 +145,20 @@ class TaskRow:
     awaiting_assignment: bool = False
     #: The newest file handed in, so the table can open it without the detail.
     latest_link: str | None = None
-    #: When the finished link was handed over: Ads = the product link attached
-    #: on "Gắn link", PR = the newest production hand-in.
+    #: When the finished link was handed over: Ads = the last production
+    #: node's hand-in once production is over, PR = the newest production
+    #: hand-in.
     delivered_at: datetime | None = None
     #: Unit-specific facts worth a glance, as label/value pairs.
     extras: tuple[tuple[str, str], ...] = ()
     #: Whether the row waits on the viewer (the ``awaiting_me`` definition):
     #: the table's "Cần làm" marker.
     awaiting_me: bool = False
+    #: What the row is waiting on, as a code the screens colour by:
+    #: ``CHO_DUYET`` (a decision), ``CHO_PHAN_CONG`` (routed to a Leader to
+    #: hand out), ``DA_GIAO`` (handed out, not accepted yet), ``CHUA_GIAO``
+    #: (nobody to hand it out), else the node's own status or ``None``.
+    state: str | None = None
 
 
 @dataclass(frozen=True, slots=True)

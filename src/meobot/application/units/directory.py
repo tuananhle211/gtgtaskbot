@@ -47,8 +47,8 @@ ROLE_FOR_NODE: dict[OrderNodeType, UnitMemberRole] = {
     OrderNodeType.BIEN_TAP: UnitMemberRole.BIEN_TAP,
     OrderNodeType.THIET_KE: UnitMemberRole.THIET_KE,
     OrderNodeType.DUNG: UnitMemberRole.DUNG,
-    # The link is attached by an editor; the unit setting may hand it to the
-    # script lead instead, and the command service reads that setting.
+    # Legacy: the old link node. Callers map it to the order's last production
+    # node first (``pipeline.function_node``); this is only a safe fallback.
     OrderNodeType.GAN_LINK: UnitMemberRole.DUNG,
 }
 

@@ -185,12 +185,12 @@ async def test_05_the_owner_sees_both_units_and_administers_both(world: World) -
     await seed_units(world)
     world.act_as(world.owner)
     me = world.client.get("/api/units/me").json()
-    assert [unit["code"] for unit in me["units"]] == ["PR", "ADS"]
+    assert [unit["code"] for unit in me["units"]] == ["ADS", "PR"]
     assert me["can_view_all"] is True
-    assert me["can_admin"] == ["PR", "ADS"]
-    assert me["can_tag"] == ["PR", "ADS"]
-    assert me["units"][1]["role"] == "HEAD"
-    assert me["units"][1]["role_label"] == "Trưởng phòng ORD"
+    assert me["can_admin"] == ["ADS", "PR"]
+    assert me["can_tag"] == ["ADS", "PR"]
+    assert me["units"][0]["role"] == "HEAD"
+    assert me["units"][0]["role_label"] == "Trưởng phòng ORD"
     assert world.client.get("/api/pr/dashboard").status_code == 200
     assert world.client.get("/api/units/ADS/members").status_code == 200
 
@@ -203,7 +203,7 @@ async def test_06_a_person_in_both_units_sees_both_but_views_all_only_as_owner(
     await tag(world, units[UnitCode.ADS], world.lead, UnitMemberRole.HEAD)
     world.act_as(world.lead)
     me = world.client.get("/api/units/me").json()
-    assert [unit["code"] for unit in me["units"]] == ["PR", "ADS"]
+    assert [unit["code"] for unit in me["units"]] == ["ADS", "PR"]
     assert me["can_view_all"] is False
     assert me["can_admin"] == []
     assert world.client.get("/api/pr/dashboard").status_code == 200
@@ -214,11 +214,11 @@ async def test_07_an_untagged_admin_sees_and_administers_every_stream(world: Wor
     admin = await newcomer(world, "Phó phòng", Role.ADMIN)
     world.act_as(admin)
     me = world.client.get("/api/units/me").json()
-    assert [unit["code"] for unit in me["units"]] == ["PR", "ADS"]
+    assert [unit["code"] for unit in me["units"]] == ["ADS", "PR"]
     assert me["is_untagged"] is True
     assert me["can_view_all"] is True
-    assert me["can_admin"] == ["PR", "ADS"]
-    assert me["can_tag"] == ["PR", "ADS"]
+    assert me["can_admin"] == ["ADS", "PR"]
+    assert me["can_tag"] == ["ADS", "PR"]
     assert world.client.get("/api/pr/dashboard").status_code == 200
     assert world.client.get("/api/board/tasks?unit=ALL").status_code == 200
     assert world.client.get("/api/board/tasks?unit=ADS").status_code == 200

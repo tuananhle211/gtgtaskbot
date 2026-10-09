@@ -1,8 +1,10 @@
 /**
  * The Ads "Quy trình": which production nodes an order visits.
  *
- * Order (the head's approval), Gắn link and the final review are always on;
- * the person who orders ticks any non-empty set of Biên kịch / Design / Dựng.
+ * Order (the head's approval) and the final review are always on; the person
+ * who orders ticks any non-empty set of Biên kịch / Design / Dựng. The last
+ * ticked node hands the product link in with its work (there is no separate
+ * link step).
  * The server stores the choice as a process code written with B, T, D in
  * pipeline order ("B", "T", "D", "BT", "BD", "TD", "BTD") and normalises a
  * node list the same way, so this file only mirrors it for the form's preview

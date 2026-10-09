@@ -20,7 +20,12 @@ import {
 import { ConfirmButton } from "@/components/confirm";
 import { Select } from "@/components/pr";
 import { Empty, ErrorBox, Loading, NoticeBox, Pill } from "@/components/states";
-import { STEP_LEGEND, type StatusColor, stageColor, stepColor } from "@/lib/status-colors";
+import {
+  STEP_LEGEND,
+  type StatusColor,
+  rowStatusColor,
+  stepColor,
+} from "@/lib/status-colors";
 
 const PAGE_SIZE = 10;
 
@@ -506,7 +511,7 @@ function Cell({ cell, dense, stage }: { cell: TaskCell; dense: boolean; stage: s
             (skipped ? "—" : cell.is_current ? "Chờ giao" : "–")}
         </span>
         {cell.status_label === "—" ? null : (
-          <StatusBadge color={stepColor(cell.status, stage)}>
+          <StatusBadge color={stepColor(cell.status, stage, cell.status_label)}>
             {withoutNames(cell.status_label, cell.person_name)}
           </StatusBadge>
         )}
@@ -621,7 +626,7 @@ function TaskTableRow({
         </div>
       </td>
       <td className="w-[15rem] min-w-[13rem] max-w-[17rem]">
-        <StatusBadge color={stageColor(row.status)}>
+        <StatusBadge color={rowStatusColor(row.status, row.state, row.status_label)}>
           {boldNames(row.status_label, row.current_person_name)}
         </StatusBadge>
         {!dense && row.stage_since ? (

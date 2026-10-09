@@ -6,6 +6,8 @@ import { api, type UnitMember, type UnitSettingsInfo, type UntaggedUser } from "
 import { ConfirmButton } from "@/components/confirm";
 import { Select } from "@/components/pr";
 import { ErrorBox, Loading, NoticeBox, Pill } from "@/components/states";
+import { DurationManager } from "@/components/durations";
+import { PlatformManager } from "@/components/platforms";
 import { VideoKindsManager } from "@/components/video-kinds";
 import {
   deactivateAccountConfirmation,
@@ -19,6 +21,7 @@ import {
   unitName,
   unitShortLabel,
   unitTagClass,
+  byStreamOrder,
 } from "@/lib/units";
 
 /** A role in the unit, with ``is_lead`` making a function role its head. */
@@ -58,7 +61,7 @@ export function UnitTags({
   if (units.length === 0) return null;
   return (
     <span className="inline-flex flex-wrap gap-1">
-      {units.map((unit) => (
+      {byStreamOrder(units).map((unit) => (
         <span key={unit} className="inline-flex gap-1">
           <span className={`unit-tag ${unitTagClass(unit)}`}>{unitShortLabel(unit)}</span>
           {unit === "ADS" && functionTag ? (
@@ -309,6 +312,8 @@ export function UnitPanel({
         <SettingsForm code={code} onDone={refresh} />
       ) : null}
       {code === "ADS" && settings && administers ? <VideoKindsManager code={code} /> : null}
+      {code === "ADS" && settings && administers ? <PlatformManager code={code} /> : null}
+      {code === "ADS" && settings && administers ? <DurationManager code={code} /> : null}
       {code === "ADS" && settings && administers ? (
         <PermissionMatrix code={code} onDone={refresh} />
       ) : null}
@@ -770,22 +775,8 @@ export function SettingsForm({ code, onDone }: { code: string; onDone: () => voi
           className={`mt-1 ${field}`}
         />
       </label>
-      <label className="text-xs text-[var(--text-muted)]">
-        Người gắn link khi quy trình đủ Biên kịch › Design › Dựng
-        <Select
-          value={value("btd_link_attacher")}
-          onChange={(event) =>
-            setDraft((all) => ({
-              ...all,
-              btd_link_attacher: event.target.value,
-            }))
-          }
-          className="mt-1 w-full"
-        >
-          <option value="DUNG">Dựng (Editor)</option>
-          <option value="BIEN_TAP">Biên kịch</option>
-        </Select>
-      </label>
+      {/* No "người gắn link" setting: the last production node hands the
+          product link in with its work (btd_link_attacher is obsolete). */}
       <label className="text-xs text-[var(--text-muted)]">
         Link Kho Media
         <input

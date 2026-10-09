@@ -33,7 +33,9 @@ STAGE_LABELS: dict[OrderStage, str] = {
     OrderStage.BIEN_TAP: "Biên tập",
     OrderStage.THIET_KE: "Thiết kế",
     OrderStage.DUNG: "Dựng",
-    OrderStage.GAN_LINK: "Gắn link",
+    # Legacy: an order created before the link step was folded into the
+    # last production node, still waiting for its product link.
+    OrderStage.GAN_LINK: "Nộp link sản phẩm",
     OrderStage.DUYET_VIDEO_BT: "Trưởng phòng Biên kịch duyệt video",
     OrderStage.FINAL_REVIEW: "Duyệt lần cuối",
     OrderStage.COMPLETED: "Hoàn thành",
@@ -44,7 +46,8 @@ NODE_TYPE_LABELS: dict[OrderNodeType, str] = {
     OrderNodeType.BIEN_TAP: "Biên tập",
     OrderNodeType.THIET_KE: "Thiết kế",
     OrderNodeType.DUNG: "Dựng",
-    OrderNodeType.GAN_LINK: "Gắn link",
+    # Legacy rows only (hidden on every screen; named on old hand-ins).
+    OrderNodeType.GAN_LINK: "Link sản phẩm",
 }
 
 NODE_STATUS_LABELS: dict[OrderNodeStatus, str] = {
@@ -69,7 +72,7 @@ EVENT_LABELS: dict[OrderEventKind, str] = {
     OrderEventKind.WORK_SUBMITTED: "Nộp bài",
     OrderEventKind.NODE_APPROVED: "Duyệt công đoạn",
     OrderEventKind.NODE_RETURNED: "Trả sửa công đoạn",
-    OrderEventKind.LINK_ATTACHED: "Gắn link sản phẩm",
+    OrderEventKind.LINK_ATTACHED: "Nộp link sản phẩm",
     OrderEventKind.VIDEO_APPROVED: "Trưởng phòng Biên kịch duyệt video",
     OrderEventKind.VIDEO_RETURNED: "Trưởng phòng Biên kịch trả video",
     OrderEventKind.FINAL_APPROVED: "Duyệt Final",

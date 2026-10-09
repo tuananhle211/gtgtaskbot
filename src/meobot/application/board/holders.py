@@ -35,12 +35,7 @@ from meobot.db.models.user import User
 from meobot.domain.identity.models import Actor, Role
 from meobot.domain.orders.models import PRODUCTION_NODES, OrderNodeType, OrderVideoType
 from meobot.domain.orders.permissions import AdsPermission, AdsPermissions
-from meobot.domain.orders.pipeline import (
-    ROLE_NODES,
-    OrderActorContext,
-    btd_link_attacher,
-    function_node,
-)
+from meobot.domain.orders.pipeline import ROLE_NODES, OrderActorContext, function_node
 from meobot.domain.pr.grants import ContentScopeKey
 from meobot.domain.pr.policy import APPROVAL_CAPABILITIES, PrCapability, grant_admits
 from meobot.domain.pr.workflow import STAGE_APPROVAL_GATES
@@ -146,10 +141,8 @@ class AdsApprovers:
     leads: dict[OrderNodeType, People] = field(default_factory=dict)
     #: Who may hand a production node out. The first is who a node is routed
     #: to when it comes up with nobody chosen (the assignee column holds one
-    #: person). The link node is handed out by the function attaching it.
+    #: person). A legacy link node is handed out by the last node's function.
     assigners: dict[OrderNodeType, People] = field(default_factory=dict)
-    #: The unit's ``btd_link_attacher`` setting, as a node.
-    btd_link_attacher: OrderNodeType = OrderNodeType.DUNG
 
     def lead(self, node_type: OrderNodeType) -> People:
         return self.leads.get(node_type, ())
@@ -157,11 +150,9 @@ class AdsApprovers:
     def _function(
         self, node_type: OrderNodeType, video_type: OrderVideoType | None
     ) -> OrderNodeType:
-        if node_type is OrderNodeType.GAN_LINK and video_type is None:
-            return self.btd_link_attacher
         if video_type is None:
             return node_type
-        return function_node(node_type, video_type, self.btd_link_attacher)
+        return function_node(node_type, video_type)
 
     def assigner(
         self, node_type: OrderNodeType, video_type: OrderVideoType | None = None
@@ -172,8 +163,8 @@ class AdsApprovers:
     def assigners_of(
         self, node_type: OrderNodeType, video_type: OrderVideoType | None = None
     ) -> People:
-        """Who may hand the node out; for the link node, on an order of
-        ``video_type`` (whose process decides which function attaches it)."""
+        """Who may hand the node out; for a legacy link node, on an order of
+        ``video_type`` (whose last production node's function owns it)."""
         return self.assigners.get(self._function(node_type, video_type), ())
 
 
@@ -252,7 +243,6 @@ async def ads_approvers(session: AsyncSession, unit_id: uuid.UUID) -> AdsApprove
             assigners[node_type] = found
     return AdsApprovers(
         assigners=assigners,
-        btd_link_attacher=btd_link_attacher(settings),
         head=pick(lambda may: may.allows(AdsPermission.ORDER_APPROVE), is_head),
         final=pick(lambda may: may.allows(AdsPermission.FINAL_REVIEW), is_head),
         video=pick(

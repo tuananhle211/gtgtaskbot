@@ -16,6 +16,7 @@ from meobot.domain.orders.labels import (
     video_type_label,
 )
 from meobot.domain.orders.models import (
+    PRODUCTION_NODES,
     OrderNodeStatus,
     OrderNodeType,
     OrderStage,
@@ -106,11 +107,17 @@ class OrderResponse(BaseModel):
     video_kind_id: uuid.UUID | None
     video_kind_name: str | None
     video_kind_points: float | None
+    platform_id: uuid.UUID | None
+    platform_name: str | None
+    duration_id: uuid.UUID | None
+    duration_name: str | None
+    duration_points: float | None
     order_content: str
     script_source: str | None
     design_link: str | None
     reference_link: str | None
     source_link: str | None
+    note: str | None
     owner_user_id: uuid.UUID
     owner_name: str | None
     stage: str
@@ -166,11 +173,19 @@ class OrderDetailResponse(BaseModel):
                 video_kind_points=(
                     None if order.video_kind_points is None else float(order.video_kind_points)
                 ),
+                platform_id=order.platform_id,
+                platform_name=order.platform_name,
+                duration_id=order.duration_id,
+                duration_name=order.duration_name,
+                duration_points=(
+                    None if order.duration_points is None else float(order.duration_points)
+                ),
                 order_content=order.order_content,
                 script_source=None if order.script_source is None else order.script_source.value,
                 design_link=order.design_link,
                 reference_link=order.reference_link,
                 source_link=order.source_link,
+                note=order.note,
                 owner_user_id=order.owner_user_id,
                 owner_name=name(order.owner_user_id),
                 stage=order.stage.value,
@@ -211,7 +226,9 @@ class OrderDetailResponse(BaseModel):
                     submission_count=node.submission_count,
                     version=node.version,
                 )
+                # A legacy link node is no step any more: hidden.
                 for node in detail.nodes
+                if node.node_type is not OrderNodeType.GAN_LINK
             ],
             submissions=[
                 OrderSubmissionResponse(
@@ -289,6 +306,9 @@ class CreateOrderRequest(BaseModel):
     design_link: str | None = Field(default=None, max_length=2000)
     reference_link: str | None = Field(default=None, max_length=2000)
     source_link: str | None = Field(default=None, max_length=2000)
+    platform_id: uuid.UUID | None = None
+    duration_id: uuid.UUID | None = None
+    note: str | None = Field(default=None, max_length=5000)
     #: Node type → user id, for the nodes the orderer wants to name a person for.
     preassigned: dict[str, uuid.UUID] = Field(default_factory=dict)
 
@@ -306,6 +326,9 @@ class ResubmitOrderRequest(VersionedRequest):
     source_link: str | None = Field(default=None, max_length=2000)
     preassigned: dict[str, uuid.UUID] | None = None
     video_kind_id: uuid.UUID | None = None
+    platform_id: uuid.UUID | None = None
+    duration_id: uuid.UUID | None = None
+    note: str | None = Field(default=None, max_length=5000)
 
 
 class NoteRequest(VersionedRequest):
@@ -319,11 +342,6 @@ class AssignRequest(VersionedRequest):
 class SubmitWorkRequest(VersionedRequest):
     link: str | None = Field(default=None, max_length=2000)
     script_text: str | None = None
-    note: str | None = None
-
-
-class AttachLinkRequest(VersionedRequest):
-    link: str = Field(min_length=1, max_length=2000)
     note: str | None = None
 
 
@@ -341,17 +359,21 @@ class StageOption(BaseModel):
 
 
 def stage_options() -> list[StageOption]:
-    return [StageOption(value=stage.value, label=stage_label(stage)) for stage in OrderStage]
+    # The legacy link stage is no filter anybody picks any more.
+    return [
+        StageOption(value=stage.value, label=stage_label(stage))
+        for stage in OrderStage
+        if stage is not OrderStage.GAN_LINK
+    ]
 
 
 def node_type_options() -> list[StageOption]:
-    return [StageOption(value=item.value, label=node_type_label(item)) for item in OrderNodeType]
+    return [StageOption(value=item.value, label=node_type_label(item)) for item in PRODUCTION_NODES]
 
 
 __all__ = [
     "ApproveFinalRequest",
     "AssignRequest",
-    "AttachLinkRequest",
     "CreateOrderRequest",
     "NoteRequest",
     "OrderActionResponse",

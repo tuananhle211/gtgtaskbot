@@ -52,7 +52,7 @@ async def test_01_the_owner_tags_a_marketer_and_the_code_is_normalised(world: Wo
     # The person now sees Ads as well, and keeps the PR tag the world gave them.
     world.act_as(world.member)
     me = world.client.get("/api/units/me").json()
-    assert [unit["code"] for unit in me["units"]] == ["PR", "ADS"]
+    assert [unit["code"] for unit in me["units"]] == ["ADS", "PR"]
 
 
 async def test_02_a_role_that_does_not_belong_to_the_unit_is_refused(world: World) -> None:

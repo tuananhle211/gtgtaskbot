@@ -52,7 +52,7 @@ from sqlalchemy.orm import Mapped, mapped_column
 
 from meobot.core.time import utcnow
 from meobot.db.base import Base, TimestampMixin, UUIDPrimaryKeyMixin, value_enum
-from meobot.db.models.org_unit import ORG_UNITS, UNIT_VIDEO_KINDS
+from meobot.db.models.org_unit import ORG_UNITS, UNIT_DURATIONS, UNIT_PLATFORMS, UNIT_VIDEO_KINDS
 from meobot.db.models.pr import RESTRICT, USERS_TABLE
 from meobot.db.models.pr_work import WORK_TYPES
 from meobot.domain.orders.models import (
@@ -125,6 +125,17 @@ class Order(Base, UUIDPrimaryKeyMixin, TimestampMixin):
     )
     video_kind_name: Mapped[str | None] = mapped_column(String(120), nullable=True)
     video_kind_points: Mapped[Decimal | None] = mapped_column(Numeric(6, 2), nullable=True)
+    #: The target platform ("Nền tảng") and a snapshot of its name.
+    platform_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey(f"{UNIT_PLATFORMS}.id", ondelete=RESTRICT), nullable=True, index=True
+    )
+    platform_name: Mapped[str | None] = mapped_column(String(120), nullable=True)
+    #: The video duration ("Thời lượng") and a snapshot of its name and points.
+    duration_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey(f"{UNIT_DURATIONS}.id", ondelete=RESTRICT), nullable=True, index=True
+    )
+    duration_name: Mapped[str | None] = mapped_column(String(120), nullable=True)
+    duration_points: Mapped[Decimal | None] = mapped_column(Numeric(6, 2), nullable=True)
     #: The brief: idea, hook, wording, voice script when it is an AI script.
     order_content: Mapped[str] = mapped_column(Text, nullable=False)
     script_source: Mapped[OrderScriptSource | None] = mapped_column(
@@ -133,6 +144,8 @@ class Order(Base, UUIDPrimaryKeyMixin, TimestampMixin):
     design_link: Mapped[str | None] = mapped_column(Text, nullable=True)
     reference_link: Mapped[str | None] = mapped_column(Text, nullable=True)
     source_link: Mapped[str | None] = mapped_column(Text, nullable=True)
+    #: Free-text requirement note from the orderer.
+    note: Mapped[str | None] = mapped_column(Text, nullable=True)
     owner_user_id: Mapped[uuid.UUID] = mapped_column(
         ForeignKey(f"{USERS_TABLE}.id", ondelete=RESTRICT), nullable=False
     )

@@ -12,6 +12,20 @@ import type { UnitsMe } from "@/lib/api";
 
 export const ALL_UNITS = "ALL";
 
+/** Streams are always listed "Luồng Order (ORD)" first, then "Luồng PR". */
+export const STREAM_ORDER = ["ADS", "PR"];
+
+export function streamRank(code: string): number {
+  const at = STREAM_ORDER.indexOf(code);
+  return at === -1 ? STREAM_ORDER.length : at;
+}
+
+/** A copy sorted ORD first, then PR; works on codes or on objects with `code`. */
+export function byStreamOrder<T extends string | { code: string }>(items: readonly T[]): T[] {
+  const code = (item: T) => (typeof item === "string" ? item : item.code);
+  return [...items].sort((a, b) => streamRank(code(a)) - streamRank(code(b)));
+}
+
 /** The unit the URL names, or the server's default for this person. */
 export function currentUnit(search: URLSearchParams | null, me: UnitsMe | undefined): string {
   const asked = search?.get("unit")?.trim().toUpperCase() ?? "";
@@ -74,7 +88,7 @@ export function taggableUnits(me: UnitsMe | undefined): string[] {
 /** The choices the switch offers, in order: tagged streams, then "Tất cả". */
 export function unitChoices(me: UnitsMe | undefined): Array<{ value: string; label: string }> {
   if (!me) return [];
-  const choices = me.units.map((unit) => ({
+  const choices = byStreamOrder(me.units).map((unit) => ({
     value: unit.code,
     label: unitName(unit.code, unit.label),
   }));

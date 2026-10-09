@@ -7,7 +7,7 @@ import { useQuery } from "@tanstack/react-query";
 import { api } from "@/lib/api";
 import { UnitSwitch, UntaggedState } from "@/components/unit-switch";
 import { formatAgo } from "@/lib/labels";
-import { currentUnit, firstOfMonth, isUntagged, lastOfMonth, unitName } from "@/lib/units";
+import { currentUnit, firstOfMonth, isUntagged, lastOfMonth, unitName, byStreamOrder } from "@/lib/units";
 import { Select } from "@/components/pr";
 import { ErrorBox, Loading, Pill } from "@/components/states";
 
@@ -142,7 +142,7 @@ function Dashboard() {
             <label className="flex flex-col gap-1 text-xs text-[var(--text-muted)]">
               Luồng
               <Select value={unit} onChange={(event) => setParams({ unit: event.target.value })} className="min-h-10">
-                {me.data.units.map((item) => (
+                {byStreamOrder(me.data.units).map((item) => (
                   <option key={item.code} value={item.code}>
                     {unitName(item.code, item.label)}
                   </option>

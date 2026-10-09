@@ -186,7 +186,7 @@ async def test_07_an_admin_tags_anyone_anywhere_and_sees_all(world: World) -> No
     world.act_as(admin)
     me = world.client.get("/api/units/me").json()
     assert me["can_view_all"] is True
-    assert me["can_tag"] == ["PR", "ADS"] and me["can_admin"] == ["PR", "ADS"]
+    assert me["can_tag"] == ["ADS", "PR"] and me["can_admin"] == ["ADS", "PR"]
     tagged = world.client.post(
         "/api/units/ADS/members",
         json={"user_id": str(person.id), "role": "BIEN_TAP", "is_lead": True},

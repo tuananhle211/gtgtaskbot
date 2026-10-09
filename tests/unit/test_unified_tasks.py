@@ -189,7 +189,10 @@ async def test_06_the_ads_page_and_its_wall(world: World) -> None:
     assert {"ads:APPROVE_ORDER", "ads:RETURN_ORDER", "ads:CANCEL"} <= set(keys(body))
     groups = {item["key"]: item["group"] for item in body["fields"]}
     assert groups["process"] == "ads" and not any(g == "pr" for g in groups.values())
-    assert [step["key"] for step in body["steps"]] == ["BIEN_TAP", "THIET_KE", "DUNG", "GAN_LINK"]
+    # No "Gắn link" step: the three production nodes, then the final review.
+    assert [step["key"] for step in body["steps"]] == ["BIEN_TAP", "THIET_KE", "DUNG", "FINAL"]
+    assert all("Gắn link" not in step["label"] for step in body["steps"])
+    assert body["task"]["state"] == "CHO_DUYET"
     assert body["timeline"][0]["label"] == "Gửi order"
     returned = next(a for a in body["actions"] if a["key"] == "ads:RETURN_ORDER")
     assert returned["requires_note"] is True and returned["inputs"] == ["note"]
@@ -239,11 +242,25 @@ async def test_07_ads_actions_run_through_the_order_engine(world: World) -> None
     )
     assert assigned.status_code == 200, assigned.json()
 
-    # The writer hands in the script.
+    # Handed out, not accepted: the writer sees "Đã giao" and may only accept.
     world.act_as(ads.writer)
     page = world.client.get(f"/api/tasks/{code}").json()
+    assert page["task"]["state"] == "DA_GIAO"
+    assert page["task"]["stage_label"] == f"Biên tập · Đã giao {ads.writer.full_name}"
+    steps = {step["key"]: step for step in page["steps"]}
+    assert steps["BIEN_TAP"]["status"] == "DA_GIAO"
+    assert steps["BIEN_TAP"]["status_label"] == f"Đã giao {ads.writer.full_name}"
+    assert not any(a["key"].startswith("ads:SUBMIT_WORK:") for a in page["actions"])
+    accept = next(a for a in page["actions"] if a["key"].startswith("ads:ACCEPT:"))
+    accepted = post(world, code, accept["key"], page["task"]["version"])
+    assert accepted.status_code == 200, accepted.json()
+    assert accepted.json()["task"]["state"] == "DANG_LAM"
+
+    # The writer hands in the script (not the last node: no link required).
+    page = accepted.json()
     submit = next(a for a in page["actions"] if a["key"].startswith("ads:SUBMIT_WORK:"))
     assert submit["inputs"] == ["text", "link", "note"]
+    assert submit["required_inputs"] == []
     submitted = post(
         world, code, submit["key"], page["task"]["version"], text="Kịch bản hoàn chỉnh."
     )
@@ -344,3 +361,36 @@ async def test_11_the_ads_page_shows_the_process_the_kind_and_its_points(world: 
     # The strip still shows every node; the skipped one says so.
     steps = {step["key"]: step for step in body["steps"]}
     assert steps["THIET_KE"]["status"] == "BO_QUA"
+
+
+async def test_12_the_last_node_hands_in_the_product_through_the_task(world: World) -> None:
+    ads = await ads_world(world)
+    detail = create(
+        world, ads, video_type="D", design_link="d", preassigned={"DUNG": str(ads.editor.id)}
+    )
+    code = detail["order"]["code"]
+    world.act_as(ads.head)
+    assert post(world, code, "ads:APPROVE_ORDER", 1).status_code == 200
+    world.act_as(ads.editor)
+    page = world.client.get(f"/api/tasks/{code}").json()
+    accept = next(a for a in page["actions"] if a["key"].startswith("ads:ACCEPT:"))
+    page = post(world, code, accept["key"], page["task"]["version"]).json()
+    submit = next(a for a in page["actions"] if a["key"].startswith("ads:SUBMIT_WORK:"))
+    assert submit["label"] == "Nộp sản phẩm · Dựng"
+    assert submit["required_inputs"] == ["link"]
+    assert all("ATTACH_LINK" not in action["key"] for action in page["actions"])
+    missing = post(world, code, submit["key"], page["task"]["version"], note="Xong")
+    assert missing.status_code == 422 and error_reason(missing.json()) == "link_required"
+    done = post(world, code, submit["key"], page["task"]["version"], link="https://e.com/cut")
+    assert done.status_code == 200, done.json()
+    # The edit is reviewed by its Leader by default; the approval opens the
+    # orderer's final review with the cut as the product.
+    world.act_as(ads.lead_dung)
+    page = world.client.get(f"/api/tasks/{code}").json()
+    approve = next(a for a in page["actions"] if a["key"].startswith("ads:APPROVE_NODE:"))
+    final = post(world, code, approve["key"], page["task"]["version"]).json()
+    assert final["task"]["stage"] == "FINAL_REVIEW"
+    assert final["task"]["product_link"] == "https://e.com/cut"
+    steps = {step["key"]: step for step in final["steps"]}
+    assert steps["DUNG"]["status"] == "HOAN_THANH"
+    assert steps["FINAL"]["status"] == "CHO_DUYET" and steps["FINAL"]["is_current"]

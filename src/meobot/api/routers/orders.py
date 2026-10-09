@@ -19,7 +19,6 @@ from meobot.api.deps import CurrentActorDep, RequestIdDep, get_app_settings, get
 from meobot.api.schemas.orders import (
     ApproveFinalRequest,
     AssignRequest,
-    AttachLinkRequest,
     CreateOrderRequest,
     NoteRequest,
     OrderActionResponse,
@@ -173,6 +172,9 @@ async def create_order(
             source_link=body.source_link,
             preassigned=_preassigned(body.preassigned),
             video_kind_id=body.video_kind_id,
+            platform_id=body.platform_id,
+            duration_id=body.duration_id,
+            note=body.note,
         ),
     )
     return await _detail(services, actor, order.id)
@@ -221,6 +223,9 @@ async def resubmit_order(
             source_link=body.source_link,
             preassigned=None if body.preassigned is None else _preassigned(body.preassigned),
             video_kind_id=body.video_kind_id,
+            platform_id=body.platform_id,
+            duration_id=body.duration_id,
+            note=body.note,
         ),
     )
     return await _detail(services, actor, order_id)
@@ -375,25 +380,6 @@ async def return_node(
         node_id=node_id,
         expected_version=body.version,
         note=body.note or "",
-    )
-    return await _detail(services, actor, order_id)
-
-
-@router.post("/{order_id}/link", response_model=OrderDetailResponse, responses=_ACTION_RESPONSES)
-async def attach_link(
-    order_id: uuid.UUID,
-    body: AttachLinkRequest,
-    actor: CurrentActorDep,
-    request_id: RequestIdDep,
-    services: ServicesDep,
-) -> OrderDetailResponse:
-    await services.commands.attach_link(
-        actor=actor,
-        request_id=request_id,
-        order_id=order_id,
-        expected_version=body.version,
-        link=body.link,
-        note=body.note,
     )
     return await _detail(services, actor, order_id)
 

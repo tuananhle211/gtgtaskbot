@@ -88,14 +88,22 @@ async def test_03_the_ads_board_shows_orders_with_their_nodes(world: World) -> N
     # No video kind picked (the unit offers none): the kind reads as the process.
     assert btd["kind"] == "BTD" and btd["kind_label"] == f"Biên kịch{SEP}Design{SEP}Dựng"
     cells = {cell["key"]: cell for cell in btd["cells"]}
-    assert cells["BIEN_TAP"]["status"] == "DANG_LAM" and cells["BIEN_TAP"]["is_current"]
+    # The chosen writer was handed the node and has not accepted it yet.
+    assert [cell["key"] for cell in btd["cells"]] == ["BIEN_TAP", "THIET_KE", "DUNG", "FINAL"]
+    assert cells["BIEN_TAP"]["status"] == "DA_GIAO" and cells["BIEN_TAP"]["is_current"]
+    assert cells["BIEN_TAP"]["status_label"] == f"Đã giao {ads.writer.full_name}"
     assert cells["BIEN_TAP"]["person_name"] == ads.writer.full_name
+    assert btd["status_label"] == f"Biên tập · Đã giao {ads.writer.full_name}"
+    assert btd["state"] == "DA_GIAO"
+    assert btd["current_person_name"] == ads.writer.full_name
     assert cells["THIET_KE"]["status_label"] == "Chưa tới"
+    assert cells["FINAL"]["label"] == "Duyệt final" and cells["FINAL"]["status"] == "CHUA_TOI"
     assert btd["detail_path"] == f"/tasks/{btd['code']}"
     assert btd["owner_name"] == ads.orderer.full_name
     d = by_code[quick["order"]["code"]]
     assert d["phase"] == "REVIEW"
     assert d["status_label"] == f"Chờ {ads.head.full_name} duyệt order"
+    assert d["state"] == "CHO_DUYET"
     assert d["current_person_name"] == ads.head.full_name
     assert {cell["key"]: cell["status"] for cell in d["cells"]}["BIEN_TAP"] == "BO_QUA"
 
@@ -199,9 +207,9 @@ async def test_07_the_dashboard_counts_what_the_table_shows(world: World) -> Non
     done = act(
         world, ads.lead_dung, f"/nodes/{dung}/assign", done, assignee_user_id=str(ads.editor.id)
     )
-    done = act(world, ads.editor, f"/nodes/{dung}/submit", done, link="https://example.com/cut")
+    done = act(world, ads.editor, f"/nodes/{dung}/accept", done)
+    done = act(world, ads.editor, f"/nodes/{dung}/submit", done, link="https://example.com/final")
     done = act(world, ads.lead_dung, f"/nodes/{dung}/approve", done)
-    done = act(world, ads.editor, "/link", done, link="https://example.com/final")
     done = act(world, ads.head, "/final/approve", done)
     pending = create(world, ads, video_type="D", design_link="https://example.com/design")
     create(world, ads, title="Đang làm", preassigned={"BIEN_TAP": str(ads.writer.id)})
@@ -226,7 +234,7 @@ async def test_07_the_dashboard_counts_what_the_table_shows(world: World) -> Non
     assert summary["by_owner"][0]["name"] == ads.orderer.full_name
     assert summary["by_owner"][0]["opened"] == 3 and summary["by_owner"][0]["done"] == 1
     workers = {item["name"]: item for item in summary["by_worker"]}
-    assert workers[ads.editor.full_name]["done"] == 2  # the edit and the link
+    assert workers[ads.editor.full_name]["done"] == 1  # the edit (it carried the link)
     # The range defaults to this month, and a day range outside it is empty.
     today = datetime.now(UTC).date()
     assert summary["date_from"].endswith("-01")
@@ -271,24 +279,46 @@ async def test_09_every_row_names_one_member_or_says_cho_giao(world: World) -> N
     assert routed["current_person_user_id"] == str(ads.lead_dung.id)
     assert routed["awaiting_assignment"] is False
     assert routed["status_label"] == f"Dựng · Chờ {ads.lead_dung.full_name} phân công"
+    assert routed["state"] == "CHO_PHAN_CONG"
     cells = {cell["key"]: cell for cell in routed["cells"]}
+    assert cells["DUNG"]["status"] == "CHO_PHAN_CONG"
     assert cells["DUNG"]["status_label"] == f"Chờ {ads.lead_dung.full_name} phân công"
     assert cells["DUNG"]["person_name"] == ads.lead_dung.full_name
 
-    # Assigned: the editor holds it.
+    # Assigned, not accepted: "Đã giao", and the editor holds it.
     dung = node(quick, "DUNG")["id"]
     quick = act(
         world, ads.lead_dung, f"/nodes/{dung}/assign", quick, assignee_user_id=str(ads.editor.id)
     )
-    assert row()["current_person_name"] == ads.editor.full_name
+    assigned = row()
+    assert assigned["current_person_name"] == ads.editor.full_name
+    assert assigned["status_label"] == f"Dựng · Đã giao {ads.editor.full_name}"
+    assert assigned["state"] == "DA_GIAO"
+    cells = {cell["key"]: cell for cell in assigned["cells"]}
+    assert cells["DUNG"]["status"] == "DA_GIAO"
+    assert cells["DUNG"]["status_label"] == f"Đã giao {ads.editor.full_name}"
+    world.act_as(ads.editor)
+    assert quick["order"]["code"] in {
+        item["code"] for item in tasks(world, unit="ADS", awaiting_me="true")["items"]
+    }
+
+    # Accepted: now it is being worked on.
+    quick = act(world, ads.editor, f"/nodes/{dung}/accept", quick)
+    world.act_as(ads.head)
+    working = row()
+    assert working["status_label"] == "Dựng · Đang làm" and working["state"] == "DANG_LAM"
+    cells = {cell["key"]: cell for cell in working["cells"]}
+    assert cells["DUNG"]["status"] == "DANG_LAM" and cells["DUNG"]["status_label"] == "Đang làm"
 
     # Handed in: waiting for the named Dựng Leader, who now holds it.
     quick = act(world, ads.editor, f"/nodes/{dung}/submit", quick, link="https://example.com/cut")
     review = row()
     assert review["status_label"] == f"Chờ {ads.lead_dung.full_name} duyệt"
+    assert review["state"] == "CHO_DUYET"
     assert review["current_person_name"] == ads.lead_dung.full_name
     cells = {cell["key"]: cell for cell in review["cells"]}
     assert cells["DUNG"]["status_label"] == f"Chờ {ads.lead_dung.full_name} duyệt"
+    assert cells["DUNG"]["status"] == "CHO_DUYET"
 
     # With no head tagged, a pending order is "Chờ giao", not "Trưởng phòng".
     await world.session.execute(
@@ -470,8 +500,8 @@ async def final_review(world: World, ads: Any, **overrides: Any) -> dict[str, An
     )
     detail = act(world, ads.head, "/approve", detail)
     tk = node(detail, "THIET_KE")["id"]
-    detail = act(world, ads.designer, f"/nodes/{tk}/submit", detail, link="https://e.com/t")
-    detail = act(world, ads.designer, "/link", detail, link="https://e.com/final")
+    detail = act(world, ads.designer, f"/nodes/{tk}/accept", detail)
+    detail = act(world, ads.designer, f"/nodes/{tk}/submit", detail, link="https://e.com/final")
     assert detail["order"]["stage"] == "FINAL_REVIEW"
     return detail
 
@@ -495,8 +525,20 @@ async def test_12_the_final_review_names_the_orderer_and_waits_on_them_only(
     assert seen["status_label"] == f"Chờ {ads.orderer.full_name} duyệt final"
     assert seen["current_person_name"] == ads.orderer.full_name
     assert seen["current_person_user_id"] == str(ads.orderer.id)
+    assert seen["state"] == "CHO_DUYET"
+    assert seen["delivered_at"] is not None
     cells = {cell["key"]: cell for cell in seen["cells"]}
-    assert cells["GAN_LINK"]["status_label"] == f"Chờ {ads.orderer.full_name} duyệt final"
+    assert "GAN_LINK" not in cells
+    assert cells["THIET_KE"]["status"] == "HOAN_THANH"
+    assert cells["FINAL"]["status"] == "CHO_DUYET" and cells["FINAL"]["is_current"]
+    assert cells["FINAL"]["status_label"] == f"Chờ {ads.orderer.full_name} duyệt final"
+    assert cells["FINAL"]["person_name"] == ads.orderer.full_name
+    # The "Tất cả" tab's "Duyệt final" column says the same.
+    world.act_as(world.owner)
+    merged = next(r for r in tasks(world, unit="ALL")["items"] if r["code"] == code)
+    final = {cell["key"]: cell for cell in merged["cells"]}["FINAL"]
+    assert final["label"] == "Duyệt final" and final["status"] == "CHO_DUYET"
+    assert final["status_label"] == f"Chờ {ads.orderer.full_name} duyệt final"
     # It waits on the orderer, not on the head who may only stand in.
     assert code in awaiting(ads.orderer)
     assert code not in awaiting(ads.head)
@@ -573,8 +615,11 @@ async def test_14_the_all_tab_puts_both_units_on_the_same_five_columns(world: Wo
     ads_row = next(row for row in page["items"] if row["unit"] == "ADS")
     order = {cell["key"]: cell for cell in ads_row["cells"]}["ORDER"]
     assert order["is_current"] is True and order["status_label"] == "Chờ duyệt order"
-    # The per-unit tabs keep their own columns.
-    assert tasks(world, unit="ADS")["items"][0]["cells"][0]["key"] == "BIEN_TAP"
+    final = {cell["key"]: cell for cell in ads_row["cells"]}["FINAL"]
+    assert final["status"] == "CHUA_TOI" and final["status_label"] == "Chưa tới"
+    # The per-unit tabs keep their own columns, with no link step.
+    keys = [cell["key"] for cell in tasks(world, unit="ADS")["items"][0]["cells"]]
+    assert keys == ["BIEN_TAP", "THIET_KE", "DUNG", "FINAL"]
 
 
 async def test_15_the_dashboard_can_be_narrowed_to_one_person(world: World) -> None:

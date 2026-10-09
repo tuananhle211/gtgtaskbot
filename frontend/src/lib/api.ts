@@ -3266,7 +3266,8 @@ export interface UnitSettingsInfo {
   urgent_days: number;
   media_nas_url: string | null;
   design_nas_url: string | null;
-  btd_link_attacher: string;
+  /** Obsolete (the old "Gắn link" step on BTD); ignored by the server. */
+  btd_link_attacher?: string;
   telegram_enabled: boolean;
   review_bien_tap: boolean;
   review_thiet_ke: boolean;
@@ -3389,6 +3390,42 @@ export interface UnitVideoKindBody {
   sort_order?: number;
 }
 
+export interface UnitPlatform {
+  id: Uuid;
+  name: string;
+  active: boolean;
+  sort_order: number;
+}
+
+export interface UnitPlatformList {
+  platforms: UnitPlatform[];
+}
+
+export interface UnitPlatformBody {
+  name?: string;
+  active?: boolean;
+  sort_order?: number;
+}
+
+export interface UnitDuration {
+  id: Uuid;
+  name: string;
+  points: number | string;
+  active: boolean;
+  sort_order: number;
+}
+
+export interface UnitDurationList {
+  durations: UnitDuration[];
+}
+
+export interface UnitDurationBody {
+  name?: string;
+  points?: number;
+  active?: boolean;
+  sort_order?: number;
+}
+
 export interface UnitHealth {
   unit: string;
   warnings: Array<{ code: string; message: string }>;
@@ -3427,6 +3464,12 @@ export interface TaskRow {
   phase_label: string;
   status: string;
   status_label: string;
+  /**
+   * What the row waits on: `CHO_DUYET` (a decision), `CHO_PHAN_CONG` (routed
+   * to a Leader to hand out), `DA_GIAO` (handed out, not accepted yet),
+   * `CHUA_GIAO` (nobody to hand it out), else the node's own status.
+   */
+  state?: string | null;
   cells: TaskCell[];
   product_link: string | null;
   returned_at: string | null;
@@ -3434,7 +3477,7 @@ export interface TaskRow {
   urgent: boolean;
   detail_path: string;
   version: number;
-  /** When the finished link was handed over (Ads: "Gắn link"; PR: newest hand-in). */
+  /** When the finished link was handed over (Ads: the last node's hand-in; PR: newest hand-in). */
   delivered_at?: string | null;
   /** When the row entered its current step. */
   stage_since: string | null;
@@ -3529,11 +3572,17 @@ export interface OrderInfo {
   /** Snapshots taken when the order was sent. */
   video_kind_name?: string | null;
   video_kind_points?: number | string | null;
+  platform_id?: Uuid | null;
+  platform_name?: string | null;
+  duration_id?: Uuid | null;
+  duration_name?: string | null;
+  duration_points?: number | string | null;
   order_content: string;
   script_source: string | null;
   design_link: string | null;
   reference_link: string | null;
   source_link: string | null;
+  note?: string | null;
   owner_user_id: Uuid;
   owner_name: string | null;
   stage: string;
@@ -3631,11 +3680,14 @@ export interface CreateOrderBody {
   process?: string[];
   /** Required when the unit has an active video kind. */
   video_kind_id?: Uuid | null;
+  platform_id?: Uuid | null;
+  duration_id?: Uuid | null;
   order_content: string;
   script_source?: string | null;
   design_link?: string | null;
   reference_link?: string | null;
   source_link?: string | null;
+  note?: string | null;
   preassigned?: Record<string, Uuid>;
 }
 
@@ -3661,6 +3713,8 @@ export interface TaskInfo {
   phase_label: string;
   stage: string;
   stage_label: string;
+  /** What the task waits on, as a board row's `state`. */
+  state?: string | null;
   owner: TaskPerson;
   current_person: TaskPerson | null;
   is_priority: boolean;
@@ -3723,6 +3777,8 @@ export interface TaskAction {
   requires_note: boolean;
   inputs: TaskActionInput[];
   assignee_options: TaskPerson[];
+  /** Inputs that may not be left empty (the last node's product link). */
+  required_inputs?: TaskActionInput[];
 }
 
 /**
@@ -3994,6 +4050,26 @@ export const api = {
   ) => post<UnitVideoKind>(`/api/units/${code}/video-kinds`, body),
   updateUnitVideoKind: (code: string, id: Uuid, body: UnitVideoKindBody) =>
     patch<UnitVideoKind>(`/api/units/${code}/video-kinds/${id}`, body),
+  unitPlatforms: (code: string, includeInactive = false) =>
+    get<UnitPlatformList>(
+      `/api/units/${code}/platforms${query({ include_inactive: includeInactive })}`,
+    ),
+  createUnitPlatform: (
+    code: string,
+    body: UnitPlatformBody & { name: string },
+  ) => post<UnitPlatform>(`/api/units/${code}/platforms`, body),
+  updateUnitPlatform: (code: string, id: Uuid, body: UnitPlatformBody) =>
+    patch<UnitPlatform>(`/api/units/${code}/platforms/${id}`, body),
+  unitDurations: (code: string, includeInactive = false) =>
+    get<UnitDurationList>(
+      `/api/units/${code}/durations${query({ include_inactive: includeInactive })}`,
+    ),
+  createUnitDuration: (
+    code: string,
+    body: UnitDurationBody & { name: string; points: number },
+  ) => post<UnitDuration>(`/api/units/${code}/durations`, body),
+  updateUnitDuration: (code: string, id: Uuid, body: UnitDurationBody) =>
+    patch<UnitDuration>(`/api/units/${code}/durations/${id}`, body),
   boardTasks: (filters: BoardFilters = {}) =>
     get<TaskPage>(`/api/board/tasks${query(filters)}`),
   boardDashboard: (filters: BoardFilters = {}) =>

@@ -13,7 +13,7 @@ from decimal import Decimal
 from pydantic import BaseModel, Field
 
 from meobot.application.units.directory import UnitMemberRow
-from meobot.db.models.org_unit import UnitVideoKind
+from meobot.db.models.org_unit import UnitDuration, UnitPlatform, UnitVideoKind
 from meobot.domain.identity.labels import role_label
 from meobot.domain.orders.permissions import ROLE_LABELS, SCOPE_LABELS, catalog, normalise_matrix
 from meobot.domain.units.labels import (
@@ -23,7 +23,7 @@ from meobot.domain.units.labels import (
     unit_role_label,
     unit_short_label,
 )
-from meobot.domain.units.models import UnitMemberRole, UnitMembership, UnitSettings
+from meobot.domain.units.models import UnitMemberRole, UnitMembership, UnitSettings, stream_rank
 
 
 class PermissionCatalogEntry(BaseModel):
@@ -118,12 +118,13 @@ class UnitMeResponse(BaseModel):
         can_admin: list[str],
         can_tag: list[str] | None = None,
     ) -> UnitMeResponse:
+        entries = sorted(entries, key=lambda entry: stream_rank(entry.code))
         return cls(
             units=entries,
             default_unit=entries[0].code if entries else None,
             can_view_all=membership.sees_all,
-            can_admin=can_admin,
-            can_tag=list(can_tag or []),
+            can_admin=sorted(can_admin, key=stream_rank),
+            can_tag=sorted(can_tag or [], key=stream_rank),
             is_untagged=membership.is_untagged,
         )
 
@@ -282,6 +283,69 @@ class UpdateVideoKindRequest(BaseModel):
     sort_order: int | None = Field(default=None, ge=0, le=100000)
 
 
+class PlatformResponse(BaseModel):
+    id: uuid.UUID
+    name: str
+    active: bool
+    sort_order: int
+
+    @classmethod
+    def from_row(cls, row: UnitPlatform) -> PlatformResponse:
+        return cls(id=row.id, name=row.name, active=row.active, sort_order=row.sort_order)
+
+
+class PlatformListResponse(BaseModel):
+    platforms: list[PlatformResponse]
+
+
+class CreatePlatformRequest(BaseModel):
+    name: str = Field(min_length=1, max_length=200)
+    active: bool = True
+    sort_order: int | None = Field(default=None, ge=0, le=100000)
+
+
+class UpdatePlatformRequest(BaseModel):
+    name: str | None = Field(default=None, min_length=1, max_length=200)
+    active: bool | None = None
+    sort_order: int | None = Field(default=None, ge=0, le=100000)
+
+
+class DurationResponse(BaseModel):
+    id: uuid.UUID
+    name: str
+    points: float
+    active: bool
+    sort_order: int
+
+    @classmethod
+    def from_row(cls, row: UnitDuration) -> DurationResponse:
+        return cls(
+            id=row.id,
+            name=row.name,
+            points=float(row.points),
+            active=row.active,
+            sort_order=row.sort_order,
+        )
+
+
+class DurationListResponse(BaseModel):
+    durations: list[DurationResponse]
+
+
+class CreateDurationRequest(BaseModel):
+    name: str = Field(min_length=1, max_length=200)
+    points: Decimal = Decimal("1")
+    active: bool = True
+    sort_order: int | None = Field(default=None, ge=0, le=100000)
+
+
+class UpdateDurationRequest(BaseModel):
+    name: str | None = Field(default=None, min_length=1, max_length=200)
+    points: Decimal | None = None
+    active: bool | None = None
+    sort_order: int | None = Field(default=None, ge=0, le=100000)
+
+
 class UnitHealthWarning(BaseModel):
     code: str
     message: str
@@ -318,8 +382,14 @@ def unit_entry(
 
 
 __all__ = [
+    "CreateDurationRequest",
+    "CreatePlatformRequest",
     "CreateVideoKindRequest",
     "DirectoryUserResponse",
+    "DurationListResponse",
+    "DurationResponse",
+    "PlatformListResponse",
+    "PlatformResponse",
     "RoleOptionResponse",
     "TagMemberRequest",
     "UnitEntryResponse",
@@ -331,7 +401,9 @@ __all__ = [
     "UnitSettingsResponse",
     "UntaggedUserResponse",
     "UntaggedUsersResponse",
+    "UpdateDurationRequest",
     "UpdateMemberRequest",
+    "UpdatePlatformRequest",
     "UpdateUnitSettingsRequest",
     "UpdateVideoKindRequest",
     "VideoKindListResponse",

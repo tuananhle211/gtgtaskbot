@@ -30,8 +30,6 @@ function actionPath(action: OrderAction): string {
       return `${node}/approve`;
     case "RETURN_NODE":
       return `${node}/return`;
-    case "ATTACH_LINK":
-      return "/link";
     case "APPROVE_VIDEO":
       return "/video/approve";
     case "RETURN_VIDEO":
@@ -144,11 +142,7 @@ export default function OrderDetailPage() {
               key={node.id}
               label={node.node_type_label}
               person={node.assignee_name ?? (node.preassigned_name ? `Chọn sẵn: ${node.preassigned_name}` : node.status === "BO_QUA" ? "—" : "Để trống")}
-              status={
-                node.node_type === "GAN_LINK" && (order.stage === "DUYET_VIDEO_BT" || order.stage === "FINAL_REVIEW")
-                  ? order.stage_label
-                  : node.status_label
-              }
+              status={node.status_label}
               tone={statusTone(node.status)}
               when={
                 node.approved_at
@@ -392,8 +386,6 @@ function ActionPanel({ detail, onDone }: { detail: OrderDetail; onDone: () => vo
         return { assignee_user_id: value("assignee") };
       case "SUBMIT_WORK":
         return { link: value("link") || null, script_text: value("script_text") || null, note: value("note") || null };
-      case "ATTACH_LINK":
-        return { link: value("link"), note: value("note") || null };
       case "APPROVE_FINAL":
         return { product_link: value("link") || null };
       case "SET_PRIORITY":
@@ -407,7 +399,7 @@ function ActionPanel({ detail, onDone }: { detail: OrderDetail; onDone: () => vo
   const detailsFor = (action: OrderAction, node: OrderNode | null) => {
     const parts: React.ReactNode[] = [];
     if (action.kind === "ASSIGN") {
-      const role = node?.node_type === "GAN_LINK" ? "DUNG" : node?.node_type;
+      const role = node?.node_type;
       parts.push(
         <label key="assignee" className="block text-xs">
           Giao cho
@@ -424,10 +416,10 @@ function ActionPanel({ detail, onDone }: { detail: OrderDetail; onDone: () => vo
         </label>,
       );
     }
-    if (action.kind === "SUBMIT_WORK" || action.kind === "ATTACH_LINK" || action.kind === "APPROVE_FINAL") {
+    if (action.kind === "SUBMIT_WORK" || action.kind === "APPROVE_FINAL") {
       parts.push(
         <label key="link" className="block text-xs">
-          {action.kind === "APPROVE_FINAL" ? "Link sản phẩm (để trống = dùng link đã gắn)" : "Link"}
+          {action.kind === "APPROVE_FINAL" ? "Link sản phẩm (để trống = dùng link đã nộp)" : "Link"}
           <input type="url" value={value("link")} onChange={(event) => setValue("link", event.target.value)} className={`mt-1 ${field}`} />
         </label>,
       );
@@ -440,7 +432,7 @@ function ActionPanel({ detail, onDone }: { detail: OrderDetail; onDone: () => vo
         </label>,
       );
     }
-    if (action.requires_note || action.kind === "SUBMIT_WORK" || action.kind === "ATTACH_LINK") {
+    if (action.requires_note || action.kind === "SUBMIT_WORK") {
       parts.push(
         <label key="note" className="block text-xs">
           {action.requires_note ? "Lý do (bắt buộc)" : "Ghi chú"}
@@ -493,7 +485,7 @@ function ActionPanel({ detail, onDone }: { detail: OrderDetail; onDone: () => vo
             onConfirm={() => run.mutate({ action, body: bodyFor(action) })}
             pending={run.isPending}
             error={run.error}
-            tone={destructive.has(action.kind) ? "danger" : action.kind.startsWith("APPROVE") || action.kind === "SUBMIT_WORK" || action.kind === "ATTACH_LINK" ? "primary" : "secondary"}
+            tone={destructive.has(action.kind) ? "danger" : action.kind.startsWith("APPROVE") || action.kind === "SUBMIT_WORK" ? "primary" : "secondary"}
           >
             {action.kind === "SET_PRIORITY" && detail.order.is_priority ? "Bỏ ưu tiên" : action.label}
           </ConfirmButton>

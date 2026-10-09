@@ -85,7 +85,7 @@ class OrderQueryService:
     async def detail(self, actor: Actor, ref: str) -> OrderDetail:
         scoped = await self.scoped(actor)
         order = await self.resolve(actor, ref)
-        # Pipeline order (Biên tập, Thiết kế, Dựng, Gắn link), not insert
+        # Pipeline order (Biên tập, Thiết kế, Dựng), not insert
         # or alphabetical order: the strip on the page reads left to right.
         rank = {node_type: index for index, node_type in enumerate(OrderNodeType)}
         nodes = sorted(

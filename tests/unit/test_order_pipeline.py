@@ -52,7 +52,6 @@ def test_01_each_video_type_visits_its_nodes_and_skips_the_rest() -> None:
         OrderNodeType.BIEN_TAP: OrderNodeStatus.BO_QUA,
         OrderNodeType.THIET_KE: OrderNodeStatus.BO_QUA,
         OrderNodeType.DUNG: OrderNodeStatus.CHUA_TOI,
-        OrderNodeType.GAN_LINK: OrderNodeStatus.CHUA_TOI,
     }
     assert (
         initial_node_statuses(OrderVideoType.TD)[OrderNodeType.THIET_KE] is OrderNodeStatus.CHUA_TOI
@@ -65,18 +64,32 @@ def test_01_each_video_type_visits_its_nodes_and_skips_the_rest() -> None:
         for status in initial_node_statuses(OrderVideoType.BTD).values()
     )
     for video_type, plan in NODE_PLAN.items():
-        assert plan[-1] is OrderNodeType.GAN_LINK, video_type
+        # No link node any more: no new order plans one.
+        assert OrderNodeType.GAN_LINK not in plan, video_type
+        assert OrderNodeType.GAN_LINK not in initial_node_statuses(video_type), video_type
         assert first_node(video_type) is plan[0]
 
 
-def test_02_next_node_walks_the_plan_and_ends_after_the_link() -> None:
+def test_02_next_node_walks_the_plan_and_ends_after_the_last_production_node() -> None:
+    from meobot.domain.orders.models import last_production_node
+    from meobot.domain.orders.pipeline import hands_in_product
+
     assert next_node(OrderVideoType.BTD, OrderNodeType.BIEN_TAP) is OrderNodeType.THIET_KE
-    assert next_node(OrderVideoType.BTD, OrderNodeType.DUNG) is OrderNodeType.GAN_LINK
-    assert next_node(OrderVideoType.D, OrderNodeType.DUNG) is OrderNodeType.GAN_LINK
+    assert next_node(OrderVideoType.BTD, OrderNodeType.DUNG) is None
+    assert next_node(OrderVideoType.D, OrderNodeType.DUNG) is None
+    # A legacy link node is past every production node.
     assert next_node(OrderVideoType.D, OrderNodeType.GAN_LINK) is None
     with pytest.raises(ValueError):
         next_node(OrderVideoType.D, OrderNodeType.BIEN_TAP)
     assert stage_for_node(OrderNodeType.THIET_KE) is OrderStage.THIET_KE
+    # The last production node hands in the product.
+    assert last_production_node(OrderVideoType.BTD) is OrderNodeType.DUNG
+    assert last_production_node(OrderVideoType.BT) is OrderNodeType.THIET_KE
+    assert last_production_node(OrderVideoType.B) is OrderNodeType.BIEN_TAP
+    assert hands_in_product(OrderVideoType.BTD, OrderNodeType.DUNG)
+    assert not hands_in_product(OrderVideoType.BTD, OrderNodeType.THIET_KE)
+    assert hands_in_product(OrderVideoType.BT, OrderNodeType.THIET_KE)
+    assert hands_in_product(OrderVideoType.D, OrderNodeType.GAN_LINK)
 
 
 def test_03_a_chosen_person_starts_at_once_and_nobody_waits_for_the_leader() -> None:
@@ -201,15 +214,23 @@ def test_07_a_leader_assigns_and_approves_and_the_assignee_accepts_and_submits()
     assert kinds(available_actions(working, waiting, lead)) == {OrderActionKind.ASSIGN}
     assert kinds(available_actions(working, waiting, writer)) == set()
 
+    # Assigned is not accepted: the writer must take it before handing in.
     assigned = (node(OrderNodeType.BIEN_TAP, OrderNodeStatus.DANG_LAM, assignee=EDITOR),)
-    assert kinds(available_actions(working, assigned, writer)) == {
-        OrderActionKind.ACCEPT,
-        OrderActionKind.SUBMIT_WORK,
-    }
+    assert kinds(available_actions(working, assigned, writer)) == {OrderActionKind.ACCEPT}
+    with pytest.raises(OrderActionNotAllowedError):
+        assert_allowed(OrderActionKind.SUBMIT_WORK, working, assigned, writer)
     accepted = (
         node(OrderNodeType.BIEN_TAP, OrderNodeStatus.DANG_LAM, assignee=EDITOR, accepted=True),
     )
     assert kinds(available_actions(working, accepted, writer)) == {OrderActionKind.SUBMIT_WORK}
+    # Sent back for a fix: the same person works on, no new acceptance...
+    fixing = (
+        node(OrderNodeType.BIEN_TAP, OrderNodeStatus.DANG_SUA, assignee=EDITOR, accepted=True),
+    )
+    assert kinds(available_actions(working, fixing, writer)) == {OrderActionKind.SUBMIT_WORK}
+    # ...unless the fix was handed to somebody new, who accepts first.
+    handed_over = (node(OrderNodeType.BIEN_TAP, OrderNodeStatus.DANG_SUA, assignee=EDITOR),)
+    assert kinds(available_actions(working, handed_over, writer)) == {OrderActionKind.ACCEPT}
     # The Leader may still hand it to somebody else while it is being worked.
     assert kinds(available_actions(working, accepted, lead)) == {OrderActionKind.ASSIGN}
 
@@ -224,44 +245,36 @@ def test_07_a_leader_assigns_and_approves_and_the_assignee_accepts_and_submits()
     assert kinds(available_actions(working, handed_in, design_lead)) == set()
 
 
-def test_08_the_link_node_belongs_to_the_editors_unless_the_unit_says_otherwise() -> None:
+def test_08_no_link_step_is_offered_and_a_legacy_link_node_is_the_last_nodes() -> None:
+    assert "ATTACH_LINK" not in {kind.value for kind in OrderActionKind}
+    # A legacy order still at the old link step: its assignee takes it and
+    # hands the link in like the last production node would.
     linking = order(OrderStage.GAN_LINK)
-    nodes = (node(OrderNodeType.GAN_LINK, OrderNodeStatus.DANG_LAM, assignee=EDITOR),)
     editor = ctx(UnitMemberRole.DUNG, EDITOR)
-    assert kinds(available_actions(linking, nodes, editor)) == {
-        OrderActionKind.ACCEPT,
-        OrderActionKind.ATTACH_LINK,
-    }
-    # The editing lead hands the link node out (it is the editors' by default).
+    taken = (node(OrderNodeType.GAN_LINK, OrderNodeStatus.DANG_LAM, assignee=EDITOR),)
+    assert kinds(available_actions(linking, taken, editor)) == {OrderActionKind.ACCEPT}
+    accepted = (
+        node(OrderNodeType.GAN_LINK, OrderNodeStatus.DANG_LAM, assignee=EDITOR, accepted=True),
+    )
+    assert kinds(available_actions(linking, accepted, editor)) == {OrderActionKind.SUBMIT_WORK}
+    # It is handed out by the function of the process's last production node.
     unassigned = (node(OrderNodeType.GAN_LINK, OrderNodeStatus.CHUA_GIAO),)
     edit_lead = ctx(UnitMemberRole.DUNG, uuid.uuid4(), is_lead=True)
+    script_lead = ctx(UnitMemberRole.BIEN_TAP, LEAD_BT, is_lead=True)
     assert OrderActionKind.ASSIGN in kinds(available_actions(linking, unassigned, edit_lead))
-    # With the unit setting flipped, the script team's lead owns the link
-    # node of a BTD order - and only of a BTD order (the setting is BTD's).
-    settings = UnitSettings(btd_link_attacher=UnitMemberRole.BIEN_TAP)
-    script_lead = OrderActorContext.from_membership(
-        membership(UnitMemberRole.BIEN_TAP, LEAD_BT, is_lead=True), settings
+    assert OrderActionKind.ASSIGN not in kinds(available_actions(linking, unassigned, script_lead))
+    # The obsolete BTD setting changes nothing.
+    flipped = OrderActorContext.from_membership(
+        membership(UnitMemberRole.BIEN_TAP, LEAD_BT, is_lead=True),
+        UnitSettings(btd_link_attacher=UnitMemberRole.BIEN_TAP),
     )
-    assert script_lead.btd_link_attacher is OrderNodeType.BIEN_TAP
-    assert OrderActionKind.ASSIGN in kinds(available_actions(linking, unassigned, script_lead))
-    edit_lead_then = OrderActorContext.from_membership(
-        membership(UnitMemberRole.DUNG, EDITOR, is_lead=True), settings
-    )
-    assert OrderActionKind.ASSIGN not in kinds(
-        available_actions(linking, unassigned, edit_lead_then)
-    )
-    td_linking = order(OrderStage.GAN_LINK, video_type=OrderVideoType.TD)
-    assert OrderActionKind.ASSIGN in kinds(
-        available_actions(td_linking, unassigned, edit_lead_then)
-    )
-    assert OrderActionKind.ASSIGN not in kinds(
-        available_actions(td_linking, unassigned, script_lead)
-    )
+    assert OrderActionKind.ASSIGN not in kinds(available_actions(linking, unassigned, flipped))
 
 
 def test_09_the_two_last_gates_belong_to_the_script_lead_and_the_head() -> None:
-    link = node(OrderNodeType.GAN_LINK, OrderNodeStatus.CHO_DUYET, assignee=EDITOR)
-    nodes = (link,)
+    # The gates act on the product: the last production node's hand-in.
+    link = node(OrderNodeType.DUNG, OrderNodeStatus.HOAN_THANH, assignee=EDITOR)
+    nodes = (node(OrderNodeType.BIEN_TAP, OrderNodeStatus.HOAN_THANH), link)
     lead = ctx(UnitMemberRole.BIEN_TAP, LEAD_BT, is_lead=True)
     head = ctx(UnitMemberRole.HEAD, HEAD)
     video_gate = order(OrderStage.DUYET_VIDEO_BT)
@@ -317,12 +330,7 @@ def test_12_every_process_plans_exactly_its_ticked_nodes_in_pipeline_order() -> 
     from meobot.domain.orders.labels import video_type_label
     from meobot.domain.orders.models import needs_design_link, process_code, production_nodes
 
-    b, t, d, link = (
-        OrderNodeType.BIEN_TAP,
-        OrderNodeType.THIET_KE,
-        OrderNodeType.DUNG,
-        OrderNodeType.GAN_LINK,
-    )
+    b, t, d = OrderNodeType.BIEN_TAP, OrderNodeType.THIET_KE, OrderNodeType.DUNG
     expected = {
         "B": ((b,), "Biên kịch"),
         "T": ((t,), "Design"),
@@ -337,10 +345,10 @@ def test_12_every_process_plans_exactly_its_ticked_nodes_in_pipeline_order() -> 
     assert {code.value for code in OrderVideoType} == set(expected)
     for code_value, (nodes, label) in expected.items():
         code = OrderVideoType(code_value)
-        assert NODE_PLAN[code] == (*nodes, link), code
+        assert NODE_PLAN[code] == nodes, code
         assert production_nodes(code) == nodes
         assert first_node(code) is nodes[0]
-        assert next_node(code, nodes[-1]) is link
+        assert next_node(code, nodes[-1]) is None
         assert video_type_label(code) == label
         # Ticked in any order, the code is the same.
         assert process_code(reversed(nodes)) is code
@@ -350,7 +358,7 @@ def test_12_every_process_plans_exactly_its_ticked_nodes_in_pipeline_order() -> 
             assert statuses[node_type] is (
                 OrderNodeStatus.CHUA_TOI if node_type in nodes else OrderNodeStatus.BO_QUA
             )
-        assert statuses[link] is OrderNodeStatus.CHUA_TOI
+        assert set(statuses) == {b, t, d}
         # An edit without a design node needs the design with the order.
         assert needs_design_link(code) is (d in nodes and t not in nodes)
     assert process_code([]) is None
@@ -360,35 +368,36 @@ def test_12_every_process_plans_exactly_its_ticked_nodes_in_pipeline_order() -> 
     assert format_order_code("TUAN", OrderVideoType.BD, day, 1) == "TUAN-BD-261008-01"
 
 
-def test_13_the_link_goes_to_the_last_production_node_except_on_btd() -> None:
-    from meobot.domain.orders.pipeline import link_attacher_for, link_attacher_node
+def test_13_the_last_production_node_hands_in_the_product_on_every_process() -> None:
+    from meobot.domain.orders.models import last_production_node
 
-    assert link_attacher_for(OrderVideoType.B) is OrderNodeType.BIEN_TAP
-    assert link_attacher_for(OrderVideoType.T) is OrderNodeType.THIET_KE
-    assert link_attacher_for(OrderVideoType.BT) is OrderNodeType.THIET_KE
-    assert link_attacher_for(OrderVideoType.BD) is OrderNodeType.DUNG
-    assert link_attacher_for(OrderVideoType.TD) is OrderNodeType.DUNG
-    assert link_attacher_for(OrderVideoType.D) is OrderNodeType.DUNG
-    assert link_attacher_for(OrderVideoType.BTD) is OrderNodeType.DUNG
-    script = UnitSettings(btd_link_attacher=UnitMemberRole.BIEN_TAP)
-    # The unit's setting is BTD's only.
-    assert link_attacher_node(script, OrderVideoType.BTD) is OrderNodeType.BIEN_TAP
-    assert link_attacher_node(script, OrderVideoType.TD) is OrderNodeType.DUNG
-    assert link_attacher_node(script, OrderVideoType.BT) is OrderNodeType.THIET_KE
-    # The design lead hands out the link node of a design-last order.
+    expected = {
+        OrderVideoType.B: OrderNodeType.BIEN_TAP,
+        OrderVideoType.T: OrderNodeType.THIET_KE,
+        OrderVideoType.BT: OrderNodeType.THIET_KE,
+        OrderVideoType.BD: OrderNodeType.DUNG,
+        OrderVideoType.TD: OrderNodeType.DUNG,
+        OrderVideoType.D: OrderNodeType.DUNG,
+        OrderVideoType.BTD: OrderNodeType.DUNG,
+    }
+    for code, last in expected.items():
+        assert last_production_node(code) is last, code
+    # The design lead hands out a legacy link node of a design-last order only.
     design_lead = ctx(UnitMemberRole.THIET_KE, uuid.uuid4(), is_lead=True)
     unassigned = (node(OrderNodeType.GAN_LINK, OrderNodeStatus.CHUA_GIAO),)
-    for code, allowed in ((OrderVideoType.T, True), (OrderVideoType.BT, True)):
+    for code, allowed in (
+        (OrderVideoType.T, True),
+        (OrderVideoType.BT, True),
+        (OrderVideoType.TD, False),
+    ):
         linking = order(OrderStage.GAN_LINK, video_type=code)
         assert (
             OrderActionKind.ASSIGN in kinds(available_actions(linking, unassigned, design_lead))
         ) is allowed
-    linking = order(OrderStage.GAN_LINK, video_type=OrderVideoType.TD)
-    assert OrderActionKind.ASSIGN not in kinds(available_actions(linking, unassigned, design_lead))
 
 
 def test_14_the_final_review_is_the_orderers_and_the_head_only_stands_in() -> None:
-    link = node(OrderNodeType.GAN_LINK, OrderNodeStatus.CHO_DUYET, assignee=EDITOR)
+    link = node(OrderNodeType.DUNG, OrderNodeStatus.HOAN_THANH, assignee=EDITOR)
     final_gate = order(OrderStage.FINAL_REVIEW)
     orderer = ctx(UnitMemberRole.ORDERER, OWNER)
     assert {OrderActionKind.APPROVE_FINAL, OrderActionKind.RETURN_FINAL} <= kinds(

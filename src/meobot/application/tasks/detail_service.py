@@ -84,7 +84,7 @@ from meobot.domain.orders.models import (
     OrderStage,
     OrderVideoType,
 )
-from meobot.domain.orders.pipeline import OrderActionKind, link_attacher_node
+from meobot.domain.orders.pipeline import OrderActionKind, function_node, hands_in_product
 from meobot.domain.pr.models import (
     PrApprovalDecision,
     PrApprovalStage,
@@ -96,7 +96,7 @@ from meobot.domain.pr.models import (
 from meobot.domain.pr.policy import PrCapability
 from meobot.domain.pr.workflow import STAGE_APPROVAL_GATES, PrTransitionTrigger
 from meobot.domain.units.labels import UNIT_LABELS, UNIT_SHORT_LABELS
-from meobot.domain.units.models import UnitCode, UnitSettings
+from meobot.domain.units.models import UnitCode
 
 Emphasis = Literal["PRIMARY", "SECONDARY", "DANGER"]
 FieldType = Literal["text", "longtext", "link", "date"]
@@ -175,7 +175,6 @@ _ADS_PRIMARY: frozenset[OrderActionKind] = frozenset(
         OrderActionKind.ACCEPT,
         OrderActionKind.SUBMIT_WORK,
         OrderActionKind.APPROVE_NODE,
-        OrderActionKind.ATTACH_LINK,
         OrderActionKind.APPROVE_VIDEO,
         OrderActionKind.APPROVE_FINAL,
     }
@@ -222,6 +221,9 @@ class TaskSummary:
     phase_label: str
     stage: str
     stage_label: str
+    #: What the task waits on, as the board's row ``state`` (``CHO_DUYET``,
+    #: ``CHO_PHAN_CONG``, ``DA_GIAO``, ``CHUA_GIAO``...); screens colour by it.
+    state: str | None
     owner: PersonRef
     current_person: PersonRef | None
     is_priority: bool
@@ -296,6 +298,8 @@ class TaskActionView:
     requires_note: bool
     inputs: tuple[str, ...] = ()
     assignee_options: tuple[PersonRef, ...] = ()
+    #: The inputs that may not be left empty (beyond a required note).
+    required_inputs: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True, slots=True)
@@ -420,6 +424,7 @@ class TaskDetailService:
             phase_label=row.phase_label,
             stage=order.stage.value,
             stage_label=row.status_label,
+            state=row.state,
             owner=PersonRef(order.owner_user_id, names.get(order.owner_user_id, "")),
             current_person=current,
             is_priority=order.is_priority,
@@ -441,12 +446,10 @@ class TaskDetailService:
             fields=_ads_fields(order),
             submissions=_ads_submissions(detail),
             timeline=_ads_timeline(detail),
-            actions=await self._ads_actions(detail, scoped.settings),
+            actions=await self._ads_actions(detail),
         )
 
-    async def _ads_actions(
-        self, detail: OrderDetail, settings: UnitSettings
-    ) -> tuple[TaskActionView, ...]:
+    async def _ads_actions(self, detail: OrderDetail) -> tuple[TaskActionView, ...]:
         order = detail.order
         nodes = {node.id: node for node in detail.nodes}
         views: list[TaskActionView] = []
@@ -467,12 +470,11 @@ class TaskDetailService:
                 else ("DANGER" if kind in _ADS_DANGER else "SECONDARY")
             )
             inputs: tuple[str, ...] = ()
+            required: tuple[str, ...] = ()
             options: tuple[PersonRef, ...] = ()
             if kind is OrderActionKind.ASSIGN and node is not None:
                 inputs = ("assignee",)
-                options = await self._ads_assignees(
-                    order.unit_id, node.node_type, settings, order.video_type
-                )
+                options = await self._ads_assignees(order.unit_id, node.node_type, order.video_type)
                 if node.status is OrderNodeStatus.CHUA_GIAO:
                     emphasis = "PRIMARY"
             elif kind is OrderActionKind.SUBMIT_WORK:
@@ -481,8 +483,10 @@ class TaskDetailService:
                     if node is not None and node.node_type is OrderNodeType.BIEN_TAP
                     else ("link", "note")
                 )
-            elif kind is OrderActionKind.ATTACH_LINK:
-                inputs = ("link", "note")
+                if node is not None and hands_in_product(order.video_type, node.node_type):
+                    # The last node hands in the product: its link is required.
+                    label = f"Nộp sản phẩm · {node_type_label(node.node_type)}"
+                    required = ("link",)
             elif kind is OrderActionKind.APPROVE_FINAL:
                 inputs = ("link",)
             elif kind in (
@@ -502,6 +506,7 @@ class TaskDetailService:
                     requires_note=action.requires_note,
                     inputs=inputs,
                     assignee_options=options,
+                    required_inputs=required,
                 )
             )
         return tuple(sorted(views, key=lambda view: _EMPHASIS_ORDER[view.emphasis]))
@@ -510,14 +515,9 @@ class TaskDetailService:
         self,
         unit_id: uuid.UUID,
         node_type: OrderNodeType,
-        settings: UnitSettings,
         video_type: OrderVideoType,
     ) -> tuple[PersonRef, ...]:
-        wanted = (
-            ROLE_FOR_NODE[link_attacher_node(settings, video_type)]
-            if node_type is OrderNodeType.GAN_LINK
-            else ROLE_FOR_NODE[node_type]
-        )
+        wanted = ROLE_FOR_NODE[function_node(node_type, video_type)]
         rows = await self._directory.members(unit_id, role=wanted)
         return tuple(PersonRef(row.user.id, row.user.full_name) for row in rows)
 
@@ -581,6 +581,7 @@ class TaskDetailService:
             phase_label=PHASE_LABELS[phase],
             stage=content.workflow_stage.value,
             stage_label=row.status_label,
+            state=row.state,
             owner=owner,
             current_person=current,
             is_priority=row.is_priority,
@@ -807,7 +808,8 @@ def _ads_people(detail: OrderDetail, approvers: AdsApprovers) -> tuple[TaskPerso
     elif order.stage is OrderStage.ORDER_PENDING:
         people.append(waiting("Chờ duyệt order", approvers.head))
     for node in detail.nodes:
-        if node.status is OrderNodeStatus.BO_QUA:
+        # A legacy link node is no step of its own any more.
+        if node.status is OrderNodeStatus.BO_QUA or node.node_type is OrderNodeType.GAN_LINK:
             continue
         person = node.assignee_user_id or node.preassigned_user_id
         if person is not None:

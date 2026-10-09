@@ -32,7 +32,7 @@ import { resetMemberPasswordConfirmation } from "@/lib/confirmations";
 import { formatAgo, formatWhen, monthLabel } from "@/lib/labels";
 import { PasswordDialog, PasswordForm } from "./password";
 import { INVITER_ROLES, InvitePanel } from "./invites";
-import { STREAM_NAMES } from "@/lib/units";
+import { STREAM_NAMES, byStreamOrder } from "@/lib/units";
 
 const FIELD =
   "min-h-10 w-full rounded-lg border border-[var(--border)] bg-[var(--surface)] px-3 text-[var(--text)] transition-colors focus-visible:border-[var(--accent)] focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-[var(--accent)]/15";
@@ -289,7 +289,7 @@ function ProfileHero({
         </div>
         {me.units.length > 0 ? (
           <ul aria-label="Luồng của tôi" className="mt-4 flex flex-wrap gap-2">
-            {me.units.map((item) => (
+            {byStreamOrder(me.units).map((item) => (
               <li
                 key={item.code}
                 className="inline-flex items-center gap-2 rounded-full border border-[var(--border)] bg-[var(--surface-muted)] py-1 pl-1 pr-3 text-xs"
@@ -462,7 +462,7 @@ function AccountSettings({
             </span>
           ) : (
             <ul className="space-y-2">
-              {me.units.map((item) => (
+              {byStreamOrder(me.units).map((item) => (
                 <li key={item.code} className="flex flex-wrap items-center gap-2">
                   <UnitTags units={[item.code]} functionTag={item.function_tag} isLead={item.is_lead} />
                   <span>{item.role_label}</span>
@@ -818,8 +818,8 @@ function Members({
             Luồng
             <Select value={unit} onChange={(event) => onUnit(event.target.value)} className="min-h-10 text-sm">
               <option value="ALL">Tất cả</option>
-              <option value="PR">{STREAM_NAMES.PR}</option>
               <option value="ADS">{STREAM_NAMES.ADS}</option>
+              <option value="PR">{STREAM_NAMES.PR}</option>
             </Select>
           </label>
           {mayReset ? (

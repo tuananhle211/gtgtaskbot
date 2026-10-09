@@ -39,6 +39,9 @@ class TaskSummaryResponse(_Out):
     phase_label: str
     stage: str
     stage_label: str
+    #: What the task waits on (``CHO_DUYET``, ``CHO_PHAN_CONG``, ``DA_GIAO``,
+    #: ``CHUA_GIAO``) or the node's own status; the screens colour by it.
+    state: str | None = None
     owner: PersonRefResponse
     current_person: PersonRefResponse | None
     is_priority: bool
@@ -105,6 +108,8 @@ class TaskActionResponse(_Out):
     requires_note: bool
     inputs: list[Literal["note", "link", "text", "assignee"]]
     assignee_options: list[PersonRefResponse]
+    #: Inputs that may not be left empty (the last node's product link).
+    required_inputs: list[Literal["note", "link", "text", "assignee"]] = []
 
 
 class TaskDetailResponse(_Out):

@@ -211,15 +211,6 @@ class TaskActionService:
                 expected_version=version,
                 note=note or "",
             )
-        elif kind is OrderActionKind.ATTACH_LINK:
-            await commands.attach_link(
-                actor=actor,
-                request_id=request_id,
-                order_id=order_id,
-                expected_version=version,
-                link=command.link or "",
-                note=note,
-            )
         elif kind is OrderActionKind.APPROVE_VIDEO:
             await commands.approve_video(
                 actor=actor, request_id=request_id, order_id=order_id, expected_version=version
