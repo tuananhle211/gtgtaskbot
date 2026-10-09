@@ -33,10 +33,14 @@ class InviteResponse(BaseModel):
     use_count: int
     active: bool
     created_at: datetime
+    #: Additive (0051): where the redeemer lands, e.g. "Luồng Order (ORD) ·
+    #: Dựng · Trưởng quản lý: Quỳnh"; null = they join untagged.
+    joins_label: str | None = None
 
     @classmethod
-    def from_model(cls, model: InviteCode) -> InviteResponse:
+    def from_model(cls, model: InviteCode, joins_label: str | None = None) -> InviteResponse:
         return cls(
+            joins_label=joins_label,
             id=model.id,
             role=model.role.value,
             role_label=role_label(model.role),
@@ -59,8 +63,10 @@ class CreatedInviteResponse(InviteResponse):
     bot_username: str | None = None
 
     @classmethod
-    def from_created(cls, model: InviteCode, code: str) -> CreatedInviteResponse:
-        base = InviteResponse.from_model(model)
+    def from_created(
+        cls, model: InviteCode, code: str, joins_label: str | None = None
+    ) -> CreatedInviteResponse:
+        base = InviteResponse.from_model(model, joins_label)
         return cls(**base.model_dump(), code=code)
 
 

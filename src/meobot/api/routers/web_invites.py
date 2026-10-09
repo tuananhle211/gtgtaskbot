@@ -3,17 +3,19 @@
 The same :class:`~meobot.application.invite_service.InviteService` as the
 Telegram ``/create_invite`` command and the internal ``/api/v1/invites``
 surface, behind the signed-in session. Only a system team lead
-("Trưởng nhóm"), an ADMIN or the OWNER may invite; an employee is refused with
-a 403 ``invite_forbidden``. Which role an invite may carry is the service's
-rule (``can_invite_role``: strictly below the creator's own).
+("Trưởng nhóm"), a Trưởng phòng / Leader of a ban in ORD, an ADMIN or the
+OWNER may invite; anybody else is refused with a 403 ``invite_forbidden``.
+A stream lead's invite tags its redeemer into the lead's stream, reporting to
+them (``joins_label`` says where); an ADMIN/OWNER invite tags nobody. Which
+role an invite may carry is the service's rule (``can_invite_role``: strictly
+below the creator's own; a ban's Leader invites employees).
 
 * ``GET`` lists the caller's own open invites (active, not expired, uses left);
 * ``POST`` creates one and returns the code exactly once;
 * ``POST /{id}/disable`` revokes one - a team lead only their own, an
   ADMIN/OWNER any (an invite they may not touch reads 404).
 
-Redeeming stays a Telegram act (``/join`` or ``/start <code>``) and tags the new
-account into no stream.
+Redeeming stays a Telegram act (``/join``).
 """
 
 from __future__ import annotations
@@ -31,9 +33,9 @@ from meobot.api.schemas.invites import (
     InviteResponse,
 )
 from meobot.api.schemas.pr import ErrorEnvelope
-from meobot.core.errors import AuthorizationError, NotFoundError
+from meobot.application.invite_service import InviteForbiddenError, InviteService
+from meobot.core.errors import NotFoundError
 from meobot.core.time import ensure_utc, utcnow
-from meobot.domain.identity.invites import may_create_invites
 from meobot.domain.identity.models import Actor, Role
 
 router = APIRouter(prefix="/api/invites", tags=["invites"])
@@ -46,30 +48,20 @@ _FORBIDDEN: dict[int | str, dict[str, Any]] = {
 }
 
 
-class InviteForbiddenError(AuthorizationError):
-    code = "invite_forbidden"
-
-    def __init__(self) -> None:
-        super().__init__(
-            "Chỉ Trưởng nhóm, Quản trị viên và Chủ sở hữu mới tạo được mã mời.",
-            details={"reason": self.code},
-        )
-
-
-def _require_inviter(actor: Actor) -> None:
-    if not may_create_invites(actor.role):
+async def _require_inviter(actor: Actor, service: InviteService) -> None:
+    if not await service.may_invite(actor):
         raise InviteForbiddenError()
 
 
 @router.get("", response_model=InviteListResponse, responses=_FORBIDDEN)
 async def my_invites(actor: CurrentActorDep, service: InviteServiceDep) -> InviteListResponse:
     """The caller's open invites, newest first. The codes are never readable again."""
-    _require_inviter(actor)
+    await _require_inviter(actor, service)
     if actor.user_id is None:
         return InviteListResponse(items=[], total=0)
     now = utcnow()
     items = [
-        InviteResponse.from_model(invite)
+        InviteResponse.from_model(invite, await service.joins_label(invite))
         for invite in await service.list_invites(active_only=True, created_by=actor.user_id)
         if (invite.expires_at is None or ensure_utc(invite.expires_at) > now)
         and invite.use_count < invite.max_uses
@@ -90,7 +82,7 @@ async def create_invite(
     request_id: RequestIdDep,
 ) -> CreatedInviteResponse:
     """A new code (role ``EMPLOYEE`` by default), shown exactly once."""
-    _require_inviter(actor)
+    await _require_inviter(actor, service)
     invite, code = await service.create(
         actor=actor,
         request_id=request_id,
@@ -100,7 +92,7 @@ async def create_invite(
         expires_in_days=payload.expires_in_days,
         max_uses=payload.max_uses,
     )
-    return CreatedInviteResponse.from_created(invite, code)
+    return CreatedInviteResponse.from_created(invite, code, await service.joins_label(invite))
 
 
 @router.post(
@@ -115,7 +107,7 @@ async def disable_invite(
     request_id: RequestIdDep,
 ) -> InviteResponse:
     """Revoke an invite. A team lead revokes only their own."""
-    _require_inviter(actor)
+    await _require_inviter(actor, service)
     if actor.role.rank < Role.ADMIN.rank:  # a team lead: only their own
         found = await service.get(invite_id)
         if found is None or found.created_by is None or found.created_by != actor.user_id:

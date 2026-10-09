@@ -47,7 +47,7 @@ Phạm vi: chỉ luồng ORD. PR vẫn đóng băng, không đụng vào sổ KP
 
 ---
 
-## Thiết kế dữ liệu: migration `0050_order_tokens_deadlines.py`
+## Thiết kế dữ liệu: migration `0053_order_tokens_deadlines.py` (0050–0052 đã dùng: trưởng quản lý, invite, bỏ unique mã thành viên)
 
 - `orders.desired_deadline_at` (timestamptz, nullable vì order cũ không có). Bắt buộc với order mới qua API.
 - `orders.over_deadline_count` int, mặc định 0: số lần quá deadline mong muốn. Hiện trên trang chi tiết và có thể lọc trên bảng task.
@@ -159,4 +159,4 @@ Chỉ số "Đúng hạn" hiện tại (thực chất là không bị trả) đ�
 - Rebuild docker, `alembic upgrade head` trên DB local.
 - Dùng tài khoản test: 1201 tạo order có deadline; 1230 giao cho 1231 kèm token và deadline; 1231 nhận việc, nộp link; 1230 duyệt. Kiểm tra trang effort bị trừ đúng ngày, rồi trả final và kiểm tra luồng token sửa.
 
-**Production** cần chạy `alembic upgrade head` lên 0050 (xem runbook 16).
+**Production** cần chạy `alembic upgrade head` lên 0053 (xem runbook 16).

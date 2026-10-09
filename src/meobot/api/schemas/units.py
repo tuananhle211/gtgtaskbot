@@ -148,6 +148,8 @@ class UnitMemberResponse(BaseModel):
     account_active: bool = True
     #: Additive: the account's picture, null without one.
     avatar_url: str | None = None
+    #: Additive (0050): the one Leader / head this member reports to.
+    manager_user_id: uuid.UUID | None = None
 
     @classmethod
     def from_row(cls, row: UnitMemberRow, avatar_url: str | None = None) -> UnitMemberResponse:
@@ -168,6 +170,7 @@ class UnitMemberResponse(BaseModel):
             left_at=membership.left_at,
             active=membership.left_at is None and user.active,
             account_active=bool(user.active),
+            manager_user_id=membership.manager_user_id,
         )
 
 
@@ -230,6 +233,8 @@ class UpdateMemberRequest(BaseModel):
     is_lead: bool | None = None
     member_code: str | None = Field(default=None, max_length=20)
     personal_nas_url: str | None = Field(default=None, max_length=2000)
+    #: ORD: the member's own Leader (an orderer: their head); null clears it.
+    manager_user_id: uuid.UUID | None = None
 
 
 class UpdateUnitSettingsRequest(BaseModel):

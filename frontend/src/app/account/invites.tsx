@@ -12,6 +12,18 @@ import { formatWhen, roleLabel } from "@/lib/labels";
 /** The base roles that may invite at all (the server refuses everyone else). */
 export const INVITER_ROLES = new Set(["TEAM_LEAD", "ADMIN", "OWNER"]);
 
+/** Whether this account may invite: a team lead and up, or a Trưởng phòng /
+ * Leader of a ban in ORD whatever their system role. */
+export function mayInvite(me: {
+  role: string;
+  units: Array<{ code: string; role?: string; is_lead?: boolean }>;
+}): boolean {
+  return (
+    INVITER_ROLES.has(me.role) ||
+    me.units.some((unit) => unit.code === "ADS" && (unit.role === "HEAD" || unit.is_lead))
+  );
+}
+
 const FIELD =
   "min-h-10 w-full rounded-lg border border-[var(--border)] bg-[var(--surface)] px-3 text-sm text-[var(--text)]";
 
@@ -26,8 +38,9 @@ export function inviteDeepLink(botUsername: string | null | undefined, code: str
  * "Mời thành viên": create an invite code (shown once, with a copy button and
  * the bot's deep link when the API names the bot), and the person's open
  * invites with a revoke button. A team lead invites staff; OWNER / ADMIN may
- * also invite a team lead. The invited account joins **no stream** - a team
- * lead tags it afterwards, from "Chưa có luồng".
+ * also invite a team lead. A stream lead's invitee joins that lead's stream,
+ * reporting to them (`joins_label`); an OWNER / ADMIN invitee joins **no
+ * stream** and is tagged afterwards, from "Chưa có luồng".
  */
 export function InvitePanel({ role }: { role: string }) {
   const queryClient = useQueryClient();
@@ -73,7 +86,9 @@ export function InvitePanel({ role }: { role: string }) {
           Mời thành viên
         </h2>
         <p className="mt-0.5 text-sm text-[var(--text-muted)]">
-          Người được mời sẽ chưa thuộc luồng nào cho đến khi trưởng nhóm gắn luồng.
+          {mayInviteLead
+            ? "Người được mời sẽ chưa thuộc luồng nào cho đến khi được gắn luồng."
+            : "Người được mời tự vào luồng của bạn; ở ORD, vào đúng ban của bạn với bạn là trưởng quản lý."}
         </p>
       </div>
 
@@ -106,8 +121,9 @@ export function InvitePanel({ role }: { role: string }) {
         <ConfirmButton
           spec={{
             title: "Tạo mã mời?",
-            description:
-              "Mã mời chỉ hiện một lần, ngay sau khi tạo. Người dùng mã để tham gia qua bot Telegram và sẽ chưa thuộc luồng nào cho đến khi trưởng nhóm gắn luồng.",
+            description: mayInviteLead
+              ? "Mã mời chỉ hiện một lần, ngay sau khi tạo. Người dùng mã để tham gia qua bot Telegram và sẽ chưa thuộc luồng nào cho đến khi được gắn luồng."
+              : "Mã mời chỉ hiện một lần, ngay sau khi tạo. Người dùng mã để tham gia qua bot Telegram và tự vào luồng của bạn (ở ORD: đúng ban của bạn, bạn là trưởng quản lý).",
             confirmLabel: "Tạo mã mời",
           }}
           onConfirm={() => create.mutate()}
@@ -130,6 +146,11 @@ export function InvitePanel({ role }: { role: string }) {
         >
           <p className="text-sm font-medium">
             Mã mời ({created.role_label}). Sao chép ngay: mã chỉ hiện một lần.
+          </p>
+          <p className="text-sm text-[var(--text-muted)]" data-testid="invite-joins">
+            {created.joins_label
+              ? `Người được mời vào: ${created.joins_label}`
+              : "Người được mời chưa thuộc luồng nào - gắn luồng ở Quản lý thành viên."}
           </p>
           <div className="flex flex-wrap items-center gap-2">
             <code className="rounded-lg bg-[var(--surface-muted)] px-3 py-2 font-mono text-base font-semibold tracking-wider">
@@ -194,6 +215,9 @@ export function InvitePanel({ role }: { role: string }) {
                       {invite.expires_at ? ` · hết hạn ${formatWhen(invite.expires_at)}` : ""}
                     </span>
                   </span>
+                  {invite.joins_label ? (
+                    <span className="mt-1 block text-xs">Vào: {invite.joins_label}</span>
+                  ) : null}
                   {invite.note ? <span className="mt-1 block">{invite.note}</span> : null}
                   <span className="mt-0.5 block text-xs text-[var(--text-muted)]">
                     Tạo {formatWhen(invite.created_at)}

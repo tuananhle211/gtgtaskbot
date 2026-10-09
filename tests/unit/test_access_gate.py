@@ -30,6 +30,7 @@ from sqlalchemy import select
 from meobot.application.access_gate import AccessGate, IncomingUpdate
 from meobot.application.group_policy_service import GroupPolicyService
 from meobot.application.quota_service import QuotaService
+from meobot.bot.texts import BASIC_ONLY_CHAT
 from meobot.core.config import Settings
 from meobot.core.time import utcnow
 from meobot.db.models.access import GroupMemberResponsePolicy, PendingGuestAccessRequest
@@ -596,7 +597,9 @@ async def test_ignore_in_one_group_does_not_affect_another(
     bot_and_session: tuple[Bot, RecordingSession],
     counting_llm: CountingProvider,
 ) -> None:
-    bot, _ = bot_and_session
+    """Ignored in A means silence in A; B still answers - with the basic bot,
+    since a member has no AI chat on Telegram."""
+    bot, transport = bot_and_session
     await add_user(bot_database, telegram_user_id=MEMBER)
     owner = Actor(telegram_user_id=OWNER_TELEGRAM_ID, full_name="Owner", role=Role.OWNER)
     async with bot_database.transaction() as session:
@@ -611,7 +614,7 @@ async def test_ignore_in_one_group_does_not_affect_another(
     await dispatcher.feed_update(
         bot, make_group_update("có nghe không", update_id=uid(90), user_id=MEMBER, chat_id=GROUP_A)
     )
-    assert counting_llm.chat_calls == 0
+    assert transport.sent_texts() == []
 
     await dispatcher.feed_update(
         bot,
@@ -623,7 +626,8 @@ async def test_ignore_in_one_group_does_not_affect_another(
             chat_title="Nhóm Khác",
         ),
     )
-    assert counting_llm.chat_calls == 1
+    assert transport.sent_texts() == [BASIC_ONLY_CHAT]
+    assert counting_llm.chat_calls == 0
 
 
 async def test_a_mute_expires_without_a_scheduled_task(bot_database: SqliteDatabase) -> None:
@@ -723,16 +727,21 @@ async def test_a_revoked_user_is_blocked_in_every_chat(
 
 
 # --- Member quota -----------------------------------------------------------
-async def test_a_member_gets_twenty_answers_and_the_twenty_first_calls_no_model(
+async def test_a_member_chat_never_reaches_a_model_or_spends_a_slot(
     dispatcher: Dispatcher,
     bot_database: SqliteDatabase,
     bot_and_session: tuple[Bot, RecordingSession],
     counting_llm: CountingProvider,
 ) -> None:
+    """Only the owner chats with the AI on Telegram.
+
+    A member's free text - past what used to be their daily allowance - gets
+    the basic-bot pointer every time, never a model call and never a charge.
+    """
     bot, session = bot_and_session
     user_id = await add_user(bot_database, telegram_user_id=MEMBER)
 
-    for index in range(MEMBER_DEFAULT_DAILY_LIMIT):
+    for index in range(MEMBER_DEFAULT_DAILY_LIMIT + 1):
         await dispatcher.feed_update(
             bot,
             make_update(
@@ -743,38 +752,47 @@ async def test_a_member_gets_twenty_answers_and_the_twenty_first_calls_no_model(
                 message_id=index + 1,
             ),
         )
-    calls_after_twenty = counting_llm.chat_calls
-    assert calls_after_twenty == MEMBER_DEFAULT_DAILY_LIMIT
 
-    session.requests.clear()
+    assert counting_llm.chat_calls == 0
+    assert session.sent_texts() == [BASIC_ONLY_CHAT] * (MEMBER_DEFAULT_DAILY_LIMIT + 1)
+    async with bot_database.session() as active:
+        rows = (
+            (await active.execute(select(DailyAiUsage).where(DailyAiUsage.user_id == user_id)))
+            .scalars()
+            .all()
+        )
+    assert all(row.used_count == 0 and row.reserved_count == 0 for row in rows)
+
+
+async def test_an_exhausted_allowance_is_not_announced_to_a_member(
+    dispatcher: Dispatcher,
+    bot_database: SqliteDatabase,
+    bot_and_session: tuple[Bot, RecordingSession],
+    counting_llm: CountingProvider,
+    settings: Settings,
+) -> None:
+    """Spent yesterday's way, today: "hết lượt" would point at a chat they lack."""
+    bot, session = bot_and_session
+    user_id = await add_user(bot_database, telegram_user_id=MEMBER)
+    async with bot_database.transaction() as active:
+        row = await QuotaService(active, settings).usage_row(user_id=user_id)
+        row.used_count = MEMBER_DEFAULT_DAILY_LIMIT
+
     await dispatcher.feed_update(
-        bot,
-        make_update(
-            "một câu nữa", user_id=MEMBER, chat_id=MEMBER, update_id=uid(230), message_id=99
-        ),
+        bot, make_update("một câu nữa", user_id=MEMBER, chat_id=MEMBER, update_id=uid(230))
     )
 
-    # The twenty-first never reaches a provider at all.
-    assert counting_llm.chat_calls == calls_after_twenty
-    reply = session.combined_text()
-    assert "hết 20 lượt" in reply
-    assert "Xin thêm lượt" in str(session.sent_of("SendMessage")[0].reply_markup)
-
-    async with bot_database.session() as active:
-        usage = (
-            await active.execute(select(DailyAiUsage).where(DailyAiUsage.user_id == user_id))
-        ).scalar_one()
-    assert usage.used_count == MEMBER_DEFAULT_DAILY_LIMIT
-    assert usage.reserved_count == 0
+    assert session.sent_texts() == [BASIC_ONLY_CHAT]
+    assert counting_llm.chat_calls == 0
 
 
-async def test_one_counter_is_shared_across_private_and_every_group(
+async def test_a_member_is_charged_nothing_in_any_chat(
     dispatcher: Dispatcher,
     bot_database: SqliteDatabase,
     bot_and_session: tuple[Bot, RecordingSession],
     counting_llm: CountingProvider,
 ) -> None:
-    """Switching groups must not hand somebody a second allowance."""
+    """Private chat and every group alike: no model, no ledger usage."""
     bot, _ = bot_and_session
     user_id = await add_user(bot_database, telegram_user_id=MEMBER)
 
@@ -791,15 +809,15 @@ async def test_one_counter_is_shared_across_private_and_every_group(
         ),
     )
 
-    assert counting_llm.chat_calls == 3
+    assert counting_llm.chat_calls == 0
     async with bot_database.session() as active:
         rows = (
             (await active.execute(select(DailyAiUsage).where(DailyAiUsage.user_id == user_id)))
             .scalars()
             .all()
         )
-    assert len(rows) == 1, "a second ledger row would be a second allowance"
-    assert rows[0].used_count == 3
+    assert len(rows) <= 1, "a second ledger row would be a second allowance"
+    assert all(row.used_count == 0 for row in rows)
 
 
 async def test_operational_commands_still_work_after_the_quota_runs_out(
@@ -849,20 +867,19 @@ async def test_a_duplicate_update_consumes_at_most_one_slot(
     bot_and_session: tuple[Bot, RecordingSession],
     counting_llm: CountingProvider,
 ) -> None:
-    """Telegram's at-least-once delivery must not be billed twice."""
-    bot, _ = bot_and_session
-    user_id = await add_user(bot_database, telegram_user_id=MEMBER)
+    """Telegram's at-least-once delivery must not be answered - or billed - twice.
+
+    Run as the owner, the only account whose free text reaches the model.
+    """
+    bot, session = bot_and_session
+    await add_user(bot_database, telegram_user_id=MEMBER, role=Role.OWNER)
 
     update = make_update("nhắc lại", user_id=MEMBER, chat_id=MEMBER, update_id=uid(260))
     await dispatcher.feed_update(bot, update)
     await dispatcher.feed_update(bot, update)
 
     assert counting_llm.chat_calls == 1
-    async with bot_database.session() as session:
-        row = (
-            await session.execute(select(DailyAiUsage).where(DailyAiUsage.user_id == user_id))
-        ).scalar_one()
-    assert row.used_count == 1
+    assert len(session.sent_texts()) == 1
 
 
 async def test_two_simultaneous_members_cannot_share_the_last_slot(

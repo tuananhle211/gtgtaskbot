@@ -13,16 +13,19 @@ from __future__ import annotations
 
 import uuid
 from collections.abc import Sequence
+from dataclasses import dataclass
 from datetime import timedelta
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from meobot.application.audit_service import AuditService
+from meobot.application.units.directory import UnitDirectoryService, manager_fits
 from meobot.core.errors import AuthorizationError, ConflictError, NotFoundError, ValidationError
 from meobot.core.logging import get_logger
 from meobot.core.time import ensure_utc, utcnow
 from meobot.db.models.invite import InviteCode
+from meobot.db.models.org_unit import OrgUnit, OrgUnitMember
 from meobot.db.models.user import User
 from meobot.domain.audit.models import AuditAction, AuditResult
 from meobot.domain.identity.invites import (
@@ -32,10 +35,13 @@ from meobot.domain.identity.invites import (
     check_invite,
     generate_code,
     hash_code,
+    may_create_invites,
     normalize_code,
 )
 from meobot.domain.identity.labels import role_label
 from meobot.domain.identity.models import Actor, Role
+from meobot.domain.units.labels import unit_label, unit_role_label
+from meobot.domain.units.models import FUNCTION_ROLES, UnitCode, UnitMemberRole
 
 logger = get_logger(__name__)
 
@@ -53,6 +59,34 @@ REJECTION_MESSAGES: dict[InviteRejection, str] = {
 }
 
 
+@dataclass(frozen=True, slots=True)
+class StreamPlacement:
+    """Where a stream lead's invitee lands: the stream, their role in it and
+    the Leader (head) they report to - the inviter. PR has no own Leader."""
+
+    unit_id: uuid.UUID
+    unit_code: UnitCode
+    role: UnitMemberRole
+    manager_user_id: uuid.UUID | None
+
+    def describe(self, manager_name: str | None) -> str:
+        """``"Luồng Order (ORD) · Dựng · Trưởng quản lý: Quỳnh"``."""
+        parts = [unit_label(self.unit_code), unit_role_label(self.role)]
+        if manager_name:
+            parts.append(f"Trưởng quản lý: {manager_name}")
+        return " · ".join(parts)
+
+
+class InviteForbiddenError(AuthorizationError):
+    code = "invite_forbidden"
+
+    def __init__(self) -> None:
+        super().__init__(
+            "Chỉ Trưởng nhóm, Trưởng phòng, Quản trị viên và Chủ sở hữu mới tạo được mã mời.",
+            details={"reason": self.code},
+        )
+
+
 class InviteService:
     """Creates, lists, disables and redeems invite codes.
 
@@ -64,6 +98,39 @@ class InviteService:
     def __init__(self, session: AsyncSession, audit: AuditService) -> None:
         self._session = session
         self._audit = audit
+        self._directory = UnitDirectoryService(session)
+
+    async def placement_for(self, actor: Actor) -> StreamPlacement | None:
+        """Where ``actor``'s invitees land, from the actor's own tags.
+
+        A Leader of Biên kịch / Design / Dựng brings staff of that ban, a
+        Trưởng phòng ORD an orderer - both reporting to the actor; a PR team
+        lead a PR member. The OWNER and an ADMIN place nobody: their invitees
+        join untagged and are tagged by hand. Several leads: the ORD ban
+        first, then the ORD head, then PR.
+        """
+        if actor.role in (Role.OWNER, Role.ADMIN) or actor.user_id is None:
+            return None
+        membership = await self._directory.membership_for(actor)
+        entries = membership.entries
+        for entry in entries:
+            if entry.unit_code is UnitCode.ADS and entry.role in FUNCTION_ROLES and entry.is_lead:
+                return StreamPlacement(entry.unit_id, UnitCode.ADS, entry.role, actor.user_id)
+        for entry in entries:
+            if entry.unit_code is UnitCode.ADS and entry.role is UnitMemberRole.HEAD:
+                return StreamPlacement(
+                    entry.unit_id, UnitCode.ADS, UnitMemberRole.ORDERER, actor.user_id
+                )
+        if may_create_invites(actor.role):
+            for entry in entries:
+                if entry.unit_code is UnitCode.PR:
+                    return StreamPlacement(entry.unit_id, UnitCode.PR, UnitMemberRole.MEMBER, None)
+        return None
+
+    async def may_invite(self, actor: Actor) -> bool:
+        """A team lead or above, or a Trưởng phòng / Leader of a ban in ORD
+        (whatever their system role)."""
+        return may_create_invites(actor.role) or await self.placement_for(actor) is not None
 
     async def create(
         self,
@@ -85,7 +152,12 @@ class InviteService:
             AuthorizationError: When the actor may not grant ``role``.
             ValidationError: When expiry or use count is out of range.
         """
-        if not can_invite_role(actor.role, role):
+        if not await self.may_invite(actor):
+            raise InviteForbiddenError()
+        placement = await self.placement_for(actor)
+        # A ban's Leader may be a plain employee: they invite their staff.
+        staff_invite = placement is not None and role is Role.EMPLOYEE
+        if not (can_invite_role(actor.role, role) or staff_invite):
             raise AuthorizationError(
                 f"Vai trò {role_label(actor.role)} không thể tạo mã mời cho {role_label(role)}.",
                 # Details feed the audit trail: authoritative enum, always.
@@ -108,6 +180,9 @@ class InviteService:
             max_uses=max_uses,
             use_count=0,
             active=True,
+            unit_id=None if placement is None else placement.unit_id,
+            unit_role=None if placement is None else placement.role,
+            manager_user_id=None if placement is None else placement.manager_user_id,
         )
         self._session.add(invite)
         await self._session.flush()
@@ -128,6 +203,13 @@ class InviteService:
                 "scope": scope,
                 "max_uses": max_uses,
                 "expires_at": invite.expires_at.isoformat() if invite.expires_at else None,
+                "unit": None if placement is None else placement.unit_code.value,
+                "unit_role": None if placement is None else placement.role.value,
+                "manager_user_id": (
+                    None
+                    if placement is None or placement.manager_user_id is None
+                    else str(placement.manager_user_id)
+                ),
             },
         )
         logger.info(
@@ -246,6 +328,7 @@ class InviteService:
             await self._session.flush()
         except Exception as exc:  # pragma: no cover - concurrent /join with the same account
             raise ConflictError(REJECTION_MESSAGES[InviteRejection.ALREADY_REGISTERED]) from exc
+        tag = await self._place(invite, user)
 
         joined = Actor(
             user_id=user.id,
@@ -268,6 +351,7 @@ class InviteService:
                 "role_label": role_label(user.role),
                 "scope": invite.scope,
                 "use_count": invite.use_count,
+                "unit_member_id": None if tag is None else str(tag.id),
             },
         )
         await self._audit.record_action(
@@ -288,6 +372,52 @@ class InviteService:
             extra={"user_id": str(user.id), "role": user.role.value},
         )
         return user
+
+    async def placement_of(self, invite: InviteCode) -> StreamPlacement | None:
+        """The stored placement of ``invite``, if it carries one."""
+        if invite.unit_id is None or invite.unit_role is None:
+            return None
+        unit = await self._session.get(OrgUnit, invite.unit_id)
+        if unit is None:
+            return None
+        return StreamPlacement(
+            invite.unit_id, UnitCode(unit.code), invite.unit_role, invite.manager_user_id
+        )
+
+    async def joins_label(self, invite: InviteCode) -> str | None:
+        """Where the redeemer of ``invite`` will land, in words; None = untagged."""
+        placement = await self.placement_of(invite)
+        if placement is None:
+            return None
+        manager = (
+            None
+            if placement.manager_user_id is None
+            else await self._session.get(User, placement.manager_user_id)
+        )
+        return placement.describe(None if manager is None else manager.full_name)
+
+    async def _place(self, invite: InviteCode, user: User) -> OrgUnitMember | None:
+        """Tag the redeemer where the invite says. The Leader link is kept only
+        if it still fits (the inviter may have stopped leading since)."""
+        if invite.unit_id is None or invite.unit_role is None:
+            return None
+        row = OrgUnitMember(
+            unit_id=invite.unit_id, user_id=user.id, role=invite.unit_role, is_lead=False
+        )
+        self._session.add(row)
+        await self._session.flush()
+        if invite.manager_user_id is not None:
+            boss = await self._directory.member(invite.unit_id, invite.manager_user_id)
+            boss_user = await self._session.get(User, invite.manager_user_id)
+            if (
+                boss is not None
+                and boss_user is not None
+                and boss_user.active
+                and manager_fits(boss, row)
+            ):
+                row.manager_user_id = boss.user_id
+                await self._session.flush()
+        return row
 
     async def _audit_rejection(
         self,

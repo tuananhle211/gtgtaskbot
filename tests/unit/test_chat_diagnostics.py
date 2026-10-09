@@ -282,7 +282,8 @@ async def test_chat_test_is_refused_for_a_non_owner(
     )
 
     text = session.combined_text()
-    assert "⛔" in text
+    # Refused before the handler runs: only the owner has the full bot.
+    assert "chỉ dành cho chủ sở hữu" in text
     assert "Sinh văn bản" not in text
 
 

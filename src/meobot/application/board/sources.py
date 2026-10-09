@@ -20,8 +20,9 @@ from datetime import date, datetime, time, timedelta
 from decimal import Decimal
 from typing import Any, Protocol
 
-from sqlalchemy import ColumnElement, Select, case, exists, func, or_, select
+from sqlalchemy import ColumnElement, Select, and_, case, exists, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import aliased
 
 from meobot.application.board.holders import (
     AWAITING_ASSIGNMENT,
@@ -576,7 +577,11 @@ class AdsBoardSource:
         may = self._scope.context.permissions
         conditions: list[ColumnElement[bool]] = []
         if may.allows(AdsPermission.ORDER_APPROVE):
-            conditions.append(Order.stage == OrderStage.ORDER_PENDING)
+            # An orderer with their own head waits on that head only.
+            boss = _boss_of(Order.owner_user_id, head=True)
+            conditions.append(
+                (Order.stage == OrderStage.ORDER_PENDING) & or_(boss.is_(None), boss == user_id)
+            )
         # The final review waits on the orderer only; a stand-in may decide it
         # but it is not "theirs".
         conditions.append(
@@ -605,6 +610,11 @@ class AdsBoardSource:
                         OrderNode.order_id == Order.id,
                         OrderNode.node_type.in_(sorted(reviewing, key=lambda n: n.value)),
                         OrderNode.status == OrderNodeStatus.CHO_DUYET,
+                        # A worker with their own Leader waits on that Leader only.
+                        or_(
+                            _boss_of(OrderNode.assignee_user_id).is_(None),
+                            _boss_of(OrderNode.assignee_user_id) == user_id,
+                        ),
                     )
                 )
             )
@@ -920,7 +930,9 @@ class AdsBoardSource:
             assert node.assignee_user_id is not None
             return STATE_DA_GIAO, f"Đã giao {names.get(node.assignee_user_id, '')}".rstrip()
         if status is OrderNodeStatus.CHO_DUYET:
-            return STATE_CHO_DUYET, waiting_for(approvers.lead(node.node_type))
+            return STATE_CHO_DUYET, waiting_for(
+                approvers.reviewers(node.node_type, node.assignee_user_id)
+            )
         return status.value, node_status_label(status)
 
     @staticmethod
@@ -996,10 +1008,11 @@ class AdsBoardSource:
         if stage in TERMINAL_STAGES:
             return NOBODY, label, None
         if stage is OrderStage.ORDER_PENDING:
+            heads = approvers.order_approvers(order.owner_user_id)
             return (
-                held_by(approvers.head),
-                waiting_for(approvers.head, "duyệt order"),
-                STATE_CHO_DUYET if approvers.head else STATE_CHUA_GIAO,
+                held_by(heads),
+                waiting_for(heads, "duyệt order"),
+                STATE_CHO_DUYET if heads else STATE_CHUA_GIAO,
             )
         if stage is OrderStage.ORDER_RETURNED:
             return (
@@ -1020,7 +1033,7 @@ class AdsBoardSource:
         if current is None:
             return held_by(None), f"{label} · Chờ giao", STATE_CHUA_GIAO
         if current.status is OrderNodeStatus.CHO_DUYET:
-            lead = approvers.lead(current.node_type)
+            lead = approvers.reviewers(current.node_type, current.assignee_user_id)
             return (
                 held_by(lead),
                 waiting_for(lead),
@@ -1046,6 +1059,36 @@ class AdsBoardSource:
             f"{label} · {node_status_label(current.status)}",
             current.status.value,
         )
+
+
+def _boss_of(member: Any, *, head: bool = False) -> Any:
+    """SQL twin of ``AdsApprovers.managers``: the active manager ``member``
+    reports to in the order's unit while the link fits (an orderer's head, a
+    staff member's Leader of the same function), else NULL."""
+    worker = aliased(OrgUnitMember)
+    boss = aliased(OrgUnitMember)
+    boss_user = aliased(User)
+    fits = (
+        and_(worker.role == UnitMemberRole.ORDERER, boss.role == UnitMemberRole.HEAD)
+        if head
+        else and_(worker.is_lead.is_(False), boss.is_lead.is_(True), boss.role == worker.role)
+    )
+    return (
+        select(boss.user_id)
+        .select_from(worker)
+        .join(boss, and_(boss.unit_id == worker.unit_id, boss.user_id == worker.manager_user_id))
+        .join(boss_user, boss_user.id == boss.user_id)
+        .where(
+            worker.unit_id == Order.unit_id,
+            worker.user_id == member,
+            worker.left_at.is_(None),
+            boss.left_at.is_(None),
+            boss_user.active.is_(True),
+            fits,
+        )
+        .limit(1)
+        .scalar_subquery()
+    )
 
 
 def _hand_out_team(

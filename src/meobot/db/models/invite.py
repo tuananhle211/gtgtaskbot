@@ -16,6 +16,7 @@ from sqlalchemy.orm import Mapped, mapped_column
 
 from meobot.db.base import Base, TimestampMixin, UUIDPrimaryKeyMixin
 from meobot.domain.identity.models import Role
+from meobot.domain.units.models import UnitMemberRole
 
 
 class InviteCode(Base, UUIDPrimaryKeyMixin, TimestampMixin):
@@ -41,3 +42,22 @@ class InviteCode(Base, UUIDPrimaryKeyMixin, TimestampMixin):
     max_uses: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
     use_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    #: 0051: where the redeemer lands - a stream lead's code tags them into
+    #: that stream with this role, reporting to ``manager_user_id``. All null
+    #: for an OWNER/ADMIN code: the redeemer joins untagged.
+    unit_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("org_units.id", ondelete="RESTRICT"), nullable=True
+    )
+    unit_role: Mapped[UnitMemberRole | None] = mapped_column(
+        SAEnum(
+            UnitMemberRole,
+            name="invite_unit_role",
+            native_enum=False,
+            length=20,
+            validate_strings=True,
+        ),
+        nullable=True,
+    )
+    manager_user_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("users.id", ondelete="SET NULL"), nullable=True
+    )

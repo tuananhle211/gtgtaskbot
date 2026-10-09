@@ -43,14 +43,18 @@ def uid(offset: int) -> int:
 
 
 async def add_member(
-    database: SqliteDatabase, *, telegram_id: int = MEMBER, name: str = "Nguyễn Thị Linh"
+    database: SqliteDatabase,
+    *,
+    telegram_id: int = MEMBER,
+    name: str = "Nguyễn Thị Linh",
+    role: Role = Role.EMPLOYEE,
 ) -> uuid.UUID:
     async with database.transaction() as session:
         user = User(
             telegram_user_id=telegram_id,
             telegram_username="linh",
             full_name=name,
-            role=Role.EMPLOYEE,
+            role=role,
             active=True,
             status=UserStatus.ACTIVE,
         )
@@ -161,17 +165,30 @@ async def test_the_home_offers_only_member_buttons(
         assert management_label not in markup
 
 
-async def test_the_home_shows_the_remaining_allowance(
+async def test_a_member_home_offers_no_ai_chat(
     dispatcher: Dispatcher,
     bot_database: SqliteDatabase,
     bot_and_session: tuple[Bot, RecordingSession],
 ) -> None:
+    """Only the owner chats with the AI on Telegram: no allowance, no chat button."""
     bot, session = bot_and_session
     await add_member(bot_database)
     await dispatcher.feed_update(
         bot, make_update("Bắt đầu", user_id=MEMBER, chat_id=MEMBER, update_id=uid(6))
     )
-    assert "lượt trò chuyện AI còn lại" in session.combined_text()
+    assert "lượt trò chuyện AI còn lại" not in session.combined_text()
+    markup = str(session.sent_of("SendMessage")[0].reply_markup)
+    assert copy.Button.MY_AI_ALLOWANCE.value not in markup
+    assert copy.Button.ASK_MEOBOT.value not in markup
+    for basic_label in (
+        copy.Button.MY_WORK.value,
+        copy.Button.VIEW_PROGRESS.value,
+        copy.Button.ASK_LEAVE.value,
+        copy.Button.ASK_LATE.value,
+        copy.Button.MY_REQUESTS.value,
+        copy.Button.MY_HR_STATS.value,
+    ):
+        assert basic_label in markup
 
 
 async def test_help_is_member_scoped_and_free(
@@ -200,7 +217,10 @@ async def test_asking_about_the_allowance_costs_nothing(
     counting_llm: CountingProvider,  # noqa: F811
     settings: Settings,
 ) -> None:
-    """ "Tôi còn bao nhiêu lượt?" must not itself spend a lượt."""
+    """ "Tôi còn bao nhiêu lượt?" must not itself spend a lượt.
+
+    A member has no AI chat on Telegram, so the answer is the basic-bot pointer.
+    """
     bot, session = bot_and_session
     user_id = await add_member(bot_database)
 
@@ -209,7 +229,8 @@ async def test_asking_about_the_allowance_costs_nothing(
         make_update("Tôi còn bao nhiêu lượt?", user_id=MEMBER, chat_id=MEMBER, update_id=uid(10)),
     )
 
-    assert "20/20 lượt trò chuyện AI" in session.combined_text()
+    assert "/web" in session.combined_text()
+    assert "lượt trò chuyện AI" not in session.combined_text()
     assert counting_llm.chat_calls == 0
     async with bot_database.session() as active:
         rows = (
@@ -233,14 +254,44 @@ async def test_the_allowance_card_never_says_quota(
     assert "quota" not in session.combined_text().lower()
 
 
-async def test_a_generative_request_spends_exactly_one(
+async def test_a_members_generative_request_reaches_no_model_and_spends_nothing(
+    dispatcher: Dispatcher,
+    bot_database: SqliteDatabase,
+    bot_and_session: tuple[Bot, RecordingSession],
+    counting_llm: CountingProvider,  # noqa: F811
+) -> None:
+    bot, session = bot_and_session
+    user_id = await add_member(bot_database)
+
+    await dispatcher.feed_update(
+        bot,
+        make_update(
+            "Viết giúp tôi 5 bình luận tự nhiên.",
+            user_id=MEMBER,
+            chat_id=MEMBER,
+            update_id=uid(63),
+        ),
+    )
+
+    assert counting_llm.chat_calls == 0
+    assert "/web" in session.combined_text()
+    async with bot_database.session() as active:
+        rows = (
+            (await active.execute(select(DailyAiUsage).where(DailyAiUsage.user_id == user_id)))
+            .scalars()
+            .all()
+        )
+    assert all(row.used_count == 0 and row.reserved_count == 0 for row in rows)
+
+
+async def test_the_owners_generative_request_reaches_the_model(
     dispatcher: Dispatcher,
     bot_database: SqliteDatabase,
     bot_and_session: tuple[Bot, RecordingSession],
     counting_llm: CountingProvider,  # noqa: F811
 ) -> None:
     bot, _ = bot_and_session
-    user_id = await add_member(bot_database)
+    await add_member(bot_database, role=Role.OWNER)
 
     await dispatcher.feed_update(
         bot,
@@ -253,11 +304,6 @@ async def test_a_generative_request_spends_exactly_one(
     )
 
     assert counting_llm.chat_calls == 1
-    async with bot_database.session() as active:
-        row = (
-            await active.execute(select(DailyAiUsage).where(DailyAiUsage.user_id == user_id))
-        ).scalar_one()
-    assert row.used_count == 1
 
 
 async def test_operational_work_still_runs_when_the_allowance_is_gone(
@@ -301,10 +347,10 @@ async def test_a_button_opens_the_thing_it_says(
     await add_member(bot_database)
 
     await dispatcher.feed_update(
-        bot, press(button_for("quota.mine", settings=settings), update_id=uid(20))
+        bot, press(button_for("hr.stats", settings=settings), update_id=uid(20))
     )
 
-    assert "lượt trò chuyện AI" in session.combined_text()
+    assert "THỐNG KÊ CỦA BẠN" in session.combined_text()
 
 
 async def test_another_member_cannot_press_your_button(
@@ -318,12 +364,12 @@ async def test_another_member_cannot_press_your_button(
     await add_member(bot_database)
     await add_member(bot_database, telegram_id=OTHER, name="Người Khác")
 
-    signed_for_linh = button_for("quota.mine", settings=settings)
+    signed_for_linh = button_for("hr.stats", settings=settings)
     await dispatcher.feed_update(
         bot, press(signed_for_linh, update_id=uid(21), from_user_id=OTHER, chat_id=OTHER)
     )
 
-    assert "lượt trò chuyện AI hôm nay" not in session.combined_text()
+    assert "THỐNG KÊ CỦA BẠN" not in session.combined_text()
 
 
 async def test_an_expired_button_is_refused(

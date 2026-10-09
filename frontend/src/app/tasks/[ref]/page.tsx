@@ -676,6 +676,18 @@ function ActionPanel({
       <div className="mt-3 flex flex-wrap gap-2">
         {ordered.map((action) => {
           const danger = action.emphasis === "DANGER";
+          if (action.key === "ads:RESUBMIT") {
+            // A returned order is fixed in the order form, then sent again.
+            return (
+              <Link
+                key={action.key}
+                href={`/orders/new?edit=${encodeURIComponent(task.code)}`}
+                className="inline-flex min-h-11 items-center rounded-lg bg-[var(--accent)] px-4 text-sm font-medium text-[var(--accent-text)]"
+              >
+                Sửa & gửi lại order
+              </Link>
+            );
+          }
           return (
             <ConfirmButton
               key={action.key}

@@ -180,7 +180,6 @@ HELP_MEMBER: Final[str] = """TASKSBOT CÓ THỂ GIÚP BẠN
 📊 Kết quả cá nhân
 • Xem tỷ lệ hoàn thành
 • Xem các kênh mình phụ trách
-• Xem lượt trò chuyện AI còn lại
 
 Bạn không cần nhớ câu lệnh.
 Hãy nhắn cho mình như nói chuyện bình thường."""

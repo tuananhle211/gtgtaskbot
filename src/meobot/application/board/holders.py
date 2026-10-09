@@ -28,7 +28,11 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from meobot.application.audit_service import AuditService
 from meobot.application.pr_capability_service import PrCapabilityService
-from meobot.application.units.directory import UnitDirectoryService, UnitMemberRow
+from meobot.application.units.directory import (
+    UnitDirectoryService,
+    UnitMemberRow,
+    manager_fits,
+)
 from meobot.db.models.org_unit import OrgUnit
 from meobot.db.models.pr import PrContentItem, PrContentTarget
 from meobot.db.models.user import User
@@ -143,9 +147,28 @@ class AdsApprovers:
     #: to when it comes up with nobody chosen (the assignee column holds one
     #: person). A legacy link node is handed out by the last node's function.
     assigners: dict[OrderNodeType, People] = field(default_factory=dict)
+    #: Member -> the one Leader (an orderer: head) they report to, where that
+    #: link still fits (0050). Their hand-ins / orders wait on that person only.
+    managers: dict[uuid.UUID, Person] = field(default_factory=dict)
 
     def lead(self, node_type: OrderNodeType) -> People:
         return self.leads.get(node_type, ())
+
+    def _managed(self, member: uuid.UUID | None, team: People) -> People:
+        """``member``'s own manager alone when they are one of ``team``,
+        else the whole team."""
+        boss = None if member is None else self.managers.get(member)
+        if boss is not None and any(person.user_id == boss.user_id for person in team):
+            return (boss,)
+        return team
+
+    def order_approvers(self, owner_user_id: uuid.UUID | None) -> People:
+        """Who an order waits on: the orderer's own head, else every head."""
+        return self._managed(owner_user_id, self.head)
+
+    def reviewers(self, node_type: OrderNodeType, worker: uuid.UUID | None) -> People:
+        """Who a hand-in waits on: the worker's own Leader, else every Leader."""
+        return self._managed(worker, self.lead(node_type))
 
     def _function(
         self, node_type: OrderNodeType, video_type: OrderVideoType | None
@@ -241,7 +264,15 @@ async def ads_approvers(session: AsyncSession, unit_id: uuid.UUID) -> AdsApprove
         found = pick(assigns(node_type), leads_function(node_type), is_head)
         if found:
             assigners[node_type] = found
+    by_user = {row.user.id: row for row in rows}
+    managers: dict[uuid.UUID, Person] = {}
+    for row in rows:
+        boss_id = row.membership.manager_user_id
+        boss = None if boss_id is None else by_user.get(boss_id)
+        if boss is not None and manager_fits(boss.membership, row.membership):
+            managers[row.user.id] = Person(boss.user.id, boss.user.full_name)
     return AdsApprovers(
+        managers=managers,
         assigners=assigners,
         head=pick(lambda may: may.allows(AdsPermission.ORDER_APPROVE), is_head),
         final=pick(lambda may: may.allows(AdsPermission.FINAL_REVIEW), is_head),

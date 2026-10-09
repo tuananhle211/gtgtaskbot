@@ -430,7 +430,8 @@ async def test_a_member_cannot_suspend_anybody_over_telegram(
         ),
     )
 
-    assert "Chỉ Chủ sở hữu" in session.combined_text()
+    # Refused before the handler runs: only the owner has the full bot.
+    assert "chỉ dành cho chủ sở hữu" in session.combined_text()
     async with bot_database.session() as active:
         users = (await active.execute(select(User))).scalars().all()
     assert all(user.status is UserStatus.ACTIVE for user in users)

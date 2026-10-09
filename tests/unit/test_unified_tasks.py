@@ -232,7 +232,10 @@ async def test_07_ads_actions_run_through_the_order_engine(world: World) -> None
     page = world.client.get(f"/api/tasks/{code}").json()
     assign = next(a for a in page["actions"] if a["key"].startswith("ads:ASSIGN:"))
     assert "assignee" in assign["inputs"]
-    assert str(ads.writer.id) in {option["user_id"] for option in assign["assignee_options"]}
+    offered = {option["user_id"] for option in assign["assignee_options"]}
+    assert str(ads.writer.id) in offered
+    # Leaders are not offered: a Leader takes the node with "Nhận việc".
+    assert str(ads.lead_bt.id) not in offered
     assigned = post(
         world,
         code,
@@ -394,3 +397,16 @@ async def test_12_the_last_node_hands_in_the_product_through_the_task(world: Wor
     steps = {step["key"]: step for step in final["steps"]}
     assert steps["DUNG"]["status"] == "HOAN_THANH"
     assert steps["FINAL"]["status"] == "CHO_DUYET" and steps["FINAL"]["is_current"]
+    # The orderer only says yes or no, with a note: no link to enter, the
+    # product is the cut the team handed in.
+    world.act_as(ads.orderer)
+    page = world.client.get(f"/api/tasks/{code}").json()
+    yes = next(a for a in page["actions"] if a["key"] == "ads:APPROVE_FINAL")
+    assert yes["inputs"] == ["note"] and yes["required_inputs"] == []
+    done = post(world, code, "ads:APPROVE_FINAL", page["task"]["version"], note="Ổn")
+    assert done.status_code == 200, done.json()
+    assert done.json()["task"]["stage"] == "COMPLETED"
+    assert done.json()["task"]["product_link"] == "https://e.com/cut"
+    order = world.client.get(f"/api/orders/{code}").json()
+    final_approval = next(a for a in order["approvals"] if a["gate"] == "FINAL")
+    assert final_approval["comment"] == "Ổn"

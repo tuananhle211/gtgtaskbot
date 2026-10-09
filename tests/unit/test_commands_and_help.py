@@ -45,6 +45,7 @@ from meobot.bot.handlers import (
     people_router,
     scripts_router,
     sheets_router,
+    web_router,
 )
 from meobot.bot.handlers.sheets import AddSheet
 from meobot.bot.main import publish_command_menu
@@ -62,6 +63,7 @@ COMMAND_ROUTERS = (
     scripts_router,
     people_router,
     access_router,
+    web_router,
 )
 
 #: Telegram's HTML subset. Anything else in a rendered message is a bug.

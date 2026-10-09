@@ -686,6 +686,110 @@ describe("the unit admin page", () => {
     });
   });
 
+  it("picks a staff member's own Leader when a ban has several", async () => {
+    pathname = "/admin/units";
+    const fetchMock = stubFetch([
+      { match: "/api/units/me", body: OWNER_OF_BOTH },
+      {
+        match: "/api/units/PR/members",
+        body: { unit: "PR", unit_label: "Luồng PR", members: [], assignable_roles: [] },
+      },
+      {
+        match: "/api/units/ADS/members",
+        method: "GET",
+        body: {
+          unit: "ADS",
+          unit_label: "Luồng Order (ORD)",
+          members: [
+            {
+              user_id: "d-lead-1",
+              full_name: "Lead Dựng 1",
+              base_role: "EMPLOYEE",
+              base_role_label: "Nhân viên",
+              role: "DUNG",
+              role_label: "DUNG",
+              is_lead: true,
+              member_code: null,
+              personal_nas_url: null,
+              joined_at: "2026-10-07T02:00:00Z",
+              left_at: null,
+              active: true,
+              manager_user_id: null,
+            },            {
+              user_id: "d-lead-2",
+              full_name: "Lead Dựng 2",
+              base_role: "EMPLOYEE",
+              base_role_label: "Nhân viên",
+              role: "DUNG",
+              role_label: "DUNG",
+              is_lead: true,
+              member_code: null,
+              personal_nas_url: null,
+              joined_at: "2026-10-07T02:00:00Z",
+              left_at: null,
+              active: true,
+              manager_user_id: null,
+            },            {
+              user_id: "bt-lead",
+              full_name: "Lead Biên kịch",
+              base_role: "EMPLOYEE",
+              base_role_label: "Nhân viên",
+              role: "BIEN_TAP",
+              role_label: "BIEN_TAP",
+              is_lead: true,
+              member_code: null,
+              personal_nas_url: null,
+              joined_at: "2026-10-07T02:00:00Z",
+              left_at: null,
+              active: true,
+              manager_user_id: null,
+            },            {
+              user_id: "d-staff",
+              full_name: "Nhân viên Dựng",
+              base_role: "EMPLOYEE",
+              base_role_label: "Nhân viên",
+              role: "DUNG",
+              role_label: "DUNG",
+              is_lead: false,
+              member_code: null,
+              personal_nas_url: null,
+              joined_at: "2026-10-07T02:00:00Z",
+              left_at: null,
+              active: true,
+              manager_user_id: null,
+            },
+          ],
+          assignable_roles: [{ role: "DUNG", label: "Dựng" }],
+        },
+      },
+      { match: "/api/units/ADS/members/d-staff", method: "PATCH", body: {} },
+      { match: "/api/units/ADS/health", body: { unit: "ADS", warnings: [] } },
+      { match: "/api/units/PR/health", body: { unit: "PR", warnings: [] } },
+      { match: "/api/units/directory", body: [] },
+    ]);
+    renderWithQuery(<UnitsAdminPage />);
+    await userEvent.click(
+      await screen.findByRole("tab", { name: "Luồng Order (ORD)" }),
+    );
+    const picker = await screen.findByLabelText("Trưởng quản lý của Nhân viên Dựng");
+    // Only the Leaders of the member's own ban; Leaders have no picker.
+    expect(within(picker).getAllByRole("option").map((o) => o.textContent)).toEqual([
+      "Mặc định · Mọi trưởng ban",
+      "Lead Dựng 1",
+      "Lead Dựng 2",
+    ]);
+    expect(screen.queryByLabelText("Trưởng quản lý của Lead Dựng 1")).not.toBeInTheDocument();
+    await userEvent.selectOptions(picker, "d-lead-2");
+    await waitFor(() => {
+      const sent = (
+        fetchMock as unknown as {
+          calls: Array<{ url: string; method: string; body: unknown }>;
+        }
+      ).calls.find((call) => call.method === "PATCH" && call.url.includes("d-staff"));
+      expect(sent?.body).toEqual({ manager_user_id: "d-lead-2" });
+    });
+  });
+
   it("edits the Ads permission matrix and saves it whole", async () => {
     pathname = "/admin/units";
     const roles = ["HEAD", "ADMIN", "LEAD", "STAFF", "ORDERER"];

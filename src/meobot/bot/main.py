@@ -9,9 +9,11 @@ Sheets clients degrade to placeholders that fail loudly only when used.
 from __future__ import annotations
 
 import asyncio
+from collections.abc import Iterable
 
 from aiogram import Bot, Dispatcher
-from aiogram.types import BotCommand
+from aiogram.types import BotCommand, BotCommandScopeChat
+from sqlalchemy import select
 
 from meobot.application.conversation_service import ConversationService
 from meobot.application.health_service import HealthService
@@ -39,6 +41,7 @@ from meobot.bot.handlers import (
 from meobot.bot.middlewares import (
     AccessGateMiddleware,
     ActorMiddleware,
+    BasicCommandsMiddleware,
     DeduplicationMiddleware,
     RequestContextMiddleware,
 )
@@ -46,7 +49,9 @@ from meobot.bot.storage import PostgresStorage
 from meobot.core.config import Settings, get_settings
 from meobot.core.errors import ConfigurationError
 from meobot.core.logging import configure_logging, get_logger
+from meobot.db.models.user import User
 from meobot.db.session import Database
+from meobot.domain.identity.models import Role
 from meobot.domain.policy.engine import PolicyEngine
 from meobot.integrations.google.factory import build_drive_client, build_sheets_client
 from meobot.integrations.llm.factory import build_llm_provider
@@ -113,6 +118,9 @@ def build_dispatcher(settings: Settings, database: Database) -> Dispatcher:
     actor_middleware = ActorMiddleware(database, settings)
     dispatcher.message.outer_middleware(actor_middleware)
     dispatcher.callback_query.outer_middleware(actor_middleware)
+    # After the actor is known, before any handler: everybody but the owner
+    # gets the basic commands only. Outer middlewares run in this order.
+    dispatcher.message.outer_middleware(BasicCommandsMiddleware())
     # First: a Guest\'s update is consumed here and never offered to a handler
     # that expects an Actor.
     dispatcher.include_router(guest_router)
@@ -156,21 +164,20 @@ def build_dispatcher(settings: Settings, database: Database) -> Dispatcher:
     return dispatcher
 
 
-async def publish_command_menu(bot: Bot) -> bool:
+async def publish_command_menu(bot: Bot, *, owner_chat_ids: Iterable[int] = ()) -> bool:
     """Publish the Telegram command menu from the command registry.
 
-    Built for the least privileged role, because Telegram's default menu is
-    global: advertising ``/create_invite`` to an employee who would only be
-    refused is worse than omitting it.
+    The default menu is the basic one, because Telegram's default menu is
+    global and only the owner gets the whole bot: advertising ``/sheets`` to an
+    employee who would only be refused is worse than omitting it. Each owner's
+    private chat then gets the full menu through a chat scope - best effort, as
+    Telegram refuses a chat that never opened the bot.
 
-    Returns True when Telegram accepted the menu. A failure here is logged and
-    swallowed - a missing menu is a cosmetic problem, and refusing to start the
-    bot over it would turn a Telegram hiccup into an outage.
+    Returns True when Telegram accepted the default menu. A failure here is
+    logged and swallowed - a missing menu is a cosmetic problem, and refusing
+    to start the bot over it would turn a Telegram hiccup into an outage.
     """
-    commands = [
-        BotCommand(command=name, description=description[:256])
-        for name, description in telegram_commands()
-    ]
+    commands = _bot_commands(telegram_commands())
     try:
         await bot.set_my_commands(commands)
     except Exception as exc:
@@ -180,7 +187,47 @@ async def publish_command_menu(bot: Bot) -> bool:
         )
         return False
     logger.info("set_my_commands_published", extra={"command_count": len(commands)})
+
+    full = _bot_commands(telegram_commands(Role.OWNER))
+    for chat_id in dict.fromkeys(owner_chat_ids):
+        try:
+            await bot.set_my_commands(full, scope=BotCommandScopeChat(chat_id=chat_id))
+        except Exception as exc:
+            logger.warning(
+                "set_my_commands_owner_failed",
+                extra={"error": type(exc).__name__, "chat_id": chat_id},
+            )
     return True
+
+
+def _bot_commands(menu: list[tuple[str, str]]) -> list[BotCommand]:
+    return [BotCommand(command=name, description=description[:256]) for name, description in menu]
+
+
+async def owner_chat_ids(database: Database, settings: Settings) -> list[int]:
+    """Private chats that get the owner's full menu.
+
+    Every active OWNER row (their private chat, which for a person is their
+    Telegram id) plus the configured bootstrap owner. A lookup failure only
+    costs the owner their full menu, never the bot.
+    """
+    chat_ids: list[int] = []
+    if settings.meobot_owner_telegram_id is not None:
+        chat_ids.append(settings.meobot_owner_telegram_id)
+    try:
+        async with database.session() as session:
+            rows = await session.execute(
+                select(User.telegram_private_chat_id, User.telegram_user_id).where(
+                    User.role == Role.OWNER, User.active.is_(True)
+                )
+            )
+            for private_chat_id, telegram_user_id in rows.all():
+                chat_id = private_chat_id or telegram_user_id
+                if chat_id is not None:
+                    chat_ids.append(chat_id)
+    except Exception as exc:
+        logger.warning("owner_menu_lookup_failed", extra={"error": type(exc).__name__})
+    return chat_ids
 
 
 async def run_bot(settings: Settings | None = None) -> None:
@@ -219,7 +266,7 @@ async def run_bot(settings: Settings | None = None) -> None:
     logger.info("bot_starting", extra={"app_env": resolved.app_env})
     try:
         await bot.delete_webhook(drop_pending_updates=False)
-        await publish_command_menu(bot)
+        await publish_command_menu(bot, owner_chat_ids=await owner_chat_ids(database, resolved))
         await dispatcher.start_polling(bot, handle_signals=True)
     finally:
         await bot.session.close()

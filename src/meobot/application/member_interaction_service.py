@@ -27,6 +27,7 @@ from meobot.application.hr_request_service import HrRequestService
 from meobot.application.hr_statistics_service import HrStatisticsService, month_bounds
 from meobot.application.quota_service import QuotaService
 from meobot.application.work_schedule_service import WorkScheduleService
+from meobot.bot.commands import has_full_bot
 from meobot.core.config import Settings
 from meobot.core.logging import get_logger
 from meobot.core.time import utcnow
@@ -99,7 +100,14 @@ class MemberInteractionService:
         if open_requests:
             lines.append(f"{len(open_requests)} yêu cầu đang chờ duyệt")
 
-        if self._settings.member_show_ai_allowance_on_home and actor.user_id is not None:
+        # AI chat on Telegram is the owner's alone, so nobody else is shown an
+        # allowance or a "Hỏi TasksBot" button they could only be refused.
+        full_bot = has_full_bot(actor.role)
+        if (
+            full_bot
+            and self._settings.member_show_ai_allowance_on_home
+            and actor.user_id is not None
+        ):
             verdict = await self._quota.inspect_member(user_id=actor.user_id, role=actor.role)
             if verdict.outcome is not QuotaOutcome.UNLIMITED:
                 lines.append(
@@ -119,11 +127,14 @@ class MemberInteractionService:
                 ButtonSpec(copy.Button.MY_REQUESTS.value, "hr.mine"),
                 ButtonSpec(copy.Button.MY_HR_STATS.value, "hr.stats"),
             ],
-            [
-                ButtonSpec(copy.Button.MY_AI_ALLOWANCE.value, "quota.mine"),
-                ButtonSpec(copy.Button.ASK_MEOBOT.value, "chat.open"),
-            ],
         ]
+        if full_bot:
+            rows.append(
+                [
+                    ButtonSpec(copy.Button.MY_AI_ALLOWANCE.value, "quota.mine"),
+                    ButtonSpec(copy.Button.ASK_MEOBOT.value, "chat.open"),
+                ]
+            )
         if self._is_manager(actor):
             # The owner sees their own home plus the one thing they need most.
             rows.append([ButtonSpec(copy.Button.PENDING_REQUESTS.value, "hr.pending")])

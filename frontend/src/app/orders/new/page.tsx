@@ -4,7 +4,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 import { useMutation, useQuery } from "@tanstack/react-query";
-import { api, type CreateOrderBody } from "@/lib/api";
+import { api, type CreateOrderBody, type OrderInfo } from "@/lib/api";
 import {
   hasUnit,
   isUntagged,
@@ -47,19 +47,50 @@ export default function NewOrderPage() {
   const router = useRouter();
   const me = useQuery({ queryKey: ["units", "me"], queryFn: api.unitsMe });
   const [unit, setUnit] = useState<string | null>(null);
+  // `?edit=<code>`: the orderer fixes an order the head sent back.
+  const [editRef, setEditRef] = useState<string | null>(null);
   // `?unit=PR` (the task table's button, the old /pr/content?create=1 link)
   // chooses the unit up front. Read after mount: the page is a client page
   // and must render the same on the server.
   useEffect(() => {
-    const wanted = new URLSearchParams(window.location.search).get("unit");
+    const params = new URLSearchParams(window.location.search);
+    const wanted = params.get("unit");
     if (wanted === "PR" || wanted === "ADS") setUnit(wanted);
+    setEditRef(params.get("edit"));
   }, []);
+  const editing = useQuery({
+    queryKey: ["orders", editRef],
+    queryFn: () => api.order(editRef ?? ""),
+    enabled: editRef !== null,
+  });
 
   if (me.isPending) return <Loading />;
   if (me.isError)
     return <ErrorBox error={me.error} onRetry={() => me.refetch()} />;
 
   if (isUntagged(me.data)) return <UntaggedState title="Tạo order" />;
+
+  if (editRef !== null) {
+    if (editing.isPending) return <Loading />;
+    if (editing.isError)
+      return (
+        <ErrorBox error={editing.error} onRetry={() => editing.refetch()} />
+      );
+    const order = editing.data.order;
+    return (
+      <div className="space-y-4">
+        <PageHeader
+          title={`Sửa order ${order.code}`}
+          subtitle="Sửa theo góp ý của Trưởng phòng rồi gửi lại để duyệt"
+        />
+        <AdsOrderForm
+          key={`${order.id}:${order.version}`}
+          memberCode={unitEntry(me.data, "ADS")?.member_code ?? null}
+          editing={order}
+        />
+      </div>
+    );
+  }
 
   const ads = hasUnit(me.data, "ADS");
   const pr = hasUnit(me.data, "PR");
@@ -91,11 +122,10 @@ export default function NewOrderPage() {
             ].map(([code, label, hint]) => (
               <label
                 key={code}
-                className={`flex min-w-[16rem] flex-1 cursor-pointer gap-3 rounded-xl border-2 p-3 ${
-                  chosen === code
+                className={`flex min-w-[16rem] flex-1 cursor-pointer gap-3 rounded-xl border-2 p-3 ${chosen === code
                     ? "border-[var(--accent)]"
                     : "border-[var(--border)]"
-                }`}
+                  }`}
               >
                 <input
                   type="radio"
@@ -166,7 +196,14 @@ function PrCreateSection({ onCreated }: { onCreated: () => void }) {
   );
 }
 
-function AdsOrderForm({ memberCode }: { memberCode: string | null }) {
+function AdsOrderForm({
+  memberCode,
+  editing,
+}: {
+  memberCode: string | null;
+  /** A returned order being fixed: the form starts from it and resubmits. */
+  editing?: OrderInfo;
+}) {
   const router = useRouter();
   const kinds = useQuery({
     queryKey: ["units", "ADS", "video-kinds"],
@@ -181,21 +218,39 @@ function AdsOrderForm({ memberCode }: { memberCode: string | null }) {
     queryFn: () => api.unitDurations("ADS"),
   });
   const [form, setForm] = useState({
-    title: "",
-    video_kind_id: "",
-    platform_id: "",
-    duration_id: "",
-    script_source: "AI",
-    order_content: "",
-    design_link: "",
-    reference_link: "",
-    source_link: "",
-    note: "",
+    title: editing?.title ?? "",
+    video_kind_id: editing?.video_kind_id ?? "",
+    platform_id: editing?.platform_id ?? "",
+    duration_id: editing?.duration_id ?? "",
+    script_source: editing?.script_source ?? "AI",
+    order_content: editing?.order_content ?? "",
+    design_link: editing?.design_link ?? "",
+    reference_link: editing?.reference_link ?? "",
+    source_link: editing?.source_link ?? "",
+    note: editing?.note ?? "",
   });
   // "Quy trình": Order is always on and not part of the list; Dựng starts ticked.
-  const [ticked, setTicked] = useState<ProcessNode[]>(["DUNG"]);
+  // A returned order keeps its process: its nodes already exist.
+  const [ticked, setTicked] = useState<ProcessNode[]>(
+    editing ? ((editing.process ?? []) as ProcessNode[]) : ["DUNG"],
+  );
   const create = useMutation({
-    mutationFn: (body: CreateOrderBody) => api.createOrder(body),
+    mutationFn: (body: CreateOrderBody) =>
+      editing
+        ? api.orderAction(editing.id, "/resubmit", {
+          version: editing.version,
+          title: body.title,
+          video_kind_id: body.video_kind_id,
+          platform_id: body.platform_id,
+          duration_id: body.duration_id,
+          order_content: body.order_content,
+          script_source: body.script_source,
+          design_link: body.design_link ?? "",
+          reference_link: body.reference_link ?? "",
+          source_link: body.source_link ?? "",
+          note: body.note ?? "",
+        })
+        : api.createOrder(body),
     onSuccess: (detail) => router.push(`/tasks/${detail.order.code}`),
   });
   const nodes = orderedProcess(ticked);
@@ -220,6 +275,7 @@ function AdsOrderForm({ memberCode }: { memberCode: string | null }) {
   // Dựng without Design works from a design the orderer already has.
   const needsDesignLink = nodes.includes("DUNG") && !nodes.includes("THIET_KE");
   const toggleNode = (node: ProcessNode) =>
+    !editing &&
     setTicked((current) =>
       current.includes(node)
         ? current.filter((item) => item !== node)
@@ -227,12 +283,12 @@ function AdsOrderForm({ memberCode }: { memberCode: string | null }) {
     );
   const set =
     (key: keyof typeof form) =>
-    (
-      event: React.ChangeEvent<
-        HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement
-      >,
-    ) =>
-      setForm((current) => ({ ...current, [key]: event.target.value }));
+      (
+        event: React.ChangeEvent<
+          HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement
+        >,
+      ) =>
+        setForm((current) => ({ ...current, [key]: event.target.value }));
   const body: CreateOrderBody = {
     title: form.title,
     process: nodes,
@@ -263,15 +319,30 @@ function AdsOrderForm({ memberCode }: { memberCode: string | null }) {
       onSubmit={(event) => event.preventDefault()}
     >
       <section className="space-y-4 rounded-xl border border-[var(--border)] bg-[var(--surface)] p-4">
-        <p className="text-xs text-[var(--text-muted)]">
-          Mã order:{" "}
-          <span className="font-mono" data-testid="order-code-preview">
-            {`${memberCode ?? "MÃ"}-${code || "?"}-yymmdd-nn`}
-          </span>
-          {memberCode
-            ? null
-            : " — bạn chưa có mã thành viên, hệ thống sẽ lấy từ tên của bạn (Trưởng phòng đổi được ở Quản trị đơn vị)."}
-        </p>
+        {editing ? (
+          <div
+            role="status"
+            className="rounded-lg border border-[var(--warn)] bg-[var(--warn-soft)] p-3 text-sm text-[var(--warn)]"
+          >
+            <p className="font-medium">
+              Trưởng phòng trả order{" "}
+              <span className="font-mono">{editing.code}</span> để sửa
+            </p>
+            {editing.returned_reason ? (
+              <p className="mt-1">Lý do: {editing.returned_reason}</p>
+            ) : null}
+          </div>
+        ) : (
+          <p className="text-xs text-[var(--text-muted)]">
+            Mã order:{" "}
+            <span className="font-mono" data-testid="order-code-preview">
+              {`${memberCode ?? "MÃ"}-${code || "?"}-yymmdd-nn`}
+            </span>
+            {memberCode
+              ? null
+              : " — bạn chưa có mã thành viên, hệ thống sẽ lấy từ tên của bạn (Trưởng phòng đổi được ở Quản trị đơn vị)."}
+          </p>
+        )}
         <label className="block text-sm font-medium">
           1 · Tên kịch bản / Ý tưởng / Key truyền thông
           <input
@@ -283,9 +354,15 @@ function AdsOrderForm({ memberCode }: { memberCode: string | null }) {
         </label>
         <fieldset>
           <legend className="text-sm font-medium">2 · Quy trình</legend>
-          <div className="mt-1 flex flex-wrap gap-2">
-            <label className="flex min-h-11 items-center gap-2 rounded-lg border border-[var(--border)] px-3 text-sm text-[var(--text-muted)]">
-              <input type="checkbox" checked disabled aria-describedby="process-order-hint" />
+          <div className="mt-1.5 flex flex-wrap gap-2.5">
+            <label className="flex min-h-12 items-center gap-2 rounded-lg border-2 border-dashed border-[var(--border)] px-4 text-[15px] text-[var(--text-muted)]">
+              <input
+                type="checkbox"
+                checked
+                disabled
+                className="size-[18px]"
+                aria-describedby="process-order-hint"
+              />
               Order
               <span id="process-order-hint" className="text-xs">
                 (luôn có)
@@ -294,24 +371,34 @@ function AdsOrderForm({ memberCode }: { memberCode: string | null }) {
             {PROCESS_NODES.map((item) => (
               <label
                 key={item.node}
-                className={`flex min-h-11 cursor-pointer items-center gap-2 rounded-lg border-2 px-3 text-sm ${
-                  nodes.includes(item.node)
-                    ? "border-[var(--accent)]"
-                    : "border-[var(--border)]"
-                }`}
+                className={`flex min-h-12 min-w-28 cursor-pointer items-center gap-2 rounded-lg border-2 px-4 text-[15px] font-semibold transition-colors ${nodes.includes(item.node)
+                    ? "border-[var(--accent)] bg-[var(--accent-soft)] text-[var(--accent-strong)] shadow-sm"
+                    : "border-[var(--border)] hover:border-[var(--accent)] hover:bg-[var(--accent-soft)]"
+                  }`}
               >
                 <input
                   type="checkbox"
                   checked={nodes.includes(item.node)}
                   onChange={() => toggleNode(item.node)}
+                  disabled={editing !== undefined}
+                  className="size-[18px] accent-[var(--accent)]"
                 />
                 {item.label}
               </label>
             ))}
           </div>
-          <p className="mt-1 text-xs text-[var(--text-muted)]" data-testid="process-route">
+          <p
+            className="mt-1.5 text-sm font-medium text-[var(--accent-strong)]"
+            data-testid="process-route"
+          >
             {route}
           </p>
+          {editing ? (
+            <p className="mt-1 text-xs text-[var(--text-muted)]">
+              Quy trình giữ nguyên khi sửa order. Muốn đổi quy trình thì huỷ
+              order này và tạo order mới.
+            </p>
+          ) : null}
           {nodes.length === 0 ? (
             <p role="alert" className="mt-1 text-xs text-[var(--bad)]">
               Chọn ít nhất một công đoạn: Biên kịch, Design hoặc Dựng.
@@ -454,25 +541,34 @@ function AdsOrderForm({ memberCode }: { memberCode: string | null }) {
             </span>
           ) : null}
           <Link
-            href="/tasks?unit=ADS"
+            href={editing ? `/tasks/${editing.code}` : "/tasks?unit=ADS"}
             className="inline-flex min-h-11 items-center rounded-lg border border-[var(--border)] px-4 text-sm"
           >
             Huỷ
           </Link>
           <ConfirmButton
-            spec={{
-              title: "Gửi order?",
-              description:
-                "Hệ thống sinh mã order và báo Trưởng phòng duyệt. Order hiện ở bảng task của bạn.",
-              confirmLabel: "Gửi order",
-            }}
+            spec={
+              editing
+                ? {
+                  title: `Gửi lại order ${editing.code}?`,
+                  description:
+                    "Order đã sửa quay lại cho Trưởng phòng ORD duyệt.",
+                  confirmLabel: "Gửi lại order",
+                }
+                : {
+                  title: "Gửi order?",
+                  description:
+                    "Hệ thống sinh mã order và báo Trưởng phòng duyệt. Order hiện ở bảng task của bạn.",
+                  confirmLabel: "Gửi order",
+                }
+            }
             onConfirm={() => create.mutate(body)}
             pending={create.isPending}
             error={create.error}
             disabled={!ready}
             tone="primary"
           >
-            Gửi order
+            {editing ? "Gửi lại order" : "Gửi order"}
           </ConfirmButton>
         </div>
         {create.isError ? <NoticeBox error={create.error} /> : null}

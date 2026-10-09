@@ -502,7 +502,8 @@ async def test_a_member_is_refused_add_user_over_telegram(
     )
 
     assert {user.telegram_user_id for user in await _users_in(bot_database)} == {55500007}
-    assert "⛔" in session.combined_text()
+    # Refused before the handler runs: only the owner has the full bot.
+    assert "chỉ dành cho chủ sở hữu" in session.combined_text()
 
 
 # --- 3. The stored vocabulary is untouched ----------------------------------

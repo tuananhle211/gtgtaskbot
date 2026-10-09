@@ -74,7 +74,8 @@ async def test_02_a_role_that_does_not_belong_to_the_unit_is_refused(world: Worl
     assert error_reason(response.json()) == "invalid_role"
 
 
-async def test_03_a_member_code_is_unique_while_the_tag_is_open(world: World) -> None:
+async def test_03_member_codes_are_never_refused(world: World) -> None:
+    """No rules for member codes yet: shared, odd or missing, the tag goes in."""
     await seed_units(world)
     world.act_as(world.owner)
     first = world.client.post(
@@ -82,18 +83,16 @@ async def test_03_a_member_code_is_unique_while_the_tag_is_open(world: World) ->
         json={"user_id": str(world.member.id), "role": "ORDERER", "member_code": "TUAN"},
     )
     assert first.status_code == 201
-    second = world.client.post(
+    shared = world.client.post(
         "/api/units/ADS/members",
-        json={"user_id": str(world.lead.id), "role": "ORDERER", "member_code": "tuan"},
+        json={"user_id": str(world.lead.id), "role": "ORDERER", "member_code": "tuấn-1"},
     )
-    assert second.status_code == 422
-    assert error_reason(second.json()) == "member_code_taken"
-    bad = world.client.post(
-        "/api/units/ADS/members",
-        json={"user_id": str(world.lead.id), "role": "ORDERER", "member_code": "t"},
-    )
-    assert bad.status_code == 422
-    assert error_reason(bad.json()) == "invalid_member_code"
+    assert shared.status_code == 201, shared.json()
+    assert shared.json()["member_code"] == "TUAN1"
+    blank = world.client.patch(f"/api/units/ADS/members/{world.lead.id}", json={"member_code": "t"})
+    assert blank.status_code == 200 and blank.json()["member_code"] == "T"
+    none = world.client.patch(f"/api/units/ADS/members/{world.lead.id}", json={"member_code": "--"})
+    assert none.status_code == 200 and none.json()["member_code"] is None
 
 
 async def test_04_untagging_closes_the_row_and_retagging_reopens_it(world: World) -> None:
@@ -221,11 +220,8 @@ async def test_08_health_names_what_is_missing(world: World) -> None:
     await world.session.flush()
     await tag(world, units[UnitCode.ADS], designer, UnitMemberRole.THIET_KE)
     warnings = world.client.get("/api/units/ADS/health").json()["warnings"]
-    assert [warning["code"] for warning in warnings] == [
-        "no_lead_thiet_ke",
-        "orderer_without_code",
-    ]
-    assert "Hảo" in warnings[1]["message"]
+    # A missing member code is no warning: the first order derives one.
+    assert [warning["code"] for warning in warnings] == ["no_lead_thiet_ke"]
     # PR has no such machinery to warn about.
     assert world.client.get("/api/units/PR/health").json()["warnings"] == []
 

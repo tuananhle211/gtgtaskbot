@@ -23,15 +23,17 @@ from aiogram.types import Message
 
 from meobot.application.audit_service import AuditService
 from meobot.application.invite_service import DEFAULT_EXPIRY_DAYS, InviteService
+from meobot.application.units.directory import UnitDirectoryService
 from meobot.application.user_service import UserService
 from meobot.bot import formatting
 from meobot.bot.commands import spec_for
 from meobot.core.errors import MeoBotError
 from meobot.core.logging import get_logger
 from meobot.db.session import Database
-from meobot.domain.identity.invites import INVITABLE_ROLES, may_create_invites
+from meobot.domain.identity.invites import INVITABLE_ROLES
 from meobot.domain.identity.labels import parse_role_prefix, role_label, role_labels
 from meobot.domain.identity.models import Actor, Role
+from meobot.domain.units.labels import unit_label
 
 logger = get_logger(__name__)
 
@@ -56,11 +58,13 @@ async def handle_create_invite(
     Usage: ``/create_invite [vai trò] [số lượt] [số ngày]`` - defaults to one
     Member code valid for a week.
     """
-    if not may_create_invites(actor.role):
+    async with database.transaction() as session:
+        allowed = await InviteService(session, AuditService(session)).may_invite(actor)
+    if not allowed:
         await formatting.answer(
             message,
             formatting.escape(
-                f"⛔ Chỉ {role_label(Role.TEAM_LEAD)}, {role_label(Role.ADMIN)} và "
+                f"⛔ Chỉ {role_label(Role.TEAM_LEAD)}, Trưởng phòng, {role_label(Role.ADMIN)} và "
                 f"{role_label(Role.OWNER)} mới tạo được mã mời."
             ),
         )
@@ -82,6 +86,7 @@ async def handle_create_invite(
                 max_uses=max_uses,
             )
             expires = invite.expires_at.date().isoformat() if invite.expires_at else "không"
+            joins = await service.joins_label(invite)
     except MeoBotError as exc:
         await formatting.answer(message, "⛔ " + formatting.escape(exc.message))
         return
@@ -94,6 +99,12 @@ async def handle_create_invite(
         + formatting.code(code)
         + "\n\n"
         + formatting.escape(f"Số lượt: {max_uses} · Hết hạn: {expires}")
+        + "\n"
+        + formatting.escape(
+            f"Người được mời vào: {joins}"
+            if joins
+            else "Người được mời chưa thuộc luồng nào - gắn luồng ở Quản lý thành viên."
+        )
         + "\n"
         + formatting.escape(f"Người được mời gõ: /join {code}")
         + "\n\n"
@@ -173,6 +184,16 @@ async def handle_join(
                 full_name=message.from_user.full_name,
             )
             role = user.role
+            stream = await UnitDirectoryService(session).membership_for(
+                Actor(
+                    user_id=user.id,
+                    telegram_user_id=user.telegram_user_id,
+                    full_name=user.full_name,
+                    role=user.role,
+                    active=True,
+                )
+            )
+            joined = [unit_label(entry.unit_code) for entry in stream.entries]
     except MeoBotError as exc:
         await formatting.answer(message, "⛔ " + formatting.escape(exc.message))
         return
@@ -182,6 +203,12 @@ async def handle_join(
         formatting.escape("✅ Đăng ký thành công. Vai trò của bạn: ")
         + formatting.bold(role_label(role))
         + formatting.escape(".")
+        + "\n"
+        + formatting.escape(
+            f"Bạn đã được thêm vào {', '.join(joined)}."
+            if joined
+            else "Trưởng nhóm sẽ gắn luồng cho bạn."
+        )
         + "\n"
         + formatting.escape("Gõ /help để xem những gì bạn làm được."),
     )

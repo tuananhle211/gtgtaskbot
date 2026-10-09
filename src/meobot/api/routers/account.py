@@ -26,6 +26,7 @@ from meobot.api.deps import (
     CurrentWebSessionDep,
     PasswordServiceDep,
     RequestIdDep,
+    SessionDep,
     SettingsDep,
     UnitMembershipDep,
 )
@@ -35,6 +36,7 @@ from meobot.api.schemas.account import (
     AvatarResponse,
     AvatarUploadRequest,
     ChangePasswordRequest,
+    ChangeRoleRequest,
     MemberListResponse,
     MemberRowResponse,
     MemberStatsResponse,
@@ -42,6 +44,8 @@ from meobot.api.schemas.account import (
 )
 from meobot.api.schemas.pr import ErrorEnvelope
 from meobot.application.account.stats_service import resolve_month
+from meobot.application.audit_service import AuditService
+from meobot.application.user_service import UserService
 from meobot.domain.account.errors import PasswordRejectedError
 
 router = APIRouter(prefix="/api/account", tags=["account"])
@@ -312,6 +316,29 @@ async def reactivate_member(
 ) -> Response:
     """*Kích hoạt lại tài khoản.* OWNER and ADMIN."""
     await accounts.set_active(actor=actor, request_id=request_id, user_id=user_id, active=True)
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+
+@router.post(
+    "/members/{user_id}/role",
+    status_code=status.HTTP_204_NO_CONTENT,
+    responses={
+        403: {"model": ErrorEnvelope, "description": "role_change_forbidden - OWNER only."},
+        404: {"model": ErrorEnvelope, "description": "member_not_found."},
+    },
+)
+async def change_member_role(
+    user_id: uuid.UUID,
+    body: ChangeRoleRequest,
+    actor: CurrentActorDep,
+    session: SessionDep,
+    request_id: RequestIdDep,
+) -> Response:
+    """*Đổi vai trò hệ thống.* OWNER only. Picking "Quản trị viên" in the
+    stream picker lands here: an ADMIN sees every stream ("Tất cả")."""
+    await UserService(session, AuditService(session)).change_role(
+        actor=actor, request_id=request_id, user_id=user_id, role=body.role
+    )
     return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 

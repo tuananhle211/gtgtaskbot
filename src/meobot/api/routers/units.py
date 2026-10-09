@@ -277,6 +277,8 @@ async def update_member(
         clear_member_code="member_code" in fields and body.member_code is None,
         personal_nas_url=body.personal_nas_url,
         clear_personal_nas_url="personal_nas_url" in fields and body.personal_nas_url is None,
+        manager_user_id=body.manager_user_id,
+        clear_manager="manager_user_id" in fields and body.manager_user_id is None,
     )
     return UnitMemberResponse.from_row(row)
 

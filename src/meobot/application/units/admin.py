@@ -53,7 +53,12 @@ from sqlalchemy import exists, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from meobot.application.audit_service import AuditService
-from meobot.application.units.directory import ROLE_FOR_NODE, UnitDirectoryService, UnitMemberRow
+from meobot.application.units.directory import (
+    ROLE_FOR_NODE,
+    UnitDirectoryService,
+    UnitMemberRow,
+    manager_fits,
+)
 from meobot.core.time import utcnow
 from meobot.db.models.order import Order, OrderNode
 from meobot.db.models.org_unit import (
@@ -76,6 +81,7 @@ from meobot.domain.units.errors import (
     UnitValidationError,
 )
 from meobot.domain.units.labels import LEAD_ROLE_LABELS
+from meobot.domain.units.member_code import fold_ascii
 from meobot.domain.units.models import (
     FUNCTION_ROLES,
     UnitCode,
@@ -83,8 +89,6 @@ from meobot.domain.units.models import (
     UnitMembership,
     UnitSettings,
 )
-
-MEMBER_CODE_PATTERN = re.compile(r"^[A-Z0-9]{2,12}$")
 
 #: Roles a unit of each kind may hold.
 ROLES_BY_UNIT: dict[UnitCode, frozenset[UnitMemberRole]] = {
@@ -238,6 +242,8 @@ class UnitAdminService:
         clear_member_code: bool = False,
         personal_nas_url: str | None = None,
         clear_personal_nas_url: bool = False,
+        manager_user_id: uuid.UUID | None = None,
+        clear_manager: bool = False,
     ) -> UnitMemberRow:
         unit = await self._require_tagger(actor, code, user_id)
         row = await self._directory.member(unit.id, user_id)
@@ -261,6 +267,18 @@ class UnitAdminService:
             row.personal_nas_url = None
         elif personal_nas_url is not None:
             row.personal_nas_url = personal_nas_url
+        if clear_manager:
+            row.manager_user_id = None
+        elif manager_user_id is not None:
+            boss = await self._directory.member(unit.id, manager_user_id)
+            if boss is None or not manager_fits(boss, row):
+                raise UnitValidationError(
+                    "Trưởng quản lý phải là Trưởng phòng của đúng ban này "
+                    "(người order: Trưởng phòng ORD).",
+                    details={"reason": "unit_manager_invalid"},
+                )
+            row.manager_user_id = manager_user_id
+        await self._refit_managers(unit.id, row)
         await self._flush_translating(code, row)
         user = await self._session.get_one(User, user_id)
         await self._audit.record_action(
@@ -295,6 +313,7 @@ class UnitAdminService:
             )
         before = self._snapshot(row)
         row.left_at = utcnow()
+        await self._refit_managers(unit.id, row)
         await self._session.flush()
         user = await self._session.get_one(User, user_id)
         await self._audit.record_action(
@@ -758,16 +777,8 @@ class UnitAdminService:
                         "Trưởng phòng ORD.",
                     )
                 )
-        orderers = await self._directory.members(unit.id, role=UnitMemberRole.ORDERER)
-        missing = [row.user.full_name for row in orderers if not row.membership.member_code]
-        if missing:
-            warnings.append(
-                (
-                    "orderer_without_code",
-                    "Marketing chưa có mã thành viên nên chưa tạo được order: "
-                    + ", ".join(missing),
-                )
-            )
+        # No warning for a missing member code: the first order derives one
+        # from the name (``derive_member_code``). Rules for codes come later.
         return warnings
 
     # --- shared catalogue helpers (platforms, durations) ---------------------
@@ -853,44 +864,18 @@ class UnitAdminService:
 
     @staticmethod
     def _normalise_member_code(value: str | None) -> str | None:
+        """Whatever was typed, made fit for an order code (``TUAN-D-…``):
+        no accents, letters and digits only, upper case, at most 12. Never a
+        refusal - rules for member codes come later; blank means none."""
         if value is None:
             return None
-        code = value.strip().upper()
-        if not code:
-            return None
-        if not MEMBER_CODE_PATTERN.match(code):
-            raise UnitValidationError(
-                "Mã thành viên gồm từ 2 đến 12 chữ cái hoặc số, không dấu.",
-                details={"reason": "invalid_member_code", "field": "member_code"},
-            )
-        return code
+        code = re.sub(r"[^A-Za-z0-9]", "", fold_ascii(value)).upper()[:12]
+        return code or None
 
     async def _flush_translating(self, code: UnitCode, row: OrgUnitMember) -> None:
-        """Refuse a taken member code with a sentence, then flush.
-
-        The check is a read before the write, so the ordinary case never
-        trips the partial unique index and the session stays usable after a
-        refusal. The index remains the final word under a race; its
-        ``IntegrityError`` then surfaces as the 409 every other race does.
-        """
-        if row.member_code is not None:
-            taken = await self._session.scalar(
-                select(OrgUnitMember.id).where(
-                    OrgUnitMember.unit_id == row.unit_id,
-                    OrgUnitMember.member_code == row.member_code,
-                    OrgUnitMember.left_at.is_(None),
-                    OrgUnitMember.user_id != row.user_id,
-                )
-            )
-            if taken is not None:
-                raise UnitValidationError(
-                    "Mã thành viên này đã có người dùng trong ban.",
-                    details={
-                        "reason": "member_code_taken",
-                        "field": "member_code",
-                        "unit": code.value,
-                    },
-                )
+        """Flush the tag. Two members may share a member code for now (0052
+        dropped the unique index): their orders share one counter per day, so
+        order codes stay unique."""
         await self._session.flush()
 
     async def _holds_open_work(self, unit_id: uuid.UUID, user_id: uuid.UUID) -> bool:
@@ -923,8 +908,29 @@ class UnitAdminService:
             "is_lead": row.is_lead,
             "member_code": row.member_code,
             "personal_nas_url": row.personal_nas_url,
+            "manager_user_id": None if row.manager_user_id is None else str(row.manager_user_id),
             "left_at": None if row.left_at is None else row.left_at.isoformat(),
         }
 
+    async def _refit_managers(self, unit_id: uuid.UUID, row: OrgUnitMember) -> None:
+        """After ``row`` changed (role, Leader flag, untag): drop every manager
+        link that no longer fits - ``row``'s own, and those of the people who
+        reported to ``row`` - so their work falls back to the whole ban."""
+        if row.manager_user_id is not None:
+            boss = await self._directory.member(unit_id, row.manager_user_id)
+            if boss is None or not manager_fits(boss, row):
+                row.manager_user_id = None
+        reports = (
+            await self._session.scalars(
+                select(OrgUnitMember).where(
+                    OrgUnitMember.unit_id == unit_id,
+                    OrgUnitMember.manager_user_id == row.user_id,
+                )
+            )
+        ).all()
+        for report in reports:
+            if not manager_fits(row, report):
+                report.manager_user_id = None
 
-__all__ = ["MEMBER_CODE_PATTERN", "ROLES_BY_UNIT", "UnitAdminService"]
+
+__all__ = ["ROLES_BY_UNIT", "UnitAdminService"]

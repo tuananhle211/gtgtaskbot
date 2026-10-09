@@ -12,6 +12,7 @@ import { VideoKindsManager } from "@/components/video-kinds";
 import {
   deactivateAccountConfirmation,
   reactivateAccountConfirmation,
+  makeAdminConfirmation,
   tagIntoStreamConfirmation,
 } from "@/lib/confirmations";
 import { formatAgo } from "@/lib/labels";
@@ -89,6 +90,13 @@ export function FunctionTag({ tag, isLead = false }: { tag: string; isLead?: boo
     </span>
   );
 }
+
+/**
+ * "Quản trị viên" in the stream pickers (OWNER only): not a tag but the
+ * account's system role - an ADMIN sees every task of both streams.
+ */
+const ADMIN_POSITION = "SYSTEM:ADMIN";
+const ADMIN_LABEL = "Quản trị viên · xem toàn bộ task cả 2 luồng";
 
 /** The signed-in person: their base role decides the account-status controls. */
 function useViewer() {
@@ -282,6 +290,7 @@ export function UnitPanel({
                   member={member}
                   units={tagsOf.get(member.user_id) ?? [code]}
                   roles={members.data.assignable_roles}
+                  bosses={managerChoices(code, member, members.data.members)}
                   editable={
                     canTag && (viewer.manages || !PROTECTED_ROLES.has(member.base_role))
                   }
@@ -400,6 +409,7 @@ function TagIntoStream({
   defaultStream: string;
 }) {
   const queryClient = useQueryClient();
+  const viewer = useViewer();
   const [stream, setStream] = useState(defaultStream);
   const roster = useQuery({
     queryKey: ["units", stream, "members"],
@@ -408,7 +418,9 @@ function TagIntoStream({
   const roles = roster.data?.assignable_roles ?? [];
   const [chosen, setChosen] = useState("");
   const position =
-    chosen && roles.some((option) => positionKey(option.role, option.is_lead) === chosen)
+    chosen === ADMIN_POSITION && viewer.role === "OWNER"
+      ? chosen
+      : chosen && roles.some((option) => positionKey(option.role, option.is_lead) === chosen)
       ? chosen
       : roles[0]
         ? positionKey(roles[0].role, roles[0].is_lead)
@@ -416,16 +428,21 @@ function TagIntoStream({
   const roleText =
     roles.find((option) => positionKey(option.role, option.is_lead) === position)?.label ??
     "đã chọn";
+  const admin = position === ADMIN_POSITION;
   const tag = useMutation({
-    mutationFn: () =>
-      api.tagUnitMember(stream, { user_id: user.user_id, ...fromPositionKey(position) }),
+    mutationFn: async (): Promise<unknown> =>
+      admin
+        ? api.setSystemRole(user.user_id, "ADMIN")
+        : api.tagUnitMember(stream, { user_id: user.user_id, ...fromPositionKey(position) }),
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: ["units"] });
       void queryClient.invalidateQueries({ queryKey: ["account", "members"] });
     },
   });
   const spec = {
-    ...tagIntoStreamConfirmation(user.full_name, unitName(stream), roleText),
+    ...(admin
+      ? makeAdminConfirmation(user.full_name)
+      : tagIntoStreamConfirmation(user.full_name, unitName(stream), roleText)),
     details: (
       <div className="grid gap-3 sm:grid-cols-2">
         <label className="flex flex-col gap-1 text-xs">
@@ -455,6 +472,9 @@ function TagIntoStream({
                 {option.label}
               </option>
             ))}
+            {viewer.role === "OWNER" ? (
+              <option value={ADMIN_POSITION}>{ADMIN_LABEL}</option>
+            ) : null}
           </Select>
         </label>
       </div>
@@ -497,13 +517,17 @@ function AddMember({
     roles[0] ? positionKey(roles[0].role, roles[0].is_lead) : "",
   );
   const [memberCode, setMemberCode] = useState("");
+  const viewer = useViewer();
+  const admin = position === ADMIN_POSITION;
   const tag = useMutation({
-    mutationFn: () =>
-      api.tagUnitMember(code, {
-        user_id: userId,
-        ...fromPositionKey(position),
-        member_code: memberCode || null,
-      }),
+    mutationFn: async (): Promise<unknown> =>
+      admin
+        ? api.setSystemRole(userId, "ADMIN")
+        : api.tagUnitMember(code, {
+          user_id: userId,
+          ...fromPositionKey(position),
+          member_code: memberCode || null,
+        }),
     onSuccess: () => {
       setUserId("");
       setMemberCode("");
@@ -543,9 +567,12 @@ function AddMember({
               {option.label}
             </option>
           ))}
+          {viewer.role === "OWNER" ? (
+            <option value={ADMIN_POSITION}>{ADMIN_LABEL}</option>
+          ) : null}
         </Select>
       </label>
-      {code === "ADS" ? (
+      {code === "ADS" && !admin ? (
         <label className="flex flex-col gap-1 text-xs text-[var(--text-muted)]">
           Mã thành viên
           <input
@@ -560,12 +587,18 @@ function AddMember({
         </label>
       ) : null}
       <ConfirmButton
-        spec={{
-          title: `Gắn thành viên vào ${unitName(code)}?`,
-          description:
-            "Người này sẽ thấy task của luồng và xuất hiện trong chuỗi sản xuất theo vai trò. Tag ở luồng khác (nếu có) vẫn giữ nguyên.",
-          confirmLabel: "Gắn tag",
-        }}
+        spec={
+          admin
+            ? makeAdminConfirmation(
+              candidates.find((user) => user.user_id === userId)?.full_name ?? "người này",
+            )
+            : {
+              title: `Gắn thành viên vào ${unitName(code)}?`,
+              description:
+                "Người này sẽ thấy task của luồng và xuất hiện trong chuỗi sản xuất theo vai trò. Tag ở luồng khác (nếu có) vẫn giữ nguyên.",
+              confirmLabel: "Gắn tag",
+            }
+        }
         onConfirm={() => tag.mutate()}
         pending={tag.isPending}
         error={tag.error}
@@ -579,11 +612,37 @@ function AddMember({
   );
 }
 
+const FUNCTION_ROLES = new Set(["BIEN_TAP", "THIET_KE", "DUNG"]);
+
+/**
+ * Who may be this member's own Leader ("Trưởng quản lý"), for a ban with
+ * several: a staff member of Biên kịch / Design / Dựng picks a Leader of the
+ * same ban, an orderer a Trưởng phòng ORD. `null` = the member has none to pick.
+ */
+function managerChoices(
+  code: string,
+  member: UnitMember,
+  all: UnitMember[],
+): UnitMember[] | null {
+  if (code !== "ADS") return null;
+  const fits =
+    member.role === "ORDERER"
+      ? (boss: UnitMember) => boss.role === "HEAD"
+      : FUNCTION_ROLES.has(member.role) && !member.is_lead
+        ? (boss: UnitMember) => boss.role === member.role && boss.is_lead
+        : null;
+  if (fits === null) return null;
+  return all.filter(
+    (boss) => boss.user_id !== member.user_id && boss.active && fits(boss),
+  );
+}
+
 function MemberRow({
   code,
   member,
   units,
   roles,
+  bosses,
   editable,
   mayUntag,
   mayChangeStatus,
@@ -594,6 +653,8 @@ function MemberRow({
   member: UnitMember;
   units: string[];
   roles: Position[];
+  /** Who may be picked as the member's own Leader; null = not for this member. */
+  bosses: UnitMember[] | null;
   /** Role, member code and NAS may be changed (a stream in `can_tag`). */
   editable: boolean;
   mayUntag: boolean;
@@ -656,6 +717,15 @@ function MemberRow({
           <span className="mt-1 block">
             <Pill tone="good">Nhận việc của luồng để phân công</Pill>
           </span>
+        ) : null}
+        {bosses !== null ? (
+          <ManagerPicker
+            member={member}
+            bosses={bosses}
+            editable={editable}
+            pending={update.isPending}
+            onPick={(managerId) => update.mutate({ manager_user_id: managerId })}
+          />
         ) : null}
       </td>
       <td className="px-3 py-2">
@@ -733,6 +803,55 @@ function MemberRow({
         {untag.isError ? <NoticeBox error={untag.error} /> : null}
       </td>
     </tr>
+  );
+}
+
+/**
+ * "Trưởng quản lý": the one Leader (head) this member's hand-ins (orders)
+ * go to. Unset = every Leader of the ban, as before.
+ */
+function ManagerPicker({
+  member,
+  bosses,
+  editable,
+  pending,
+  onPick,
+}: {
+  member: UnitMember;
+  bosses: UnitMember[];
+  editable: boolean;
+  pending: boolean;
+  onPick: (managerId: string | null) => void;
+}) {
+  const current = member.manager_user_id ?? "";
+  const everyone =
+    member.role === "ORDERER" ? "Mọi Trưởng phòng ORD" : "Mọi trưởng ban";
+  const name = bosses.find((boss) => boss.user_id === current)?.full_name;
+  if (!editable) {
+    return (
+      <span className="mt-1.5 block text-xs text-[var(--text-muted)]">
+        Trưởng quản lý: {name ?? everyone}
+      </span>
+    );
+  }
+  return (
+    <label className="mt-1.5 block text-xs text-[var(--text-muted)]">
+      Trưởng quản lý
+      <Select
+        value={current}
+        onChange={(event) => onPick(event.target.value || null)}
+        disabled={pending}
+        aria-label={`Trưởng quản lý của ${member.full_name}`}
+        className="mt-0.5 w-full"
+      >
+        <option value="">{`Mặc định · ${everyone}`}</option>
+        {bosses.map((boss) => (
+          <option key={boss.user_id} value={boss.user_id}>
+            {boss.full_name}
+          </option>
+        ))}
+      </Select>
+    </label>
   );
 }
 

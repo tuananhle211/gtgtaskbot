@@ -13,7 +13,7 @@ from pydantic import BaseModel, Field
 from meobot.application.account.account_service import MemberView
 from meobot.application.account.stats_service import MemberStats
 from meobot.db.models.user import User
-from meobot.domain.identity.labels import role_label
+from meobot.domain.identity.labels import RoleInput, role_label
 from meobot.domain.units.labels import (
     function_tag,
     unit_label,
@@ -64,6 +64,12 @@ class ChangePasswordRequest(BaseModel):
 
 class UpdateProfileRequest(BaseModel):
     full_name: str = Field(max_length=200)
+
+
+class ChangeRoleRequest(BaseModel):
+    """The member's system role. "ADMIN" (Quản trị viên) sees both streams."""
+
+    role: RoleInput
 
 
 class AvatarUploadRequest(BaseModel):

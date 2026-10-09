@@ -7,6 +7,10 @@ runs route -> (chat | clarify | tool) and returns something to print.
 
 What the handler does own is the transport contract:
 
+* only the owner chats with the AI on Telegram (see
+  :func:`~meobot.bot.commands.has_full_bot`). Anybody else is answered with
+  one short pointer to the basic commands and ``/web`` - in a group only when
+  they explicitly addressed MeoBot - and is never charged for it;
 * a message starting with ``/`` never reaches here (the filter excludes it, and
   every command router is included before this one), so a slash command can
   never be swallowed by the natural-language path;
@@ -44,6 +48,8 @@ from meobot.bot.addressing import (
     is_addressed_to_bot,
     strip_bot_mention,
 )
+from meobot.bot.commands import has_full_bot
+from meobot.bot.texts import BASIC_ONLY_CHAT
 from meobot.core.config import Settings
 from meobot.core.errors import IntegrationTimeoutError, LLMError, MeoBotError
 from meobot.core.logging import get_logger
@@ -114,6 +120,15 @@ async def handle_free_text(
       however many questions it contained.
     """
     raw = message.text or ""
+    if not has_full_bot(actor.role):
+        # The basic bot has no AI chat, so nothing below may run: no provider
+        # call, no tool, no slot spent. In a group, silence unless addressed by
+        # name or reply - even when the deployment does not require a mention.
+        await _release(database, settings, access)
+        if is_addressed_to_bot(message, require_mention=True):
+            await formatting.answer(message, formatting.escape(BASIC_ONLY_CHAT))
+        return
+
     if not is_addressed_to_bot(message, require_mention=settings.chat_group_requires_mention):
         await _release(database, settings, access)
         return

@@ -1,5 +1,17 @@
 @import "tailwindcss";
 
+/* Tailwind `dark:` follows the same rule as the tokens: the header switch, else the system. */
+@custom-variant dark {
+  &:where([data-theme="dark"], [data-theme="dark"] *) {
+    @slot;
+  }
+  @media (prefers-color-scheme: dark) {
+    &:where(:root:not([data-theme="light"]), :root:not([data-theme="light"]) *) {
+      @slot;
+    }
+  }
+}
+
 /*
  * One theme, both schemes. The panel is looked at all day, often on a NAS-hosted
  * page in a browser somebody has already set to dark - so the colours follow the
@@ -30,7 +42,7 @@
 }
 
 @media (prefers-color-scheme: dark) {
-  :root {
+  :root:not([data-theme="light"]) {
     --surface: #14171a;
     --surface-muted: #1c2024;
     --border: #2b3036;
@@ -48,6 +60,35 @@
     --bad-soft: #3b1d17;
   }
 }
+/* Native controls and scrollbars follow the same choice. */
+:root {
+  color-scheme: light dark;
+}
+:root[data-theme="light"] {
+  color-scheme: light;
+}
+:root[data-theme="dark"] {
+  color-scheme: dark;
+}
+/* The switch in the header: an explicit choice beats the system setting. */
+:root[data-theme="dark"] {
+  --surface: #14171a;
+  --surface-muted: #1c2024;
+  --border: #2b3036;
+  --text: #e9ecef;
+  --text-muted: #9aa2ab;
+  --accent: #4c8dff;
+  --accent-text: #0b1220;
+  --accent-soft: #1b2a44;
+  --accent-strong: #9dbcff;
+  --good: #6fd39a;
+  --good-soft: #15301f;
+  --warn: #f0b26b;
+  --warn-soft: #3a2a12;
+  --bad: #ff9a85;
+  --bad-soft: #3b1d17;
+}
+
 
 /*
  * Creative Ops, Step 2. A few shared shapes the two-unit screens repeat: the
@@ -72,15 +113,25 @@
   color: #9a3412;
 }
 @media (prefers-color-scheme: dark) {
-  .unit-tag-pr {
+  :root:not([data-theme="light"]) .unit-tag-pr {
     background: #0f3d38;
     color: #8be9d8;
   }
-  .unit-tag-ads {
+  :root:not([data-theme="light"]) .unit-tag-ads {
     background: #4a2a12;
     color: #ffc99a;
   }
 }
+/* The switch in the header: an explicit choice beats the system setting. */
+:root[data-theme="dark"] .unit-tag-pr {
+  background: #0f3d38;
+  color: #8be9d8;
+}
+:root[data-theme="dark"] .unit-tag-ads {
+  background: #4a2a12;
+  color: #ffc99a;
+}
+
 
 .panel {
   border: 1px solid var(--border);
@@ -291,21 +342,37 @@ textarea {
 .st-sky { background: #e0f2fe; color: #075985; }
 .st-fuchsia { background: #fae8ff; color: #86198f; }
 @media (prefers-color-scheme: dark) {
-  .st-slate { background: #273040; color: #cbd5e1; }
-  .st-amber { background: #3d2e0b; color: #fcd34d; }
-  .st-red { background: #44191b; color: #fca5a5; }
-  .st-violet { background: #2e2350; color: #c4b5fd; }
-  .st-pink { background: #45192f; color: #f9a8d4; }
-  .st-blue { background: #1b2b4d; color: #93c5fd; }
-  .st-cyan { background: #123a44; color: #67e8f9; }
-  .st-indigo { background: #24264d; color: #a5b4fc; }
-  .st-orange { background: #432414; color: #fdba74; }
-  .st-green { background: #143522; color: #86efac; }
-  .st-teal { background: #103a37; color: #5eead4; }
-  .st-lime { background: #27350f; color: #bef264; }
-  .st-sky { background: #11334a; color: #7dd3fc; }
-  .st-fuchsia { background: #3d1842; color: #f0abfc; }
+  :root:not([data-theme="light"]) .st-slate { background: #273040; color: #cbd5e1; }
+  :root:not([data-theme="light"]) .st-amber { background: #3d2e0b; color: #fcd34d; }
+  :root:not([data-theme="light"]) .st-red { background: #44191b; color: #fca5a5; }
+  :root:not([data-theme="light"]) .st-violet { background: #2e2350; color: #c4b5fd; }
+  :root:not([data-theme="light"]) .st-pink { background: #45192f; color: #f9a8d4; }
+  :root:not([data-theme="light"]) .st-blue { background: #1b2b4d; color: #93c5fd; }
+  :root:not([data-theme="light"]) .st-cyan { background: #123a44; color: #67e8f9; }
+  :root:not([data-theme="light"]) .st-indigo { background: #24264d; color: #a5b4fc; }
+  :root:not([data-theme="light"]) .st-orange { background: #432414; color: #fdba74; }
+  :root:not([data-theme="light"]) .st-green { background: #143522; color: #86efac; }
+  :root:not([data-theme="light"]) .st-teal { background: #103a37; color: #5eead4; }
+  :root:not([data-theme="light"]) .st-lime { background: #27350f; color: #bef264; }
+  :root:not([data-theme="light"]) .st-sky { background: #11334a; color: #7dd3fc; }
+  :root:not([data-theme="light"]) .st-fuchsia { background: #3d1842; color: #f0abfc; }
 }
+/* The switch in the header: an explicit choice beats the system setting. */
+:root[data-theme="dark"] .st-slate { background: #273040; color: #cbd5e1; }
+:root[data-theme="dark"] .st-amber { background: #3d2e0b; color: #fcd34d; }
+:root[data-theme="dark"] .st-red { background: #44191b; color: #fca5a5; }
+:root[data-theme="dark"] .st-violet { background: #2e2350; color: #c4b5fd; }
+:root[data-theme="dark"] .st-pink { background: #45192f; color: #f9a8d4; }
+:root[data-theme="dark"] .st-blue { background: #1b2b4d; color: #93c5fd; }
+:root[data-theme="dark"] .st-cyan { background: #123a44; color: #67e8f9; }
+:root[data-theme="dark"] .st-indigo { background: #24264d; color: #a5b4fc; }
+:root[data-theme="dark"] .st-orange { background: #432414; color: #fdba74; }
+:root[data-theme="dark"] .st-green { background: #143522; color: #86efac; }
+:root[data-theme="dark"] .st-teal { background: #103a37; color: #5eead4; }
+:root[data-theme="dark"] .st-lime { background: #27350f; color: #bef264; }
+:root[data-theme="dark"] .st-sky { background: #11334a; color: #7dd3fc; }
+:root[data-theme="dark"] .st-fuchsia { background: #3d1842; color: #f0abfc; }
+
 
 /* People's names stand out from the surrounding text. */
 .person {
@@ -316,10 +383,15 @@ textarea {
   --person: #1d4ed8;
 }
 @media (prefers-color-scheme: dark) {
-  :root {
+  :root:not([data-theme="light"]) {
     --person: #93c5fd;
   }
 }
+/* The switch in the header: an explicit choice beats the system setting. */
+:root[data-theme="dark"] {
+  --person: #93c5fd;
+}
+
 
 /* The two dates that matter on a task: ordered, and link delivered. */
 .date-chip {
@@ -341,10 +413,15 @@ textarea {
   color: #15803d;
 }
 @media (prefers-color-scheme: dark) {
-  .date-chip-done {
+  :root:not([data-theme="light"]) .date-chip-done {
     color: #86efac;
   }
 }
+/* The switch in the header: an explicit choice beats the system setting. */
+:root[data-theme="dark"] .date-chip-done {
+  color: #86efac;
+}
+
 
 /* A table that may be wider than the screen: scrolls sideways inside its
    panel, never vertically (the page does that), with a visible scrollbar. */
@@ -388,11 +465,17 @@ textarea {
   object-fit: cover;
 }
 @media (prefers-color-scheme: dark) {
-  .avatar {
+  :root:not([data-theme="light"]) .avatar {
     background: hsl(var(--avatar-h, 215) 32% 26%);
     color: hsl(var(--avatar-h, 215) 85% 84%);
   }
 }
+/* The switch in the header: an explicit choice beats the system setting. */
+:root[data-theme="dark"] .avatar {
+  background: hsl(var(--avatar-h, 215) 32% 26%);
+  color: hsl(var(--avatar-h, 215) 85% 84%);
+}
+
 
 /* The band across the top of the profile header on /account. */
 .profile-cover {
@@ -447,8 +530,14 @@ textarea {
   color: #5b21b6;
 }
 @media (prefers-color-scheme: dark) {
-  .tone-violet {
+  :root:not([data-theme="light"]) .tone-violet {
     background: #2e2350;
     color: #c4b5fd;
   }
 }
+/* The switch in the header: an explicit choice beats the system setting. */
+:root[data-theme="dark"] .tone-violet {
+  background: #2e2350;
+  color: #c4b5fd;
+}
+

@@ -741,7 +741,10 @@ class OrderCommandService:
         order_id: uuid.UUID,
         expected_version: int,
         product_link: str | None = None,
+        note: str | None = None,
     ) -> Order:
+        """The orderer's last yes. The product is the link the last node handed in
+        (``product_link`` only overrides it for the API's older callers)."""
         loaded = await self._load(actor, order_id, expected_version)
         assert_allowed(
             OrderActionKind.APPROVE_FINAL, loaded.view(), loaded.node_views(), loaded.scope.context
@@ -766,10 +769,18 @@ class OrderCommandService:
             or (None if latest is None else latest.link)
             or order.product_link
         )
+        comment = _blank_to_none(note)
         await self._approval(
-            order, OrderApprovalGate.FINAL, OrderApprovalDecision.APPROVED, actor, submission=latest
+            order,
+            OrderApprovalGate.FINAL,
+            OrderApprovalDecision.APPROVED,
+            actor,
+            submission=latest,
+            comment=comment,
         )
-        await self._event(order, OrderEventKind.FINAL_APPROVED, actor, node=node, submission=latest)
+        await self._event(
+            order, OrderEventKind.FINAL_APPROVED, actor, node=node, submission=latest, note=comment
+        )
         self._bump(order)
         await self._session.flush()
         await self._audit_order(

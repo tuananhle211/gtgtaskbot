@@ -1,4 +1,4 @@
-"""aiogram middlewares: correlation id and actor resolution."""
+"""aiogram middlewares: correlation id, actor resolution and the owner-only gate."""
 
 from __future__ import annotations
 
@@ -19,8 +19,13 @@ from meobot.bot.access_notifications import (
     notify_owner_of_access_request,
     quota_request_keyboard,
 )
-from meobot.bot.addressing import is_addressed_to_bot
-from meobot.bot.commands import public_commands
+from meobot.bot.addressing import bot_username_of, is_addressed_to_bot
+from meobot.bot.commands import (
+    has_full_bot,
+    owner_only_command_reply,
+    owner_only_commands,
+    public_commands,
+)
 from meobot.bot.texts import NOT_REGISTERED
 from meobot.core.config import Settings
 from meobot.core.context import new_request_id, request_context
@@ -106,6 +111,11 @@ class DeduplicationMiddleware(BaseMiddleware):
 PUBLIC_COMMANDS: frozenset[str] = public_commands() - {"/start"}
 
 
+#: Commands only the owner may run, read off the registry the same way: every
+#: command whose spec is not marked ``basic``.
+OWNER_ONLY_COMMANDS: frozenset[str] = owner_only_commands()
+
+
 def _is_public_command(event: TelegramObject) -> bool:
     """True when the update is one an unregistered account may send."""
     if not isinstance(event, Message):
@@ -116,6 +126,23 @@ def _is_public_command(event: TelegramObject) -> bool:
     # '/join@MeoBot CODE' -> '/join'
     command = text.split(maxsplit=1)[0].split("@", 1)[0].lower()
     return command in PUBLIC_COMMANDS
+
+
+def _command_for_this_bot(message: Message) -> str | None:
+    """``/name`` of a slash command aimed at this bot, else ``None``.
+
+    Read from the text or the caption, as aiogram's ``Command`` filter does. A
+    command suffixed with *another* bot's username (``/sheets@OtherBot`` in a
+    shared group) is not ours to refuse - no handler of ours would run it.
+    """
+    text = (message.text or message.caption or "").strip()
+    if not text.startswith("/"):
+        return None
+    command, _, mention = text.split(maxsplit=1)[0].partition("@")
+    username = bot_username_of(message)
+    if mention and username and mention.lower() != username.lower():
+        return None
+    return command.lower()
 
 
 class AccessGateMiddleware(BaseMiddleware):
@@ -168,6 +195,11 @@ class AccessGateMiddleware(BaseMiddleware):
             return None
 
         if outcome is AccessOutcome.BLOCKED:
+            if self._quota_is_moot(result):
+                # Out of AI turns, but this person has no AI chat on Telegram
+                # anyway. Let the turn through so the conversation handler
+                # answers with what they *can* use, not "hết lượt".
+                return await handler(event, data)
             await self._answer_blocked(event, result)
             return None
 
@@ -202,6 +234,15 @@ class AccessGateMiddleware(BaseMiddleware):
             addressed_to_bot=is_addressed_to_bot(
                 message, require_mention=self._settings.chat_group_requires_mention
             ),
+        )
+
+    @staticmethod
+    def _quota_is_moot(result: GateResult) -> bool:
+        """True for a quota refusal of somebody who only has the basic bot."""
+        return (
+            result.decision.reason == "quota_exhausted"
+            and result.actor is not None
+            and not has_full_bot(result.actor.role)
         )
 
     @staticmethod
@@ -314,3 +355,40 @@ class ActorMiddleware(BaseMiddleware):
                 "actor_profile_bootstrap_failed",
                 extra={"telegram_user_id": actor.telegram_user_id},
             )
+
+
+class BasicCommandsMiddleware(BaseMiddleware):
+    """Refuse owner-only commands for everybody but the owner.
+
+    On Telegram only the owner gets the whole bot; Nhân viên, Trưởng nhóm and
+    Quản trị viên get the commands marked ``basic`` in
+    :mod:`meobot.bot.commands` and work on the web. This is the single place
+    that rule is enforced for slash commands - registered right after
+    :class:`ActorMiddleware`, so the actor is known and no handler has run.
+    Free text is the conversation handler's half of the same rule.
+
+    Anything without a bound actor passes untouched: an unregistered account
+    was already limited to :data:`PUBLIC_COMMANDS`, and a Guest is consumed by
+    the guest router. Unknown commands pass too - nothing would answer them.
+    """
+
+    async def __call__(
+        self,
+        handler: Handler,
+        event: TelegramObject,
+        data: dict[str, Any],
+    ) -> Any:
+        actor: Actor | None = data.get("actor")
+        if actor is None or has_full_bot(actor.role) or not isinstance(event, Message):
+            return await handler(event, data)
+
+        command = _command_for_this_bot(event)
+        if command is None or command not in OWNER_ONLY_COMMANDS:
+            return await handler(event, data)
+
+        logger.info(
+            "command_refused_owner_only",
+            extra={"command": command, "telegram_user_id": actor.telegram_user_id},
+        )
+        await formatting.answer(event, formatting.escape(owner_only_command_reply(actor.role)))
+        return None

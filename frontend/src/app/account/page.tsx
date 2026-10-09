@@ -31,7 +31,7 @@ import {
 import { resetMemberPasswordConfirmation } from "@/lib/confirmations";
 import { formatAgo, formatWhen, monthLabel } from "@/lib/labels";
 import { PasswordDialog, PasswordForm } from "./password";
-import { INVITER_ROLES, InvitePanel } from "./invites";
+import { InvitePanel, mayInvite as mayInviteFor } from "./invites";
 import { STREAM_NAMES, byStreamOrder } from "@/lib/units";
 
 const FIELD =
@@ -106,9 +106,9 @@ function Account({ me }: { me: AccountMe }) {
 
   if (mustChange) return <ForcedPasswordChange me={me} onChanged={passwordChanged} />;
 
-  // Invites are for system team leads (and ADMIN / OWNER); the server
-  // refuses anybody else, so the tab is not offered to them.
-  const mayInvite = INVITER_ROLES.has(me.role);
+  // Invites are for system team leads (and ADMIN / OWNER) and ORD's heads and
+  // Leaders; the server refuses anybody else, so the tab is not offered to them.
+  const mayInvite = mayInviteFor(me);
   const activeTab: Tab =
     (tab === "thanh-vien" && !membersSeen) || (tab === "moi-thanh-vien" && !mayInvite)
       ? "hieu-suat"

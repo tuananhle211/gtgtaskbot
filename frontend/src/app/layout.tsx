@@ -1,6 +1,8 @@
 import type { Metadata, Viewport } from "next";
 import "./globals.css";
+import { cookies } from "next/headers";
 import { Providers } from "@/components/providers";
+import { parseTheme, THEME_COOKIE } from "@/lib/theme";
 
 export const metadata: Metadata = {
   /*
@@ -47,9 +49,11 @@ export const viewport: Viewport = {
   viewportFit: "cover",
 };
 
-export default function RootLayout({ children }: { children: React.ReactNode }) {
+export default async function RootLayout({ children }: { children: React.ReactNode }) {
+  // The header switch's saved choice; none = follow the system.
+  const theme = parseTheme((await cookies()).get(THEME_COOKIE)?.value);
   return (
-    <html lang="vi">
+    <html lang="vi" data-theme={theme ?? undefined}>
       <body>
         <Providers>{children}</Providers>
       </body>

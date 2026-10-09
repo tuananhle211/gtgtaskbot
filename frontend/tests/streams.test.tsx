@@ -462,6 +462,39 @@ describe("tagging follows can_tag", () => {
   });
 });
 
+describe("Quản trị viên in the stream picker", () => {
+  it("is offered to the OWNER only, and makes the account an ADMIN", async () => {
+    const fetchMock = stubFetch([
+      { match: `/api/account/members/${NEW_ID}/role`, method: "POST", status: 204 },
+      ...panelRoutes(["PR", "ADS"], "OWNER"),
+    ]);
+    renderWithQuery(<UnitPanel code="PR" settings={false} />);
+    const section = await screen.findByRole("region", { name: "Chưa có luồng" });
+    await within(section).findByText("Người Mới");
+    await userEvent.click(within(section).getByRole("button", { name: "Gắn Người Mới vào luồng" }));
+    const dialog = await screen.findByRole("dialog");
+    const role = within(dialog).getByLabelText("Vai trò trong luồng");
+    await waitFor(() =>
+      expect(within(role).getByRole("option", { name: "Quản trị viên · xem toàn bộ task cả 2 luồng" })).toBeInTheDocument(),
+    );
+    await userEvent.selectOptions(role, "SYSTEM:ADMIN");
+    expect(dialog).toHaveTextContent("Đặt Người Mới làm Quản trị viên?");
+    await userEvent.click(within(dialog).getByRole("button", { name: "Đặt làm Quản trị viên" }));
+    await waitFor(() => {
+      const sent = callsOf(fetchMock).find((call) => call.method === "POST");
+      expect(sent?.url).toBe(`/api/account/members/${NEW_ID}/role`);
+      expect(sent?.body).toEqual({ role: "ADMIN" });
+    });
+  });
+
+  it("is not offered to a team lead", async () => {
+    stubFetch(panelRoutes(["PR"]));
+    renderWithQuery(<UnitPanel code="PR" settings={false} />);
+    const picker = await screen.findByLabelText("Vai trò");
+    expect(within(picker).queryByText(/Quản trị viên/)).not.toBeInTheDocument();
+  });
+});
+
 describe("deactivating and reactivating an account", () => {
   it("lets an ADMIN deactivate a member behind a destructive confirmation", async () => {
     const fetchMock = stubFetch([
@@ -635,7 +668,7 @@ describe("the invite panel", () => {
       {
         match: "/api/invites",
         method: "POST",
-        body: { ...OPEN_INVITE, id: "ffffffff-ffff-ffff-ffff-ffffffffffff", note: "Dựng mới", code: "ABC123XYZ", bot_username: "meobot" },
+        body: { ...OPEN_INVITE, id: "ffffffff-ffff-ffff-ffff-ffffffffffff", note: "Dựng mới", code: "ABC123XYZ", bot_username: "meobot", joins_label: "Luồng PR · Thành viên" },
       },
       { match: "/api/invites", method: "GET", body: { items: [OPEN_INVITE, { ...OPEN_INVITE, id: "x", active: false, note: "Cũ" }], total: 2 } },
       { match: "/api/account/members", status: 403, body: FORBIDDEN },
@@ -644,7 +677,9 @@ describe("the invite panel", () => {
     renderWithQuery(<AccountPage />);
     await userEvent.click(await screen.findByRole("tab", { name: "Mời thành viên" }));
     expect(
-      screen.getByText("Người được mời sẽ chưa thuộc luồng nào cho đến khi trưởng nhóm gắn luồng."),
+      screen.getByText(
+        "Người được mời tự vào luồng của bạn; ở ORD, vào đúng ban của bạn với bạn là trưởng quản lý.",
+      ),
     ).toBeInTheDocument();
     // Only open invites are listed.
     const list = await screen.findByRole("list", { name: "Mã mời còn hiệu lực" });
@@ -666,6 +701,9 @@ describe("the invite panel", () => {
     });
     const shown = await screen.findByRole("status", { name: "Mã mời vừa tạo" });
     expect(within(shown).getByText("ABC123XYZ")).toBeInTheDocument();
+    expect(within(shown).getByTestId("invite-joins")).toHaveTextContent(
+      "Người được mời vào: Luồng PR · Thành viên",
+    );
     expect(within(shown).getByRole("link", { name: "https://t.me/meobot?start=ABC123XYZ" })).toHaveAttribute(
       "href",
       "https://t.me/meobot?start=ABC123XYZ",
@@ -673,6 +711,35 @@ describe("the invite panel", () => {
     fireEvent.click(within(shown).getByRole("button", { name: "Sao chép mã" }));
     await waitFor(() => expect(writeText).toHaveBeenCalledWith("ABC123XYZ"));
     expect(await within(shown).findByRole("button", { name: "Đã sao chép" })).toBeInTheDocument();
+  });
+
+  it("is offered to an ORD Leader whose system role is employee", async () => {
+    stubFetch([
+      { match: "/api/invites", method: "GET", body: { items: [], total: 0 } },
+      { match: "/api/account/members", status: 403, body: FORBIDDEN },
+      {
+        match: "/api/account/me",
+        body: {
+          ...ACCOUNT_ME,
+          role: "EMPLOYEE",
+          role_label: "Nhân viên",
+          units: [
+            {
+              code: "ADS",
+              label: "Luồng Order (ORD)",
+              short_label: "ORD",
+              role: "DUNG",
+              role_label: "Trưởng phòng Dựng",
+              is_lead: true,
+              function_tag: "D",
+              member_code: null,
+            },
+          ],
+        },
+      },
+    ]);
+    renderWithQuery(<AccountPage />);
+    expect(await screen.findByRole("tab", { name: "Mời thành viên" })).toBeInTheDocument();
   });
 
   it("lets an OWNER invite a team lead", async () => {

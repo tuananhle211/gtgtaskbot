@@ -229,7 +229,7 @@ class TaskActionService:
                 request_id=request_id,
                 order_id=order_id,
                 expected_version=version,
-                product_link=_blank(command.link),
+                note=note,
             )
         elif kind is OrderActionKind.RETURN_FINAL:
             await commands.return_final(

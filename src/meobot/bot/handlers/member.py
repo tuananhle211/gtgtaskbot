@@ -29,7 +29,9 @@ from meobot.application.member_interaction_service import (
 )
 from meobot.application.member_list_service import MemberListService
 from meobot.bot import formatting, member_keyboards
+from meobot.bot.commands import has_full_bot
 from meobot.bot.member_filters import MemberIntentFilter
+from meobot.bot.texts import BASIC_ONLY_CHAT
 from meobot.core.config import Settings
 from meobot.core.errors import MeoBotError
 from meobot.core.logging import get_logger
@@ -144,6 +146,9 @@ async def _dispatch(
         if intent is MemberIntent.HELP:
             return service.help(actor)
         if intent is MemberIntent.VIEW_AI_ALLOWANCE:
+            if not has_full_bot(actor.role):
+                # No AI chat on the basic bot, so no allowance to report.
+                return MemberReply(text=BASIC_ONLY_CHAT)
             return await service.ai_allowance(actor)
         if intent is MemberIntent.VIEW_MY_HR_REQUESTS:
             return await service.my_hr_requests(actor)

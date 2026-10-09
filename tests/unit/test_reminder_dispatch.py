@@ -38,13 +38,13 @@ def uid(offset: int) -> int:
     return BASE + offset
 
 
-async def add_member(database: SqliteDatabase) -> uuid.UUID:
+async def add_member(database: SqliteDatabase, *, role: Role = Role.EMPLOYEE) -> uuid.UUID:
     async with database.transaction() as session:
         user = User(
             telegram_user_id=MEMBER,
             telegram_username="linh",
             full_name="Nguyễn Thị Linh",
-            role=Role.EMPLOYEE,
+            role=role,
             active=True,
             status=UserStatus.ACTIVE,
             telegram_private_chat_id=MEMBER,
@@ -261,9 +261,11 @@ async def test_ordinary_chat_still_falls_through(
     This is the aiogram trap the member routers already fell into once: a
     handler whose filters matched has handled the update, so a router that
     matches too broadly silently eats ordinary conversation.
+
+    Run as the owner: only the owner's free text reaches the AI on Telegram.
     """
     bot, _session = bot_and_session
-    await add_member(bot_database)
+    await add_member(bot_database, role=Role.OWNER)
 
     await dispatcher.feed_update(
         bot,

@@ -29,6 +29,7 @@ from meobot.domain.identity.models import Actor, Role
 from meobot.domain.orders.models import OrderNodeType
 from meobot.domain.units.errors import UnitNotFoundError
 from meobot.domain.units.models import (
+    FUNCTION_ROLES,
     UnitCode,
     UnitMemberRole,
     UnitMembership,
@@ -164,6 +165,18 @@ class UnitDirectoryService:
     ) -> list[UnitMemberRow]:
         return await self.members(unit_id, role=ROLE_FOR_NODE[node_type])
 
+    async def manager_of(self, unit_id: uuid.UUID, user_id: uuid.UUID) -> uuid.UUID | None:
+        """The one Leader (head) ``user_id`` reports to in this unit, while
+        that link still fits and both are active; else None (= the whole ban)."""
+        row = await self.member(unit_id, user_id)
+        if row is None or row.manager_user_id is None:
+            return None
+        boss = await self.member(unit_id, row.manager_user_id)
+        if boss is None or not manager_fits(boss, row):
+            return None
+        active = await self._session.scalar(select(User.active).where(User.id == boss.user_id))
+        return boss.user_id if active else None
+
     async def member(self, unit_id: uuid.UUID, user_id: uuid.UUID) -> OrgUnitMember | None:
         """The tag row for one person in one unit, open or closed."""
         row: OrgUnitMember | None = await self._session.scalar(
@@ -174,4 +187,24 @@ class UnitDirectoryService:
         return row
 
 
-__all__ = ["NOT_VISIBLE", "ROLE_FOR_NODE", "UnitDirectoryService", "UnitMemberRow"]
+def manager_fits(boss: OrgUnitMember, member: OrgUnitMember) -> bool:
+    """May ``boss`` be ``member``'s own Leader? A staff member of a function
+    reports to a Leader of that function, an orderer to a Trưởng phòng ORD."""
+    if boss.user_id == member.user_id or boss.left_at is not None or member.left_at is not None:
+        return False
+    if boss.unit_id != member.unit_id:
+        return False
+    if member.role is UnitMemberRole.ORDERER:
+        return boss.role is UnitMemberRole.HEAD
+    if member.role in FUNCTION_ROLES and not member.is_lead:
+        return boss.role is member.role and boss.is_lead
+    return False
+
+
+__all__ = [
+    "NOT_VISIBLE",
+    "ROLE_FOR_NODE",
+    "UnitDirectoryService",
+    "UnitMemberRow",
+    "manager_fits",
+]

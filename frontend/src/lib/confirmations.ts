@@ -1034,6 +1034,13 @@ export const tagIntoStreamConfirmation = (
   confirmLabel: "Gắn vào luồng",
 });
 
+/** "Quản trị viên" picked in the stream picker: the account becomes an ADMIN. */
+export const makeAdminConfirmation = (name: string): ConfirmSpec => ({
+  title: `Đặt ${name} làm Quản trị viên?`,
+  description: `${name} thành Quản trị viên hệ thống: thấy toàn bộ task của cả 2 luồng (tab “Tất cả”), quản lý thành viên và tài khoản. Không cần gắn luồng.`,
+  confirmLabel: "Đặt làm Quản trị viên",
+});
+
 /** Revoking an unused invite code: nobody can join with it afterwards. */
 export const disableInviteConfirmation = (): ConfirmSpec => ({
   title: "Thu hồi mã mời này?",

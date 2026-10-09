@@ -24,6 +24,13 @@ NOT_REGISTERED = "Tài khoản Telegram này chưa được đăng ký với Tas
 
 INTERNAL_ERROR = "Đã có lỗi xảy ra khi xử lý yêu cầu. Kỹ thuật đã được ghi nhận log."
 
+#: A non-owner's free text that would have gone to the AI. Only the owner chats
+#: with TasksBot on Telegram - see :func:`meobot.bot.commands.has_full_bot`.
+BASIC_ONLY_CHAT = (
+    "TasksBot trên Telegram chỉ hỗ trợ các lệnh cơ bản (/help), xin nghỉ, "
+    "báo đi muộn và nhắc việc. Công việc làm trên web: gõ /web để nhận liên kết đăng nhập."
+)
+
 
 def welcome_for(role: Role, full_name: str, *, guest: bool = False) -> str:
     """Greeting shown by ``/start``.

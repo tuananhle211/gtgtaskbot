@@ -31,9 +31,10 @@ from meobot.application.capability_service import CapabilityService
 from meobot.application.conversation_service import ConversationService
 from meobot.application.health_service import HealthService
 from meobot.application.identity_service import IdentityService
+from meobot.application.invite_service import InviteService
 from meobot.application.script_type_service import ScriptTypeService
 from meobot.bot import formatting
-from meobot.bot.commands import render_help, spec_for
+from meobot.bot.commands import BY_NAME, render_help, spec_for
 from meobot.bot.handlers.reminders import resume_parked_reminder
 from meobot.bot.texts import welcome_for
 from meobot.core.config import Settings
@@ -99,7 +100,9 @@ async def handle_start(
 
 
 @router.message(Command("help"))
-async def handle_help(message: Message, actor: Actor | None = None) -> None:
+async def handle_help(
+    message: Message, actor: Actor | None = None, database: Database | None = None
+) -> None:
     """List the commands this actor may use.
 
     Registered on the commands router, which is included first, and with no
@@ -122,7 +125,19 @@ async def handle_help(message: Message, actor: Actor | None = None) -> None:
             ),
         )
         return
-    await formatting.answer(message, render_help(actor.role))
+    text = render_help(actor.role)
+    invite = BY_NAME["create_invite"]
+    if not invite.visible_to(actor.role) and database is not None:
+        # A Trưởng phòng / Leader of an ORD ban may invite their staff whatever
+        # their system role - which the role-based list cannot know.
+        async with database.transaction() as session:
+            leads = await InviteService(session, AuditService(session)).may_invite(actor)
+        if leads:
+            text += "\n\n" + formatting.escape(
+                f"{invite.slash} - tạo mã mời nhân viên vào ban của bạn "
+                "(bạn là trưởng quản lý của họ)."
+            )
+    await formatting.answer(message, text)
 
 
 @router.message(Command("capabilities"))

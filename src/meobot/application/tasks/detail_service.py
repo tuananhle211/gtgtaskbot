@@ -487,9 +487,8 @@ class TaskDetailService:
                     # The last node hands in the product: its link is required.
                     label = f"Nộp sản phẩm · {node_type_label(node.node_type)}"
                     required = ("link",)
-            elif kind is OrderActionKind.APPROVE_FINAL:
-                inputs = ("link",)
             elif kind in (
+                OrderActionKind.APPROVE_FINAL,
                 OrderActionKind.RETURN_ORDER,
                 OrderActionKind.RETURN_NODE,
                 OrderActionKind.RETURN_VIDEO,
@@ -517,9 +516,15 @@ class TaskDetailService:
         node_type: OrderNodeType,
         video_type: OrderVideoType,
     ) -> tuple[PersonRef, ...]:
+        """The staff a Leader hands this node to: the ban's members, not its Leaders.
+
+        A Leader who wants the node takes it with "Nhận việc" instead.
+        """
         wanted = ROLE_FOR_NODE[function_node(node_type, video_type)]
         rows = await self._directory.members(unit_id, role=wanted)
-        return tuple(PersonRef(row.user.id, row.user.full_name) for row in rows)
+        return tuple(
+            PersonRef(row.user.id, row.user.full_name) for row in rows if not row.membership.is_lead
+        )
 
     # --- PR --------------------------------------------------------------------
 
@@ -806,7 +811,7 @@ def _ads_people(detail: OrderDetail, approvers: AdsApprovers) -> tuple[TaskPerso
             )
         )
     elif order.stage is OrderStage.ORDER_PENDING:
-        people.append(waiting("Chờ duyệt order", approvers.head))
+        people.append(waiting("Chờ duyệt order", approvers.order_approvers(order.owner_user_id)))
     for node in detail.nodes:
         # A legacy link node is no step of its own any more.
         if node.status is OrderNodeStatus.BO_QUA or node.node_type is OrderNodeType.GAN_LINK:

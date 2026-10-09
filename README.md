@@ -13,8 +13,8 @@ và giao diện web, cùng mang tên TasksBot (trước đây là MeoBot / MeoCh
 
 ## Cơ sở dữ liệu
 
-Schema được quản lý bằng Alembic. Alembic head hiện tại là **`0048`**.
-Có **48 migration** sẵn trong `alembic/versions/`. Deploy không tự chạy
+Schema được quản lý bằng Alembic. Alembic head hiện tại là **`0052`**.
+Có **52 migration** sẵn trong `alembic/versions/`. Deploy không tự chạy
 migration: chạy `alembic upgrade head` bằng tay sau khi `pg_dump`, theo
 `docs/handover/11_DEPLOYMENT_AND_OPERATIONS.md`.
 
@@ -51,3 +51,21 @@ Bắt đầu từ `docs/handover/00_README.md`.
 - Kiểm thử: `docs/handover/10_TESTING_AND_QUALITY_GATES.md`
 - Triển khai: `docs/handover/11_DEPLOYMENT_AND_OPERATIONS.md`
 - Nợ kỹ thuật: `docs/handover/13_KNOWN_ISSUES_AND_TECH_DEBT.md`
+
+
+
+
+Câu lệnh alembic upgrade head
+cd /root/gtgtask
+
+# 1. Backup DB trước (khuyên làm)
+docker compose exec -T postgres sh -c 'pg_dump -U "$POSTGRES_USER" -d "$POSTGRES_DB" -Fc' > ~/dev-before-migrate-$(date +%F-%H%M).dump
+
+# 2. Nâng DB lên migration mới nhất (0052)
+docker compose exec -T api alembic upgrade head
+
+# 3. Kiểm tra: phải ra 0052 (head)
+docker compose exec -T api alembic current
+
+# 4. Khởi động lại các service dùng DB
+docker compose restart api worker bot beat

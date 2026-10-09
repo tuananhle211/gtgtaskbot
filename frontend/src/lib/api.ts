@@ -3346,6 +3346,8 @@ export interface UnitMember {
   active: boolean;
   /** Whether the account itself is active (false once deactivated). Optional. */
   account_active?: boolean;
+  /** ORD: the one Leader (an orderer: head) this member reports to; null = the whole ban. */
+  manager_user_id?: Uuid | null;
 }
 
 export interface UnitMemberList {
@@ -3832,6 +3834,8 @@ export interface AccountUnit {
   code: string;
   label: string;
   short_label?: string;
+  /** The role in the stream (HEAD, ORDERER, BIEN_TAP…). */
+  role?: string;
   role_label: string;
   is_lead?: boolean;
   /** ORD function roles only: "BT" / "TK" / "D". */
@@ -3896,6 +3900,8 @@ export interface Invite {
   id: Uuid;
   role: string;
   role_label: string;
+  /** Where the invitee lands ("Luồng Order (ORD) · Dựng · Trưởng quản lý: X"); null = untagged. */
+  joins_label?: string | null;
   scope: string | null;
   note: string | null;
   expires_at: string | null;
@@ -3982,6 +3988,9 @@ export const api = {
     post<void>(`/api/account/members/${userId}/deactivate`),
   reactivateAccount: (userId: Uuid) =>
     post<void>(`/api/account/members/${userId}/reactivate`),
+  /** OWNER only: the account's system role (e.g. "ADMIN" = sees both streams). */
+  setSystemRole: (userId: Uuid, role: string) =>
+    post<void>(`/api/account/members/${userId}/role`, { role }),
 
   // Invites (TEAM_LEAD, ADMIN, OWNER). 403 for anybody else.
   listInvites: () => get<InviteList>("/api/invites"),
@@ -4033,6 +4042,8 @@ export const api = {
       is_lead?: boolean;
       member_code?: string | null;
       personal_nas_url?: string | null;
+      /** ORD: the member's own Leader / head; null = back to the whole ban. */
+      manager_user_id?: Uuid | null;
     },
   ) => patch<UnitMember>(`/api/units/${code}/members/${userId}`, body),
   untagUnitMember: (code: string, userId: Uuid) =>

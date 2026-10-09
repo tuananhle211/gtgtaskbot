@@ -88,8 +88,9 @@ class OrgUnitMember(Base, UUIDPrimaryKeyMixin, TimestampMixin):
     """One person's tag in one unit.
 
     ``member_code`` is the short upper-case handle that opens an order code
-    (``TUAN`` in ``TUAN-D-261003-01``); the department head hands it out and it
-    is unique within the unit while the tag is open. PR members have none.
+    (``TUAN`` in ``TUAN-D-261003-01``); the department head hands it out, or
+    the first order derives it from the name. Not unique since 0052 (rules for
+    codes come later). PR members have none.
     """
 
     __tablename__ = ORG_UNIT_MEMBERS
@@ -97,14 +98,6 @@ class OrgUnitMember(Base, UUIDPrimaryKeyMixin, TimestampMixin):
         UniqueConstraint("unit_id", "user_id", name="uq_org_unit_members_unit_id_user_id"),
         CheckConstraint(
             "member_code IS NULL OR length(trim(member_code)) > 0", name="member_code_not_blank"
-        ),
-        Index(
-            "uq_org_unit_members_unit_member_code",
-            "unit_id",
-            "member_code",
-            unique=True,
-            postgresql_where=text("member_code IS NOT NULL AND left_at IS NULL"),
-            sqlite_where=text("member_code IS NOT NULL AND left_at IS NULL"),
         ),
         Index("ix_org_unit_members_user_id", "user_id"),
     )
@@ -124,6 +117,12 @@ class OrgUnitMember(Base, UUIDPrimaryKeyMixin, TimestampMixin):
     )
     member_code: Mapped[str | None] = mapped_column(String(20), nullable=True)
     personal_nas_url: Mapped[str | None] = mapped_column(Text, nullable=True)
+    #: ORD (0050): the one Leader (an orderer: the one head) this member reports
+    #: to. Their hand-ins and orders wait on that person only; none = every
+    #: Leader (head) of the ban.
+    manager_user_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey(f"{USERS_TABLE}.id", ondelete=RESTRICT), nullable=True
+    )
     joined_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=func.now()
     )

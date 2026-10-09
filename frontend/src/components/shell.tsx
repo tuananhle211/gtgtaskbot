@@ -9,6 +9,7 @@ import { roleLabel } from "@/lib/labels";
 import { unitShortLabel, unitTagClass } from "@/lib/units";
 import { ErrorBox, Loading } from "@/components/states";
 import { NotificationBell } from "@/components/notifications";
+import { ThemeToggle } from "@/components/theme-toggle";
 import { Avatar } from "@/components/avatar";
 import { Logo, LogoMark } from "@/components/logo";
 
@@ -331,6 +332,7 @@ export function Shell({ children }: { children: React.ReactNode }) {
           </div>
           {session.data ? (
             <div className="flex shrink-0 items-center gap-2">
+              <ThemeToggle />
               {mustChangePassword ? null : <NotificationBell />}
               <button
                 type="button"

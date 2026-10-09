@@ -15,6 +15,13 @@ Now every command is declared once here, and everything else is derived:
 This registry describes *availability*, not authority. The policy engine and
 the per-handler permission checks remain the enforcement points; a spec's
 ``permission`` only decides whether a command is worth showing to somebody.
+
+The one exception is :attr:`CommandSpec.basic`. On Telegram only the owner gets
+the whole bot; everybody else - Nhân viên, Trưởng nhóm and Quản trị viên alike -
+gets the basic commands and does their work on the web (``/web``). That rule is
+:func:`has_full_bot`, and it *is* enforced, once, by
+:class:`~meobot.bot.middlewares.BasicCommandsMiddleware` for commands and by the
+conversation handler for free text.
 """
 
 from __future__ import annotations
@@ -68,6 +75,8 @@ class CommandSpec:
         min_role: Minimum role for the command to be listed.
         available_to_unregistered: True for commands an unknown Telegram
             account may run - only ``/start`` and ``/join``.
+        basic: True for the commands every registered account may run. A
+            command without it is the owner's alone - see :func:`has_full_bot`.
         example: Optional concrete example appended to the usage hint.
     """
 
@@ -78,6 +87,7 @@ class CommandSpec:
     permission: Permission | None = None
     min_role: Role | None = None
     available_to_unregistered: bool = False
+    basic: bool = False
     example: str | None = None
 
     @property
@@ -86,6 +96,8 @@ class CommandSpec:
 
     def visible_to(self, role: Role) -> bool:
         """True when ``role`` should see this command in ``/help``."""
+        if not self.basic and not has_full_bot(role):
+            return False
         if self.min_role is not None and role.rank < self.min_role.rank:
             return False
         return self.permission is None or has_permission(role, self.permission)
@@ -98,6 +110,15 @@ class CommandSpec:
         return text
 
 
+def has_full_bot(role: Role) -> bool:
+    """True when ``role`` gets the whole Telegram bot: AI chat, tools, admin.
+
+    Only the owner. Everybody else gets the :attr:`CommandSpec.basic` commands,
+    their notifications, HR requests and reminders, and works on the web.
+    """
+    return role is Role.OWNER
+
+
 COMMANDS: tuple[CommandSpec, ...] = (
     # --- System -----------------------------------------------------------
     CommandSpec(
@@ -106,6 +127,7 @@ COMMANDS: tuple[CommandSpec, ...] = (
         usage="/start",
         category=CommandCategory.SYSTEM,
         available_to_unregistered=True,
+        basic=True,
     ),
     CommandSpec(
         command="help",
@@ -113,6 +135,7 @@ COMMANDS: tuple[CommandSpec, ...] = (
         usage="/help",
         category=CommandCategory.SYSTEM,
         available_to_unregistered=True,
+        basic=True,
     ),
     CommandSpec(
         command="health",
@@ -132,6 +155,14 @@ COMMANDS: tuple[CommandSpec, ...] = (
         description="Xem hồ sơ TasksBot đang dùng cho bạn",
         usage="/whoami",
         category=CommandCategory.SYSTEM,
+        basic=True,
+    ),
+    CommandSpec(
+        command="web",
+        description="Nhận liên kết đăng nhập trang web làm việc",
+        usage="/web",
+        category=CommandCategory.SYSTEM,
+        basic=True,
     ),
     CommandSpec(
         command="assistant_profile",
@@ -212,6 +243,7 @@ COMMANDS: tuple[CommandSpec, ...] = (
         description="Huỷ thao tác nhiều bước đang dở",
         usage="/cancel_flow",
         category=CommandCategory.SHEETS,
+        basic=True,
     ),
     # --- Drive ------------------------------------------------------------
     CommandSpec(
@@ -298,6 +330,7 @@ COMMANDS: tuple[CommandSpec, ...] = (
         # role the code may carry (strictly below the creator's).
         min_role=Role.TEAM_LEAD,
         example="/create_invite Nhân viên 5 7",
+        basic=True,
     ),
     CommandSpec(
         command="add_user",
@@ -314,6 +347,7 @@ COMMANDS: tuple[CommandSpec, ...] = (
         category=CommandCategory.PEOPLE,
         available_to_unregistered=True,
         example="/join MEO-1A2B3C",
+        basic=True,
     ),
     # --- Access control in groups -----------------------------------------
     # Every one of these targets somebody else, so every one of them asks for a
@@ -495,6 +529,7 @@ COMMANDS: tuple[CommandSpec, ...] = (
         usage="/cancel <mã xác nhận>",
         category=CommandCategory.CONFIRMATION,
         example="/cancel 8f3a21",
+        basic=True,
     ),
 )
 
@@ -518,6 +553,24 @@ def commands_for(role: Role) -> list[CommandSpec]:
     return [spec for spec in COMMANDS if spec.visible_to(role)]
 
 
+def owner_only_commands() -> frozenset[str]:
+    """Slash commands only the owner may run - every spec that is not basic."""
+    return frozenset(spec.slash for spec in COMMANDS if not spec.basic)
+
+
+#: What a non-owner is pointed at when refused. Deliberately short: the full
+#: list is ``/help``, and the work itself is on the web.
+_BASIC_HINT: tuple[str, ...] = ("start", "help", "whoami", "web")
+
+
+def owner_only_command_reply(role: Role) -> str:
+    """The one reply a non-owner gets for an owner-only command."""
+    hint = [f"/{name}" for name in _BASIC_HINT]
+    if BY_NAME["create_invite"].visible_to(role):
+        hint.append(BY_NAME["create_invite"].slash)
+    return "Lệnh này chỉ dành cho chủ sở hữu. Bạn dùng được: " + ", ".join(hint) + "."
+
+
 def public_commands() -> frozenset[str]:
     """Slash commands an unregistered Telegram account may send."""
     return frozenset(spec.slash for spec in COMMANDS if spec.available_to_unregistered)
@@ -528,7 +581,8 @@ def telegram_commands(role: Role = Role.EMPLOYEE) -> list[tuple[str, str]]:
 
     Telegram's menu is global per scope, so the default menu is built for the
     least privileged role: it must not advertise ``/create_invite`` to an
-    employee who would only be refused.
+    employee who would only be refused. That makes it the basic menu; the
+    owner's full one is ``telegram_commands(Role.OWNER)``, published per chat.
     """
     return [(spec.command, spec.description) for spec in commands_for(role)]
 
@@ -558,7 +612,24 @@ def render_help(role: Role, *, unregistered: bool = False) -> str:
         lines.extend(f"{escape(spec.usage)} — {escape(spec.description)}" for spec in in_category)
         lines.append("")
 
-    if not unregistered:
+    if not unregistered and not has_full_bot(role):
+        lines.extend(
+            [
+                bold("Làm việc trên web"),
+                escape(
+                    "Công việc, duyệt bài và báo cáo nằm trên web. "
+                    "Gõ /web để nhận liên kết đăng nhập."
+                ),
+                "",
+                bold("Nhắn tự nhiên"),
+                escape(
+                    'Bạn vẫn nhắn được để xin nghỉ, báo đi muộn ("xin nghỉ sáng mai"), '
+                    "xem đơn của mình và đặt nhắc việc. TasksBot cũng gửi thông báo "
+                    "công việc cho bạn tại đây."
+                ),
+            ]
+        )
+    elif not unregistered:
         lines.extend(
             [
                 bold("Nhắn tự nhiên"),

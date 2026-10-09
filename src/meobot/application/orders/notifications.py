@@ -53,13 +53,15 @@ class OrderNotificationService:
     # --- the events -----------------------------------------------------------
 
     async def order_submitted(self, *, actor: Actor, order: Order, unit: UnitSettings) -> None:
-        heads = await self._directory.heads(order.unit_id)
+        heads = [row.user.id for row in await self._directory.heads(order.unit_id)]
+        # An orderer with their own head: only that head is told.
+        own = await self._directory.manager_of(order.unit_id, order.owner_user_id)
         await self._tell(
             actor=actor,
             order=order,
             unit=unit,
             event=NotificationEvent.ORDER_SUBMITTED,
-            recipients=[row.user.id for row in heads],
+            recipients=[own] if own in heads else heads,
             body=f"“{order.title}” ({order.code}) đang chờ bạn duyệt order.",
             suffix=f"round{order.version}",
         )
@@ -149,6 +151,14 @@ class OrderNotificationService:
         else:
             rows = await self._directory.leads(order.unit_id, approver_node or node.node_type)
             recipients = [row.user.id for row in rows]
+            # A worker with their own Leader: only that Leader is told.
+            own = (
+                None
+                if node.assignee_user_id is None
+                else await self._directory.manager_of(order.unit_id, node.assignee_user_id)
+            )
+            if own in recipients:
+                recipients = [own]
         await self._tell(
             actor=actor,
             order=order,
