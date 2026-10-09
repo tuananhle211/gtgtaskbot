@@ -29,10 +29,9 @@ from meobot.bot.commands import spec_for
 from meobot.core.errors import MeoBotError
 from meobot.core.logging import get_logger
 from meobot.db.session import Database
-from meobot.domain.identity.invites import INVITABLE_ROLES
+from meobot.domain.identity.invites import INVITABLE_ROLES, may_create_invites
 from meobot.domain.identity.labels import parse_role_prefix, role_label, role_labels
 from meobot.domain.identity.models import Actor, Role
-from meobot.domain.permissions.matrix import Permission, has_permission
 
 logger = get_logger(__name__)
 
@@ -57,11 +56,12 @@ async def handle_create_invite(
     Usage: ``/create_invite [vai trò] [số lượt] [số ngày]`` - defaults to one
     Member code valid for a week.
     """
-    if not has_permission(actor.role, Permission.USER_MANAGE):
+    if not may_create_invites(actor.role):
         await formatting.answer(
             message,
             formatting.escape(
-                f"⛔ Chỉ {role_label(Role.OWNER)} và {role_label(Role.ADMIN)} mới tạo được mã mời."
+                f"⛔ Chỉ {role_label(Role.TEAM_LEAD)}, {role_label(Role.ADMIN)} và "
+                f"{role_label(Role.OWNER)} mới tạo được mã mời."
             ),
         )
         return

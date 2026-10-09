@@ -49,11 +49,10 @@ async def test_01_the_owner_tags_a_marketer_and_the_code_is_normalised(world: Wo
         "DUNG",
     }
 
-    # The person now sees Ads, and nothing else changed for them in PR: they
-    # were untagged there, and an explicit Ads tag ends the legacy PR default.
+    # The person now sees Ads as well, and keeps the PR tag the world gave them.
     world.act_as(world.member)
     me = world.client.get("/api/units/me").json()
-    assert [unit["code"] for unit in me["units"]] == ["ADS"]
+    assert [unit["code"] for unit in me["units"]] == ["PR", "ADS"]
 
 
 async def test_02_a_role_that_does_not_belong_to_the_unit_is_refused(world: World) -> None:
@@ -114,7 +113,7 @@ async def test_04_untagging_closes_the_row_and_retagging_reopens_it(world: World
 
     directory = UnitDirectoryService(world.session)
     membership = await directory.membership_for(world.actor(world.member))
-    assert membership.entries == ()
+    assert [entry.unit_code for entry in membership.entries] == [UnitCode.PR]
     assert world.client.get("/api/units/ADS/members").json()["members"] == []
 
     again = world.client.post(
@@ -147,7 +146,7 @@ async def test_05_a_tag_can_be_edited_in_place(world: World) -> None:
     assert body["role"] == "DUNG"
 
 
-async def test_06_an_admin_of_pr_cannot_administer_ads_and_an_employee_cannot_administer_at_all(
+async def test_06_an_admin_administers_every_unit_and_an_employee_none(
     world: World,
 ) -> None:
     units = await seed_units(world)
@@ -158,13 +157,9 @@ async def test_06_an_admin_of_pr_cannot_administer_ads_and_an_employee_cannot_ad
     await tag(world, units[UnitCode.ADS], world.member, UnitMemberRole.ORDERER)
 
     world.act_as(admin)
-    # Tagged in PR only: Ads is invisible.
-    assert world.client.patch("/api/units/ADS/settings", json={"urgent_days": 3}).status_code == 404
-    assert world.client.get("/api/units/directory").status_code == 200
-
-    # An ADMIN tagged into Ads may administer it.
-    await tag(world, units[UnitCode.ADS], admin, UnitMemberRole.HEAD)
+    # Tagged in PR only, and still the administrator of Ads: an ADMIN sees all.
     assert world.client.patch("/api/units/ADS/settings", json={"urgent_days": 3}).status_code == 200
+    assert world.client.get("/api/units/directory").status_code == 200
 
     # A plain member of Ads is inside, so the refusal is a 403 that says so.
     world.act_as(world.member)
@@ -297,7 +292,7 @@ async def test_09_the_ads_positions_include_a_head_for_each_function(world: Worl
         (row["role"], row.get("is_lead", False), row["label"]) for row in listed["assignable_roles"]
     ]
     assert positions[:4] == [
-        ("HEAD", False, "Trưởng phòng Ads"),
+        ("HEAD", False, "Trưởng phòng ORD"),
         ("BIEN_TAP", True, "Trưởng phòng Biên kịch"),
         ("THIET_KE", True, "Trưởng phòng Design"),
         ("DUNG", True, "Trưởng phòng Dựng"),

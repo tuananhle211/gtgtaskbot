@@ -95,6 +95,7 @@ from meobot.domain.pr.models import (
 )
 from meobot.domain.pr.policy import PrCapability
 from meobot.domain.pr.workflow import PrTransitionTrigger, allowed_content_targets
+from tests.unit.streams import tag_pr
 
 SRC = Path("src/meobot")
 WEB_MODULES = (
@@ -162,6 +163,7 @@ async def world(session: AsyncSession) -> AsyncIterator[WebWorld]:
     platform = PrPlatform(code="PLAT-W", name="Web Platform")
     session.add_all([lead, head, outsider, brand, platform])
     await session.flush()
+    await tag_pr(session, [lead, head, outsider])  # untagged sees no stream
 
     settings = _web_settings()
     audit = AuditService(session)

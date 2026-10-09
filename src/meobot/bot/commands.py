@@ -294,7 +294,9 @@ COMMANDS: tuple[CommandSpec, ...] = (
         description="Tạo mã mời cho thành viên mới",
         usage="/create_invite [vai trò] [số lượt] [số ngày]",
         category=CommandCategory.PEOPLE,
-        permission=Permission.USER_MANAGE,
+        # A team lead ("Trưởng nhóm") and above; the service decides which
+        # role the code may carry (strictly below the creator's).
+        min_role=Role.TEAM_LEAD,
         example="/create_invite Nhân viên 5 7",
     ),
     CommandSpec(

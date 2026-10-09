@@ -423,20 +423,20 @@ def _names(body: dict[str, Any]) -> set[str]:
 async def test_05_who_sees_the_member_list(world: World) -> None:
     team = await build(world)
     ads_people = {"Trưởng phòng Ads", "Marketing Tuấn", "Biên tập B", "Editor C"}
-    pr_people = {world.owner.full_name, world.lead.full_name, world.member.full_name, "Quản trị PR"}
+    pr_people = {world.lead.full_name, world.member.full_name, "Quản trị PR"}
+    # The OWNER is in no stream (and sees every one without a tag).
+    everyone = ads_people | pr_people | {world.owner.full_name}
 
     # OWNER: everyone; or one unit at a time.
     world.act_as(world.owner)
-    assert _names(_members(world, month="2026-09")) == ads_people | pr_people
+    assert _names(_members(world, month="2026-09")) == everyone
     assert _names(_members(world, unit="ADS")) == ads_people
     assert _names(_members(world, unit="PR")) == pr_people
 
-    # ADMIN tagged PR: the PR members (the untagged count as PR), never Ads.
+    # ADMIN (tagged PR or not): everyone too, and either stream.
     world.act_as(team.admin)
-    assert _names(_members(world)) == pr_people
-    refused = world.client.get("/api/account/members", params={"unit": "ADS"})
-    assert refused.status_code == 403
-    assert refused.json()["error"]["code"] == "account_members_forbidden"
+    assert _names(_members(world)) == everyone
+    assert _names(_members(world, unit="ADS")) == ads_people
 
     # The Ads HEAD: the Ads members.
     world.act_as(team.head)
@@ -469,7 +469,7 @@ async def test_06_member_rows_carry_the_month_asked_for(world: World) -> None:
     assert writer["has_custom_password"] is False and writer["locked"] is False
     assert writer["last_login_at"] is None
     assert writer["stats"]["nodes_done"] == 2 and writer["stats"]["points"] == 2.5
-    assert rows["Trưởng phòng Ads"]["role_label"] == "Trưởng phòng Ads"
+    assert rows["Trưởng phòng Ads"]["role_label"] == "Trưởng phòng ORD"
     assert set(writer["stats"]) == {
         "month",
         "points",
@@ -506,7 +506,16 @@ async def test_07_my_own_card_and_figures(world: World) -> None:
     assert body["user_id"] == str(team.writer.id)
     assert body["role"] == "EMPLOYEE" and body["role_label"] == "Nhân viên"
     assert body["units"] == [
-        {"code": "ADS", "label": "Phòng Ads", "role_label": "Biên tập", "member_code": None}
+        {
+            "code": "ADS",
+            "label": "Luồng Order (ORD)",
+            "short_label": "ORD",
+            "role": "BIEN_TAP",
+            "role_label": "Biên tập",
+            "is_lead": False,
+            "function_tag": "BT",
+            "member_code": None,
+        }
     ]
     assert body["must_change_password"] is False
     assert body["has_custom_password"] is False and body["password_changed_at"] is None

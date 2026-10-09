@@ -29,6 +29,8 @@ class TaskSummaryResponse(_Out):
     id: uuid.UUID
     unit: Literal["PR", "ADS"]
     unit_label: str
+    #: The chip tag: "PR" / "ORD".
+    unit_short_label: str
     code: str
     title: str
     kind: str

@@ -1,9 +1,11 @@
 # 16 — Runbook phát hành Creative Ops (PR + Ads) lên production
 
 Tài liệu này là **danh sách việc phải làm vào ngày đưa bản Creative Ops lên production**: từ
-bản đang chạy (migration **0041**, chỉ có phòng PR) lên bản mới (migration **0047**: thêm phòng
-Ads, bảng task chung, quy trình linh hoạt và loại video, đăng nhập bằng mật khẩu, đặt lại mật
-khẩu qua Telegram, ảnh đại diện, đổi thương hiệu thành TasksBot).
+bản đang chạy (migration **0041**, chỉ có phòng PR) lên bản mới (migration **0048**: thêm phòng
+Ads (hiển thị là "Luồng Order (ORD)"), bảng task chung, quy trình linh hoạt và loại video, đăng
+nhập bằng mật khẩu, đặt lại mật khẩu qua Telegram, ảnh đại diện, đổi thương hiệu thành TasksBot,
+và 0048: gắn luồng PR cho mọi tài khoản đang hoạt động chưa được gắn luồng nào — từ bản này tài
+khoản không có luồng sẽ không thấy luồng nào).
 
 Đọc kèm: [08_DATABASE_AND_MIGRATIONS.md](08_DATABASE_AND_MIGRATIONS.md),
 [11_DEPLOYMENT_AND_OPERATIONS.md](11_DEPLOYMENT_AND_OPERATIONS.md).
@@ -17,9 +19,9 @@ trường có sẵn trong container, không cần gõ mật khẩu.
 
 | | |
 |---|---|
-| Thời gian migration | **~5 giây** (đã chạy thử trên bản dump production 06/10/2026: 0041 → 0047, mỗi bước < 1 giây) |
+| Thời gian migration | **~5 giây** (đã chạy thử trên bản dump production 06/10/2026: 0041 → 0047, mỗi bước < 1 giây; 0048 chỉ ghi dữ liệu) |
 | Thời gian gián đoạn dự kiến | 1–3 phút (build image + khởi động lại container), migration không đáng kể |
-| Có xoá dữ liệu PR cũ không | **Không.** Cả 6 migration chỉ thêm bảng/cột, dữ liệu cũ giữ nguyên |
+| Có xoá dữ liệu PR cũ không | **Không.** Cả 7 migration chỉ thêm bảng/cột/dòng, dữ liệu cũ giữ nguyên |
 | Điều nguy hiểm nhất | Code mới chạy trên database **chưa migrate** sẽ lỗi toàn bộ (cả bot Telegram) — xem mục 1 |
 | Cần chuẩn bị trước | Bản sao lưu database, sửa `deploy.yml` (mục 2), quyết định về mật khẩu mặc định (mục 6) |
 
@@ -129,7 +131,7 @@ Merge PR vào `master`. GitHub Actions sẽ build → migrate → khởi động
 
 ```bash
 cd /root/gtgtask
-docker compose exec -T api alembic current                     # 0047 (head)
+docker compose exec -T api alembic current                     # 0048 (head)
 docker compose ps                                              # api, web, bot, worker, beat: Up / healthy
 docker compose logs --since 5m api worker bot | grep -iE "error|traceback" | head
 docker compose exec -T postgres sh -c 'psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -tAc "
@@ -205,7 +207,7 @@ Khuyến nghị: phương án 2 (an toàn nhất, không phải phát mật kh�
 ## 7. Rollback (khi có sự cố nghiêm trọng)
 
 Migration có thể downgrade, nhưng **không khuyến nghị**: downgrade 0045/0046 xoá toàn bộ mật khẩu
-đã đặt, 0047 xoá ảnh đại diện, 0044 từ chối downgrade nếu đã có order dùng quy trình mới. Cách an
+đã đặt, 0048 xoá đúng các dòng gắn luồng PR mà nó đã thêm, 0047 xoá ảnh đại diện, 0044 từ chối downgrade nếu đã có order dùng quy trình mới. Cách an
 toàn là **khôi phục bản sao lưu + chạy lại commit cũ**. Mọi dữ liệu ghi sau thời điểm sao lưu sẽ
 mất, nên quyết định sớm.
 
@@ -244,7 +246,7 @@ deploy lại bản mới.
 - [ ] Sao lưu database + ghi commit hiện tại + `alembic current` = 0041
 - [ ] Chép bản sao lưu ra máy khác
 - [ ] Merge PR → job Actions xanh
-- [ ] `alembic current` = 0047, container đều Up, log không có traceback
+- [ ] `alembic current` = 0048, container đều Up, log không có traceback
 - [ ] Số `tasks` = số `pr_content_items`; 11 loại video
 - [ ] Dashboard / Tasks / chi tiết task PR cũ / bot `/start` hoạt động
 

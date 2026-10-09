@@ -24,7 +24,7 @@ Hệ quả quan trọng: unit test chỉ kiểm tra **luật hành vi**. CHECK c
 |---|---|
 | `alembic.ini` | `script_location = alembic`, `prepend_sys_path = src`, không có `sqlalchemy.url`; template file `%(rev)s_%(slug)s`; post-write hook chạy `ruff format` (`alembic.ini:1-18`) |
 | `alembic/env.py` | lấy DSN từ `get_settings().database_url` (`:28`) — tức cùng `Settings` với ứng dụng, nên `postgres://`/`postgresql://` được viết lại thành `postgresql+asyncpg://` (`src/meobot/core/config.py:396-404`); engine async `async_engine_from_config(... poolclass=NullPool)` và `connection.run_sync(do_run_migrations)` (`:58-72`); offline mode phát SQL (`:31-42`); `compare_type=True, compare_server_default=True, render_as_batch=False` (`:47-53`) |
-| Thư mục | `alembic/versions/` — 47 file `0001_…py` → `0047_…py`; bị loại khỏi ruff lint (`pyproject.toml` `extend-exclude`) |
+| Thư mục | `alembic/versions/` — 48 file `0001_…py` → `0048_…py`; bị loại khỏi ruff lint (`pyproject.toml` `extend-exclude`) |
 | Lệnh chạy trong vận hành | `make migrate` = `docker compose run --rm api alembic upgrade head` (`Makefile:70-71`) |
 | Tạo migration | `make migration m="describe the change"` = `docker compose run --rm api alembic revision --autogenerate -m "…"` (`Makefile:73-75`) |
 
@@ -32,10 +32,10 @@ Hệ quả quan trọng: unit test chỉ kiểm tra **luật hành vi**. CHECK c
 
 ```
 $ DATABASE_URL=postgresql+asyncpg://x:y@localhost/z .venv/bin/alembic heads
-0047 (head)
+0048 (head)
 ```
 
-Lệnh trên dùng một DSN giả và **không kết nối CSDL** (Alembic chỉ đọc cây script). `alembic history` cho đúng **một chuỗi tuyến tính** `<base> → 0001 → … → 0047`, không có nhánh; chuỗi `down_revision` nối liền từng file (`0032_pr_work_core.py:77-78` … `0041_pr_work_result_exclusion_kind.py:55-56`).
+Lệnh trên dùng một DSN giả và **không kết nối CSDL** (Alembic chỉ đọc cây script). `alembic history` cho đúng **một chuỗi tuyến tính** `<base> → 0001 → … → 0048`, không có nhánh; chuỗi `down_revision` nối liền từng file (`0032_pr_work_core.py:77-78` … `0041_pr_work_result_exclusion_kind.py:55-56`).
 
 Head hiện tại: `0041_pr_work_result_exclusion_kind`. Repository phải mang theo **toàn bộ** `alembic/versions/0001…0041` cùng `alembic.ini` và `alembic/env.py`: `alembic upgrade head` trên database trống chạy qua cả 41 file, và một database đang vận hành chỉ nâng được từ revision đang có. Trước khi nâng cấp một database hiện có, luôn đọc revision đang áp dụng bằng `docker compose run --rm api alembic current` (xem §5).
 

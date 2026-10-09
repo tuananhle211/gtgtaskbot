@@ -12,15 +12,16 @@ The actor is rebuilt from the ``users`` row on every request and every Telegram
 update, and hundreds of call sites construct one directly; membership is a
 per-request lookup instead, resolved once and shared by the gate and the route.
 
-The legacy rule
+No tag, no unit
 ---------------
 
-A user with **no** membership row at all is treated as a PR ``MEMBER``. Every
-user that existed before units did is tagged PR by migration ``0042``, so in
-production the rule only ever applies to somebody invited afterwards and not
-yet tagged - who gets exactly what they got before units existed. A user with
-rows that have all been closed (``left_at`` set) belongs to no unit; that is a
-decision somebody made, not an absence.
+A user with **no** open membership row belongs to no unit: they see neither
+stream until a team lead (or an ADMIN/OWNER) tags them. Joining by invite
+creates no tag. Migration ``0042`` tagged every account that existed before
+units did as PR, and ``0048`` tagged every active account still untagged when
+the rule changed, so nobody working in PR lost access when it did.
+
+The OWNER and the ADMIN see every unit whatever their tags.
 """
 
 from __future__ import annotations
@@ -41,7 +42,7 @@ class UnitCode(StrEnum):
 
 #: The namespace migration ``0042`` derives the seeded unit ids from. Kept
 #: here as well so code that must name a unit before it has read the row - the
-#: legacy PR rule in :func:`~meobot.application.units.directory` - names the
+#: task mirror's PR rows in :mod:`meobot.application.tasks.sync` - names the
 #: same id the migration wrote. A parity test holds the two copies equal.
 UNIT_SEED_NAMESPACE = uuid.UUID("5a9f3b0e-6c1d-4f8a-9b2e-004200420042")
 
@@ -132,20 +133,31 @@ class UnitMembershipEntry:
 class UnitMembership:
     """Everything the gate and the scopes need to know about one actor.
 
-    ``is_owner`` is the one role that crosses the wall: the OWNER sees every
-    unit and acts as its head. An ADMIN is bounded by their tags like anybody
-    else; the role only widens what they may do *inside* a unit they belong to.
+    ``is_owner`` and ``is_admin`` cross the wall: the OWNER and the ADMIN see
+    every unit whatever their tags (the OWNER also acts as the Ads head). Inside
+    Ads an ADMIN holds the permission matrix's Admin column. Everybody else sees
+    exactly the units they are tagged into - none when untagged.
     """
 
     user_id: uuid.UUID | None
     entries: tuple[UnitMembershipEntry, ...] = field(default_factory=tuple)
     is_owner: bool = False
-    #: ``Role.ADMIN``: the matrix's Admin column, inside the units they are tagged in.
+    #: ``Role.ADMIN``: sees every unit; the matrix's Admin column inside Ads.
     is_admin: bool = False
+
+    @property
+    def sees_all(self) -> bool:
+        """OWNER or ADMIN: every unit, and the "all units" view."""
+        return self.is_owner or self.is_admin
+
+    @property
+    def is_untagged(self) -> bool:
+        """No open tag at all (an OWNER/ADMIN still sees every unit)."""
+        return not self.entries
 
     def has(self, code: UnitCode) -> bool:
         """Whether this actor may see the unit at all."""
-        return self.is_owner or any(entry.unit_code is code for entry in self.entries)
+        return self.sees_all or any(entry.unit_code is code for entry in self.entries)
 
     def entry(self, code: UnitCode) -> UnitMembershipEntry | None:
         """The actor's tag in one unit, or ``None`` when not tagged."""
@@ -156,7 +168,7 @@ class UnitMembership:
 
     def visible_units(self) -> tuple[UnitCode, ...]:
         """The units this actor may switch between, in a stable order."""
-        if self.is_owner:
+        if self.sees_all:
             return tuple(UnitCode)
         return tuple(code for code in UnitCode if self.has(code))
 

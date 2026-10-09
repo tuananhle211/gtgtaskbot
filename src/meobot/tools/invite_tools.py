@@ -122,8 +122,9 @@ def build_invite_tools() -> list[ToolDefinition]:
             handler=_create_handler,
             arguments_model=CreateInviteArgs,
             risk_level=RiskLevel.HIGH,
-            required_permission=Permission.USER_MANAGE,
-            min_role=Role.ADMIN,
+            # A team lead and above, like ``/create_invite`` and the web panel;
+            # the service refuses any role the creator does not outrank.
+            min_role=Role.TEAM_LEAD,
             read_only=False,
         ),
     ]

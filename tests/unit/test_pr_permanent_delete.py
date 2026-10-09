@@ -96,6 +96,7 @@ from meobot.domain.pr.models import (
 from meobot.domain.pr.policy import PrCapability
 from meobot.domain.pr.reporting import PrIssueSeverity
 from meobot.domain.pr.work import PrWorkCategory
+from tests.unit.streams import tag_pr
 
 pytestmark = pytest.mark.asyncio
 
@@ -175,6 +176,7 @@ async def world(session: AsyncSession) -> AsyncIterator[World]:
     platform = PrPlatform(code="WEBSITE", name="Website")
     session.add_all([owner, lead, member, other, brand, platform])
     await session.flush()
+    await tag_pr(session, [owner, lead, member, other])  # untagged sees no stream
 
     settings = Settings(web_base_url="https://pr.example.com", web_cookie_secure=False)
     services = build_pr_services(session, settings)

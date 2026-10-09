@@ -80,6 +80,13 @@ const nextConfig = {
         source: "/api/board/:path*",
         destination: `${target}/api/board/:path*`,
       },
+      // Invites from the account screen (create, list, revoke). The collection
+      // route is bare, hence the source beside the wildcard one.
+      { source: "/api/invites", destination: `${target}/api/invites` },
+      {
+        source: "/api/invites/:path*",
+        destination: `${target}/api/invites/:path*`,
+      },
       // The magic-link landing route. Handled by FastAPI, which sets the cookie
       // and redirects to /pr - a page this app serves.
       { source: "/auth/login", destination: `${target}/auth/login` },

@@ -1005,6 +1005,44 @@ export const resetMemberPasswordConfirmation = (name: string): ConfirmSpec => ({
   variant: "destructive",
 });
 
+/**
+ * "Vô hiệu hoá" an account from the stream roster or the account member list
+ * (OWNER / ADMIN). Destructive: every web session of theirs ends now.
+ */
+export const deactivateAccountConfirmation = (name: string): ConfirmSpec => ({
+  title: `Vô hiệu hoá tài khoản ${name}?`,
+  description: `“${name}” sẽ bị đăng xuất khỏi mọi phiên web ngay và không đăng nhập hay thao tác được nữa. Luồng, vai trò và lịch sử được giữ nguyên; bạn có thể kích hoạt lại bất cứ lúc nào.`,
+  confirmLabel: "Vô hiệu hoá",
+  variant: "destructive",
+});
+
+/** "Kích hoạt lại": the account works again, with the tags it had. */
+export const reactivateAccountConfirmation = (name: string): ConfirmSpec => ({
+  title: `Kích hoạt lại tài khoản ${name}?`,
+  description: `“${name}” đăng nhập và thao tác lại được ngay, với các luồng và vai trò vẫn còn giữ.`,
+  confirmLabel: "Kích hoạt lại",
+});
+
+/** "Gắn vào luồng…": an account with no stream joins one, in one role. */
+export const tagIntoStreamConfirmation = (
+  name: string,
+  stream: string,
+  role: string,
+): ConfirmSpec => ({
+  title: `Gắn ${name} vào ${stream}?`,
+  description: `${name} sẽ thấy task của ${stream} và có mặt trong chuỗi sản xuất với vai trò ${role}. Gỡ ra được sau.`,
+  confirmLabel: "Gắn vào luồng",
+});
+
+/** Revoking an unused invite code: nobody can join with it afterwards. */
+export const disableInviteConfirmation = (): ConfirmSpec => ({
+  title: "Thu hồi mã mời này?",
+  description:
+    "Mã mời sẽ không dùng được nữa. Người đã tham gia bằng mã này vẫn giữ tài khoản; muốn mời tiếp thì tạo mã mới.",
+  confirmLabel: "Thu hồi mã",
+  variant: "destructive",
+});
+
 /** "Xoá ảnh" on the account page: back to the initials everywhere. */
 export const removeAvatarConfirmation = (): ConfirmSpec => ({
   title: "Xoá ảnh đại diện?",
@@ -1035,6 +1073,9 @@ export const ACTION_INVENTORY: readonly ActionInventoryEntry[] = [
       "Form một ô ID Telegram trên trang đăng nhập; nút gửi chính là bước xác nhận. Mật khẩu tạm chỉ đến tin nhắn riêng Telegram của đúng tài khoản đó, máy chủ trả cùng một câu cho mọi ID và giới hạn 1 lần / 5 phút.",
   },
   { action: "Đặt lại mật khẩu thành viên", policy: "dialog" },
+  { action: "Vô hiệu hoá / kích hoạt lại tài khoản (Quản trị viên)", policy: "dialog" },
+  { action: "Gắn / gỡ thành viên khỏi luồng, gắn tài khoản chưa có luồng", policy: "dialog" },
+  { action: "Tạo mã mời / thu hồi mã mời", policy: "dialog" },
   {
     action: "Đổi ảnh đại diện của tôi",
     policy: "parameter-modal",

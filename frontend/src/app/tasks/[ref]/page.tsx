@@ -14,6 +14,7 @@ import {
   type UnifiedTaskDetail,
 } from "@/lib/api";
 import { formatAgo, formatDay, formatWhen } from "@/lib/labels";
+import { unitShortLabel, unitTagClass } from "@/lib/units";
 import { ConfirmButton } from "@/components/confirm";
 import { ContentComments } from "@/components/comments";
 import { Select, TabStrip } from "@/components/pr";
@@ -185,10 +186,8 @@ function TaskHeader({ detail }: { detail: UnifiedTaskDetail }) {
     <header className="flex flex-wrap items-start justify-between gap-4">
       <div className="min-w-0">
         <div className="flex flex-wrap items-center gap-2">
-          <span
-            className={`unit-tag ${task.unit === "ADS" ? "unit-tag-ads" : "unit-tag-pr"}`}
-          >
-            {task.unit}
+          <span className={`unit-tag ${unitTagClass(task.unit)}`}>
+            {unitShortLabel(task.unit, task.unit_short_label)}
           </span>
           <span className="font-mono text-sm font-semibold">{task.code}</span>
           <Pill tone={phaseTone(task.phase)}>{task.stage_label}</Pill>
@@ -394,7 +393,7 @@ function FieldsPanel({
       {specific.length > 0 ? (
         <>
           <h3 className="mt-4 border-t border-[var(--border)] pt-3 text-xs font-semibold uppercase tracking-wide text-[var(--text-muted)]">
-            Riêng {unit === "PR" ? "PR" : "Ads"}
+            Riêng {unit === "PR" ? "PR" : "ORD"}
           </h3>
           <dl className="mt-2 grid gap-x-4 gap-y-2 sm:grid-cols-[10rem_minmax(0,1fr)]">
             {rows(specific)}

@@ -1,6 +1,7 @@
 """The shared board: ``/api/board/tasks`` for the table, ``/api/board/dashboard``
 for the tiles. Both take ``unit=PR|ADS|ALL`` and the same filters, and the
-unit named must be one the caller is tagged into (``ALL``: the OWNER)."""
+unit named must be one the caller is tagged into (``ALL``: the OWNER and the
+ADMIN)."""
 
 from __future__ import annotations
 
@@ -18,6 +19,7 @@ from meobot.application.board.task_board_service import ALL_UNITS, TaskBoardServ
 from meobot.application.pr_services import build_pr_services
 from meobot.application.units.directory import UnitDirectoryService
 from meobot.core.config import Settings
+from meobot.core.errors import ValidationError
 from meobot.domain.board.models import BoardQuery, Phase
 from meobot.domain.units.errors import UnitNotFoundError
 from meobot.domain.units.models import UnitCode
@@ -62,6 +64,22 @@ def _phase(value: str | None) -> Phase | None:
         ) from error
 
 
+#: The orders ``/api/board/tasks`` accepts (``order=``).
+ORDER_TODO_FIRST = "todo_first"
+_ORDERS = frozenset({"", "default", ORDER_TODO_FIRST})
+
+
+def _order(value: str | None) -> bool:
+    """Whether ``order`` asks for "todo first". An unknown order is a 422."""
+    cleaned = (value or "").strip().lower()
+    if cleaned not in _ORDERS:
+        raise ValidationError(
+            "Thứ tự sắp xếp không hợp lệ.",
+            details={"reason": "invalid_order", "field": "order", "value": value},
+        )
+    return cleaned == ORDER_TODO_FIRST
+
+
 def _unit_label(unit: str | None, board_units: tuple[str, ...]) -> str:
     if unit and unit.strip().upper() == ALL_UNITS:
         return ALL_UNITS
@@ -88,9 +106,13 @@ async def board_tasks(
     priority: Annotated[bool, Query()] = False,
     urgent: Annotated[bool, Query()] = False,
     q: Annotated[str | None, Query(max_length=200)] = None,
+    order: Annotated[str | None, Query(max_length=40)] = None,
     limit: Annotated[int, Query(ge=1, le=_MAX_LIMIT)] = 50,
     offset: Annotated[int, Query(ge=0)] = 0,
 ) -> TaskPageResponse:
+    """``order=todo_first``: the rows waiting on the caller first ("Cần làm",
+    the ``awaiting_me`` rule), then the rest of the filter; each part keeps the
+    usual priority-then-newest order and paging continues across both."""
     codes = await board.resolve_units(actor, unit)
     query = BoardQuery(
         date_from=date_from,
@@ -108,6 +130,7 @@ async def board_tasks(
         priority=priority,
         urgent=urgent,
         search=q or None,
+        todo_first=_order(order),
         limit=limit,
         offset=offset,
     )

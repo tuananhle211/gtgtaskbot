@@ -50,6 +50,7 @@ from meobot.domain.pr.models import (
     PrWorkflowStage,
 )
 from meobot.domain.pr.policy import PrCapability
+from tests.unit.streams import tag_pr
 
 NOW = datetime(2026, 6, 1, 9, 0, tzinfo=UTC)
 TODAY = date(2026, 6, 1)
@@ -237,6 +238,9 @@ async def world(session: AsyncSession) -> AsyncIterator[World]:
         [owner, lead, member, brand, tiktok_platform, facebook_platform, youtube_platform]
     )
     await session.flush()
+    # Untagged sees no stream: the team lead and the member work in PR. The
+    # OWNER sees every stream without a tag.
+    await tag_pr(session, [lead, member])
 
     settings = Settings(web_base_url="https://pr.example.com", web_cookie_secure=False)
     audit = AuditService(session)

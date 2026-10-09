@@ -205,6 +205,13 @@ async def world(tmp_path: Path) -> AsyncIterator[World]:
                 unit_id=units[UnitCode.ADS].id, user_id=ads_only.id, role=UnitMemberRole.DUNG
             )
         )
+        # The PR people are tagged PR (untagged sees no stream).
+        session.add_all(
+            OrgUnitMember(
+                unit_id=units[UnitCode.PR].id, user_id=person.id, role=UnitMemberRole.MEMBER
+            )
+            for person in (admin, member, other, inactive, suspended)
+        )
         await session.commit()
 
     settings = Settings(web_base_url="https://pr.example.com", web_cookie_secure=False)
@@ -560,10 +567,9 @@ async def test_12_who_may_reset_whom(world: World) -> None:
     await _sign_in(world, 9002)
     refused = world.client.post(f"/api/account/members/{world.owner}/reset-password")
     assert refused.status_code == 403 and _code(refused) == "password_reset_forbidden"
-    # Nor somebody outside every unit they are in (the admin is PR by the
-    # legacy rule; this person is Ads only) - not even told they exist.
-    outside = world.client.post(f"/api/account/members/{world.ads_only}/reset-password")
-    assert outside.status_code == 404 and _code(outside) == "account_not_found"
+    # An ADMIN sees every stream: an ORD-only person is theirs to reset too.
+    ads = world.client.post(f"/api/account/members/{world.ads_only}/reset-password")
+    assert ads.status_code == 204
     # Nor themselves.
     own = world.client.post(f"/api/account/members/{world.admin}/reset-password")
     assert own.status_code == 403 and _code(own) == "password_reset_forbidden"

@@ -57,6 +57,7 @@ from meobot.domain.pr.models import (
     PrWorkflowStage,
 )
 from meobot.domain.pr.priority import PRIORITY_RANK
+from tests.unit.streams import tag_pr
 
 pytestmark = pytest.mark.asyncio
 
@@ -177,6 +178,7 @@ async def world(session: AsyncSession) -> AsyncIterator[World]:
     platform = PrPlatform(code="TIKTOK", name="TikTok")
     session.add_all([manager, owner, stranger, brand, platform])
     await session.flush()
+    await tag_pr(session, [manager, owner, stranger])  # untagged sees no stream
 
     settings = Settings(web_base_url="https://pr.example.com", web_cookie_secure=False)
     audit = AuditService(session)

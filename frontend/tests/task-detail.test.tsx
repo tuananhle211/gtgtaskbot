@@ -46,7 +46,7 @@ const ADS: UnifiedTaskDetail = {
   task: {
     id: ADS_TASK_ID,
     unit: "ADS",
-    unit_label: "Phòng Ads",
+    unit_label: "Luồng Order (ORD)",
     code: "TUAN-BTD-261007-01",
     title: "Video ra mắt serum",
     kind: "BTD",
@@ -166,7 +166,7 @@ const ADS: UnifiedTaskDetail = {
   timeline: [
     {
       at: "2026-10-07T04:00:00+00:00",
-      actor_name: "Trưởng phòng Ads",
+      actor_name: "Trưởng phòng ORD",
       label: "Trả sửa Biên tập",
       note: "Hook yếu",
     },
@@ -218,7 +218,7 @@ const PR: UnifiedTaskDetail = {
     ...ADS.task,
     id: PR_TASK_ID,
     unit: "PR",
-    unit_label: "Phòng PR",
+    unit_label: "Luồng PR",
     code: "PR-000123",
     title: "Bài viết mùa thu",
     kind: "ARTICLE",
@@ -326,7 +326,8 @@ describe("an Ads task", () => {
       }),
     ).toBeInTheDocument();
     expect(screen.getAllByText("TUAN-BTD-261007-01").length).toBeGreaterThan(0);
-    expect(screen.getByText("ADS")).toHaveClass("unit-tag-ads");
+    // The chip reads ORD; the code (and the CSS class) stay ADS.
+    expect(screen.getByText("ORD")).toHaveClass("unit-tag-ads");
     expect(screen.getByText("Gấp")).toBeInTheDocument();
     expect(
       screen.getByRole("link", { name: "Bản nộp mới nhất" }),

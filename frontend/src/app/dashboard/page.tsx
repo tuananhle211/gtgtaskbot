@@ -5,9 +5,9 @@ import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { Suspense } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { api } from "@/lib/api";
-import { UnitSwitch } from "@/components/unit-switch";
+import { UnitSwitch, UntaggedState } from "@/components/unit-switch";
 import { formatAgo } from "@/lib/labels";
-import { currentUnit, firstOfMonth, lastOfMonth } from "@/lib/units";
+import { currentUnit, firstOfMonth, isUntagged, lastOfMonth, unitName } from "@/lib/units";
 import { Select } from "@/components/pr";
 import { ErrorBox, Loading, Pill } from "@/components/states";
 
@@ -37,6 +37,8 @@ function Dashboard() {
   const params = useSearchParams();
   const me = useQuery({ queryKey: ["units", "me"], queryFn: api.unitsMe });
   const unit = currentUnit(params, me.data);
+  // No stream yet: nothing to ask the board for (it answers 404 per stream).
+  const untagged = isUntagged(me.data);
   const today = new Date();
   const dateFrom = params.get("from") || firstOfMonth(today);
   const dateTo = params.get("to") || lastOfMonth(today);
@@ -53,7 +55,7 @@ function Dashboard() {
         owner: owner || undefined,
         person: person || undefined,
       }),
-    enabled: me.isSuccess,
+    enabled: me.isSuccess && !untagged,
   });
   // The people of the unit(s) on screen, for the "Người" dropdown.
   const unitCodes = unit === "ALL" ? (me.data?.units ?? []).map((item) => item.code) : [unit];
@@ -71,13 +73,13 @@ function Dashboard() {
         .map(([user_id, full_name]) => ({ user_id, full_name }))
         .sort((a, b) => a.full_name.localeCompare(b.full_name, "vi"));
     },
-    enabled: me.isSuccess && unitCodes.length > 0,
+    enabled: me.isSuccess && !untagged && unitCodes.length > 0,
     retry: false,
   });
   const inbox = useQuery({
     queryKey: ["board", "tasks", "awaiting", unit],
     queryFn: () => api.boardTasks({ unit, awaiting_me: true, limit: 8 }),
-    enabled: me.isSuccess,
+    enabled: me.isSuccess && !untagged,
   });
 
   const setParams = (changes: Record<string, string>) => {
@@ -103,9 +105,12 @@ function Dashboard() {
 
   if (me.isPending) return <Loading />;
   if (me.isError) return <ErrorBox error={me.error} onRetry={() => me.refetch()} />;
+  if (untagged) return <UntaggedState title="Dashboard" />;
 
   const unitLabel =
-    unit === "ALL" ? "Cả hai ban" : (me.data.units.find((item) => item.code === unit)?.label ?? unit);
+    unit === "ALL"
+      ? "Cả hai luồng"
+      : unitName(unit, me.data.units.find((item) => item.code === unit)?.label);
   const data = summary.data;
   const phases = data?.by_phase.filter((item) => item.phase !== "CANCELLED") ?? [];
   const maxPhase = Math.max(1, ...phases.map((item) => item.count));
@@ -135,11 +140,11 @@ function Dashboard() {
           </label>
           {me.data.units.length > 1 || me.data.can_view_all ? (
             <label className="flex flex-col gap-1 text-xs text-[var(--text-muted)]">
-              Ban
+              Luồng
               <Select value={unit} onChange={(event) => setParams({ unit: event.target.value })} className="min-h-10">
                 {me.data.units.map((item) => (
                   <option key={item.code} value={item.code}>
-                    {item.label}
+                    {unitName(item.code, item.label)}
                   </option>
                 ))}
                 {me.data.can_view_all ? <option value="ALL">Tất cả</option> : null}
@@ -198,7 +203,7 @@ function Dashboard() {
               label="Gấp"
               value={data.urgent}
               href={tasksHref({ urgent: "true" })}
-              hint="quá hạn mốc Gấp của ban, chưa xong"
+              hint="quá hạn mốc Gấp của luồng, chưa xong"
               tone={data.urgent > 0 ? "bad" : undefined}
             />
             <Tile

@@ -56,7 +56,7 @@ class TaskBoardService:
                 raise UnitNotFoundError("Không tìm thấy.", details={"reason": "unit_not_visible"})
             return (visible[0],)
         if unit.strip().upper() == ALL_UNITS:
-            if not membership.is_owner:
+            if not membership.sees_all:
                 raise UnitNotFoundError("Không tìm thấy.", details={"reason": "unit_not_visible"})
             return tuple(visible)
         try:
@@ -107,9 +107,16 @@ class TaskBoardService:
         # nothing repeated or skipped, even though PR keeps its own ordering.
         prefix = replace(query, offset=0, limit=query.offset + query.limit)
         pages = [await (await self.source_for(actor, code)).rows(actor, prefix) for code in codes]
+        # With "todo first", each unit already lists its rows waiting on the
+        # viewer first, so the merge keys on that before priority and age.
+        todo_first = query.todo_first
         merged = heapq.merge(
             *(page.rows for page in pages),
-            key=lambda row: (not row.is_priority, -row.created_at.timestamp()),
+            key=lambda row: (
+                todo_first and not row.awaiting_me,
+                not row.is_priority,
+                -row.created_at.timestamp(),
+            ),
         )
         rows = list(merged)[query.offset : query.offset + query.limit]
         return BoardPage(

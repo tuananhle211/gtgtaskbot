@@ -37,6 +37,7 @@ from meobot.api.routers import (
     tasks,
     units,
     web_auth,
+    web_invites,
 )
 from meobot.api.schemas.common import ErrorResponse
 from meobot.api.schemas.pr import ErrorBody, ErrorEnvelope
@@ -148,9 +149,9 @@ def _include_web_facing_routers(app: FastAPI) -> None:
     app.include_router(health.router)
     app.include_router(web_auth.router)
     # Units. Every PR router below is mounted behind the PR unit gate: the
-    # caller must be tagged PR (migration 0042 tags every existing account, and
-    # an untagged account counts as PR), or gets the routes' usual "not
-    # visible" 404. The gate is an include-time dependency, so no route body
+    # caller must be tagged PR (0042 and 0048 tagged every existing account; an
+    # untagged account sees no stream) or be OWNER/ADMIN, or gets the routes'
+    # usual "not visible" 404. The gate is an include-time dependency, so no route body
     # changes and ``get_current_web_actor`` stays in every route's tree.
     pr_gate = [Depends(require_unit(UnitCode.PR))]
     app.include_router(pr.router, dependencies=pr_gate)
@@ -206,6 +207,9 @@ def _include_web_facing_routers(app: FastAPI) -> None:
     # member list. Not behind a unit gate - everybody has an account; who may
     # list or reset whom is decided inside ``AccountService``.
     app.include_router(account.router)
+    # Invite codes for the web "Mời thành viên" panel: team lead and above,
+    # behind the session. The internal ``/api/v1/invites`` stays off.
+    app.include_router(web_invites.router)
 
 
 def _include_internal_routers(app: FastAPI) -> None:

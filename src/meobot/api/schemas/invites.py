@@ -54,6 +54,9 @@ class CreatedInviteResponse(InviteResponse):
     """The creation response, which is the only place the code is readable."""
 
     code: str = Field(description="Shown once. Store it now or create a new invite.")
+    #: The bot's Telegram username for a ``t.me/<bot>?start=<code>`` link, when
+    #: the deployment knows it; null otherwise (``/api/invites`` only).
+    bot_username: str | None = None
 
     @classmethod
     def from_created(cls, model: InviteCode, code: str) -> CreatedInviteResponse:
@@ -80,3 +83,5 @@ class InviteListResponse(BaseModel):
 
     items: list[InviteResponse]
     total: int
+    #: As on :class:`CreatedInviteResponse`: null when not configured.
+    bot_username: str | None = None

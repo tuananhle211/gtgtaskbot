@@ -87,7 +87,7 @@ export default function OrderDetailPage() {
       <header className="flex flex-wrap items-start justify-between gap-4">
         <div className="min-w-0">
           <div className="flex flex-wrap items-center gap-2">
-            <span className="unit-tag unit-tag-ads">ADS</span>
+            <span className="unit-tag unit-tag-ads">ORD</span>
             <span className="font-mono text-sm font-semibold">{order.code}</span>
             <Pill tone={order.stage === "COMPLETED" ? "good" : order.stage === "CANCELLED" ? "neutral" : "warn"}>
               {order.stage_label}
@@ -178,7 +178,7 @@ export default function OrderDetailPage() {
       <div className="grid gap-4 xl:grid-cols-[minmax(0,5fr)_minmax(0,4fr)_minmax(0,3fr)]">
         <div className="space-y-4">
           <section className="panel p-4 text-sm">
-            <h2 className="font-semibold">Order từ Ads</h2>
+            <h2 className="font-semibold">Order từ ORD</h2>
             <dl className="mt-3 grid gap-2 sm:grid-cols-[9rem_minmax(0,1fr)]">
               <dt className="text-[var(--text-muted)]">Source</dt>
               <dd>{order.script_source === "AI" ? "AI" : order.script_source === "REAL" ? "Quay thực tế" : "–"}</dd>

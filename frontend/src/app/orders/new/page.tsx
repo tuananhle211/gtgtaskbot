@@ -5,7 +5,15 @@ import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { api, type CreateOrderBody, type UnitMember } from "@/lib/api";
-import { hasUnit, unitEntry } from "@/lib/units";
+import {
+  hasUnit,
+  isUntagged,
+  STREAM_NAMES,
+  unitEntry,
+  unitShortLabel,
+  unitTagClass,
+} from "@/lib/units";
+import { UntaggedState } from "@/components/unit-switch";
 import { ConfirmButton } from "@/components/confirm";
 import { PageHeader, Select } from "@/components/pr";
 import { ErrorBox, Loading, NoticeBox } from "@/components/states";
@@ -32,7 +40,7 @@ const NODE_LABELS: Record<string, string> = Object.fromEntries(
 /**
  * The create form: pick the unit, then fill that unit's fields.
  *
- * Only Ads creates here - its order is a new record. A PR piece keeps its
+ * Only ORD creates here - its order is a new record. A PR piece keeps its
  * existing create flow on the content screen, so the PR choice is a link.
  */
 export default function NewOrderPage() {
@@ -51,6 +59,8 @@ export default function NewOrderPage() {
   if (me.isError)
     return <ErrorBox error={me.error} onRetry={() => me.refetch()} />;
 
+  if (isUntagged(me.data)) return <UntaggedState title="Tạo order" />;
+
   const ads = hasUnit(me.data, "ADS");
   const pr = hasUnit(me.data, "PR");
   const chosen = unit ?? (ads ? "ADS" : "PR");
@@ -64,18 +74,18 @@ export default function NewOrderPage() {
       {ads && pr ? (
         <fieldset className="rounded-xl border border-[var(--border)] bg-[var(--surface)] p-4">
           <legend className="px-1 text-sm font-semibold">
-            Order cho ban nào?
+            Order cho luồng nào?
           </legend>
           <div className="flex flex-wrap gap-3">
             {[
               [
                 "ADS",
-                "Phòng Ads",
-                "Order video cho team Media: Biên kịch, Design, Dựng theo quy trình bạn chọn. Trưởng phòng Ads duyệt order, bạn duyệt final.",
+                STREAM_NAMES.ADS,
+                "Order video cho team Media: Biên kịch, Design, Dựng theo quy trình bạn chọn. Trưởng phòng ORD duyệt order, bạn duyệt final.",
               ],
               [
                 "PR",
-                "Phòng PR",
+                STREAM_NAMES.PR,
                 "Nội dung PR theo quy trình hiện có: kịch bản, AI review, Trưởng nhóm và Trưởng phòng duyệt, sản xuất, đăng.",
               ],
             ].map(([code, label, hint]) => (
@@ -97,10 +107,8 @@ export default function NewOrderPage() {
                 />
                 <span>
                   <span className="flex items-center gap-2 font-medium">
-                    <span
-                      className={`unit-tag ${code === "ADS" ? "unit-tag-ads" : "unit-tag-pr"}`}
-                    >
-                      {code}
+                    <span className={`unit-tag ${unitTagClass(code)}`}>
+                      {unitShortLabel(code)}
                     </span>
                     {label}
                   </span>
@@ -420,7 +428,7 @@ function AdsOrderForm({ memberCode }: { memberCode: string | null }) {
             ))}
           </div>
           <p className="text-xs text-[var(--text-muted)]">
-            Chỉ hiện công đoạn đã chọn trong quy trình và thành viên gắn tag Ads
+            Chỉ hiện công đoạn đã chọn trong quy trình và thành viên gắn tag ORD
             đúng chức năng.
           </p>
         </div>
@@ -460,8 +468,8 @@ function AdsOrderForm({ memberCode }: { memberCode: string | null }) {
             Đường đi của order{code ? ` · ${code}` : ""}
           </h2>
           <ol className="mt-2 space-y-1">
-            <li>Ads lên order</li>
-            <li>Trưởng phòng Ads duyệt order</li>
+            <li>ORD lên order</li>
+            <li>Trưởng phòng ORD duyệt order</li>
             {nodes.map((node) => (
               <li key={node}>
                 {NODE_LABELS[node]} · tự giao cho {NODE_HEADS[node]} để phân

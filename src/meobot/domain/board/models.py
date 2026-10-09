@@ -148,6 +148,9 @@ class TaskRow:
     delivered_at: datetime | None = None
     #: Unit-specific facts worth a glance, as label/value pairs.
     extras: tuple[tuple[str, str], ...] = ()
+    #: Whether the row waits on the viewer (the ``awaiting_me`` definition):
+    #: the table's "Cần làm" marker.
+    awaiting_me: bool = False
 
 
 @dataclass(frozen=True, slots=True)
@@ -178,6 +181,9 @@ class BoardQuery:
     priority: bool = False
     urgent: bool = False
     search: str | None = None
+    #: ``order=todo_first``: the rows awaiting the viewer first, then the rest
+    #: of the filter, each part in the usual priority-then-newest order.
+    todo_first: bool = False
     limit: int = 50
     offset: int = 0
 

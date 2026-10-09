@@ -63,6 +63,7 @@ from meobot.domain.pr.errors import (
 )
 from meobot.domain.pr.models import PrContentDerivativeType, PrWorkflowStage
 from meobot.domain.pr.policy import PrCapability
+from tests.unit.streams import tag_pr
 from tests.unit.test_pr_derivatives_and_publications import (
     CUT,
     add_derivative,
@@ -144,6 +145,8 @@ async def outsider(world: World, name: str = "Trần Người Ngoài") -> User:
     person = User(full_name=name, role=Role.EMPLOYEE)
     world.session.add(person)
     await world.session.flush()
+    # In PR (untagged sees no stream), just unrelated to the item.
+    await tag_pr(world.session, [person])
     return person
 
 

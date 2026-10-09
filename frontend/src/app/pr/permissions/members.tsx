@@ -20,6 +20,7 @@ import { Empty, ErrorBox, Loading, Pill } from "@/components/states";
 import { PrimaryButton, SecondaryButton, Select } from "@/components/pr";
 import { ConfirmButton } from "@/components/confirm";
 import { UnitTags } from "@/components/unit-panel";
+import { taggableUnits } from "@/lib/units";
 import {
   changeRoleConfirmation,
   deactivateMemberConfirmation,
@@ -44,14 +45,15 @@ import {
  * owned content, contributed work or approved something is history, and
  * history keeps its people.
  */
-/** The two teams' tags, and who may add to which, for the roster. */
+/** The two streams' tags, and who may tag into which, for the roster. */
 function useTeams() {
   const me = useQuery({ queryKey: ["units", "me"], queryFn: api.unitsMe });
-  const admins = me.data?.can_admin ?? [];
+  // The streams this person may tag in (`can_tag`; `can_admin` on an older API).
+  const admins = taggableUnits(me.data);
   const directory = useQuery({
     queryKey: ["units", "directory"],
     queryFn: api.unitDirectory,
-    enabled: admins.length > 0,
+    enabled: admins.length > 0 || (me.data?.can_admin.length ?? 0) > 0,
   });
   const tagsOf = new Map(
     (directory.data ?? []).map((user) => [user.user_id, user.units]),
@@ -62,7 +64,7 @@ function useTeams() {
 export function MembersTab({
   onAddToAds,
 }: {
-  /** Open the "Đội Ads" tab with this person in its add-member picker. */
+  /** Open the "Luồng Order (ORD)" tab with this person in its add-member picker. */
   onAddToAds?: (userId: string) => void;
 } = {}) {
   const roster = useQuery({ queryKey: ["members"], queryFn: api.listMembers });
@@ -129,16 +131,16 @@ export function MembersTab({
       <section className="grid gap-2 sm:grid-cols-4">
         {teams.known ? (
           <label className="text-sm">
-            Đội
+            Luồng
             <Select
               value={teamFilter}
               onChange={(event) => setTeamFilter(event.target.value)}
               className="mt-1 w-full rounded border border-[var(--border)] bg-transparent px-2 py-1.5"
             >
               <option value="">Tất cả</option>
-              <option value="PR">Đội PR</option>
-              <option value="ADS">Đội Ads</option>
-              <option value="BOTH">Cả hai đội</option>
+              <option value="PR">Luồng PR</option>
+              <option value="ADS">Luồng ORD</option>
+              <option value="BOTH">Cả hai luồng</option>
             </Select>
           </label>
         ) : null}
@@ -333,7 +335,7 @@ function MemberCard({
 }: {
   member: Member;
   roster: MemberList;
-  /** The person's team tags; ``null`` while unknown (not a unit admin). */
+  /** The person's stream tags; ``null`` while unknown (not a unit admin). */
   units: string[] | null;
   admins: string[];
   onAddToAds?: (userId: string) => void;
@@ -373,10 +375,10 @@ function MemberCard({
             {units && units.length > 0 ? <UnitTags units={units} /> : null}
             {units && units.length === 0 ? (
               <span
-                title="Chưa có tag đội nào: đang được tính là PR theo mặc định."
+                title="Chưa được gắn luồng nào: chưa thấy task của luồng nào."
                 className="unit-tag bg-[var(--surface-muted)] text-[var(--text-muted)]"
               >
-                Chưa gắn đội · mặc định PR
+                Chưa có luồng
               </span>
             ) : null}
           </p>
@@ -385,21 +387,21 @@ function MemberCard({
               {admins.includes("PR") && !units.includes("PR") ? (
                 <ConfirmButton
                   spec={{
-                    title: `Thêm ${member.full_name} vào đội PR?`,
+                    title: `Thêm ${member.full_name} vào Luồng PR?`,
                     description:
-                      "Người này giữ tag hiện có và có thêm tag PR: thấy task và màn hình của PR.",
-                    confirmLabel: "Thêm vào đội PR",
+                      "Người này giữ luồng hiện có và có thêm Luồng PR: thấy task và màn hình của PR.",
+                    confirmLabel: "Thêm vào Luồng PR",
                   }}
                   onConfirm={() => joinPr.mutate()}
                   pending={joinPr.isPending}
                   error={joinPr.error}
                 >
-                  + Đội PR
+                  + Luồng PR
                 </ConfirmButton>
               ) : null}
               {admins.includes("ADS") && !units.includes("ADS") && onAddToAds ? (
                 <SecondaryButton type="button" onClick={() => onAddToAds(member.user_id)}>
-                  + Đội Ads
+                  + Luồng ORD
                 </SecondaryButton>
               ) : null}
             </p>

@@ -55,6 +55,7 @@ from meobot.db.models.web_session import WebSession, WebSessionKind
 from meobot.domain.identity.models import Actor, Role
 from meobot.domain.pr.models import PrChannelCategory, PrWorkflowStage
 from meobot.domain.pr.policy import PrCapability
+from tests.unit.streams import tag_pr
 
 ROOT = Path(".")
 SRC = ROOT / "src" / "meobot"
@@ -181,6 +182,7 @@ async def world(session: AsyncSession) -> AsyncIterator[World]:
     platform = PrPlatform(code="YOUTUBE", name="YouTube")
     session.add_all([lead, other, brand, platform])
     await session.flush()
+    await tag_pr(session, [lead, other])  # untagged sees no stream
     channel = PrChannel(
         code="CH-S",
         name="Kênh bảo mật",

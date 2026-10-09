@@ -58,6 +58,7 @@ from meobot.domain.pr.models import (
     PrWorkflowStage,
 )
 from meobot.domain.pr.policy import PrCapability
+from tests.unit.streams import tag_pr
 
 pytestmark = pytest.mark.asyncio
 
@@ -263,6 +264,7 @@ async def world(session: AsyncSession) -> AsyncIterator[World]:
         [owner, lead, member, brand, tiktok_platform, facebook_platform, youtube_platform]
     )
     await session.flush()
+    await tag_pr(session, [owner, lead, member])  # untagged sees no stream
 
     settings = Settings(web_base_url="https://pr.example.com", web_cookie_secure=False)
     audit = AuditService(session)

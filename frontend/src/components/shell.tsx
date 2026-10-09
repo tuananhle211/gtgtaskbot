@@ -6,6 +6,7 @@ import { useEffect, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { api, type UnitsMe } from "@/lib/api";
 import { roleLabel } from "@/lib/labels";
+import { unitShortLabel, unitTagClass } from "@/lib/units";
 import { ErrorBox, Loading } from "@/components/states";
 import { NotificationBell } from "@/components/notifications";
 import { Avatar } from "@/components/avatar";
@@ -42,7 +43,8 @@ const FORCED_PASSWORD_CHANGE = "/account?doi-mat-khau=1";
 
 /**
  * The PR module's own screens. Unchanged, and shown only to somebody tagged
- * PR: an Ads member has nothing behind these routes (the API answers 404).
+ * PR, or to an OWNER / ADMIN: an ORD member or an untagged account has
+ * nothing behind these routes (the API answers 404).
  */
 const PR_NAV: NavItem[] = [
   // No "Nội dung PR" entry: PR pieces are created from the shared "Tạo order"
@@ -75,14 +77,22 @@ const LEGAL_LINKS = [
 /**
  * What the nav holds for this person.
  *
- * Built from `/api/units/me`. While that is loading, or if it fails, the PR
- * entries are shown: an untagged account *is* PR (the server's legacy rule),
- * and a shell that hid every link because one request failed would strand
- * the person on a blank frame.
+ * Built from `/api/units/me`. While that is loading, or if it fails, only the
+ * shared entries are shown: an account with no stream tag is *not* PR any
+ * more, so the PR screens wait until the server says the person is in PR (or
+ * sees every stream). The shared screens are always there, so the frame never
+ * strands anybody on a blank sidebar.
+ *
+ * "Quản trị đơn vị" is for whoever administers a unit or may tag members in
+ * one (a team lead tags in their own stream there).
  */
-export function navFor(me: UnitsMe | undefined, loaded: boolean): NavItem[] {
-  const pr = !loaded || !me || me.units.some((unit) => unit.code === "PR");
-  const admin = Boolean(me && me.can_admin.length > 0);
+export function navFor(me: UnitsMe | undefined, sessionRole?: string): NavItem[] {
+  const seesAll =
+    Boolean(me?.can_view_all) || sessionRole === "OWNER" || sessionRole === "ADMIN";
+  const pr = Boolean(me) && (seesAll || me!.units.some((unit) => unit.code === "PR"));
+  const admin = Boolean(
+    me && (me.can_admin.length > 0 || (me.can_tag ?? []).length > 0),
+  );
   return [...COMMON_NAV, ...(pr ? PR_NAV : []), ...(admin ? ADMIN_NAV : [])];
 }
 
@@ -224,7 +234,7 @@ export function Shell({ children }: { children: React.ReactNode }) {
     pathname === href ||
     (href !== "/pr" && pathname.startsWith(`${href}/`)) ||
     pathname === href;
-  const nav = navFor(me.data, me.isSuccess || me.isError);
+  const nav = navFor(me.data, session.data?.role);
   const tags = me.data?.units ?? [];
 
 
@@ -262,17 +272,17 @@ export function Shell({ children }: { children: React.ReactNode }) {
         </nav>
         {session.data ? (
           <div className={`mt-auto hidden border-t border-[var(--border)] px-4 py-4 ${collapsed ? "" : "lg:block"}`}>
-            <p className="text-xs text-[var(--text-muted)]">Ban của bạn</p>
+            <p className="text-xs text-[var(--text-muted)]">Luồng của bạn</p>
             <div className="mt-1.5 flex flex-wrap gap-1.5">
-              {tags.length === 0 ? (
-                <span className="unit-tag unit-tag-pr">PR</span>
+              {me.isSuccess && tags.length === 0 ? (
+                <span className="unit-tag bg-[var(--surface-muted)] text-[var(--text-muted)]">
+                  Chưa có luồng
+                </span>
               ) : (
                 tags.map((tag) => (
-                  <span
-                    key={tag.code}
-                    className={`unit-tag ${tag.code === "ADS" ? "unit-tag-ads" : "unit-tag-pr"}`}
-                  >
-                    {tag.code}
+                  <span key={tag.code} className={`unit-tag ${unitTagClass(tag.code)}`}>
+                    {unitShortLabel(tag.code, tag.short_label)}
+                    {tag.function_tag ? ` · ${tag.function_tag}${tag.is_lead ? "★" : ""}` : ""}
                   </span>
                 ))
               )}

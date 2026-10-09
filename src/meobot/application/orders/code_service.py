@@ -48,7 +48,7 @@ class OrderCodeService:
         """The next code for this marketer today. Must run on the order's session."""
         if not member_code:
             raise OrderValidationError(
-                "Bạn chưa có mã thành viên trong ban Ads nên chưa tạo được order. "
+                "Bạn chưa có mã thành viên trong luồng ORD nên chưa tạo được order. "
                 "Nhờ Trưởng phòng cấp mã.",
                 details={"reason": "member_code_missing", "field": "member_code"},
             )
