@@ -23,9 +23,11 @@ from meobot.domain.board.models import (
     DashboardSummary,
     PersonStat,
     Phase,
+    TaskCell,
     TaskRow,
 )
 from meobot.domain.identity.models import Actor
+from meobot.domain.orders.deadlines import DeadlineStatus
 from meobot.domain.units.models import UnitCode
 
 #: How many rows the dashboard reads to compute its figures. The figures are
@@ -76,6 +78,7 @@ class DashboardService:
         completed = sum(1 for row in rows if row.phase is Phase.DONE)
         pending = sum(1 for row in rows if row.phase in (Phase.REVIEW, Phase.FINAL_REVIEW))
         urgent = sum(1 for row in rows if row.urgent)
+        overdue = sum(1 for row in rows if row.deadline_status == _OVERDUE)
         by_phase: dict[Phase, int] = dict.fromkeys(Phase, 0)
         for row in rows:
             by_phase[row.phase] += 1
@@ -88,6 +91,7 @@ class DashboardService:
             pending_review=pending,
             urgent=urgent,
             progress_percent=None if total == 0 else round(completed * 100 / total),
+            overdue=overdue,
             by_phase=by_phase,
             by_owner=await self._by_owner(rows),
             by_worker=await self._by_worker(rows),
@@ -100,7 +104,7 @@ class DashboardService:
             item[0] += 1
             if row.phase is Phase.DONE:
                 item[1] += 1
-            if row.urgent:
+            if _row_late(row):
                 item[2] += 1
         names = await display_names(self._session, set(stats))
         return tuple(
@@ -109,8 +113,9 @@ class DashboardService:
         )
 
     async def _by_worker(self, rows: tuple[TaskRow, ...]) -> tuple[PersonStat, ...]:
-        """Per person holding a cell: cells held, cells finished, cells on an
-        urgent row. Names are what the cells carry, so no second lookup."""
+        """Per person holding a cell: cells held, cells finished, cells late -
+        finished after their deadline or past it now (ORD, 0053). Names are
+        what the cells carry, so no second lookup."""
         stats: dict[str, list[int]] = {}
         for row in rows:
             for cell in row.cells:
@@ -120,7 +125,7 @@ class DashboardService:
                 item[0] += 1
                 if cell.status in ("HOAN_THANH", "DONE"):
                     item[1] += 1
-                if row.urgent and cell.is_current:
+                if _cell_late(row, cell):
                     item[2] += 1
         return tuple(
             PersonStat(
@@ -128,6 +133,26 @@ class DashboardService:
             )
             for name, (a, b, c) in sorted(stats.items(), key=lambda item: -item[1][0])
         )
+
+
+def _row_late(row: TaskRow) -> bool:
+    """ORD (0053): past the orderer's wish. PR keeps its old meaning: urgent."""
+    if row.unit is UnitCode.ADS:
+        return row.deadline_status in _LATE
+    return row.urgent
+
+
+def _cell_late(row: TaskRow, cell: TaskCell) -> bool:
+    """ORD: the step finished after its deadline or is past it now. PR: the
+    held step of an urgent row, as before."""
+    if row.unit is UnitCode.ADS:
+        return cell.key != "FINAL" and cell.deadline_status in _LATE
+    return row.urgent and cell.is_current
+
+
+_OVERDUE = DeadlineStatus.OVERDUE.value
+#: Past a deadline: still open after it, or finished after it.
+_LATE = frozenset({DeadlineStatus.OVERDUE.value, DeadlineStatus.MISSED.value})
 
 
 __all__ = ["SAMPLE_LIMIT", "DashboardService", "current_month"]

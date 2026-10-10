@@ -26,6 +26,7 @@ type NavIcon =
   | "people"
   | "report"
   | "admin"
+  | "effort"
   | "account";
 
 /** The screens every unit shares. */
@@ -59,6 +60,23 @@ const PR_NAV: NavItem[] = [
   { href: "/pr/permissions", label: "Thành viên & Phân quyền", icon: "people" },
   { href: "/pr/reports", label: "Báo cáo", icon: "report" },
 ];
+
+/**
+ * The ORD token grid (people × days). For whoever hands out ORD work: OWNER /
+ * ADMIN, the Trưởng phòng ORD and a function's Leader. Staff see their own
+ * effort on /account instead.
+ */
+const EFFORT_NAV: NavItem[] = [
+  { href: "/tasks/effort", label: "Effort", icon: "effort" },
+];
+
+/** Whether this person may open the ORD effort grid of others. */
+export function seesOrdEffort(me: UnitsMe | undefined, sessionRole?: string): boolean {
+  if (!me) return false;
+  if (me.can_view_all || sessionRole === "OWNER" || sessionRole === "ADMIN") return true;
+  const ads = me.units.find((unit) => unit.code === "ADS");
+  return Boolean(ads && (ads.role === "HEAD" || ads.is_lead));
+}
 
 const ADMIN_NAV: NavItem[] = [
   { href: "/admin/units", label: "Quản trị đơn vị", icon: "admin" },
@@ -94,7 +112,13 @@ export function navFor(me: UnitsMe | undefined, sessionRole?: string): NavItem[]
   const admin = Boolean(
     me && (me.can_admin.length > 0 || (me.can_tag ?? []).length > 0),
   );
-  return [...COMMON_NAV, ...(pr ? PR_NAV : []), ...(admin ? ADMIN_NAV : [])];
+  const effort = seesOrdEffort(me, sessionRole);
+  return [
+    ...COMMON_NAV,
+    ...(effort ? EFFORT_NAV : []),
+    ...(pr ? PR_NAV : []),
+    ...(admin ? ADMIN_NAV : []),
+  ];
 }
 
 /** Inline stroke icons, one per nav entry. Decorative: the label carries the name. */
@@ -112,6 +136,11 @@ function Icon({ name }: { name: NavIcon }) {
       <>
         <path d="M3 6h18M3 12h18M3 18h18" />
         <path d="M8 3v18" />
+      </>
+    ),
+    effort: (
+      <>
+        <path d="M4 20V10M10 20V4M16 20v-7M22 20H2" />
       </>
     ),
     plus: (
@@ -231,11 +260,18 @@ export function Shell({ children }: { children: React.ReactNode }) {
     enabled: Boolean(session.data) && !mustChangePassword,
   });
 
-  const isActive = (href: string) =>
-    pathname === href ||
-    (href !== "/pr" && pathname.startsWith(`${href}/`)) ||
-    pathname === href;
   const nav = navFor(me.data, session.data?.role);
+  const matches = (href: string) =>
+    pathname === href || (href !== "/pr" && pathname.startsWith(`${href}/`));
+  // The most specific entry wins: /tasks/effort is "Effort", not "Quản lý task".
+  const isActive = (href: string) =>
+    matches(href) &&
+    !nav.some(
+      (other) =>
+        other.href !== href &&
+        other.href.startsWith(`${href}/`) &&
+        matches(other.href),
+    );
   const tags = me.data?.units ?? [];
 
 

@@ -128,3 +128,20 @@ export const STEP_LEGEND: Array<[string, string]> = [
   ["DANG_SUA", "Đang sửa"],
   ["HOAN_THANH", "Hoàn thành"],
 ];
+
+/**
+ * A deadline's colour (`deadline_status` on a row, a cell or a step): amber
+ * when it is close, red once it is past or was missed, green when it was met.
+ * On track - and no deadline at all - stays slate.
+ */
+const DEADLINE_COLORS: Record<string, StatusColor> = {
+  ON_TRACK: "slate",
+  DUE_SOON: "amber",
+  OVERDUE: "red",
+  MISSED: "red",
+  MET: "green",
+};
+
+export function deadlineColor(status: string | null | undefined): StatusColor {
+  return (status && DEADLINE_COLORS[status]) || "slate";
+}

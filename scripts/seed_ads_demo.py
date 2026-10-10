@@ -21,7 +21,7 @@ from typing import Any
 
 from sqlalchemy import select, update
 
-from meobot.application.orders.command_service import CreateOrderCommand
+from meobot.application.orders.command_service import CreateOrderCommand, NodePlan
 from meobot.application.orders.services import build_order_services
 from meobot.core.config import get_settings
 from meobot.core.time import utcnow
@@ -252,6 +252,7 @@ async def main() -> None:
                     reference_link=MARKER,
                     source_link="https://example.com/source/" + str(index),
                     video_kind_id=kinds[index % len(kinds)] if kinds else None,
+                    desired_deadline_at=utcnow() + timedelta(days=3 + index % 5),
                 ),
             )
             oid = order.id
@@ -312,6 +313,9 @@ async def main() -> None:
                         node_id=node.id,
                         expected_version=o.version,
                         assignee_user_id=worker.user_id,
+                        plan=NodePlan(
+                            tokens=1 + index % 3, deadline_at=utcnow() + timedelta(days=2)
+                        ),
                     )
                     if here and stop[1] == "ASSIGNED":
                         return
@@ -354,6 +358,7 @@ async def main() -> None:
                                 node_id=node.id,
                                 expected_version=o.version,
                                 note="Nhịp cắt chậm, thêm sub và nhạc nền giúp anh.",
+                                plan=NodePlan(tokens=1),
                             )
                             return
                         await cmd.approve_node(

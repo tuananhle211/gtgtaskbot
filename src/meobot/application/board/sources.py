@@ -60,6 +60,12 @@ from meobot.domain.board.models import (
     TaskRow,
 )
 from meobot.domain.identity.models import Actor
+from meobot.domain.orders.deadlines import (
+    done_status,
+    node_deadline,
+    node_deadline_status,
+    open_status,
+)
 from meobot.domain.orders.labels import (
     node_status_label,
     node_type_label,
@@ -260,7 +266,7 @@ class PrBoardSource:
         # A phase or urgency filter narrows after the query, so over-fetch and
         # page in memory; the PR list is small and both filters are rare. The
         # "todo first" order partitions the filter the same way.
-        narrow = query.phase is not None or query.urgent or query.todo_first
+        narrow = query.phase is not None or query.urgent or query.todo_first or query.overdue
         awaiting = await self._awaiting_ids(actor, query)
         page = await self._queries.content_page(
             actor=actor,
@@ -299,6 +305,9 @@ class PrBoardSource:
             rows = [row for row in rows if row.phase is query.phase]
         if query.urgent:
             rows = [row for row in rows if row.urgent]
+        if query.overdue:
+            # PR rows carry no deadline: none is overdue.
+            rows = [row for row in rows if row.deadline_status == "OVERDUE"]
         if query.todo_first:
             # Stable: each part keeps PR's own order.
             rows = [row for row in rows if row.awaiting_me] + [
@@ -567,6 +576,8 @@ class AdsBoardSource:
                 Order.submitted_at < cutoff,
                 Order.stage.notin_([OrderStage.COMPLETED, OrderStage.CANCELLED]),
             )
+        if query.overdue:
+            statement = statement.where(_overdue(now))
         if query.search:
             needle = f"%{query.search.strip()}%"
             statement = statement.where(or_(Order.code.ilike(needle), Order.title.ilike(needle)))
@@ -647,6 +658,21 @@ class AdsBoardSource:
                             OrderNode.assigned_at.is_(None),
                             OrderNode.activated_at.is_(None),
                             OrderNode.assigned_at <= OrderNode.activated_at,
+                        ),
+                    )
+                )
+            )
+        if assigns:
+            # Sent back by the orderer or the script lead: the Leader still has
+            # to enter the revision tokens ("Nhập token sửa", 0053).
+            conditions.append(
+                exists(
+                    select(OrderNode.id).where(
+                        OrderNode.order_id == Order.id,
+                        self._managed(assigns),
+                        OrderNode.revision_tokens_pending.is_(True),
+                        OrderNode.status.in_(
+                            sorted(ACTIVE_NODE_STATUSES, key=lambda status: status.value)
                         ),
                     )
                 )
@@ -828,9 +854,18 @@ class AdsBoardSource:
                     is_current=node.status in ACTIVE_NODE_STATUSES,
                     since=None if since is None else ensure_utc(since),
                     revisions=node.revision_count,
+                    deadline_at=_node_deadline(node),
+                    deadline_status=_node_deadline_status(node, now),
+                    tokens=_node_tokens(node),
                 )
             )
-        cells.append(self._final_cell(order, by_type, names, approvers))
+        final = self._final_cell(order, by_type, names, approvers)
+        desired = (
+            None if order.desired_deadline_at is None else ensure_utc(order.desired_deadline_at)
+        )
+        cells.append(
+            replace(final, deadline_at=desired, deadline_status=_order_deadline_status(order, now))
+        )
         submitted = ensure_utc(order.submitted_at)
         if order.stage is OrderStage.COMPLETED and order.completed_at is not None:
             stage_since: datetime | None = ensure_utc(order.completed_at)
@@ -889,6 +924,14 @@ class AdsBoardSource:
             latest_link=links.get(order.id),
             delivered_at=_product_handed_in(order, by_type),
             extras=tuple(extras),
+            desired_deadline_at=desired,
+            deadline_at=_node_deadline(current) if current is not None else desired,
+            deadline_status=(
+                _node_deadline_status(current, now)
+                if current is not None
+                else _order_deadline_status(order, now)
+            ),
+            over_deadline_count=order.over_deadline_count,
         )
 
     @staticmethod
@@ -1059,6 +1102,80 @@ class AdsBoardSource:
             f"{label} · {node_status_label(current.status)}",
             current.status.value,
         )
+
+
+#: The orderer's own steps: there the wished finish is the deadline that counts.
+_ORDERER_GATES = (
+    OrderStage.ORDER_PENDING,
+    OrderStage.ORDER_RETURNED,
+    OrderStage.DUYET_VIDEO_BT,
+    OrderStage.FINAL_REVIEW,
+)
+
+
+def _node_deadline(node: OrderNode) -> datetime | None:
+    deadline = node_deadline(
+        deadline_at=node.deadline_at,
+        revision_deadline_at=node.revision_deadline_at,
+        revision_count=node.revision_count,
+    )
+    return None if deadline is None else ensure_utc(deadline)
+
+
+def _node_deadline_status(node: OrderNode, now: datetime) -> str | None:
+    found = node_deadline_status(
+        status=node.status,
+        deadline_at=None if node.deadline_at is None else ensure_utc(node.deadline_at),
+        revision_deadline_at=(
+            None if node.revision_deadline_at is None else ensure_utc(node.revision_deadline_at)
+        ),
+        revision_count=node.revision_count,
+        deadline_met=node.deadline_met,
+        now=now,
+    )
+    return None if found is None else found.value
+
+
+def _node_tokens(node: OrderNode) -> float | None:
+    if node.token_estimate is None and not node.token_revision:
+        return None
+    return float((node.token_estimate or 0) + (node.token_revision or 0))
+
+
+def _order_deadline_status(order: Order, now: datetime) -> str | None:
+    """The orderer's wish: met or missed once finished, else against now -
+    only while the order is at one of the orderer's own steps."""
+    if order.desired_deadline_at is None:
+        return None
+    desired = ensure_utc(order.desired_deadline_at)
+    if order.stage is OrderStage.COMPLETED and order.completed_at is not None:
+        found = done_status(ensure_utc(order.completed_at) <= desired)
+    elif order.stage in _ORDERER_GATES:
+        found = open_status(desired, now)
+    else:
+        found = None
+    return None if found is None else found.value
+
+
+def _overdue(now: datetime) -> ColumnElement[bool]:
+    """SQL twin of an OVERDUE row: the active node's deadline that counts has
+    passed, or the order sits at the orderer's own steps past their wish."""
+    counts = case(
+        (
+            (OrderNode.revision_count > 0) & OrderNode.revision_deadline_at.is_not(None),
+            OrderNode.revision_deadline_at,
+        ),
+        else_=OrderNode.deadline_at,
+    )
+    late_node = exists(
+        select(OrderNode.id).where(
+            OrderNode.order_id == Order.id,
+            OrderNode.status.in_(sorted(ACTIVE_NODE_STATUSES, key=lambda status: status.value)),
+            counts < now,
+        )
+    )
+    late_wish = Order.stage.in_(_ORDERER_GATES) & (Order.desired_deadline_at < now)
+    return or_(late_node, late_wish)
 
 
 def _boss_of(member: Any, *, head: bool = False) -> Any:

@@ -1,4 +1,4 @@
-> **Trạng thái: CHỜ DUYỆT. Chưa được triển khai.** Viết ngày 09/10/2026. Chỉ bắt đầu code khi chủ sở hữu duyệt (đổi dòng này thành "ĐÃ DUYỆT <ngày>").
+> **Trạng thái: ĐÃ DUYỆT 10/10/2026 — ĐÃ TRIỂN KHAI (migration 0053), giai đoạn 1–3.** Giai đoạn 4 (nhắc hạn qua Telegram, ngày nghỉ theo ngày) chưa làm.
 
 # Plan: Token effort và Deadline cho Luồng Order (ORD)
 

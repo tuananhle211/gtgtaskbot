@@ -126,6 +126,7 @@ def create(world: World, ads: Ads, *, by: User | None = None, **overrides: Any) 
         "order_content": "Ý tưởng, hook, câu từ.",
         "script_source": "AI",
         "reference_link": "https://example.com/ref",
+        "desired_deadline_at": FAR_DEADLINE,
     }
     body.update(overrides)
     response = world.client.post("/api/orders", json=body)
@@ -133,8 +134,18 @@ def create(world: World, ads: Ads, *, by: User | None = None, **overrides: Any) 
     return response.json()
 
 
+#: A desired / node deadline no test clock reaches (0053 makes them required).
+FAR_DEADLINE = "2030-01-01T00:00:00+00:00"
+
+
 def act(world: World, user: User, path: str, detail: dict[str, Any], **body: Any) -> dict[str, Any]:
     world.act_as(user)
+    if "/nodes/" in path and path.rsplit("/", 1)[-1] in ("assign", "accept", "return"):
+        # Tokens / a deadline are required here since 0053 (on accept: for a
+        # Leader taking a routed node); tests about something else get a plan.
+        body.setdefault("tokens", 1)
+        if not path.endswith("/return"):
+            body.setdefault("deadline_at", FAR_DEADLINE)
     response = world.client.post(
         f"/api/orders/{detail['order']['id']}{path}",
         json={"version": detail["order"]["version"], **body},
@@ -204,7 +215,12 @@ async def test_01_an_order_is_submitted_with_its_code_and_three_nodes(world: Wor
 async def test_02_create_validates_the_type_the_link_and_the_chosen_people(world: World) -> None:
     ads = await ads_world(world)
     world.act_as(ads.orderer)
-    base = {"title": "X", "video_type": "D", "order_content": "y"}
+    base = {
+        "title": "X",
+        "video_type": "D",
+        "order_content": "y",
+        "desired_deadline_at": FAR_DEADLINE,
+    }
     response = world.client.post("/api/orders", json=base)
     assert response.status_code == 422 and error_reason(response.json()) == "design_link_required"
     response = world.client.post("/api/orders", json={**base, "video_type": "XL"})
@@ -646,7 +662,12 @@ async def test_12_every_process_combination_plans_its_nodes_and_its_code(world: 
 async def test_13_the_process_is_validated(world: World) -> None:
     ads = await ads_world(world)
     world.act_as(ads.orderer)
-    base = {"title": "X", "order_content": "y", "design_link": "d"}
+    base = {
+        "title": "X",
+        "order_content": "y",
+        "design_link": "d",
+        "desired_deadline_at": FAR_DEADLINE,
+    }
 
     def reason(**body: Any) -> tuple[int, str | None]:
         response = world.client.post("/api/orders", json={**base, **body})
@@ -660,7 +681,7 @@ async def test_13_the_process_is_validated(world: World) -> None:
     assert reason(video_type="TD", process=["DUNG"]) == (422, "process_mismatch")
     assert reason(video_type="XL") == (422, "invalid_video_type")
     # The design-link rule: an edit with no design node needs it, others do not.
-    without = {"title": "X", "order_content": "y"}
+    without = {"title": "X", "order_content": "y", "desired_deadline_at": FAR_DEADLINE}
     for code in ("D", "BD"):
         response = world.client.post("/api/orders", json={**without, "video_type": code})
         assert response.status_code == 422, code
@@ -826,7 +847,12 @@ async def test_16_the_video_kind_is_required_valid_and_snapshotted(world: World)
     full = await add_kind(world, ads, "Video full diễn hoạt", "2.5")
     retired = await add_kind(world, ads, "Quay khác", active=False)
     world.act_as(ads.orderer)
-    base = {"title": "X", "video_type": "TD", "order_content": "y"}
+    base = {
+        "title": "X",
+        "video_type": "TD",
+        "order_content": "y",
+        "desired_deadline_at": FAR_DEADLINE,
+    }
     missing = world.client.post("/api/orders", json=base)
     assert missing.status_code == 422 and error_reason(missing.json()) == "video_kind_required"
     for bad in (retired.id, uuid.uuid4()):

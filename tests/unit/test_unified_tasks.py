@@ -231,17 +231,28 @@ async def test_07_ads_actions_run_through_the_order_engine(world: World) -> None
     world.act_as(ads.lead_bt)
     page = world.client.get(f"/api/tasks/{code}").json()
     assign = next(a for a in page["actions"] if a["key"].startswith("ads:ASSIGN:"))
-    assert "assignee" in assign["inputs"]
+    assert assign["inputs"] == ["assignee", "tokens", "deadline"]
+    assert assign["required_inputs"] == ["tokens", "deadline"]
+    assert assign["plan_mode"] == "ESTIMATE"
     offered = {option["user_id"] for option in assign["assignee_options"]}
     assert str(ads.writer.id) in offered
     # Leaders are not offered: a Leader takes the node with "Nhận việc".
     assert str(ads.lead_bt.id) not in offered
+    # Each option carries today's effort (0053): 8 a day by default, nothing held.
+    writer = next(o for o in assign["assignee_options"] if o["user_id"] == str(ads.writer.id))
+    assert writer["tokens_open"] == 0 and writer["open_tasks"] == 0
+    no_plan = post(
+        world, code, assign["key"], page["task"]["version"], assignee_user_id=str(ads.writer.id)
+    )
+    assert no_plan.status_code == 422 and error_reason(no_plan.json()) == "tokens_required"
     assigned = post(
         world,
         code,
         assign["key"],
         page["task"]["version"],
         assignee_user_id=str(ads.writer.id),
+        tokens=2,
+        deadline_at="2030-01-01T00:00:00+00:00",
     )
     assert assigned.status_code == 200, assigned.json()
 

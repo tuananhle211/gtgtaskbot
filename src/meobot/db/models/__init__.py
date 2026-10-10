@@ -49,6 +49,7 @@ from meobot.db.models.order import (
     OrderEvent,
     OrderNode,
     OrderSubmission,
+    OrderTokenLedger,
     OrderWorkRule,
 )
 from meobot.db.models.org_unit import (
@@ -185,6 +186,7 @@ __all__ = [
     "OrderEvent",
     "OrderNode",
     "OrderSubmission",
+    "OrderTokenLedger",
     "OrderWorkRule",
     "OrgUnit",
     "OrgUnitMember",

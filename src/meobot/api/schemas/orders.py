@@ -4,10 +4,14 @@ from __future__ import annotations
 
 import uuid
 from datetime import datetime
+from decimal import Decimal
 
 from pydantic import BaseModel, Field
 
 from meobot.application.orders.query_service import OrderDetail
+from meobot.core.time import ensure_utc, utcnow
+from meobot.db.models.order import OrderNode
+from meobot.domain.orders.deadlines import node_deadline_status
 from meobot.domain.orders.labels import (
     event_label,
     node_status_label,
@@ -45,6 +49,14 @@ class OrderNodeResponse(BaseModel):
     revision_count: int
     submission_count: int
     version: int
+    #: 0053: the node's plan and where its deadline stands.
+    token_estimate: float | None = None
+    token_revision: float = 0.0
+    deadline_at: datetime | None = None
+    revision_deadline_at: datetime | None = None
+    deadline_met: bool | None = None
+    revision_tokens_pending: bool = False
+    deadline_status: str | None = None
 
 
 class OrderSubmissionResponse(BaseModel):
@@ -134,6 +146,9 @@ class OrderResponse(BaseModel):
     version: int
     created_at: datetime
     updated_at: datetime
+    #: 0053: the orderer's wished finish and how often it was overrun.
+    desired_deadline_at: datetime | None = None
+    over_deadline_count: int = 0
 
 
 class OrderDetailResponse(BaseModel):
@@ -160,6 +175,7 @@ class OrderDetailResponse(BaseModel):
             OrderNodeStatus.DANG_SUA,
         }
         node_types = {node.id: node.node_type for node in detail.nodes}
+        now = utcnow()
         return cls(
             order=OrderResponse(
                 id=order.id,
@@ -202,6 +218,8 @@ class OrderDetailResponse(BaseModel):
                 version=order.version,
                 created_at=order.created_at,
                 updated_at=order.updated_at,
+                desired_deadline_at=order.desired_deadline_at,
+                over_deadline_count=order.over_deadline_count,
             ),
             nodes=[
                 OrderNodeResponse(
@@ -225,6 +243,15 @@ class OrderDetailResponse(BaseModel):
                     revision_count=node.revision_count,
                     submission_count=node.submission_count,
                     version=node.version,
+                    token_estimate=(
+                        None if node.token_estimate is None else float(node.token_estimate)
+                    ),
+                    token_revision=float(node.token_revision or 0),
+                    deadline_at=node.deadline_at,
+                    revision_deadline_at=node.revision_deadline_at,
+                    deadline_met=node.deadline_met,
+                    revision_tokens_pending=node.revision_tokens_pending,
+                    deadline_status=_node_deadline_status(node, now),
                 )
                 # A legacy link node is no step any more: hidden.
                 for node in detail.nodes
@@ -311,6 +338,8 @@ class CreateOrderRequest(BaseModel):
     note: str | None = Field(default=None, max_length=5000)
     #: Node type → user id, for the nodes the orderer wants to name a person for.
     preassigned: dict[str, uuid.UUID] = Field(default_factory=dict)
+    #: 0053: the orderer's wished finish. Required (422 ``deadline_required``).
+    desired_deadline_at: datetime | None = None
 
 
 class VersionedRequest(BaseModel):
@@ -329,14 +358,27 @@ class ResubmitOrderRequest(VersionedRequest):
     platform_id: uuid.UUID | None = None
     duration_id: uuid.UUID | None = None
     note: str | None = Field(default=None, max_length=5000)
+    desired_deadline_at: datetime | None = None
 
 
 class NoteRequest(VersionedRequest):
     note: str | None = None
 
 
-class AssignRequest(VersionedRequest):
+class PlanRequest(VersionedRequest):
+    """A node's tokens and deadline (0053); on a node sent back, this round's
+    revision tokens and deadline."""
+
+    tokens: Decimal | None = Field(default=None, ge=0, le=Decimal("999.99"))
+    deadline_at: datetime | None = None
+
+
+class AssignRequest(PlanRequest):
     assignee_user_id: uuid.UUID
+
+
+class ReturnNodeRequest(PlanRequest):
+    note: str | None = None
 
 
 class SubmitWorkRequest(VersionedRequest):
@@ -369,6 +411,20 @@ def stage_options() -> list[StageOption]:
 
 def node_type_options() -> list[StageOption]:
     return [StageOption(value=item.value, label=node_type_label(item)) for item in PRODUCTION_NODES]
+
+
+def _node_deadline_status(node: OrderNode, now: datetime) -> str | None:
+    status = node_deadline_status(
+        status=node.status,
+        deadline_at=None if node.deadline_at is None else ensure_utc(node.deadline_at),
+        revision_deadline_at=(
+            None if node.revision_deadline_at is None else ensure_utc(node.revision_deadline_at)
+        ),
+        revision_count=node.revision_count,
+        deadline_met=node.deadline_met,
+        now=now,
+    )
+    return None if status is None else status.value
 
 
 __all__ = [

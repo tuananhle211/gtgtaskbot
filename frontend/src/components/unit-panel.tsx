@@ -2,7 +2,14 @@
 
 import { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { api, type UnitMember, type UnitSettingsInfo, type UntaggedUser } from "@/lib/api";
+import {
+  api,
+  type PerfWeights,
+  type UnitMember,
+  type UnitSettingsInfo,
+  type UntaggedUser,
+} from "@/lib/api";
+import { formatTokens, parseTokens } from "@/lib/deadline";
 import { ConfirmButton } from "@/components/confirm";
 import { Select } from "@/components/pr";
 import { ErrorBox, Loading, NoticeBox, Pill } from "@/components/states";
@@ -277,6 +284,9 @@ export function UnitPanel({
                 <th className="px-3 py-2 font-medium">Vai trò trong luồng</th>
                 <th className="px-3 py-2 font-medium">Mã thành viên</th>
                 <th className="px-3 py-2 font-medium">Kho cá nhân</th>
+                {code === "ADS" ? (
+                  <th className="px-3 py-2 font-medium">Token/ngày</th>
+                ) : null}
                 <th className="px-3 py-2 font-medium">
                   <span className="sr-only">Thao tác</span>
                 </th>
@@ -305,6 +315,10 @@ export function UnitPanel({
                     role: member.base_role,
                   })}
                   accountActive={accountActive(member)}
+                  defaultTokens={
+                    me.data?.units.find((unit) => unit.code === code)?.settings
+                      .default_daily_tokens ?? DEFAULT_DAILY_TOKENS
+                  }
                   onDone={refresh}
                 />
               ))}
@@ -614,6 +628,11 @@ function AddMember({
 
 const FUNCTION_ROLES = new Set(["BIEN_TAP", "THIET_KE", "DUNG"]);
 
+/** The server's own default for `default_daily_tokens`, until settings load. */
+const DEFAULT_DAILY_TOKENS = 8;
+/** The server's own default performance weights. */
+const DEFAULT_WEIGHTS: PerfWeights = { output: 0.5, on_time: 0.3, quality: 0.2 };
+
 /**
  * Who may be this member's own Leader ("Trưởng quản lý"), for a ban with
  * several: a staff member of Biên kịch / Design / Dựng picks a Leader of the
@@ -647,6 +666,7 @@ function MemberRow({
   mayUntag,
   mayChangeStatus,
   accountActive,
+  defaultTokens,
   onDone,
 }: {
   code: string;
@@ -661,10 +681,19 @@ function MemberRow({
   /** OWNER / ADMIN: "Vô hiệu hoá" / "Kích hoạt lại". */
   mayChangeStatus: boolean;
   accountActive: boolean;
+  /** ORD: the unit's `default_daily_tokens` (an empty "Token/ngày" means it). */
+  defaultTokens: number;
   onDone: () => void;
 }) {
   const [memberCode, setMemberCode] = useState(member.member_code ?? "");
   const [nas, setNas] = useState(member.personal_nas_url ?? "");
+  const savedTokens =
+    member.daily_tokens === null || member.daily_tokens === undefined
+      ? ""
+      : String(member.daily_tokens);
+  const [tokens, setTokens] = useState(savedTokens);
+  const tokensChanged = code === "ADS" && tokens.trim() !== savedTokens;
+  const tokensInvalid = tokens.trim() !== "" && parseTokens(tokens) === null;
   const update = useMutation({
     mutationFn: (body: Parameters<typeof api.updateUnitMember>[2]) =>
       api.updateUnitMember(code, member.user_id, body),
@@ -676,7 +705,8 @@ function MemberRow({
   });
   const dirty =
     memberCode !== (member.member_code ?? "") ||
-    nas !== (member.personal_nas_url ?? "");
+    nas !== (member.personal_nas_url ?? "") ||
+    tokensChanged;
   return (
     <tr
       data-inactive={accountActive ? undefined : "true"}
@@ -756,6 +786,32 @@ function MemberRow({
           <span className="break-all text-xs">{member.personal_nas_url ?? "–"}</span>
         )}
       </td>
+      {code === "ADS" ? (
+        <td className="px-3 py-2">
+          {editable ? (
+            <input
+              type="number"
+              inputMode="decimal"
+              min={0}
+              max={999.99}
+              step={0.5}
+              value={tokens}
+              onChange={(event) => setTokens(event.target.value)}
+              placeholder={formatTokens(defaultTokens)}
+              aria-label={`Token/ngày của ${member.full_name}`}
+              aria-invalid={tokensInvalid || undefined}
+              title="Để trống = mặc định của luồng"
+              className="min-h-11 w-24 rounded-lg border border-[var(--border)] bg-[var(--surface)] px-3 text-sm text-[var(--text)]"
+            />
+          ) : (
+            <span className="tabular-nums">
+              {savedTokens
+                ? formatTokens(member.daily_tokens)
+                : `${formatTokens(defaultTokens)} (mặc định)`}
+            </span>
+          )}
+        </td>
+      ) : null}
       <td className="px-3 py-2">
         <div className="flex flex-wrap justify-end gap-1.5">
           {editable && dirty ? (
@@ -765,9 +821,11 @@ function MemberRow({
                 update.mutate({
                   member_code: memberCode || null,
                   personal_nas_url: nas || null,
+                  // Empty = back to the unit's default.
+                  ...(tokensChanged ? { daily_tokens: parseTokens(tokens) } : {}),
                 })
               }
-              disabled={update.isPending}
+              disabled={update.isPending || tokensInvalid}
               className="min-h-11 rounded-lg bg-[var(--accent)] px-3 text-xs font-medium text-[var(--accent-text)] disabled:opacity-50"
             >
               Lưu
@@ -859,10 +917,12 @@ export function SettingsForm({ code, onDone }: { code: string; onDone: () => voi
   const me = useQuery({ queryKey: ["units", "me"], queryFn: api.unitsMe });
   const current = me.data?.units.find((unit) => unit.code === code)?.settings;
   const [draft, setDraft] = useState<Partial<UnitSettingsInfo>>({});
+  const [texts, setTexts] = useState<Record<string, string>>({});
   const save = useMutation({
     mutationFn: () => api.updateUnitSettings(code, draft),
     onSuccess: () => {
       setDraft({});
+      setTexts({});
       onDone();
     },
   });
@@ -872,6 +932,50 @@ export function SettingsForm({ code, onDone }: { code: string; onDone: () => voi
   ): UnitSettingsInfo[K] => (draft[key] ?? current[key]) as UnitSettingsInfo[K];
   const field =
     "min-h-11 w-full rounded-lg border border-[var(--border)] bg-[var(--surface)] px-3 text-sm text-[var(--text)]";
+  // Number inputs keep what is typed (an empty box included) until saved; the
+  // draft holds the parsed number, or null for an empty optional one.
+  const numberText = (
+    key: "default_daily_tokens" | "output_target",
+    saved: number | null,
+  ) =>
+    texts[key] ?? (saved === null || saved === undefined ? "" : String(saved));
+  const setNumber = (
+    key: "default_daily_tokens" | "output_target",
+    text: string,
+    optional = false,
+  ) => {
+    setTexts((all) => ({ ...all, [key]: text }));
+    const parsed = text.trim() === "" ? null : Number(text);
+    setDraft((all) => {
+      const next = { ...all };
+      if (parsed === null ? optional : Number.isFinite(parsed) && parsed >= 0) {
+        (next as Record<string, unknown>)[key] = parsed;
+      } else {
+        delete (next as Record<string, unknown>)[key];
+      }
+      return next;
+    });
+  };
+  const weights = { ...DEFAULT_WEIGHTS, ...current.perf_weights, ...draft.perf_weights };
+  const weightText = (key: keyof PerfWeights) =>
+    texts[`w_${key}`] ?? String(weights[key]);
+  const setWeight = (key: keyof PerfWeights, text: string) => {
+    setTexts((all) => ({ ...all, [`w_${key}`]: text }));
+    const parsed = Number(text);
+    if (text.trim() === "" || !Number.isFinite(parsed) || parsed < 0 || parsed > 1) return;
+    setDraft((all) => ({
+      ...all,
+      perf_weights: { ...weights, [key]: parsed },
+    }));
+  };
+  const weightsSum = (["output", "on_time", "quality"] as const).every((key) =>
+    Number.isFinite(Number(weightText(key))),
+  )
+    ? (["output", "on_time", "quality"] as const).reduce(
+        (sum, key) => sum + Number(weightText(key)),
+        0,
+      )
+    : null;
   return (
     <form
       className="grid gap-3 rounded-xl border border-[var(--border)] bg-[var(--surface)] p-4 sm:grid-cols-2"
@@ -937,6 +1041,85 @@ export function SettingsForm({ code, onDone }: { code: string; onDone: () => voi
         />
         Gửi thêm thông báo qua Telegram
       </label>
+      <label className="text-xs text-[var(--text-muted)]">
+        Token/ngày mặc định
+        <input
+          type="number"
+          inputMode="decimal"
+          min={0}
+          max={999.99}
+          step={0.5}
+          value={numberText("default_daily_tokens", current.default_daily_tokens ?? DEFAULT_DAILY_TOKENS)}
+          onChange={(event) => setNumber("default_daily_tokens", event.target.value)}
+          className={`mt-1 ${field}`}
+        />
+        <span className="mt-0.5 block">
+          Quỹ mỗi ngày làm việc của một người, khi người đó chưa có quỹ riêng
+        </span>
+      </label>
+      <label className="inline-flex min-h-11 items-center gap-2 text-sm">
+        <input
+          type="checkbox"
+          checked={(value("half_weekdays") ?? [5]).includes(5)}
+          onChange={(event) =>
+            setDraft((all) => ({
+              ...all,
+              half_weekdays: event.target.checked ? [5] : [],
+            }))
+          }
+        />
+        Thứ 7 làm buổi sáng (½ quỹ token/ngày)
+      </label>
+      <label className="text-xs text-[var(--text-muted)]">
+        Mốc sản lượng (công đoạn/tháng)
+        <input
+          type="number"
+          inputMode="numeric"
+          min={1}
+          step={1}
+          value={numberText("output_target", current.output_target ?? null)}
+          onChange={(event) => setNumber("output_target", event.target.value, true)}
+          placeholder="Người làm nhiều nhất"
+          className={`mt-1 ${field}`}
+        />
+        <span className="mt-0.5 block">
+          Để trống = người làm nhiều nhất trong ban tháng đó
+        </span>
+      </label>
+      <fieldset className="sm:col-span-2">
+        <legend className="text-xs text-[var(--text-muted)]">
+          Trọng số điểm hiệu suất (tổng nên bằng 1)
+        </legend>
+        <div className="mt-1 grid gap-3 sm:grid-cols-3">
+          {(
+            [
+              ["output", "Sản lượng"],
+              ["on_time", "Đúng hạn"],
+              ["quality", "Không bị trả"],
+            ] as const
+          ).map(([key, label]) => (
+            <label key={key} className="text-xs text-[var(--text-muted)]">
+              {label}
+              <input
+                type="number"
+                inputMode="decimal"
+                min={0}
+                max={1}
+                step={0.05}
+                value={weightText(key)}
+                onChange={(event) => setWeight(key, event.target.value)}
+                aria-label={`Trọng số ${label}`}
+                className={`mt-1 ${field}`}
+              />
+            </label>
+          ))}
+        </div>
+        {weightsSum !== null && Math.abs(weightsSum - 1) > 0.001 ? (
+          <p className="mt-1 text-xs text-[var(--warn)]">
+            Tổng trọng số đang là {formatTokens(weightsSum)} (nên bằng 1).
+          </p>
+        ) : null}
+      </fieldset>
       <fieldset className="sm:col-span-2">
         <legend className="text-xs text-[var(--text-muted)]">
           Trưởng phòng duyệt bài nộp trước khi chuyển bước (bỏ chọn: nộp xong tự

@@ -32,20 +32,28 @@ from meobot.application.board.holders import ads_approvers
 from meobot.application.orders.code_service import OrderCodeService
 from meobot.application.orders.notifications import OrderNotificationService
 from meobot.application.orders.scope import OrderScope
+from meobot.application.orders.token_ledger import OrderTokenLedgerService
 from meobot.application.orders.work_recorder import OrderWorkRecorder
 from meobot.application.pr_support import lock_row, record_pr_event
 from meobot.application.units.directory import ROLE_FOR_NODE, UnitDirectoryService
 from meobot.core.config import Settings
-from meobot.core.time import utcnow
+from meobot.core.time import ensure_utc, utcnow
 from meobot.db.models.order import Order, OrderApproval, OrderEvent, OrderNode, OrderSubmission
 from meobot.db.models.org_unit import OrgUnitMember, UnitDuration, UnitPlatform, UnitVideoKind
 from meobot.domain.audit.models import AuditAction
 from meobot.domain.identity.models import Actor
+from meobot.domain.orders.deadlines import (
+    WORK_TIMEZONE,
+    describe_overrun,
+    overrun,
+    parse_tokens,
+)
 from meobot.domain.orders.errors import (
     OrderNotFoundError,
     OrderStaleVersionError,
     OrderValidationError,
 )
+from meobot.domain.orders.labels import node_type_label
 from meobot.domain.orders.models import (
     ACTIVE_NODE_STATUSES,
     OrderApprovalDecision,
@@ -98,6 +106,8 @@ class CreateOrderCommand:
     platform_id: uuid.UUID | None = None
     duration_id: uuid.UUID | None = None
     note: str | None = None
+    #: 0053: the orderer's wished finish. Required.
+    desired_deadline_at: datetime | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -116,6 +126,16 @@ class OrderEdit:
     platform_id: uuid.UUID | None = None
     duration_id: uuid.UUID | None = None
     note: str | None = None
+    desired_deadline_at: datetime | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class NodePlan:
+    """What a Leader puts on a node (0053): tokens and a deadline. On a node
+    that was sent back they are this round's revision tokens and deadline."""
+
+    tokens: Decimal | float | str | None = None
+    deadline_at: datetime | None = None
 
 
 @dataclass(slots=True)
@@ -183,6 +203,7 @@ class OrderCommandService:
         self._codes = codes
         self._notify = notifications
         self._kpi = kpi
+        self._tokens = OrderTokenLedgerService(session)
 
     # --- create / resubmit -------------------------------------------------------
 
@@ -203,6 +224,7 @@ class OrderCommandService:
         self._validate_fields(
             command.video_type, command.title, command.order_content, command.design_link
         )
+        desired = _desired_deadline(command.desired_deadline_at, now=utcnow())
         await self._validate_preassigned(unit.id, command.video_type, command.preassigned)
         kind = await self._video_kind(unit.id, command.video_kind_id, required=True)
         platform = await self._platform(unit.id, command.platform_id, required=True)
@@ -241,6 +263,7 @@ class OrderCommandService:
             owner_user_id=actor.user_id,
             stage=OrderStage.ORDER_PENDING,
             submitted_at=now,
+            desired_deadline_at=desired,
         )
         self._session.add(order)
         await self._session.flush()
@@ -306,6 +329,8 @@ class OrderCommandService:
             order.duration_points = Decimal(dur.points)
         if edit.note is not None:
             order.note = _blank_to_none(edit.note)
+        if edit.desired_deadline_at is not None:
+            order.desired_deadline_at = _desired_deadline(edit.desired_deadline_at, now=utcnow())
         if edit.preassigned is not None:
             await self._validate_preassigned(order.unit_id, order.video_type, edit.preassigned)
             for node_type, node in loaded.nodes.items():
@@ -385,7 +410,10 @@ class OrderCommandService:
         node_id: uuid.UUID,
         expected_version: int,
         assignee_user_id: uuid.UUID,
+        plan: NodePlan | None = None,
     ) -> Order:
+        """Hand the node to a member, with its tokens and deadline - both
+        required the first time the node is planned (0053)."""
         loaded = await self._load(actor, order_id, expected_version)
         node = self._node(loaded, node_id)
         assert_allowed(
@@ -402,6 +430,7 @@ class OrderCommandService:
             video_type=loaded.order.video_type,
         )
         before = self._snapshot(loaded.order)
+        await self._apply_plan(loaded, node, actor, plan or NodePlan(), required=_unplanned(node))
         changed = node.assignee_user_id != assignee_user_id
         node.assignee_user_id = assignee_user_id
         node.assigned_at = utcnow()
@@ -431,7 +460,10 @@ class OrderCommandService:
         order_id: uuid.UUID,
         node_id: uuid.UUID,
         expected_version: int,
+        plan: NodePlan | None = None,
     ) -> Order:
+        """Take the work. A Leader taking a node routed to them puts its tokens
+        and deadline on it here - nobody hands it to them with a plan."""
         loaded = await self._load(actor, order_id, expected_version)
         node = self._node(loaded, node_id)
         assert_allowed(
@@ -442,6 +474,12 @@ class OrderCommandService:
             node_id=node.id,
         )
         before = self._snapshot(loaded.order)
+        if self.plans(loaded, node):
+            # Only somebody who may plan the node puts a plan on it here; a
+            # worker's own accept never changes their tokens.
+            await self._apply_plan(
+                loaded, node, actor, plan or NodePlan(), required=_unplanned(node)
+            )
         node.accepted_at = utcnow()
         node.version += 1
         self._bump(loaded.order)
@@ -583,7 +621,9 @@ class OrderCommandService:
         node.approved_by_user_id = actor.user_id
         if first_approval:
             node.approved_at = now
+        node.revision_tokens_pending = False
         node.version += 1
+        await self._tokens.record_completion(order=order, node=node, at=now, first=first_approval)
         # The next node may only become active once this one is no longer.
         await self._session.flush()
         latest = await self._latest_submission(node)
@@ -645,7 +685,10 @@ class OrderCommandService:
         node_id: uuid.UUID,
         expected_version: int,
         note: str,
+        plan: NodePlan | None = None,
     ) -> Order:
+        """Send the hand-in back with this round's revision tokens ("Token
+        sửa", required, may be 0) and, optionally, a revision deadline."""
         loaded = await self._load(actor, order_id, expected_version)
         node = self._node(loaded, node_id)
         assert_allowed(
@@ -656,9 +699,22 @@ class OrderCommandService:
             node_id=node.id,
         )
         note = _require_note(note)
+        plan = plan or NodePlan()
+        tokens = _tokens(plan.tokens)
+        if tokens is None:
+            raise OrderValidationError(
+                "Cần nhập token sửa (có thể là 0).",
+                details={"reason": "tokens_required", "field": "tokens"},
+            )
         before = self._snapshot(loaded.order)
         node.status = OrderNodeStatus.DANG_SUA
         node.revision_count += 1
+        node.token_revision = Decimal(node.token_revision or 0) + tokens
+        node.revision_tokens_pending = False
+        deadline = None if plan.deadline_at is None else _future(plan.deadline_at)
+        if deadline is not None:
+            node.revision_deadline_at = deadline
+        await self._plan_events(loaded, node, actor, tokens, deadline, revision=True)
         node.version += 1
         self._bump(loaded.order)
         await self._session.flush()
@@ -670,6 +726,143 @@ class OrderCommandService:
             actor=actor, order=loaded.order, node=node, unit=loaded.settings, note=note, final=False
         )
         return loaded.order
+
+    async def set_node_plan(
+        self,
+        *,
+        actor: Actor,
+        request_id: uuid.UUID,
+        order_id: uuid.UUID,
+        node_id: uuid.UUID,
+        expected_version: int,
+        plan: NodePlan,
+    ) -> Order:
+        """ "Sửa token/deadline": change a node's plan without handing it out
+        again. On a node sent back, the tokens are this round's revision tokens
+        (what the Leader enters after the orderer returned the product)."""
+        loaded = await self._load(actor, order_id, expected_version)
+        node = self._node(loaded, node_id)
+        assert_allowed(
+            OrderActionKind.SET_NODE_PLAN,
+            loaded.view(),
+            loaded.node_views(),
+            loaded.scope.context,
+            node_id=node.id,
+        )
+        if node.revision_count > 0 and plan.tokens is None and node.revision_tokens_pending:
+            raise OrderValidationError(
+                "Cần nhập token sửa (có thể là 0).",
+                details={"reason": "tokens_required", "field": "tokens"},
+            )
+        before = self._snapshot(loaded.order)
+        changed = await self._apply_plan(loaded, node, actor, plan, required=False)
+        if not changed:
+            raise OrderValidationError(
+                "Nhập token hoặc deadline cần đổi.",
+                details={"reason": "plan_empty", "field": "tokens"},
+            )
+        node.version += 1
+        self._bump(loaded.order)
+        await self._session.flush()
+        await self._audit_order(
+            actor, request_id, AuditAction.ORDER_NODE_ASSIGNED, loaded.order, before=before
+        )
+        return loaded.order
+
+    def plans(self, loaded: _Loaded, node: OrderNode) -> bool:
+        """May the actor of ``loaded`` put tokens and a deadline on ``node``?"""
+        managed = function_node(node.node_type, loaded.order.video_type)
+        return managed in loaded.scope.context.permissions.nodes(AdsPermission.NODE_ASSIGN)
+
+    async def _apply_plan(
+        self,
+        loaded: _Loaded,
+        node: OrderNode,
+        actor: Actor,
+        plan: NodePlan,
+        *,
+        required: bool,
+    ) -> bool:
+        """Put ``plan`` on ``node``. First pass: ``token_estimate`` /
+        ``deadline_at``. A node sent back (``revision_count > 0``): this
+        round's revision tokens / ``revision_deadline_at``. Returns whether
+        anything was given."""
+        tokens = _tokens(plan.tokens)
+        if required and tokens is None:
+            raise OrderValidationError(
+                "Cần nhập token cho công đoạn.",
+                details={"reason": "tokens_required", "field": "tokens"},
+            )
+        if required and plan.deadline_at is None:
+            raise OrderValidationError(
+                "Cần đặt deadline cho công đoạn.",
+                details={"reason": "deadline_required", "field": "deadline_at"},
+            )
+        revision = node.revision_count > 0
+        current = node.revision_deadline_at if revision else node.deadline_at
+        given = None if plan.deadline_at is None else ensure_utc(plan.deadline_at)
+        if given is not None and current is not None and given == ensure_utc(current):
+            # The dialog sends the deadline back as it was: not a change, and
+            # never refused for having passed meanwhile.
+            given = None
+        if tokens is None and given is None:
+            return plan.deadline_at is not None
+        deadline = None if given is None else _future(given)
+        if revision:
+            if tokens is not None:
+                taken = await self._tokens.revision_taken(node)
+                node.token_revision = taken + tokens
+                node.revision_tokens_pending = False
+            if deadline is not None:
+                node.revision_deadline_at = deadline
+        else:
+            if tokens is not None:
+                node.token_estimate = tokens
+            if deadline is not None:
+                node.deadline_at = deadline
+        await self._plan_events(loaded, node, actor, tokens, deadline, revision=revision)
+        return True
+
+    async def _plan_events(
+        self,
+        loaded: _Loaded,
+        node: OrderNode,
+        actor: Actor,
+        tokens: Decimal | None,
+        deadline: datetime | None,
+        *,
+        revision: bool,
+    ) -> None:
+        """The plan in the history, and a deadline past the orderer's wish
+        counted ("Quá deadline mong muốn: N lần") - a warning, never a refusal."""
+        order = loaded.order
+        label = node_type_label(node.node_type)
+        parts = []
+        if tokens is not None:
+            parts.append(f"{'Token sửa' if revision else 'Token'} {_format_tokens(tokens)}")
+        if deadline is not None:
+            parts.append(f"{'Deadline sửa' if revision else 'Deadline'} {_format_when(deadline)}")
+        if parts:
+            await self._event(
+                order,
+                OrderEventKind.PLAN_SET,
+                actor,
+                node=node,
+                note=f"{label}: " + " · ".join(parts),
+            )
+        desired = (
+            None if order.desired_deadline_at is None else ensure_utc(order.desired_deadline_at)
+        )
+        gap = overrun(None if deadline is None else ensure_utc(deadline), desired)
+        if gap is not None:
+            order.over_deadline_count += 1
+            await self._event(
+                order,
+                OrderEventKind.DEADLINE_EXCEEDED,
+                actor,
+                node=node,
+                note=f"Deadline {label} vượt deadline mong muốn {describe_overrun(gap)}.",
+            )
 
     # --- the two last gates ------------------------------------------------------------
 
@@ -764,6 +957,18 @@ class OrderCommandService:
             legacy.version += 1
         order.stage = OrderStage.COMPLETED
         order.completed_at = now
+        late = overrun(
+            now,
+            None if order.desired_deadline_at is None else ensure_utc(order.desired_deadline_at),
+        )
+        if late is not None:
+            order.over_deadline_count += 1
+            await self._event(
+                order,
+                OrderEventKind.DEADLINE_EXCEEDED,
+                actor,
+                note=f"Order hoàn thành sau deadline mong muốn {describe_overrun(late)}.",
+            )
         order.product_link = (
             _blank_to_none(product_link)
             or (None if latest is None else latest.link)
@@ -974,6 +1179,9 @@ class OrderCommandService:
             await self._session.flush()
         node.status = OrderNodeStatus.DANG_SUA
         node.revision_count += 1
+        # The returner does not plan the node: its Leader enters the revision
+        # tokens ("Nhập token sửa"); the worker may start meanwhile.
+        node.revision_tokens_pending = True
         node.version += 1
         order.stage = stage_for_node(node.node_type)
         await self._approval(
@@ -1304,6 +1512,55 @@ class OrderCommandService:
                     "user_id": str(user_id),
                 },
             )
+
+
+def _unplanned(node: OrderNode) -> bool:
+    """A node nobody has put tokens on yet, on its first pass."""
+    return node.token_estimate is None and node.revision_count == 0
+
+
+def _tokens(value: Decimal | float | str | None) -> Decimal | None:
+    try:
+        return parse_tokens(value)
+    except ValueError as error:
+        raise OrderValidationError(
+            "Token phải là số từ 0 đến 999,99.",
+            details={"reason": "tokens_invalid", "field": "tokens"},
+        ) from error
+
+
+def _future(value: datetime) -> datetime:
+    deadline = ensure_utc(value)
+    if deadline <= utcnow():
+        raise OrderValidationError(
+            "Deadline phải sau thời điểm hiện tại.",
+            details={"reason": "deadline_in_past", "field": "deadline_at"},
+        )
+    return deadline
+
+
+def _desired_deadline(value: datetime | None, *, now: datetime) -> datetime:
+    if value is None:
+        raise OrderValidationError(
+            "Cần nhập deadline mong muốn.",
+            details={"reason": "deadline_required", "field": "desired_deadline_at"},
+        )
+    desired = ensure_utc(value)
+    if desired <= now:
+        raise OrderValidationError(
+            "Deadline mong muốn phải sau thời điểm hiện tại.",
+            details={"reason": "deadline_in_past", "field": "desired_deadline_at"},
+        )
+    return desired
+
+
+def _format_tokens(tokens: Decimal) -> str:
+    text = f"{tokens:.2f}".rstrip("0").rstrip(".")
+    return text.replace(".", ",")
+
+
+def _format_when(at: datetime) -> str:
+    return f"{at.astimezone(WORK_TIMEZONE):%H:%M %d/%m/%Y}"
 
 
 def _blank_to_none(value: str | None) -> str | None:

@@ -48,8 +48,10 @@ from meobot.application.board.sources import (
     display_names,
     format_points,
 )
+from meobot.application.orders.effort_service import EffortService
 from meobot.application.orders.query_service import OrderDetail
 from meobot.application.orders.services import OrderServices
+from meobot.application.orders.token_ledger import OrderTokenLedgerService
 from meobot.application.pr_action_service import (
     PrActionKind,
     PrAvailableAction,
@@ -96,7 +98,7 @@ from meobot.domain.pr.models import (
 from meobot.domain.pr.policy import PrCapability
 from meobot.domain.pr.workflow import STAGE_APPROVAL_GATES, PrTransitionTrigger
 from meobot.domain.units.labels import UNIT_LABELS, UNIT_SHORT_LABELS
-from meobot.domain.units.models import UnitCode
+from meobot.domain.units.models import UnitCode, UnitSettings
 
 Emphasis = Literal["PRIMARY", "SECONDARY", "DANGER"]
 FieldType = Literal["text", "longtext", "link", "date"]
@@ -159,8 +161,13 @@ PR_WORKFLOW_KINDS: frozenset[PrActionKind] = frozenset(
     }
 )
 #: Ads actions whose key carries the node they act on.
+#: The actions whose dialog may carry tokens / a deadline (0053).
+_PLAN_KINDS: frozenset[OrderActionKind] = frozenset(
+    {OrderActionKind.ASSIGN, OrderActionKind.ACCEPT, OrderActionKind.SET_NODE_PLAN}
+)
 ADS_NODE_KINDS: frozenset[OrderActionKind] = frozenset(
     {
+        OrderActionKind.SET_NODE_PLAN,
         OrderActionKind.ASSIGN,
         OrderActionKind.ACCEPT,
         OrderActionKind.SUBMIT_WORK,
@@ -200,6 +207,12 @@ def not_found(reason: str) -> TaskNotFoundError:
 class PersonRef:
     user_id: uuid.UUID | None
     name: str
+    #: ORD "Giao việc" options only (0053): today's budget and what is left,
+    #: and what they hold open ("Đang ôm"). None elsewhere.
+    tokens_budget_today: float | None = None
+    tokens_left_today: float | None = None
+    tokens_open: float | None = None
+    open_tasks: int | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -239,6 +252,12 @@ class TaskSummary:
     source: TaskSource
     #: The chip tag: "PR" / "ORD".
     unit_short_label: str = ""
+    #: ORD (0053): the orderer's wish; the deadline that counts now and where
+    #: it stands; how often the wish was overrun.
+    desired_deadline_at: datetime | None = None
+    deadline_at: datetime | None = None
+    deadline_status: str | None = None
+    over_deadline_count: int = 0
 
 
 @dataclass(frozen=True, slots=True)
@@ -251,6 +270,9 @@ class TaskStep:
     is_current: bool
     since: datetime | None
     revisions: int
+    deadline_at: datetime | None = None
+    deadline_status: str | None = None
+    tokens: float | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -300,6 +322,17 @@ class TaskActionView:
     assignee_options: tuple[PersonRef, ...] = ()
     #: The inputs that may not be left empty (beyond a required note).
     required_inputs: tuple[str, ...] = ()
+    #: ORD (0053): what the token / deadline inputs mean - the node's plan
+    #: (``ESTIMATE``) or this round's revision (``REVISION``) - and their
+    #: current values to start from.
+    plan_mode: str | None = None
+    defaults: PlanDefaults | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class PlanDefaults:
+    tokens: float | None = None
+    deadline_at: datetime | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -438,6 +471,10 @@ class TaskDetailService:
             revisions=row.revisions,
             version=order.version,
             source=TaskSource(type="ORDER", id=order.id),
+            desired_deadline_at=row.desired_deadline_at,
+            deadline_at=row.deadline_at,
+            deadline_status=row.deadline_status,
+            over_deadline_count=row.over_deadline_count,
         )
         return TaskDetail(
             task=summary,
@@ -446,11 +483,14 @@ class TaskDetailService:
             fields=_ads_fields(order),
             submissions=_ads_submissions(detail),
             timeline=_ads_timeline(detail),
-            actions=await self._ads_actions(detail),
+            actions=await self._ads_actions(detail, scoped.settings),
         )
 
-    async def _ads_actions(self, detail: OrderDetail) -> tuple[TaskActionView, ...]:
+    async def _ads_actions(
+        self, detail: OrderDetail, settings: UnitSettings
+    ) -> tuple[TaskActionView, ...]:
         order = detail.order
+        taken = OrderTokenLedgerService(self._session)
         nodes = {node.id: node for node in detail.nodes}
         views: list[TaskActionView] = []
         for action in detail.actions:
@@ -472,10 +512,43 @@ class TaskDetailService:
             inputs: tuple[str, ...] = ()
             required: tuple[str, ...] = ()
             options: tuple[PersonRef, ...] = ()
+            plan_mode: str | None = None
+            defaults: PlanDefaults | None = None
+            if node is not None and kind in _PLAN_KINDS:
+                revision = node.revision_count > 0
+                plan_mode = "REVISION" if revision else "ESTIMATE"
+                defaults = PlanDefaults(
+                    tokens=(
+                        float(await taken.revision_outstanding(node))
+                        if revision
+                        else (None if node.token_estimate is None else float(node.token_estimate))
+                    ),
+                    deadline_at=_utc(node.revision_deadline_at if revision else node.deadline_at),
+                )
             if kind is OrderActionKind.ASSIGN and node is not None:
-                inputs = ("assignee",)
-                options = await self._ads_assignees(order.unit_id, node.node_type, order.video_type)
+                inputs = ("assignee", "tokens", "deadline")
+                # The plan is required the first time the node is planned.
+                if node.token_estimate is None and node.revision_count == 0:
+                    required = ("tokens", "deadline")
+                options = await self._ads_assignees(
+                    order.unit_id, node.node_type, order.video_type, settings
+                )
                 if node.status is OrderNodeStatus.CHUA_GIAO:
+                    emphasis = "PRIMARY"
+            elif kind is OrderActionKind.ACCEPT and node is not None:
+                # A Leader taking a node routed to them plans it here.
+                if (
+                    node.token_estimate is None
+                    and node.revision_count == 0
+                    and any(item.kind is OrderActionKind.SET_NODE_PLAN for item in detail.actions)
+                ):
+                    inputs = ("tokens", "deadline")
+                    required = ("tokens", "deadline")
+            elif kind is OrderActionKind.SET_NODE_PLAN and node is not None:
+                inputs = ("tokens", "deadline")
+                if node.revision_tokens_pending:
+                    label = f"Nhập token sửa · {node_type_label(node.node_type)}"
+                    required = ("tokens",)
                     emphasis = "PRIMARY"
             elif kind is OrderActionKind.SUBMIT_WORK:
                 inputs = (
@@ -487,10 +560,15 @@ class TaskDetailService:
                     # The last node hands in the product: its link is required.
                     label = f"Nộp sản phẩm · {node_type_label(node.node_type)}"
                     required = ("link",)
+            elif kind is OrderActionKind.RETURN_NODE:
+                # "Token sửa" required (0 allowed), "Deadline sửa" optional.
+                inputs = ("note", "tokens", "deadline")
+                required = ("tokens",)
+                plan_mode = "REVISION"
+                defaults = PlanDefaults()
             elif kind in (
                 OrderActionKind.APPROVE_FINAL,
                 OrderActionKind.RETURN_ORDER,
-                OrderActionKind.RETURN_NODE,
                 OrderActionKind.RETURN_VIDEO,
                 OrderActionKind.RETURN_FINAL,
                 OrderActionKind.CANCEL,
@@ -506,6 +584,8 @@ class TaskDetailService:
                     inputs=inputs,
                     assignee_options=options,
                     required_inputs=required,
+                    plan_mode=plan_mode if "tokens" in inputs else None,
+                    defaults=defaults if "tokens" in inputs else None,
                 )
             )
         return tuple(sorted(views, key=lambda view: _EMPHASIS_ORDER[view.emphasis]))
@@ -515,16 +595,36 @@ class TaskDetailService:
         unit_id: uuid.UUID,
         node_type: OrderNodeType,
         video_type: OrderVideoType,
+        settings: UnitSettings,
     ) -> tuple[PersonRef, ...]:
-        """The staff a Leader hands this node to: the ban's members, not its Leaders.
+        """The staff a Leader hands this node to: the ban's members, not its Leaders,
+        each with today's effort and what they hold open (0053).
 
         A Leader who wants the node takes it with "Nhận việc" instead.
         """
         wanted = ROLE_FOR_NODE[function_node(node_type, video_type)]
-        rows = await self._directory.members(unit_id, role=wanted)
-        return tuple(
-            PersonRef(row.user.id, row.user.full_name) for row in rows if not row.membership.is_lead
+        rows = [
+            row
+            for row in await self._directory.members(unit_id, role=wanted)
+            if not row.membership.is_lead
+        ]
+        loads = await EffortService(self._session).loads(
+            unit_id, [row.user.id for row in rows], settings
         )
+        options = []
+        for row in rows:
+            load = loads.get(row.user.id)
+            options.append(
+                PersonRef(
+                    row.user.id,
+                    row.user.full_name,
+                    tokens_budget_today=None if load is None else load.budget,
+                    tokens_left_today=None if load is None else load.left,
+                    tokens_open=None if load is None else load.open_tokens,
+                    open_tasks=None if load is None else load.open_tasks,
+                )
+            )
+        return tuple(options)
 
     # --- PR --------------------------------------------------------------------
 
@@ -779,6 +879,9 @@ def _steps(row: TaskRow) -> tuple[TaskStep, ...]:
             is_current=cell.is_current,
             since=cell.since,
             revisions=cell.revisions,
+            deadline_at=cell.deadline_at,
+            deadline_status=cell.deadline_status,
+            tokens=cell.tokens,
         )
         for cell in row.cells
     )
@@ -861,6 +964,26 @@ def _ads_fields(order: Order) -> tuple[TaskField, ...]:
         TaskField("design_link", "Link thiết kế", order.design_link, "link", "ads"),
         TaskField("source_link", "Link nguồn", order.source_link, "link", "ads"),
     ]
+    if order.desired_deadline_at is not None:
+        fields.append(
+            TaskField(
+                "desired_deadline",
+                "Deadline mong muốn",
+                ensure_utc(order.desired_deadline_at).isoformat(),
+                "date",
+                "ads",
+            )
+        )
+    if order.over_deadline_count:
+        fields.append(
+            TaskField(
+                "over_deadline_count",
+                "Quá deadline mong muốn",
+                f"{order.over_deadline_count} lần",
+                "text",
+                "ads",
+            )
+        )
     if order.returned_reason:
         fields.append(
             TaskField("returned_reason", "Lý do trả", order.returned_reason, "longtext", "ads")
@@ -1075,6 +1198,10 @@ def _pr_timeline(
             )
         )
     return tuple(sorted(entries, key=lambda entry: entry.at, reverse=True))
+
+
+def _utc(value: datetime | None) -> datetime | None:
+    return None if value is None else ensure_utc(value)
 
 
 __all__ = [

@@ -80,6 +80,8 @@ EVENT_LABELS: dict[OrderEventKind, str] = {
     OrderEventKind.PRIORITY_SET: "Đánh dấu Ưu tiên",
     OrderEventKind.PRIORITY_CLEARED: "Bỏ Ưu tiên",
     OrderEventKind.CANCELLED: "Huỷ order",
+    OrderEventKind.PLAN_SET: "Đặt token / deadline",
+    OrderEventKind.DEADLINE_EXCEEDED: "Quá deadline mong muốn",
 }
 
 

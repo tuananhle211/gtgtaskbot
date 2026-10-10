@@ -10,7 +10,7 @@
 from __future__ import annotations
 
 import uuid
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import UTC, datetime
 from decimal import Decimal
 from typing import Any
@@ -326,10 +326,12 @@ async def test_01_every_figure_for_september(world: World) -> None:
     team = await build(world)
     service = AccountStatsService(world.session)
     ids = [team.writer.id, team.editor.id, team.orderer.id, world.owner.id, world.member.id]
-    stats = await service.stats_for([*ids, world.lead.id], _month("2026-09"))
+    found = await service.stats_for([*ids, world.lead.id], _month("2026-09"))
+    # The 0053 figures (deadlines, effort, score) have their own suite.
+    stats = {user_id: _core(item) for user_id, item in found.items()}
 
     assert stats[team.writer.id] == MemberStats(
-        month="2026-09", points=2.5, nodes_done=2, on_time_rate=1.0
+        month="2026-09", points=2.5, nodes_done=2, first_pass_rate=1.0
     )
     assert stats[team.editor.id] == MemberStats(
         month="2026-09",
@@ -338,7 +340,7 @@ async def test_01_every_figure_for_september(world: World) -> None:
         nodes_in_progress=2,  # B's edit and D's design; C was cancelled
         revisions=2,  # a design return and a video return on their link node
         work_items_counted=2,
-        on_time_rate=0.0,
+        first_pass_rate=0.0,
     )
     assert stats[team.orderer.id] == MemberStats(
         month="2026-09", orders_created=3, orders_completed=1
@@ -355,7 +357,7 @@ async def test_02_other_months_count_their_own(world: World) -> None:
         [team.writer.id, team.editor.id, team.orderer.id, world.owner.id], _month("2026-08")
     )
     assert august[team.writer.id].revisions == 1 and august[team.writer.id].nodes_done == 0
-    assert august[team.writer.id].on_time_rate is None
+    assert august[team.writer.id].first_pass_rate is None
     assert august[team.editor.id].nodes_done == 0
     assert august[team.editor.id].nodes_in_progress == 2  # "now", whatever the month
     assert august[team.editor.id].work_items_counted == 1
@@ -364,7 +366,7 @@ async def test_02_other_months_count_their_own(world: World) -> None:
     assert august[world.owner.id].pr_contents_owned == 1
 
     october = await service.stats_for_one(team.editor.id, _month("2026-10"))
-    assert october.nodes_done == 1 and october.points == 2.5 and october.on_time_rate == 1.0
+    assert october.nodes_done == 1 and october.points == 2.5 and october.first_pass_rate == 1.0
     assert october.month == "2026-10"
 
 
@@ -390,7 +392,8 @@ async def test_03_one_query_per_figure_whoever_is_asked(world: World) -> None:
         many = len(statements)
     finally:
         event.remove(sync_engine, "before_cursor_execute", count)
-    assert one == many == 8
+    # Eight figures, plus four for ORD effort and the score's benchmark.
+    assert one == many == 12
 
 
 def test_04_months_are_vietnamese_and_validated() -> None:
@@ -483,6 +486,13 @@ async def test_06_member_rows_carry_the_month_asked_for(world: World) -> None:
         "pr_approvals",
         "work_items_counted",
         "on_time_rate",
+        "first_pass_rate",
+        "late_count",
+        "tokens_used",
+        "tokens_budget",
+        "effort_rate",
+        "performance_score",
+        "output_target",
     }
 
     august = {row["full_name"]: row for row in _members(world, month="2026-08")["members"]}
@@ -498,7 +508,7 @@ async def test_07_my_own_card_and_figures(world: World) -> None:
     world.act_as(team.writer)
     stats = world.client.get("/api/account/me/stats", params={"month": "2026-09"})
     assert stats.status_code == 200, stats.text
-    assert stats.json()["nodes_done"] == 2 and stats.json()["on_time_rate"] == 1.0
+    assert stats.json()["nodes_done"] == 2 and stats.json()["first_pass_rate"] == 1.0
 
     me = world.client.get("/api/account/me")
     assert me.status_code == 200, me.text
@@ -523,3 +533,17 @@ async def test_07_my_own_card_and_figures(world: World) -> None:
 
     renamed = world.client.patch("/api/account/profile", json={"full_name": "Biên tập Bảo"})
     assert renamed.status_code == 200 and renamed.json()["full_name"] == "Biên tập Bảo"
+
+
+def _core(stats: MemberStats) -> MemberStats:
+    """The figures before 0053, the newer ones back at their defaults."""
+    return replace(
+        stats,
+        on_time_rate=None,
+        late_count=0,
+        tokens_used=0.0,
+        tokens_budget=0.0,
+        effort_rate=None,
+        performance_score=None,
+        output_target=None,
+    )

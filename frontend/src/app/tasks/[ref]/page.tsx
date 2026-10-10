@@ -1,5 +1,6 @@
 "use client";
 
+import { TokenBadge } from "@/components/token-badge";
 import Link from "next/link";
 import { useParams } from "next/navigation";
 import React, { useState } from "react";
@@ -15,8 +16,19 @@ import {
   type UnifiedTaskDetail,
 } from "@/lib/api";
 import { formatAgo, formatDay, formatWhen } from "@/lib/labels";
+import {
+  assigneeLoadLabel,
+  formatDeadline,
+  formatTokens,
+  isOverBudget,
+  overDesired,
+  parseTokens,
+  toIsoFromLocal,
+  toLocalInput,
+} from "@/lib/deadline";
 import { unitShortLabel, unitTagClass } from "@/lib/units";
 import { ConfirmButton } from "@/components/confirm";
+import { DeadlineBadge } from "@/components/deadline-badge";
 import { ContentComments } from "@/components/comments";
 import { Select, TabStrip } from "@/components/pr";
 import { ErrorBox, Loading, NoticeBox, Pill } from "@/components/states";
@@ -206,6 +218,10 @@ function TaskHeader({ detail }: { detail: UnifiedTaskDetail }) {
           ) : null}
           {task.is_priority ? <Pill tone="warn">Ưu tiên</Pill> : null}
           {task.urgent ? <Pill tone="critical">Gấp</Pill> : null}
+          <DeadlineBadge at={task.deadline_at} status={task.deadline_status} />
+          {task.deadline_status === "OVERDUE" ? (
+            <Pill tone="critical">Quá hạn</Pill>
+          ) : null}
         </div>
         <h1 className="mt-2 text-xl font-semibold tracking-tight sm:text-2xl">
           {task.title}
@@ -304,6 +320,8 @@ function StepStrip({ steps }: { steps: TaskStep[] }) {
                   trả sửa {step.revisions} lần
                 </span>
               ) : null}
+              <TokenBadge value={step.tokens} size="sm" />
+              <DeadlineBadge at={step.deadline_at} status={step.deadline_status} />
             </li>
           );
         })}
@@ -565,8 +583,15 @@ function ActionPanel({
     );
   }
 
+  /** What the server suggests for an input (the node's current plan). */
+  const defaultOf = (action: TaskAction, input: string) => {
+    if (input === "tokens" && action.defaults?.tokens != null)
+      return String(action.defaults.tokens);
+    if (input === "deadline") return toLocalInput(action.defaults?.deadline_at);
+    return "";
+  };
   const valueOf = (action: TaskAction, input: string) =>
-    values[action.key]?.[input] ?? "";
+    values[action.key]?.[input] ?? defaultOf(action, input);
   const setValue = (action: TaskAction, input: string, next: string) =>
     setValues((all) => ({
       ...all,
@@ -576,10 +601,19 @@ function ActionPanel({
     action.requires_note || action.inputs.includes("note");
   const required = (action: TaskAction, input: TaskActionInput) =>
     (action.required_inputs ?? []).includes(input);
+  // A token amount must read as 0..999.99 and a deadline as a time, if given.
+  const invalid = (action: TaskAction) =>
+    (action.inputs.includes("tokens") &&
+      valueOf(action, "tokens").trim() !== "" &&
+      parseTokens(valueOf(action, "tokens")) === null) ||
+    (action.inputs.includes("deadline") &&
+      valueOf(action, "deadline").trim() !== "" &&
+      toIsoFromLocal(valueOf(action, "deadline")) === null);
   const missing = (action: TaskAction) =>
     (action.requires_note && !valueOf(action, "note").trim()) ||
     (action.inputs.includes("assignee") && !valueOf(action, "assignee")) ||
-    (action.required_inputs ?? []).some((input) => !valueOf(action, input).trim());
+    (action.required_inputs ?? []).some((input) => !valueOf(action, input).trim()) ||
+    invalid(action);
 
   const bodyFor = (action: TaskAction): TaskActionBody => {
     const body: TaskActionBody = { key: action.key, version: task.version };
@@ -592,6 +626,11 @@ function ActionPanel({
     if (action.inputs.includes("text") && text.trim()) body.text = text;
     if (action.inputs.includes("assignee") && assignee)
       body.assignee_user_id = assignee;
+    const tokens = parseTokens(valueOf(action, "tokens"));
+    if (action.inputs.includes("tokens") && tokens !== null) body.tokens = tokens;
+    const deadline = toIsoFromLocal(valueOf(action, "deadline"));
+    if (action.inputs.includes("deadline") && deadline)
+      body.deadline_at = deadline;
     return body;
   };
 
@@ -610,12 +649,88 @@ function ActionPanel({
           >
             <option value="">— chọn —</option>
             {action.assignee_options.map((person) => (
-              <option key={person.user_id} value={person.user_id}>
-                {person.name}
+              <option
+                key={person.user_id}
+                value={person.user_id}
+                className={isOverBudget(person) ? "text-[var(--bad)]" : undefined}
+              >
+                {assigneeLoadLabel(person)}
               </option>
             ))}
           </Select>
         </label>,
+      );
+      const chosen = action.assignee_options.find(
+        (person) => person.user_id === valueOf(action, "assignee"),
+      );
+      if (chosen && chosen.tokens_left_today != null) {
+        parts.push(
+          <p
+            key="load"
+            data-testid="assignee-load"
+            className={`text-sm font-bold ${isOverBudget(chosen) ? "text-[var(--bad)]" : "text-[var(--warn)]"}`}
+          >
+            {assigneeLoadLabel(chosen)}
+            {(chosen.tokens_left_today ?? 1) <= 0 ? (
+              <span className="mt-0.5 block text-xs font-medium">
+                Đã hết token hôm nay — vẫn giao được, phần vượt tính là quá effort.
+              </span>
+            ) : null}
+          </p>,
+        );
+      }
+    }
+    const revision = action.plan_mode === "REVISION";
+    if (action.inputs.includes("tokens")) {
+      const label = revision ? "Token sửa" : "Token";
+      parts.push(
+        <label key="tokens" className="block text-xs text-[var(--text)]">
+          {required(action, "tokens") ? `${label} (bắt buộc)` : label}
+          <input
+            type="number"
+            inputMode="decimal"
+            step={0.5}
+            min={0}
+            max={999.99}
+            value={valueOf(action, "tokens")}
+            onChange={(event) => setValue(action, "tokens", event.target.value)}
+            className={`mt-1 ${FIELD_CLASS}`}
+          />
+        </label>,
+      );
+    }
+    if (action.inputs.includes("deadline")) {
+      const label = revision ? "Deadline sửa" : "Deadline";
+      const chosen = valueOf(action, "deadline");
+      const warning = overDesired(chosen, task.desired_deadline_at);
+      parts.push(
+        <div key="deadline" className="space-y-1">
+          <label className="block text-xs text-[var(--text)]">
+            {required(action, "deadline") ? `${label} (bắt buộc)` : label}
+            <input
+              type="datetime-local"
+              value={chosen}
+              onChange={(event) =>
+                setValue(action, "deadline", event.target.value)
+              }
+              className={`mt-1 ${FIELD_CLASS}`}
+            />
+          </label>
+          {task.desired_deadline_at ? (
+            <p className="text-xs text-[var(--text-muted)]">
+              Deadline mong muốn: {formatDeadline(task.desired_deadline_at)}
+            </p>
+          ) : null}
+          {warning ? (
+            <p
+              role="status"
+              data-testid="over-desired"
+              className="text-xs font-medium text-[var(--warn)]"
+            >
+              {warning} — vẫn giao được, lần vượt được đếm vào order.
+            </p>
+          ) : null}
+        </div>,
       );
     }
     if (action.inputs.includes("link")) {

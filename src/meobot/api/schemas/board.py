@@ -28,6 +28,10 @@ class TaskCellResponse(BaseModel):
     is_current: bool
     since: datetime | None = None
     revisions: int = 0
+    #: ORD (0053): the step's deadline, where it stands, its tokens.
+    deadline_at: datetime | None = None
+    deadline_status: str | None = None
+    tokens: float | None = None
 
 
 class ExtraResponse(BaseModel):
@@ -72,6 +76,12 @@ class TaskRowResponse(BaseModel):
     extras: list[ExtraResponse] = []
     #: The row waits on the viewer (same rule as ``awaiting_me``): "Cần làm".
     awaiting_me: bool = False
+    #: ORD (0053): the orderer's wish, the deadline that counts now and where
+    #: it stands (``ON_TRACK``/``DUE_SOON``/``OVERDUE``/``MET``/``MISSED``).
+    desired_deadline_at: datetime | None = None
+    deadline_at: datetime | None = None
+    deadline_status: str | None = None
+    over_deadline_count: int = 0
 
     @classmethod
     def from_domain(cls, row: TaskRow) -> TaskRowResponse:
@@ -102,6 +112,9 @@ class TaskRowResponse(BaseModel):
                     is_current=cell.is_current,
                     since=cell.since,
                     revisions=cell.revisions,
+                    deadline_at=cell.deadline_at,
+                    deadline_status=cell.deadline_status,
+                    tokens=cell.tokens,
                 )
                 for cell in row.cells
             ],
@@ -120,6 +133,10 @@ class TaskRowResponse(BaseModel):
             delivered_at=row.delivered_at,
             extras=[ExtraResponse(label=label, value=value) for label, value in row.extras],
             awaiting_me=row.awaiting_me,
+            desired_deadline_at=row.desired_deadline_at,
+            deadline_at=row.deadline_at,
+            deadline_status=row.deadline_status,
+            over_deadline_count=row.over_deadline_count,
         )
 
 
@@ -181,6 +198,8 @@ class DashboardResponse(BaseModel):
     pending_review: int
     urgent: int
     progress_percent: int | None
+    #: ORD (0053): rows past the deadline that counts now ("Trễ hạn").
+    overdue: int = 0
     by_phase: list[PhaseCountResponse]
     by_owner: list[PersonStatResponse]
     by_worker: list[PersonStatResponse]
@@ -196,6 +215,7 @@ class DashboardResponse(BaseModel):
             pending_review=summary.pending_review,
             urgent=summary.urgent,
             progress_percent=summary.progress_percent,
+            overdue=summary.overdue,
             by_phase=[
                 PhaseCountResponse(
                     phase=phase.value,

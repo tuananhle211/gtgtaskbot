@@ -25,6 +25,13 @@ import {
   processCode,
   type ProcessNode,
 } from "@/lib/ads-process";
+import { isPast, toIsoFromLocal, toLocalInput } from "@/lib/deadline";
+
+/**
+ * Points ("điểm hiệu suất") next to the video kinds and durations on the
+ * form. Hidden for now (the owner's call); the server still snapshots them.
+ */
+const SHOW_POINTS = false;
 
 /** Who each node is routed to first, to hand out to their team. */
 const NODE_HEADS: Record<string, string> = {
@@ -228,7 +235,9 @@ function AdsOrderForm({
     reference_link: editing?.reference_link ?? "",
     source_link: editing?.source_link ?? "",
     note: editing?.note ?? "",
+    desired_deadline: toLocalInput(editing?.desired_deadline_at),
   });
+  const initialDeadline = toLocalInput(editing?.desired_deadline_at);
   // "Quy trình": Order is always on and not part of the list; Dựng starts ticked.
   // A returned order keeps its process: its nodes already exist.
   const [ticked, setTicked] = useState<ProcessNode[]>(
@@ -249,6 +258,10 @@ function AdsOrderForm({
           reference_link: body.reference_link ?? "",
           source_link: body.source_link ?? "",
           note: body.note ?? "",
+          // Sent only when changed: an old wish may lie in the past by now.
+          ...(form.desired_deadline !== initialDeadline
+            ? { desired_deadline_at: body.desired_deadline_at }
+            : {}),
         })
         : api.createOrder(body),
     onSuccess: (detail) => router.push(`/tasks/${detail.order.code}`),
@@ -301,7 +314,13 @@ function AdsOrderForm({
     reference_link: form.reference_link || null,
     source_link: form.source_link || null,
     note: form.note || null,
+    desired_deadline_at: toIsoFromLocal(form.desired_deadline),
   };
+  // A wish in the past is refused by the server (an unchanged one on a
+  // resubmit is not sent at all).
+  const deadlinePast =
+    isPast(form.desired_deadline) &&
+    (!editing || form.desired_deadline !== initialDeadline);
   const ready =
     nodes.length > 0 &&
     form.title.trim() &&
@@ -309,7 +328,9 @@ function AdsOrderForm({
     (!needsKind || form.video_kind_id) &&
     (!needsPlatform || form.platform_id) &&
     (!needsDuration || form.duration_id) &&
-    (!needsDesignLink || form.design_link.trim());
+    (!needsDesignLink || form.design_link.trim()) &&
+    body.desired_deadline_at &&
+    !deadlinePast;
   const field =
     "min-h-11 w-full rounded-lg border border-[var(--border)] bg-[var(--surface)] px-3 text-sm text-[var(--text)]";
 
@@ -416,12 +437,12 @@ function AdsOrderForm({
               <option value="">Chọn loại video…</option>
               {activeKinds.map((kind) => (
                 <option key={kind.id} value={kind.id}>
-                  {`${kind.name} · ${formatPoints(kind.points)} điểm`}
+                  {SHOW_POINTS ? `${kind.name} · ${formatPoints(kind.points)} điểm` : kind.name}
                 </option>
               ))}
             </Select>
             <span className="block text-xs font-normal text-[var(--text-muted)]">
-              Bắt buộc · điểm hiệu suất tính theo loại video
+              {SHOW_POINTS ? "Bắt buộc · điểm hiệu suất tính theo loại video" : "Bắt buộc"}
             </span>
           </label>
         ) : null}
@@ -454,13 +475,31 @@ function AdsOrderForm({
                 <option value="">Chọn thời lượng…</option>
                 {activeDurations.map((d) => (
                   <option key={d.id} value={d.id}>
-                    {`${d.name} · ${formatPoints(d.points)} điểm`}
+                    {SHOW_POINTS ? `${d.name} · ${formatPoints(d.points)} điểm` : d.name}
                   </option>
                 ))}
               </Select>
             </label>
           ) : null}
         </div>
+        <label className="block text-sm font-medium">
+          Deadline mong muốn
+          <input
+            type="datetime-local"
+            value={form.desired_deadline}
+            onChange={set("desired_deadline")}
+            className={`mt-1 ${field} sm:max-w-xs`}
+          />
+          {deadlinePast ? (
+            <span role="alert" className="block text-xs font-normal text-[var(--bad)]">
+              Deadline mong muốn đã qua — chọn một thời điểm sau bây giờ.
+            </span>
+          ) : (
+            <span className="block text-xs font-normal text-[var(--text-muted)]">
+              Bắt buộc · Trưởng ban dựa vào đây để đặt deadline từng công đoạn
+            </span>
+          )}
+        </label>
         <div className="space-y-1">
           <p className="text-sm font-medium">4 · Khung nhập kịch bản</p>
           <div className="flex gap-4 text-sm">

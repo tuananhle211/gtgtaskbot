@@ -84,6 +84,8 @@ async def task_action(
             link=body.link,
             text=body.text,
             assignee_user_id=body.assignee_user_id,
+            tokens=body.tokens,
+            deadline_at=body.deadline_at,
         ),
     )
     return TaskDetailResponse.from_domain(await services.detail.detail(actor, str(task.id)))

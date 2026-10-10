@@ -5,7 +5,7 @@
  */
 
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { act, screen, waitFor, within } from "@testing-library/react";
+import { act, fireEvent, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import NewOrderPage from "@/app/orders/new/page";
 import UnitsAdminPage from "@/app/admin/units/page";
@@ -115,6 +115,10 @@ const route = () => screen.getByTestId("process-route").textContent;
 const codePreview = () => screen.getByTestId("order-code-preview").textContent;
 const submit = () => screen.getByRole("button", { name: "Gửi order" });
 
+/** The "Deadline mong muốn" box (datetime-local: jsdom takes a change event). */
+const desiredDeadline = () => screen.getByLabelText(/Deadline mong muốn/);
+const FUTURE_DEADLINE = "2099-12-01T17:00";
+
 async function fillBasics() {
   await userEvent.type(
     await screen.findByRole("textbox", { name: /Tên kịch bản/ }),
@@ -124,6 +128,7 @@ async function fillBasics() {
     screen.getByRole("textbox", { name: "Nội dung order" }),
     "Key: da căng bóng",
   );
+  fireEvent.change(desiredDeadline(), { target: { value: FUTURE_DEADLINE } });
 }
 
 describe("the create form's Quy trình", () => {
@@ -179,8 +184,9 @@ describe("the create form's Quy trình", () => {
         .map((option) => option.textContent),
     ).toEqual([
       "Chọn loại video…",
-      "Video full diễn hoạt · 1 điểm",
-      "Short video · 0,5 điểm",
+      // Points are hidden on the form for now.
+      "Video full diễn hoạt",
+      "Short video",
     ]);
     // The kind is required while the unit has any.
     expect(submit()).toBeDisabled();
@@ -198,6 +204,7 @@ describe("the create form's Quy trình", () => {
         process: ["BIEN_TAP", "DUNG"],
         video_kind_id: KIND_FULL,
         design_link: "https://drive.example.com/design",
+        desired_deadline_at: new Date(FUTURE_DEADLINE).toISOString(),
       });
       expect(sent?.body).not.toHaveProperty("video_type");
       expect(sent?.body).not.toHaveProperty("preassigned");
@@ -236,6 +243,117 @@ describe("the create form's Quy trình", () => {
       screen.getByText("Chọn ít nhất một công đoạn: Biên kịch, Design hoặc Dựng."),
     ).toBeInTheDocument();
     expect(codePreview()).toBe("TUAN-?-yymmdd-nn");
+  });
+
+  it("requires the desired deadline, and refuses one in the past", async () => {
+    stubCreateForm({ kinds: [] });
+    renderWithQuery(<NewOrderPage />);
+    await fillBasics();
+    await userEvent.click(screen.getByRole("checkbox", { name: "Design" }));
+    expect(submit()).toBeEnabled();
+    // Cleared: the order cannot be sent without one.
+    fireEvent.change(desiredDeadline(), { target: { value: "" } });
+    expect(submit()).toBeDisabled();
+    // In the past: blocked, with a hint.
+    fireEvent.change(desiredDeadline(), { target: { value: "2020-01-01T09:00" } });
+    expect(submit()).toBeDisabled();
+    expect(
+      screen.getByText("Deadline mong muốn đã qua — chọn một thời điểm sau bây giờ."),
+    ).toBeInTheDocument();
+    fireEvent.change(desiredDeadline(), { target: { value: FUTURE_DEADLINE } });
+    expect(submit()).toBeEnabled();
+  });
+
+  it("sends a desired deadline with a resubmit only once it is changed", async () => {
+    const ORDER_ID = "eeeeeeee-eeee-eeee-eeee-eeeeeeeeeeee";
+    const returned = (desired: string | null) => ({
+      order: {
+        id: ORDER_ID,
+        code: "TUAN-D-261008-01",
+        title: "Video serum",
+        video_type: "D",
+        video_type_label: "Dựng",
+        process: ["DUNG"],
+        video_kind_id: null,
+        order_content: "Key: da căng bóng",
+        script_source: "AI",
+        design_link: "https://drive.example.com/design",
+        reference_link: null,
+        source_link: null,
+        note: null,
+        owner_user_id: "u-owner",
+        owner_name: "Tuấn",
+        stage: "ORDER_RETURNED",
+        stage_label: "Bị trả",
+        submitted_at: "2026-10-08T02:00:00Z",
+        order_approved_at: null,
+        returned_reason: "Thiếu key",
+        is_priority: false,
+        urgent: false,
+        product_link: null,
+        completed_at: null,
+        cancelled_reason: null,
+        version: 2,
+        created_at: "2026-10-08T02:00:00Z",
+        updated_at: "2026-10-08T03:00:00Z",
+        desired_deadline_at: desired,
+        over_deadline_count: 0,
+      },
+      nodes: [],
+      submissions: [],
+      approvals: [],
+      events: [],
+      available_actions: [],
+    });
+    const resubmit = () => screen.getByRole("button", { name: "Gửi lại order" });
+    const sent = (stub: unknown) =>
+      calls(stub).find((call) => call.method === "POST" && call.url.includes("/resubmit"))?.body;
+    window.history.pushState({}, "", "/orders/new?edit=TUAN-D-261008-01");
+    try {
+      // An old order with no wish: one has to be given before it goes back.
+      let stub = stubFetch([
+        { match: "/api/units/me", body: ORDERER },
+        { match: "/api/units/ADS/video-kinds", body: { kinds: [] } },
+        { match: `/api/orders/${ORDER_ID}/resubmit`, method: "POST", body: returned(null) },
+        { match: "/api/orders/TUAN-D-261008-01", body: returned(null) },
+      ]);
+      const first = renderWithQuery(<NewOrderPage />);
+      await screen.findByText(/Lý do: Thiếu key/);
+      expect(resubmit()).toBeDisabled();
+      fireEvent.change(desiredDeadline(), { target: { value: FUTURE_DEADLINE } });
+      expect(resubmit()).toBeEnabled();
+      await userEvent.click(resubmit());
+      await userEvent.click(
+        within(await screen.findByRole("dialog")).getByRole("button", { name: "Gửi lại order" }),
+      );
+      await waitFor(() =>
+        expect(sent(stub)).toMatchObject({
+          version: 2,
+          desired_deadline_at: new Date(FUTURE_DEADLINE).toISOString(),
+        }),
+      );
+      first.unmount();
+
+      // A wish already set (even one now past) is kept as it is: not sent.
+      const PAST = "2020-01-01T02:00:00.000Z";
+      stub = stubFetch([
+        { match: "/api/units/me", body: ORDERER },
+        { match: "/api/units/ADS/video-kinds", body: { kinds: [] } },
+        { match: `/api/orders/${ORDER_ID}/resubmit`, method: "POST", body: returned(PAST) },
+        { match: "/api/orders/TUAN-D-261008-01", body: returned(PAST) },
+      ]);
+      renderWithQuery(<NewOrderPage />);
+      await screen.findByText(/Lý do: Thiếu key/);
+      expect(resubmit()).toBeEnabled();
+      await userEvent.click(resubmit());
+      await userEvent.click(
+        within(await screen.findByRole("dialog")).getByRole("button", { name: "Gửi lại order" }),
+      );
+      await waitFor(() => expect(sent(stub)).toBeDefined());
+      expect(sent(stub)).not.toHaveProperty("desired_deadline_at");
+    } finally {
+      window.history.pushState({}, "", "/");
+    }
   });
 
   it("hides Loại video when the unit has no kinds", async () => {

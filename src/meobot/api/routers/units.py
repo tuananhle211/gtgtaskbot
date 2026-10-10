@@ -10,6 +10,7 @@ roles and settings. Authority is decided inside
 from __future__ import annotations
 
 import uuid
+from datetime import date
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, Query, status
@@ -23,12 +24,14 @@ from meobot.api.deps import (
     get_session,
 )
 from meobot.api.schemas.units import (
+    BanStatsResponse,
     CreateDurationRequest,
     CreatePlatformRequest,
     CreateVideoKindRequest,
     DirectoryUserResponse,
     DurationListResponse,
     DurationResponse,
+    EffortGridResponse,
     PlatformListResponse,
     PlatformResponse,
     RoleOptionResponse,
@@ -52,7 +55,9 @@ from meobot.api.schemas.units import (
 )
 from meobot.application.account.avatar_service import avatar_urls
 from meobot.application.audit_service import AuditService
+from meobot.application.orders.effort_service import EffortService, ban_stats
 from meobot.application.units.admin import ROLES_BY_UNIT, UnitAdminService
+from meobot.application.units.directory import NOT_VISIBLE
 from meobot.core.errors import ValidationError
 from meobot.domain.identity.labels import role_label
 from meobot.domain.units.errors import UnitNotFoundError
@@ -62,7 +67,7 @@ from meobot.domain.units.labels import (
     unit_role_label,
     unit_short_label,
 )
-from meobot.domain.units.models import UnitCode, UnitMemberRole
+from meobot.domain.units.models import UnitCode, UnitMemberRole, UnitSettings
 
 router = APIRouter(prefix="/api/units", tags=["units"])
 
@@ -279,6 +284,8 @@ async def update_member(
         clear_personal_nas_url="personal_nas_url" in fields and body.personal_nas_url is None,
         manager_user_id=body.manager_user_id,
         clear_manager="manager_user_id" in fields and body.manager_user_id is None,
+        daily_tokens=body.daily_tokens,
+        clear_daily_tokens="daily_tokens" in fields and body.daily_tokens is None,
     )
     return UnitMemberResponse.from_row(row)
 
@@ -313,6 +320,66 @@ async def update_settings(
         actor=actor, request_id=request_id, code=_parse_unit(code), patch=patch
     )
     return UnitSettingsResponse.from_domain(settings)
+
+
+@router.get("/{code}/effort", response_model=EffortGridResponse)
+async def unit_effort(
+    code: str,
+    actor: CurrentActorDep,
+    membership: UnitMembershipDep,
+    directory: UnitDirectoryDep,
+    session: Annotated[AsyncSession, Depends(get_session)],
+    date_from: Annotated[date | None, Query()] = None,
+    date_to: Annotated[date | None, Query()] = None,
+    user_id: Annotated[uuid.UUID | None, Query()] = None,
+) -> EffortGridResponse:
+    """ORD token effort, people by days (0053). The OWNER, an ADMIN and the
+    heads see everyone; a ban's Leader their ban; anybody else themselves.
+    Defaults to this week; at most 62 days (422 ``range_too_long``)."""
+    unit_code = _parse_unit(code)
+    if unit_code is not UnitCode.ADS:
+        raise UnitNotFoundError(NOT_VISIBLE, details={"reason": "unit_not_visible"})
+    await directory.require(actor, unit_code)
+    unit = await directory.unit(unit_code)
+    grid = await EffortService(session).grid(
+        actor=actor,
+        membership=membership,
+        unit_id=unit.id,
+        settings=UnitSettings.model_validate(unit.settings or {}),
+        date_from=date_from,
+        date_to=date_to,
+        user_id=user_id,
+    )
+    return EffortGridResponse.from_domain(grid)
+
+
+@router.get("/{code}/ban-stats", response_model=BanStatsResponse)
+async def unit_ban_stats(
+    code: str,
+    actor: CurrentActorDep,
+    membership: UnitMembershipDep,
+    directory: UnitDirectoryDep,
+    session: Annotated[AsyncSession, Depends(get_session)],
+    date_from: Annotated[date | None, Query()] = None,
+    date_to: Annotated[date | None, Query()] = None,
+) -> BanStatsResponse:
+    """The dashboard's "Theo ban": each ban's tokens (budget, used, left, held)
+    and work (done, in progress, overdue, late) over the range, a row per
+    member. Every ORD member reads it; ``my_ban`` is the viewer's default."""
+    unit_code = _parse_unit(code)
+    if unit_code is not UnitCode.ADS:
+        raise UnitNotFoundError(NOT_VISIBLE, details={"reason": "unit_not_visible"})
+    await directory.require(actor, unit_code)
+    unit = await directory.unit(unit_code)
+    stats = await ban_stats(
+        session,
+        membership=membership,
+        unit_id=unit.id,
+        settings=UnitSettings.model_validate(unit.settings or {}),
+        date_from=date_from,
+        date_to=date_to,
+    )
+    return BanStatsResponse.from_domain(stats)
 
 
 @router.get("/{code}/video-kinds", response_model=VideoKindListResponse)

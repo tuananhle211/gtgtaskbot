@@ -90,6 +90,17 @@ FUNCTION_ROLES: frozenset[UnitMemberRole] = frozenset(
 )
 
 
+class PerfWeights(BaseModel):
+    """How the monthly performance score weighs output, punctuality and
+    quality. Any non-negative numbers; they are normalised to sum to one."""
+
+    model_config = ConfigDict(extra="ignore", frozen=True)
+
+    output: float = Field(default=0.5, ge=0, le=100)
+    on_time: float = Field(default=0.3, ge=0, le=100)
+    quality: float = Field(default=0.2, ge=0, le=100)
+
+
 class UnitSettings(BaseModel):
     """The per-unit knobs, stored as JSON in ``org_units.settings``.
 
@@ -127,6 +138,18 @@ class UnitSettings(BaseModel):
     #: differs from :data:`~meobot.domain.orders.permissions.DEFAULT_MATRIX`
     #: needs storing; validated by the admin service.
     permissions: dict[str, dict[str, str]] = Field(default_factory=dict)
+    #: 0053: a member's token budget per working day, unless their tag sets
+    #: their own (``org_unit_members.daily_tokens``).
+    default_daily_tokens: float = Field(default=8, ge=0, le=999)
+    #: Monday = 0. The days that have a full budget.
+    work_weekdays: tuple[int, ...] = (0, 1, 2, 3, 4)
+    #: The half days (Saturday morning by default): half the budget. Days in
+    #: neither list have none.
+    half_weekdays: tuple[int, ...] = (5,)
+    #: The monthly performance score's weights (output, on time, quality).
+    perf_weights: PerfWeights = Field(default_factory=lambda: PerfWeights())
+    #: Nodes a month that score full output; None = the ban's top performer.
+    output_target: int | None = Field(default=None, ge=1, le=10000)
 
 
 @dataclass(frozen=True, slots=True)
@@ -188,6 +211,7 @@ class UnitMembership:
 __all__ = [
     "FUNCTION_ROLES",
     "UNIT_SEED_NAMESPACE",
+    "PerfWeights",
     "UnitCode",
     "UnitMemberRole",
     "UnitMembership",

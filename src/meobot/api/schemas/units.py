@@ -7,11 +7,13 @@ for the PR membership screens, so the browser holds no second vocabulary.
 from __future__ import annotations
 
 import uuid
+from datetime import date as date_type
 from datetime import datetime
 from decimal import Decimal
 
 from pydantic import BaseModel, Field
 
+from meobot.application.orders.effort_service import BanStats, EffortGrid
 from meobot.application.units.directory import UnitMemberRow
 from meobot.db.models.org_unit import UnitDuration, UnitPlatform, UnitVideoKind
 from meobot.domain.identity.labels import role_label
@@ -38,6 +40,12 @@ class PermissionRoleEntry(BaseModel):
     label: str
 
 
+class PerfWeightsBody(BaseModel):
+    output: float = Field(default=0.5, ge=0, le=100)
+    on_time: float = Field(default=0.3, ge=0, le=100)
+    quality: float = Field(default=0.2, ge=0, le=100)
+
+
 class UnitSettingsResponse(BaseModel):
     urgent_days: int
     media_nas_url: str | None
@@ -54,6 +62,13 @@ class UnitSettingsResponse(BaseModel):
     permission_catalog: list[PermissionCatalogEntry]
     permission_roles: list[PermissionRoleEntry]
     scope_labels: dict[str, str]
+    #: 0053: token budget and the performance score's knobs.
+    default_daily_tokens: float = 8
+    work_weekdays: list[int] = [0, 1, 2, 3, 4]
+    #: Half days (half the budget): Saturday morning by default.
+    half_weekdays: list[int] = [5]
+    perf_weights: PerfWeightsBody = Field(default_factory=lambda: PerfWeightsBody())
+    output_target: int | None = None
 
     @classmethod
     def from_domain(cls, settings: UnitSettings) -> UnitSettingsResponse:
@@ -68,6 +83,11 @@ class UnitSettingsResponse(BaseModel):
             review_dung=settings.review_dung,
             review_video_by_script_lead=settings.review_video_by_script_lead,
             permissions=normalise_matrix(settings.permissions),
+            default_daily_tokens=settings.default_daily_tokens,
+            work_weekdays=list(settings.work_weekdays),
+            half_weekdays=list(settings.half_weekdays),
+            perf_weights=PerfWeightsBody(**settings.perf_weights.model_dump()),
+            output_target=settings.output_target,
             permission_catalog=[PermissionCatalogEntry(**entry) for entry in catalog()],
             permission_roles=[
                 PermissionRoleEntry(key=role.value, label=label)
@@ -150,6 +170,8 @@ class UnitMemberResponse(BaseModel):
     avatar_url: str | None = None
     #: Additive (0050): the one Leader / head this member reports to.
     manager_user_id: uuid.UUID | None = None
+    #: Additive (0053): their own daily token budget; null = the unit default.
+    daily_tokens: float | None = None
 
     @classmethod
     def from_row(cls, row: UnitMemberRow, avatar_url: str | None = None) -> UnitMemberResponse:
@@ -171,6 +193,9 @@ class UnitMemberResponse(BaseModel):
             active=membership.left_at is None and user.active,
             account_active=bool(user.active),
             manager_user_id=membership.manager_user_id,
+            daily_tokens=(
+                None if membership.daily_tokens is None else float(membership.daily_tokens)
+            ),
         )
 
 
@@ -235,6 +260,8 @@ class UpdateMemberRequest(BaseModel):
     personal_nas_url: str | None = Field(default=None, max_length=2000)
     #: ORD: the member's own Leader (an orderer: their head); null clears it.
     manager_user_id: uuid.UUID | None = None
+    #: ORD (0053): their own daily token budget; null = the unit default.
+    daily_tokens: Decimal | None = Field(default=None, ge=0, le=Decimal("999.99"))
 
 
 class UpdateUnitSettingsRequest(BaseModel):
@@ -248,6 +275,12 @@ class UpdateUnitSettingsRequest(BaseModel):
     review_dung: bool | None = None
     review_video_by_script_lead: bool | None = None
     permissions: dict[str, dict[str, str]] | None = None
+    default_daily_tokens: float | None = Field(default=None, ge=0, le=999)
+    work_weekdays: list[int] | None = None
+    half_weekdays: list[int] | None = None
+    perf_weights: PerfWeightsBody | None = None
+    #: null = the ban's top performer of the month.
+    output_target: int | None = Field(default=None, ge=1, le=10000)
 
 
 class VideoKindResponse(BaseModel):
@@ -386,13 +419,151 @@ def unit_entry(
     )
 
 
+class EffortDayResponse(BaseModel):
+    date: date_type
+    budget: float
+    used: float
+    left: float
+
+
+class EffortPersonResponse(BaseModel):
+    user_id: uuid.UUID
+    full_name: str
+    role_label: str
+    function_tag: str | None
+    is_lead: bool
+    daily_tokens: float
+    open_tokens: float
+    open_tasks: int
+    days: list[EffortDayResponse]
+
+
+class EffortGridResponse(BaseModel):
+    """``GET /api/units/ADS/effort``: people by days (0053)."""
+
+    date_from: date_type
+    date_to: date_type
+    today: date_type
+    days: list[date_type]
+    people: list[EffortPersonResponse]
+
+    @classmethod
+    def from_domain(cls, grid: EffortGrid) -> EffortGridResponse:
+        return cls(
+            date_from=grid.date_from,
+            date_to=grid.date_to,
+            today=grid.today,
+            days=list(grid.days),
+            people=[
+                EffortPersonResponse(
+                    user_id=person.user_id,
+                    full_name=person.full_name,
+                    role_label=person.role_label,
+                    function_tag=person.function_tag,
+                    is_lead=person.is_lead,
+                    daily_tokens=person.daily_tokens,
+                    open_tokens=person.open_tokens,
+                    open_tasks=person.open_tasks,
+                    days=[
+                        EffortDayResponse(
+                            date=day.day, budget=day.budget, used=day.used, left=day.left
+                        )
+                        for day in person.days
+                    ],
+                )
+                for person in grid.people
+            ],
+        )
+
+
+class BanMemberResponse(BaseModel):
+    user_id: uuid.UUID
+    full_name: str
+    is_lead: bool
+    budget: float
+    used: float
+    left: float
+    today_left: float
+    open_tokens: float
+    open_tasks: int
+    done: int
+
+
+class BanStatResponse(BaseModel):
+    role: str
+    label: str
+    budget: float
+    used: float
+    left: float
+    open_tokens: float
+    open_tasks: int
+    done: int
+    in_progress: int
+    overdue: int
+    late: int
+    members: list[BanMemberResponse]
+
+
+class BanStatsResponse(BaseModel):
+    """``GET /api/units/ADS/ban-stats``: the dashboard's "Theo ban" (tokens
+    and work per ban over the range)."""
+
+    date_from: date_type
+    date_to: date_type
+    today: date_type
+    my_ban: str | None
+    bans: list[BanStatResponse]
+
+    @classmethod
+    def from_domain(cls, stats: BanStats) -> BanStatsResponse:
+        return cls(
+            date_from=stats.date_from,
+            date_to=stats.date_to,
+            today=stats.today,
+            my_ban=None if stats.my_ban is None else stats.my_ban.value,
+            bans=[
+                BanStatResponse(
+                    role=ban.role.value,
+                    label=ban.label,
+                    budget=ban.budget,
+                    used=ban.used,
+                    left=ban.left,
+                    open_tokens=ban.open_tokens,
+                    open_tasks=ban.open_tasks,
+                    done=ban.done,
+                    in_progress=ban.in_progress,
+                    overdue=ban.overdue,
+                    late=ban.late,
+                    members=[
+                        BanMemberResponse(
+                            user_id=member.user_id,
+                            full_name=member.full_name,
+                            is_lead=member.is_lead,
+                            budget=member.budget,
+                            used=member.used,
+                            left=member.left,
+                            today_left=member.today_left,
+                            open_tokens=member.open_tokens,
+                            open_tasks=member.open_tasks,
+                            done=member.done,
+                        )
+                        for member in ban.members
+                    ],
+                )
+                for ban in stats.bans
+            ],
+        )
+
+
 __all__ = [
+    "BanStatsResponse",
     "CreateDurationRequest",
     "CreatePlatformRequest",
     "CreateVideoKindRequest",
     "DirectoryUserResponse",
     "DurationListResponse",
     "DurationResponse",
+    "EffortGridResponse",
     "PlatformListResponse",
     "PlatformResponse",
     "RoleOptionResponse",

@@ -63,6 +63,7 @@ from meobot.domain.orders.models import (
     OrderNodeType,
     OrderScriptSource,
     OrderStage,
+    OrderTokenKind,
     OrderVideoType,
 )
 
@@ -172,6 +173,15 @@ class Order(Base, UUIDPrimaryKeyMixin, TimestampMixin):
     product_link: Mapped[str | None] = mapped_column(Text, nullable=True)
     completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     cancelled_reason: Mapped[str | None] = mapped_column(Text, nullable=True)
+    #: 0053: the orderer's wished finish; required for new orders by the API.
+    desired_deadline_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    #: 0053: how often a node deadline was set past ``desired_deadline_at`` or
+    #: the order finished after it ("Quá deadline mong muốn: N lần").
+    over_deadline_count: Mapped[int] = mapped_column(
+        Integer, nullable=False, default=0, server_default=text("0")
+    )
     version: Mapped[int] = mapped_column(
         Integer, nullable=False, default=1, server_default=text("1")
     )
@@ -238,6 +248,25 @@ class OrderNode(Base, UUIDPrimaryKeyMixin, TimestampMixin):
     #: the row so numbering never needs a count over the submissions.
     submission_count: Mapped[int] = mapped_column(
         Integer, nullable=False, default=0, server_default=text("0")
+    )
+    #: 0053: the effort the Leader puts on the node ("Token"), and the
+    #: revision tokens added on each return ("Token sửa"), in total.
+    token_estimate: Mapped[Decimal | None] = mapped_column(Numeric(6, 2), nullable=True)
+    token_revision: Mapped[Decimal] = mapped_column(
+        Numeric(6, 2), nullable=False, default=Decimal(0), server_default=text("0")
+    )
+    deadline_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    #: The deadline of the current revision round, when the Leader set one.
+    revision_deadline_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    #: Fixed at the first completion: finished by ``deadline_at``? NULL = no
+    #: deadline, or not finished yet.
+    deadline_met: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
+    #: Sent back by the orderer or the script lead: the Leader still has to
+    #: enter the revision tokens. Never blocks the worker.
+    revision_tokens_pending: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False, server_default=text("false")
     )
     version: Mapped[int] = mapped_column(
         Integer, nullable=False, default=1, server_default=text("1")
@@ -426,6 +455,52 @@ class OrderWorkRule(Base, UUIDPrimaryKeyMixin, TimestampMixin):
     )
 
 
+ORDER_LEDGER = "order_token_ledger"
+
+
+class OrderTokenLedger(Base, UUIDPrimaryKeyMixin):
+    """Tokens taken off one person's day. Append-only (0053).
+
+    Written when a node is approved for the first time (``ESTIMATE``, the
+    node's ``token_estimate``) and when a revision of it is approved
+    (``REVISION`` with that round's number, the revision tokens not taken yet).
+    ``work_date`` is the Vietnamese day of the approval.
+    """
+
+    __tablename__ = ORDER_LEDGER
+    __table_args__ = (
+        UniqueConstraint(
+            "node_id", "kind", "revision_no", name="uq_order_token_ledger_node_kind_revision"
+        ),
+        CheckConstraint("tokens >= 0", name="tokens_not_negative"),
+        Index("ix_order_token_ledger_unit_user_day", "unit_id", "user_id", "work_date"),
+    )
+
+    unit_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey(f"{ORG_UNITS}.id", ondelete=RESTRICT), nullable=False
+    )
+    user_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey(f"{USERS_TABLE}.id", ondelete=RESTRICT), nullable=False
+    )
+    order_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey(f"{ORDERS}.id", ondelete=RESTRICT), nullable=False
+    )
+    node_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey(f"{ORDER_NODES}.id", ondelete=RESTRICT), nullable=False
+    )
+    work_date: Mapped[date] = mapped_column(Date, nullable=False)
+    tokens: Mapped[Decimal] = mapped_column(Numeric(6, 2), nullable=False)
+    kind: Mapped[OrderTokenKind] = mapped_column(
+        value_enum(OrderTokenKind, name="order_token_kind", length=10), nullable=False
+    )
+    revision_no: Mapped[int] = mapped_column(
+        Integer, nullable=False, default=0, server_default=text("0")
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utcnow, server_default=func.now(), nullable=False
+    )
+
+
 __all__ = [
     "ACTIVE_NODE",
     "DEFAULT_WORK_RULE",
@@ -434,6 +509,7 @@ __all__ = [
     "ORDER_APPROVALS",
     "ORDER_CODE_COUNTERS",
     "ORDER_EVENTS",
+    "ORDER_LEDGER",
     "ORDER_NODES",
     "ORDER_SUBMISSIONS",
     "ORDER_WORK_RULES",
@@ -444,5 +520,6 @@ __all__ = [
     "OrderEvent",
     "OrderNode",
     "OrderSubmission",
+    "OrderTokenLedger",
     "OrderWorkRule",
 ]

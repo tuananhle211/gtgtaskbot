@@ -1,5 +1,6 @@
 "use client";
 
+import { BoltIcon, TokenBadge } from "@/components/token-badge";
 import { useEffect, useId, useMemo, useState } from "react";
 import {
   keepPreviousData,
@@ -33,6 +34,8 @@ import { formatAgo, formatWhen, monthLabel } from "@/lib/labels";
 import { PasswordDialog, PasswordForm } from "./password";
 import { InvitePanel, mayInvite as mayInviteFor } from "./invites";
 import { STREAM_NAMES, byStreamOrder } from "@/lib/units";
+import { formatTokens } from "@/lib/deadline";
+import { dayHeading } from "@/lib/effort";
 
 const FIELD =
   "min-h-10 w-full rounded-lg border border-[var(--border)] bg-[var(--surface)] px-3 text-[var(--text)] transition-colors focus-visible:border-[var(--accent)] focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-[var(--accent)]/15";
@@ -614,6 +617,65 @@ function MyPerformance({
       {other && stats.isPending ? <Loading label="Đang tải số liệu…" /> : null}
       {other && stats.isError ? <ErrorBox error={stats.error} onRetry={() => stats.refetch()} /> : null}
       {data ? <StatCards stats={data} /> : null}
+      {me.units.some((unit) => unit.code === "ADS") ? <MyEffortWeek userId={me.user_id} /> : null}
+    </section>
+  );
+}
+
+/**
+ * This week's ORD tokens, day by day: used / budget and what is left (red
+ * once over). The server's grid narrowed to oneself; nothing is drawn when it
+ * has no row for this person (or refuses).
+ */
+function MyEffortWeek({ userId }: { userId: string }) {
+  const grid = useQuery({
+    queryKey: ["units", "ADS", "effort", "me", userId],
+    queryFn: () => api.unitEffort("ADS", { user_id: userId }),
+    retry: false,
+  });
+  const person = grid.data?.people.find((item) => item.user_id === userId);
+  if (!grid.data || !person) return null;
+  const today = grid.data.today;
+  return (
+    <section aria-label="Effort tuần này" className="panel overflow-hidden">
+      <header className="flex flex-wrap items-center justify-between gap-2 border-b border-[var(--border)] px-5 py-3">
+        <div className="flex items-center gap-2">
+          <UnitTags units={["ADS"]} />
+          <h3 className="text-sm font-semibold">Effort tuần này</h3>
+        </div>
+        <p className="text-xs text-[var(--text-muted)]">
+          Đang ôm <TokenBadge value={person.open_tokens} size="sm" /> ({person.open_tasks}{" "}
+          task) · <TokenBadge value={person.daily_tokens} suffix="token/ngày" size="sm" />
+        </p>
+      </header>
+      <ul className="grid grid-cols-4 sm:grid-cols-7" aria-label="Token theo ngày">
+        {person.days.map((day) => {
+          const over = day.left < 0;
+          const off = day.budget === 0 && day.used === 0;
+          return (
+            <li
+              key={day.date}
+              aria-current={day.date === today ? "date" : undefined}
+              className={`min-w-0 px-3 py-3 text-center ${day.date === today ? "bg-[var(--accent-soft)]" : ""}`}
+            >
+              <p className="text-[11px] font-medium text-[var(--text-muted)]">{dayHeading(day.date)}</p>
+              {off ? (
+                <p className="mt-1 text-xs text-[var(--text-muted)]">nghỉ</p>
+              ) : (
+                <>
+                  <p className="mt-1 inline-flex items-center gap-1 text-base font-bold tabular-nums text-[var(--warn)]">
+                    <BoltIcon />
+                    {formatTokens(day.used)}/{formatTokens(day.budget)}
+                  </p>
+                  <p className={`text-sm font-bold ${over ? "text-[var(--bad)]" : "text-[var(--good)]"}`}>
+                    {over ? `vượt ${formatTokens(-day.left)}` : `còn ${formatTokens(day.left)}`}
+                  </p>
+                </>
+              )}
+            </li>
+          );
+        })}
+      </ul>
     </section>
   );
 }
@@ -627,29 +689,72 @@ const TONE_ICON: Record<Tone, string> = {
 };
 
 function StatCards({ stats }: { stats: MemberStats }) {
-  const rate = stats.on_time_rate === null || stats.on_time_rate === undefined ? null : Number(stats.on_time_rate);
-  const headline: Array<{ label: string; value: string; hint: string; icon: GlyphName; tone: Tone; meter?: number | null }> = [
+  const asRate = (value: number | null | undefined) =>
+    value === null || value === undefined ? null : Number(value);
+  const score =
+    stats.performance_score === null || stats.performance_score === undefined
+      ? null
+      : Number(stats.performance_score);
+  const effort = asRate(stats.effort_rate);
+  const lateCount = stats.late_count ?? 0;
+  const headline: Array<{
+    label: string;
+    value: string;
+    hint: string;
+    icon: GlyphName;
+    tone: Tone;
+    meter?: number | null;
+    warn?: boolean;
+  }> = [
     {
       label: "Điểm hiệu suất",
-      value: formatPoints(stats.points),
-      hint: "Điểm loại video của các công đoạn đã xong",
+      value: score === null ? "–" : `${formatPoints(score)}/100`,
+      hint: "Sản lượng, đúng hạn và không bị trả, theo trọng số của luồng",
       icon: "star",
       tone: "green",
+      meter: score === null ? null : score / 100,
     },
     {
-      label: "Công đoạn hoàn thành",
+      label: "Sản lượng",
       value: String(stats.nodes_done),
-      hint: "Công đoạn sản xuất được duyệt trong tháng",
+      hint:
+        stats.output_target !== null && stats.output_target !== undefined
+          ? `Công đoạn xong lần đầu trong tháng · mốc ${formatPoints(stats.output_target)}`
+          : "Công đoạn xong lần đầu trong tháng",
       icon: "check-circle",
       tone: "blue",
     },
     {
-      label: "Tỷ lệ đạt ngay",
-      value: formatRate(stats.on_time_rate),
+      label: "Đúng hạn",
+      value: formatRate(asRate(stats.on_time_rate)),
+      hint: `Công đoạn xong trước deadline · Số lần trễ hạn: ${lateCount}`,
+      icon: "clock",
+      tone: "amber",
+      meter: asRate(stats.on_time_rate),
+      warn: lateCount > 0,
+    },
+    {
+      label: "Không bị trả",
+      value: formatRate(asRate(stats.first_pass_rate)),
       hint: "Công đoạn được duyệt không bị trả",
       icon: "target",
       tone: "violet",
-      meter: rate,
+      meter: asRate(stats.first_pass_rate),
+    },
+    {
+      label: "Effort",
+      value:
+        stats.tokens_used === undefined
+          ? "–"
+          : `${formatPoints(stats.tokens_used)}/${formatPoints(stats.tokens_budget ?? 0)}`,
+      hint:
+        effort === null
+          ? "Token đã dùng / quỹ các ngày làm việc"
+          : `Token đã dùng / quỹ · ${formatRate(effort)}${effort > 1 ? " · vượt quỹ" : ""}`,
+      icon: "bolt",
+      tone: "blue",
+      meter: effort === null ? undefined : Math.min(effort, 1),
+      warn: effort !== null && effort > 1,
     },
     {
       label: "Mục KPI được tính",
@@ -670,6 +775,8 @@ function StatCards({ stats }: { stats: MemberStats }) {
       items: [
         { label: "Đang làm", value: String(stats.nodes_in_progress), hint: "Đang giao cho bạn, mọi tháng" },
         { label: "Bị trả sửa", value: String(stats.revisions), warn: stats.revisions > 0 },
+        { label: "Số lần trễ hạn", value: String(lateCount), warn: lateCount > 0 },
+        { label: "Điểm loại video", value: formatPoints(stats.points), hint: "Điểm loại video của các công đoạn đã xong" },
         { label: "Order đã tạo / hoàn thành", value: `${stats.orders_created} / ${stats.orders_completed}` },
       ],
     },
@@ -686,7 +793,7 @@ function StatCards({ stats }: { stats: MemberStats }) {
 
   return (
     <div className="space-y-4">
-      <ul aria-label="Chỉ số chính" className="grid grid-cols-1 gap-4 min-[420px]:grid-cols-2 lg:grid-cols-4">
+      <ul aria-label="Chỉ số chính" className="grid grid-cols-1 gap-4 min-[420px]:grid-cols-2 lg:grid-cols-3">
         {headline.map((card) => (
           <li key={card.label} className="panel flex flex-col p-5">
             <div className="flex items-start justify-between gap-3">
@@ -695,7 +802,13 @@ function StatCards({ stats }: { stats: MemberStats }) {
                 <Glyph name={card.icon} size={18} />
               </span>
             </div>
-            <p className="mt-2 text-3xl font-semibold tabular-nums tracking-tight">{card.value}</p>
+            <p
+              className={`mt-2 text-3xl font-semibold tabular-nums tracking-tight ${
+                card.warn ? "text-[var(--warn)]" : ""
+              }`}
+            >
+              {card.value}
+            </p>
             {card.meter !== undefined ? (
               <div
                 aria-hidden="true"
@@ -718,9 +831,15 @@ function StatCards({ stats }: { stats: MemberStats }) {
               <UnitTags units={[group.unit]} />
               <h3 className="text-sm font-semibold">{group.title}</h3>
             </header>
-            <ul aria-label={`Số liệu ${group.title}`} className="grid grid-cols-3 divide-x divide-[var(--border)]">
+            <ul
+              aria-label={`Số liệu ${group.title}`}
+              className="-mb-px -mr-px grid grid-cols-2 sm:grid-cols-3"
+            >
               {group.items.map((item) => (
-                <li key={item.label} className="min-w-0 px-4 py-4 sm:px-5">
+                <li
+                  key={item.label}
+                  className="min-w-0 border-b border-r border-[var(--border)] px-4 py-4 sm:px-5"
+                >
                   <p className="text-xs font-medium leading-snug text-[var(--text-muted)]">{item.label}</p>
                   <p
                     className={`mt-1.5 text-xl font-semibold tabular-nums tracking-tight ${
@@ -844,7 +963,7 @@ function Members({
       {query.data ? (
         <div className="panel">
           <div className="table-scroll-x">
-            <table className="table-dense min-w-[1100px]">
+            <table className="table-dense min-w-[1400px]">
               <thead>
                 <tr>
                   <th>Thành viên</th>
@@ -865,6 +984,10 @@ function Members({
                   <th className={th}>Công đoạn xong</th>
                   <th className={th}>Đang làm</th>
                   <th className={th}>Trả sửa</th>
+                  <th className={th}>Đúng hạn</th>
+                  <th className={th}>Không bị trả</th>
+                  <th className={th}>Effort</th>
+                  <th className={th}>Điểm HS</th>
                   <th className={th}>Order tạo / xong</th>
                   <th className={th}>PR phụ trách</th>
                   <th className={th}>PR sản xuất</th>
@@ -878,7 +1001,7 @@ function Members({
               <tbody>
                 {rows.length === 0 ? (
                   <tr>
-                    <td colSpan={mayReset ? 14 : 13} className="text-[var(--text-muted)]">
+                    <td colSpan={mayReset ? 18 : 17} className="text-[var(--text-muted)]">
                       Không có thành viên nào trong bộ lọc này.
                     </td>
                   </tr>
@@ -921,6 +1044,27 @@ function Members({
                         className={`text-right tabular-nums ${row.stats.revisions > 0 ? "text-[var(--warn)]" : ""}`}
                       >
                         {row.stats.revisions}
+                      </td>
+                      <td className="text-right tabular-nums">
+                        {formatRate(row.stats.on_time_rate)}
+                        {(row.stats.late_count ?? 0) > 0 ? (
+                          <span className="block text-xs text-[var(--bad)]">trễ {row.stats.late_count}</span>
+                        ) : null}
+                      </td>
+                      <td className="text-right tabular-nums">{formatRate(row.stats.first_pass_rate ?? null)}</td>
+                      <td
+                        className={`text-right tabular-nums ${
+                          (row.stats.effort_rate ?? 0) > 1 ? "text-[var(--bad)]" : ""
+                        }`}
+                      >
+                        {row.stats.tokens_used === undefined
+                          ? "–"
+                          : `${formatPoints(row.stats.tokens_used)}/${formatPoints(row.stats.tokens_budget ?? 0)}`}
+                      </td>
+                      <td className="text-right font-semibold tabular-nums">
+                        {row.stats.performance_score === null || row.stats.performance_score === undefined
+                          ? "–"
+                          : formatPoints(row.stats.performance_score)}
                       </td>
                       <td className="text-right tabular-nums">
                         {row.stats.orders_created} / {row.stats.orders_completed}
@@ -1028,6 +1172,8 @@ type GlyphName =
   | "check-circle"
   | "target"
   | "list"
+  | "clock"
+  | "bolt"
   | "x";
 
 /** Stroke icons for this page. Decorative: the text beside them carries the meaning. */
@@ -1077,6 +1223,13 @@ function Glyph({ name, size = 16 }: { name: GlyphName; size?: number }) {
         <path d="M4 6h.01M4 12h.01M4 18h.01" />
       </>
     ),
+    clock: (
+      <>
+        <circle cx="12" cy="12" r="9" />
+        <path d="M12 7v5l3 2" />
+      </>
+    ),
+    bolt: <path d="M13 3L5 13.5h6L10 21l8-10.5h-6z" />,
     x: <path d="M6 6l12 12M18 6L6 18" />,
   };
   return (

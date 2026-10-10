@@ -33,6 +33,8 @@ ROOT = Path(__file__).resolve().parents[2]
 MIGRATION = ROOT / "alembic" / "versions" / "0042_org_units_and_orders.py"
 #: ``0044`` widened the process codes (``orders.video_type``) from three to seven.
 PROCESS_MIGRATION = ROOT / "alembic" / "versions" / "0044_ads_process_and_video_kinds.py"
+#: ``0053`` added two event kinds (token / deadline).
+TOKENS_MIGRATION = ROOT / "alembic" / "versions" / "0053_order_tokens_deadlines.py"
 
 NEW_TABLES = (
     "org_units",
@@ -167,7 +169,6 @@ def test_the_migration_writes_the_same_enum_values_the_domain_declares() -> None
         "STAGE_VALUES": OrderStage,
         "NODE_TYPE_VALUES": OrderNodeType,
         "NODE_STATUS_VALUES": OrderNodeStatus,
-        "EVENT_KIND_VALUES": OrderEventKind,
         "GATE_VALUES": OrderApprovalGate,
         "DECISION_VALUES": OrderApprovalDecision,
     }
@@ -175,6 +176,10 @@ def test_the_migration_writes_the_same_enum_values_the_domain_declares() -> None
         assert tuple(getattr(migration, constant)) == tuple(member.value for member in enum), (
             constant
         )
+    # The event kinds: 0042 wrote the first eighteen, 0053 declares all of them.
+    kinds = tuple(member.value for member in OrderEventKind)
+    assert tuple(_migration(TOKENS_MIGRATION).EVENT_KIND_VALUES) == kinds
+    assert tuple(migration.EVENT_KIND_VALUES) == kinds[: len(migration.EVENT_KIND_VALUES)]
     # The process codes: 0042 wrote the first three, 0044 declares all of them.
     codes = tuple(member.value for member in OrderVideoType)
     assert tuple(_migration(PROCESS_MIGRATION).VIDEO_TYPE_VALUES) == codes

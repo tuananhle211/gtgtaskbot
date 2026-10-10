@@ -244,6 +244,8 @@ class UnitAdminService:
         clear_personal_nas_url: bool = False,
         manager_user_id: uuid.UUID | None = None,
         clear_manager: bool = False,
+        daily_tokens: Decimal | None = None,
+        clear_daily_tokens: bool = False,
     ) -> UnitMemberRow:
         unit = await self._require_tagger(actor, code, user_id)
         row = await self._directory.member(unit.id, user_id)
@@ -267,6 +269,10 @@ class UnitAdminService:
             row.personal_nas_url = None
         elif personal_nas_url is not None:
             row.personal_nas_url = personal_nas_url
+        if clear_daily_tokens:
+            row.daily_tokens = None
+        elif daily_tokens is not None:
+            row.daily_tokens = daily_tokens
         if clear_manager:
             row.manager_user_id = None
         elif manager_user_id is not None:

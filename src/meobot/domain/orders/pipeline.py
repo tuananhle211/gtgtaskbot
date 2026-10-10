@@ -125,6 +125,9 @@ class OrderActionKind(StrEnum):
     RETURN_FINAL = "RETURN_FINAL"
     SET_PRIORITY = "SET_PRIORITY"
     CANCEL = "CANCEL"
+    #: 0053: change a node's tokens / deadline without handing it out again
+    #: (also how the Leader enters the revision tokens after a final return).
+    SET_NODE_PLAN = "SET_NODE_PLAN"
 
 
 #: Which stage each action may be applied from. ``None`` = any non-terminal.
@@ -155,6 +158,9 @@ ACTION_STAGES: dict[OrderActionKind, frozenset[OrderStage] | None] = {
     OrderActionKind.RETURN_FINAL: frozenset({OrderStage.FINAL_REVIEW}),
     OrderActionKind.SET_PRIORITY: None,
     OrderActionKind.CANCEL: None,
+    OrderActionKind.SET_NODE_PLAN: frozenset(
+        {OrderStage.BIEN_TAP, OrderStage.THIET_KE, OrderStage.DUNG}
+    ),
 }
 
 #: The stages in which the active node's own actions apply.
@@ -188,6 +194,7 @@ ACTION_LABELS: dict[OrderActionKind, str] = {
     OrderActionKind.RETURN_FINAL: "Không duyệt Final",
     OrderActionKind.SET_PRIORITY: "Ưu tiên",
     OrderActionKind.CANCEL: "Huỷ order",
+    OrderActionKind.SET_NODE_PLAN: "Sửa token/deadline",
 }
 
 
@@ -380,6 +387,18 @@ def available_actions(
             OrderNodeStatus.DANG_SUA,
         ):
             add(OrderActionKind.ASSIGN, current.id)
+        if (
+            assigns
+            and current.node_type is not OrderNodeType.GAN_LINK
+            and current.status
+            in (
+                OrderNodeStatus.CHUA_GIAO,
+                OrderNodeStatus.DANG_LAM,
+                OrderNodeStatus.DANG_SUA,
+                OrderNodeStatus.CHO_DUYET,
+            )
+        ):
+            add(OrderActionKind.SET_NODE_PLAN, current.id)
         # Assigned is not accepted: the assignee presses "Nhận việc" first,
         # and only then may hand the work in.
         if working and current.accepted_at is None:

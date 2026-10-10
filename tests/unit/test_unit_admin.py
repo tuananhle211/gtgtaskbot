@@ -194,6 +194,12 @@ async def test_07_settings_are_validated_and_defaulted(world: World) -> None:
         "review_thiet_ke": False,
         "review_dung": True,
         "review_video_by_script_lead": False,
+        # 0053: the token budget and the performance score's knobs.
+        "default_daily_tokens": 8.0,
+        "work_weekdays": [0, 1, 2, 3, 4],
+        "half_weekdays": [5],
+        "perf_weights": {"output": 0.5, "on_time": 0.3, "quality": 0.2},
+        "output_target": None,
     }
     assert world.client.patch("/api/units/ADS/settings", json={"urgent_days": 0}).status_code == 422
     assert (

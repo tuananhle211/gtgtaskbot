@@ -211,7 +211,11 @@ def test_07_a_leader_assigns_and_approves_and_the_assignee_accepts_and_submits()
     waiting = (node(OrderNodeType.BIEN_TAP, OrderNodeStatus.CHUA_GIAO),)
     lead = ctx(UnitMemberRole.BIEN_TAP, LEAD_BT, is_lead=True)
     writer = ctx(UnitMemberRole.BIEN_TAP, EDITOR)
-    assert kinds(available_actions(working, waiting, lead)) == {OrderActionKind.ASSIGN}
+    # The Leader hands it out, or changes its tokens / deadline (0053).
+    assert kinds(available_actions(working, waiting, lead)) == {
+        OrderActionKind.ASSIGN,
+        OrderActionKind.SET_NODE_PLAN,
+    }
     assert kinds(available_actions(working, waiting, writer)) == set()
 
     # Assigned is not accepted: the writer must take it before handing in.
@@ -232,12 +236,16 @@ def test_07_a_leader_assigns_and_approves_and_the_assignee_accepts_and_submits()
     handed_over = (node(OrderNodeType.BIEN_TAP, OrderNodeStatus.DANG_SUA, assignee=EDITOR),)
     assert kinds(available_actions(working, handed_over, writer)) == {OrderActionKind.ACCEPT}
     # The Leader may still hand it to somebody else while it is being worked.
-    assert kinds(available_actions(working, accepted, lead)) == {OrderActionKind.ASSIGN}
+    assert kinds(available_actions(working, accepted, lead)) == {
+        OrderActionKind.ASSIGN,
+        OrderActionKind.SET_NODE_PLAN,
+    }
 
     handed_in = (node(OrderNodeType.BIEN_TAP, OrderNodeStatus.CHO_DUYET, assignee=EDITOR),)
     assert kinds(available_actions(working, handed_in, lead)) == {
         OrderActionKind.APPROVE_NODE,
         OrderActionKind.RETURN_NODE,
+        OrderActionKind.SET_NODE_PLAN,
     }
     assert kinds(available_actions(working, handed_in, writer)) == set()
     # A design lead has nothing to do with a script node.

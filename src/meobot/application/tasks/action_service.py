@@ -22,8 +22,10 @@ from __future__ import annotations
 
 import uuid
 from dataclasses import dataclass
+from datetime import datetime
+from decimal import Decimal
 
-from meobot.application.orders.command_service import OrderEdit
+from meobot.application.orders.command_service import NodePlan, OrderEdit
 from meobot.application.orders.services import OrderServices
 from meobot.application.pr_approval_service import RecordApprovalCommand
 from meobot.application.pr_production_service import SubmitProductionCommand
@@ -61,6 +63,8 @@ class TaskActionCommand:
     link: str | None = None
     text: str | None = None
     assignee_user_id: uuid.UUID | None = None
+    tokens: Decimal | None = None
+    deadline_at: datetime | None = None
 
 
 def _unknown(key: str) -> TaskActionKeyError:
@@ -135,6 +139,8 @@ class TaskActionService:
         version = command.version
         note = _blank(command.note)
 
+        plan = NodePlan(tokens=command.tokens, deadline_at=command.deadline_at)
+
         def need_node() -> uuid.UUID:
             if node_id is None:
                 raise _unknown(command.key)
@@ -173,6 +179,7 @@ class TaskActionService:
                 node_id=need_node(),
                 expected_version=version,
                 assignee_user_id=command.assignee_user_id,
+                plan=plan,
             )
         elif kind is OrderActionKind.ACCEPT:
             await commands.accept(
@@ -181,6 +188,16 @@ class TaskActionService:
                 order_id=order_id,
                 node_id=need_node(),
                 expected_version=version,
+                plan=plan,
+            )
+        elif kind is OrderActionKind.SET_NODE_PLAN:
+            await commands.set_node_plan(
+                actor=actor,
+                request_id=request_id,
+                order_id=order_id,
+                node_id=need_node(),
+                expected_version=version,
+                plan=plan,
             )
         elif kind is OrderActionKind.SUBMIT_WORK:
             await commands.submit_work(
@@ -210,6 +227,7 @@ class TaskActionService:
                 node_id=need_node(),
                 expected_version=version,
                 note=note or "",
+                plan=plan,
             )
         elif kind is OrderActionKind.APPROVE_VIDEO:
             await commands.approve_video(

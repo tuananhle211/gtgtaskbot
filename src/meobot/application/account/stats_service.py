@@ -25,8 +25,19 @@ Ads (``orders`` / ``order_nodes`` / ``order_events``):
   ``FINAL_RETURNED``) in the month on nodes they are assignee of;
 * ``orders_created`` / ``orders_completed`` - orders they ordered, submitted /
   completed in the month;
-* ``on_time_rate`` - of ``nodes_done``, the share approved with no return
-  (``revision_count = 0``); ``None`` when there are none.
+* ``first_pass_rate`` ("Không bị trả") - of ``nodes_done``, the share
+  approved with no return (``revision_count = 0``); ``None`` when there are none;
+* ``on_time_rate`` ("Đúng hạn", 0053) - of ``nodes_done`` that had a
+  deadline, the share finished by it (``deadline_met``); ``late_count`` the
+  others ("Số lần trễ hạn");
+* ``tokens_used`` / ``tokens_budget`` / ``effort_rate`` (0053) - tokens taken
+  off their days in the month (``order_token_ledger``) against their daily
+  budget on the month's working days; ORD function members only;
+* ``performance_score`` (0053) - 0..100: the unit's ``perf_weights`` over
+  output (``nodes_done`` against ``output_target``, else the ban's top
+  performer of the month, capped at 1), ``on_time_rate`` and
+  ``first_pass_rate``; a part with no data is left out and the weights
+  renormalised. ``None`` with nothing done.
 
 PR: content items they own created in the month, production hand-ins they
 submitted, approval decisions they made. Both units: KPI ledger rows
@@ -39,7 +50,7 @@ import re
 import uuid
 from collections.abc import Iterable
 from dataclasses import dataclass
-from datetime import date, datetime, time
+from datetime import date, datetime, time, timedelta
 from decimal import Decimal
 from typing import Any
 from zoneinfo import ZoneInfo
@@ -47,8 +58,10 @@ from zoneinfo import ZoneInfo
 from sqlalchemy import and_, case, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from meobot.application.orders.effort_service import daily_budget, working_share
 from meobot.core.time import utcnow
-from meobot.db.models.order import Order, OrderEvent, OrderNode
+from meobot.db.models.order import Order, OrderEvent, OrderNode, OrderTokenLedger
+from meobot.db.models.org_unit import OrgUnit, OrgUnitMember
 from meobot.db.models.pr import PrApprovalEvent, PrContentItem
 from meobot.db.models.pr_production import PrProductionSubmission
 from meobot.db.models.pr_work_result import PrWorkResult
@@ -60,6 +73,7 @@ from meobot.domain.orders.models import (
     OrderStage,
 )
 from meobot.domain.pr.work import PrWorkCountStatus
+from meobot.domain.units.models import FUNCTION_ROLES, UnitCode, UnitSettings
 
 #: The nodes that earn points. ``GAN_LINK`` is a hand-over, not production.
 PRODUCTION_NODES: tuple[OrderNodeType, ...] = (
@@ -137,6 +151,13 @@ class MemberStats:
     pr_approvals: int = 0
     work_items_counted: int = 0
     on_time_rate: float | None = None
+    first_pass_rate: float | None = None
+    late_count: int = 0
+    tokens_used: float = 0.0
+    tokens_budget: float = 0.0
+    effort_rate: float | None = None
+    performance_score: float | None = None
+    output_target: int | None = None
 
 
 class AccountStatsService:
@@ -169,6 +190,8 @@ class AccountStatsService:
                 func.count(OrderNode.id),
                 func.coalesce(func.sum(Order.video_kind_points), 0),
                 func.sum(case((OrderNode.revision_count == 0, 1), else_=0)),
+                func.sum(case((OrderNode.deadline_met.is_not(None), 1), else_=0)),
+                func.sum(case((OrderNode.deadline_met.is_(True), 1), else_=0)),
             )
             .join(Order, Order.id == OrderNode.order_id)
             .where(
@@ -180,7 +203,7 @@ class AccountStatsService:
             )
             .group_by(OrderNode.assignee_user_id)
         )
-        merge(done.all(), "nodes_done", "points", "first_pass")
+        merge(done.all(), "nodes_done", "points", "first_pass", "with_deadline", "met")
 
         in_progress = await self._session.execute(
             select(OrderNode.assignee_user_id, func.count(OrderNode.id))
@@ -274,16 +297,98 @@ class AccountStatsService:
         )
         merge(counted.all(), "work_items_counted")
 
-        return {user_id: self._build(raw[user_id], month) for user_id in ids}
+        effort = await self._effort(ids, month)
+        return {
+            user_id: self._build(raw[user_id], month, effort.get(user_id), effort.get(None))
+            for user_id in ids
+        }
+
+    async def _effort(
+        self, ids: list[uuid.UUID], month: Month
+    ) -> dict[uuid.UUID | None, dict[str, Any]]:
+        """ORD effort and the score's knobs for the month (0053). Key ``None``
+        holds the unit-wide values: weights and the output benchmark."""
+        unit = await self._session.scalar(select(OrgUnit).where(OrgUnit.code == UnitCode.ADS))
+        if unit is None:
+            return {}
+        settings = UnitSettings.model_validate(unit.settings or {})
+        first = date(month.year, month.month, 1)
+        last = date(month.year + (month.month == 12), month.month % 12 + 1, 1) - timedelta(days=1)
+        work_days = working_share(first, last, settings)
+        used = await self._session.execute(
+            select(OrderTokenLedger.user_id, func.sum(OrderTokenLedger.tokens))
+            .where(
+                OrderTokenLedger.unit_id == unit.id,
+                OrderTokenLedger.user_id.in_(ids),
+                OrderTokenLedger.work_date >= first,
+                OrderTokenLedger.work_date <= last,
+            )
+            .group_by(OrderTokenLedger.user_id)
+        )
+        members = await self._session.scalars(
+            select(OrgUnitMember).where(
+                OrgUnitMember.unit_id == unit.id,
+                OrgUnitMember.user_id.in_(ids),
+                OrgUnitMember.left_at.is_(None),
+                OrgUnitMember.role.in_(sorted(FUNCTION_ROLES, key=lambda role: role.value)),
+            )
+        )
+        per: dict[uuid.UUID | None, dict[str, Any]] = {}
+        for member in members:
+            per[member.user_id] = {"budget": daily_budget(member, settings) * work_days}
+        for user_id, total in used.all():
+            per.setdefault(user_id, {"budget": 0.0})["used"] = float(total or 0)
+        target = settings.output_target
+        if target is None:
+            counts = (
+                select(func.count(OrderNode.id).label("done"))
+                .join(Order, Order.id == OrderNode.order_id)
+                .where(
+                    Order.unit_id == unit.id,
+                    OrderNode.node_type.in_(PRODUCTION_NODES),
+                    OrderNode.status == OrderNodeStatus.HOAN_THANH,
+                    OrderNode.approved_at >= month.start,
+                    OrderNode.approved_at < month.end,
+                    OrderNode.assignee_user_id.is_not(None),
+                )
+                .group_by(OrderNode.assignee_user_id)
+                .subquery()
+            )
+            target = int(await self._session.scalar(select(func.max(counts.c.done))) or 0) or None
+        per[None] = {"weights": settings.perf_weights, "target": target}
+        return per
 
     async def stats_for_one(self, user_id: uuid.UUID, month: Month) -> MemberStats:
         return (await self.stats_for([user_id], month))[user_id]
 
     @staticmethod
-    def _build(values: dict[str, Any], month: Month) -> MemberStats:
+    def _build(
+        values: dict[str, Any],
+        month: Month,
+        effort: dict[str, Any] | None = None,
+        unit: dict[str, Any] | None = None,
+    ) -> MemberStats:
         nodes_done = int(values.get("nodes_done") or 0)
         first_pass = int(values.get("first_pass") or 0)
+        with_deadline = int(values.get("with_deadline") or 0)
+        met = int(values.get("met") or 0)
         points = values.get("points") or 0
+        first_pass_rate = round(first_pass / nodes_done, 4) if nodes_done else None
+        on_time_rate = round(met / with_deadline, 4) if with_deadline else None
+        used = float((effort or {}).get("used") or 0.0)
+        budget = float((effort or {}).get("budget") or 0.0)
+        target = None if unit is None else unit.get("target")
+        score = None
+        if unit is not None and nodes_done:
+            weights = unit["weights"]
+            parts = [(weights.output, min(nodes_done / target, 1.0) if target else 1.0)]
+            if on_time_rate is not None:
+                parts.append((weights.on_time, on_time_rate))
+            if first_pass_rate is not None:
+                parts.append((weights.quality, first_pass_rate))
+            total = sum(weight for weight, _ in parts)
+            if total > 0:
+                score = round(100 * sum(weight * value for weight, value in parts) / total, 1)
         return MemberStats(
             month=month.label,
             points=round(float(Decimal(str(points))), 2),
@@ -296,7 +401,14 @@ class AccountStatsService:
             pr_productions_done=int(values.get("pr_productions_done") or 0),
             pr_approvals=int(values.get("pr_approvals") or 0),
             work_items_counted=int(values.get("work_items_counted") or 0),
-            on_time_rate=round(first_pass / nodes_done, 4) if nodes_done else None,
+            on_time_rate=on_time_rate,
+            first_pass_rate=first_pass_rate,
+            late_count=with_deadline - met,
+            tokens_used=round(used, 2),
+            tokens_budget=round(budget, 2),
+            effort_rate=round(used / budget, 4) if budget else None,
+            performance_score=score,
+            output_target=target,
         )
 
 

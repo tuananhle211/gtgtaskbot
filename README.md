@@ -13,8 +13,8 @@ và giao diện web, cùng mang tên TasksBot (trước đây là MeoBot / MeoCh
 
 ## Cơ sở dữ liệu
 
-Schema được quản lý bằng Alembic. Alembic head hiện tại là **`0052`**.
-Có **52 migration** sẵn trong `alembic/versions/`. Deploy không tự chạy
+Schema được quản lý bằng Alembic. Alembic head hiện tại là **`0053`**.
+Có **53 migration** sẵn trong `alembic/versions/`. Deploy không tự chạy
 migration: chạy `alembic upgrade head` bằng tay sau khi `pg_dump`, theo
 `docs/handover/11_DEPLOYMENT_AND_OPERATIONS.md`.
 

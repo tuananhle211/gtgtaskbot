@@ -64,6 +64,13 @@ const STATS = {
   pr_approvals: 9,
   work_items_counted: 11,
   on_time_rate: 0.75,
+  first_pass_rate: 0.6,
+  late_count: 2,
+  tokens_used: 30,
+  tokens_budget: 40,
+  effort_rate: 0.75,
+  performance_score: 82.5,
+  output_target: 10,
 };
 
 const ME = {
@@ -606,7 +613,7 @@ describe("the account page", () => {
     const fetchMock = stubFetch([
       {
         match: "/api/account/me/stats",
-        body: { ...STATS, month: "2026-09", points: 4, on_time_rate: null },
+        body: { ...STATS, month: "2026-09", points: 4, on_time_rate: null, performance_score: null },
       },
       { match: "/api/account/members", status: 403, body: FORBIDDEN },
       { match: "/api/account/me", body: ME },
@@ -617,21 +624,33 @@ describe("the account page", () => {
     const performance = screen.getByRole("region", { name: "Hiệu suất của tôi" });
     const card = (label: string) =>
       within(performance).getByText(label).closest("li") as HTMLElement;
-    // Four headline tiles, then the rest grouped by unit.
+    // Six headline tiles, then the rest grouped by unit.
     const headline = within(performance).getByRole("list", { name: "Chỉ số chính" });
     expect(within(headline).getAllByRole("listitem").map((item) => item.querySelector("p")?.textContent)).toEqual([
       "Điểm hiệu suất",
-      "Công đoạn hoàn thành",
-      "Tỷ lệ đạt ngay",
+      "Sản lượng",
+      "Đúng hạn",
+      "Không bị trả",
+      "Effort",
       "Mục KPI được tính",
     ]);
-    expect(card("Điểm hiệu suất")).toHaveTextContent("12,5");
-    expect(card("Công đoạn hoàn thành")).toHaveTextContent("7");
-    expect(card("Tỷ lệ đạt ngay")).toHaveTextContent("75%");
-    expect(card("Mục KPI được tính")).toHaveTextContent("11");
+    const tile = (label: string) =>
+      within(headline).getByText(label).closest("li") as HTMLElement;
+    expect(tile("Điểm hiệu suất")).toHaveTextContent("82,5/100");
+    expect(tile("Sản lượng")).toHaveTextContent("7");
+    expect(tile("Sản lượng")).toHaveTextContent("mốc 10");
+    // "Đúng hạn" is the deadline now; the old "no return" share moved.
+    expect(tile("Đúng hạn")).toHaveTextContent("75%");
+    expect(tile("Đúng hạn")).toHaveTextContent("Số lần trễ hạn: 2");
+    expect(tile("Không bị trả")).toHaveTextContent("60%");
+    expect(tile("Effort")).toHaveTextContent("30/40");
+    expect(tile("Effort")).toHaveTextContent("75%");
+    expect(tile("Mục KPI được tính")).toHaveTextContent("11");
     const ads = within(performance).getByRole("region", { name: "Order ORD" });
     expect(within(ads).getByText("Đang làm").closest("li")).toHaveTextContent("3");
     expect(within(ads).getByText("Bị trả sửa").closest("li")).toHaveTextContent("2");
+    expect(within(ads).getByText("Số lần trễ hạn").closest("li")).toHaveTextContent("2");
+    expect(within(ads).getByText("Điểm loại video").closest("li")).toHaveTextContent("12,5");
     expect(within(ads).getByText("Order đã tạo / hoàn thành").closest("li")).toHaveTextContent("4 / 1");
     const pr = within(performance).getByRole("region", { name: "Nội dung PR" });
     expect(within(pr).getByText("Nội dung phụ trách").closest("li")).toHaveTextContent("5");
@@ -650,10 +669,63 @@ describe("the account page", () => {
     await waitFor(() =>
       expect(
         within(screen.getByRole("list", { name: "Chỉ số chính" }))
-          .getByText("Tỷ lệ đạt ngay")
+          .getByText("Đúng hạn")
           .closest("li"),
       ).toHaveTextContent("–"),
     );
+    expect(
+      within(screen.getByRole("list", { name: "Chỉ số chính" }))
+        .getByText("Điểm hiệu suất")
+        .closest("li"),
+    ).toHaveTextContent("–");
+  });
+
+  it("shows this week's ORD tokens, day by day, red once over", async () => {
+    const fetchMock = stubFetch([
+      {
+        match: "/api/units/ADS/effort",
+        body: {
+          date_from: "2026-10-05",
+          date_to: "2026-10-11",
+          days: ["2026-10-05", "2026-10-06", "2026-10-07", "2026-10-08", "2026-10-09", "2026-10-10", "2026-10-11"],
+          today: "2026-10-06",
+          people: [
+            {
+              user_id: SESSION.user_id,
+              full_name: "Lê Tuấn",
+              role_label: "Biên kịch",
+              is_lead: false,
+              daily_tokens: 8,
+              open_tokens: 4,
+              open_tasks: 1,
+              days: [
+                { date: "2026-10-05", budget: 8, used: 6, left: 2 },
+                { date: "2026-10-06", budget: 8, used: 9.5, left: -1.5 },
+                { date: "2026-10-07", budget: 8, used: 0, left: 8 },
+                { date: "2026-10-08", budget: 8, used: 0, left: 8 },
+                { date: "2026-10-09", budget: 8, used: 0, left: 8 },
+                { date: "2026-10-10", budget: 0, used: 0, left: 0 },
+                { date: "2026-10-11", budget: 0, used: 0, left: 0 },
+              ],
+            },
+          ],
+        },
+      },
+      { match: "/api/account/members", status: 403, body: FORBIDDEN },
+      { match: "/api/account/me", body: ME },
+    ]);
+    renderWithQuery(<AccountPage />);
+    const week = await screen.findByRole("region", { name: "Effort tuần này" });
+    expect(
+      callsOf(fetchMock).some((call) => call.url === `/api/units/ADS/effort?user_id=${SESSION.user_id}`),
+    ).toBe(true);
+    expect(week.querySelector("header p")).toHaveTextContent("Đang ôm 4 token (1 task) · 8 token/ngày");
+    const day = (heading: string) => within(week).getByText(heading).closest("li") as HTMLElement;
+    expect(day("T2 05/10")).toHaveTextContent("6/8");
+    expect(within(day("T2 05/10")).getByText("còn 2")).toHaveClass("text-[var(--good)]");
+    expect(day("T3 06/10")).toHaveAttribute("aria-current", "date");
+    expect(within(day("T3 06/10")).getByText("vượt 1.5")).toHaveClass("text-[var(--bad)]");
+    expect(day("CN 11/10")).toHaveTextContent("nghỉ");
   });
 
   it("hides the members tab from somebody the server refuses", async () => {

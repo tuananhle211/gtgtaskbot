@@ -23,12 +23,14 @@ from meobot.api.schemas.orders import (
     NoteRequest,
     OrderActionResponse,
     OrderDetailResponse,
+    PlanRequest,
     PriorityRequest,
     ResubmitOrderRequest,
+    ReturnNodeRequest,
     SubmitWorkRequest,
     VersionedRequest,
 )
-from meobot.application.orders.command_service import CreateOrderCommand, OrderEdit
+from meobot.application.orders.command_service import CreateOrderCommand, NodePlan, OrderEdit
 from meobot.application.orders.services import OrderServices, build_order_services
 from meobot.core.config import Settings
 from meobot.core.errors import ValidationError
@@ -174,6 +176,7 @@ async def create_order(
             video_kind_id=body.video_kind_id,
             platform_id=body.platform_id,
             duration_id=body.duration_id,
+            desired_deadline_at=body.desired_deadline_at,
             note=body.note,
         ),
     )
@@ -225,6 +228,7 @@ async def resubmit_order(
             video_kind_id=body.video_kind_id,
             platform_id=body.platform_id,
             duration_id=body.duration_id,
+            desired_deadline_at=body.desired_deadline_at,
             note=body.note,
         ),
     )
@@ -283,6 +287,7 @@ async def assign_node(
         node_id=node_id,
         expected_version=body.version,
         assignee_user_id=body.assignee_user_id,
+        plan=NodePlan(tokens=body.tokens, deadline_at=body.deadline_at),
     )
     return await _detail(services, actor, order_id)
 
@@ -295,7 +300,7 @@ async def assign_node(
 async def accept_node(
     order_id: uuid.UUID,
     node_id: uuid.UUID,
-    body: VersionedRequest,
+    body: PlanRequest,
     actor: CurrentActorDep,
     request_id: RequestIdDep,
     services: ServicesDep,
@@ -306,6 +311,32 @@ async def accept_node(
         order_id=order_id,
         node_id=node_id,
         expected_version=body.version,
+        plan=NodePlan(tokens=body.tokens, deadline_at=body.deadline_at),
+    )
+    return await _detail(services, actor, order_id)
+
+
+@router.post(
+    "/{order_id}/nodes/{node_id}/plan",
+    response_model=OrderDetailResponse,
+    responses=_ACTION_RESPONSES,
+)
+async def set_node_plan(
+    order_id: uuid.UUID,
+    node_id: uuid.UUID,
+    body: PlanRequest,
+    actor: CurrentActorDep,
+    request_id: RequestIdDep,
+    services: ServicesDep,
+) -> OrderDetailResponse:
+    """ "Sửa token/deadline" (0053)."""
+    await services.commands.set_node_plan(
+        actor=actor,
+        request_id=request_id,
+        order_id=order_id,
+        node_id=node_id,
+        expected_version=body.version,
+        plan=NodePlan(tokens=body.tokens, deadline_at=body.deadline_at),
     )
     return await _detail(services, actor, order_id)
 
@@ -368,7 +399,7 @@ async def approve_node(
 async def return_node(
     order_id: uuid.UUID,
     node_id: uuid.UUID,
-    body: NoteRequest,
+    body: ReturnNodeRequest,
     actor: CurrentActorDep,
     request_id: RequestIdDep,
     services: ServicesDep,
@@ -380,6 +411,7 @@ async def return_node(
         node_id=node_id,
         expected_version=body.version,
         note=body.note or "",
+        plan=NodePlan(tokens=body.tokens, deadline_at=body.deadline_at),
     )
     return await _detail(services, actor, order_id)
 

@@ -144,6 +144,17 @@ class OrderEventKind(StrEnum):
     PRIORITY_SET = "PRIORITY_SET"
     PRIORITY_CLEARED = "PRIORITY_CLEARED"
     CANCELLED = "CANCELLED"
+    #: Token / deadline put on a node (Giao việc, Sửa token/deadline, a return).
+    PLAN_SET = "PLAN_SET"
+    #: A node deadline past the orderer's wish, or the order finished after it.
+    DEADLINE_EXCEEDED = "DEADLINE_EXCEEDED"
+
+
+class OrderTokenKind(StrEnum):
+    """What a token ledger row takes off a person's day (0053)."""
+
+    ESTIMATE = "ESTIMATE"
+    REVISION = "REVISION"
 
 
 class OrderApprovalGate(StrEnum):
@@ -258,6 +269,7 @@ __all__ = [
     "OrderNodeType",
     "OrderScriptSource",
     "OrderStage",
+    "OrderTokenKind",
     "OrderVideoType",
     "last_production_node",
     "needs_design_link",

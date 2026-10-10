@@ -123,6 +123,9 @@ class OrgUnitMember(Base, UUIDPrimaryKeyMixin, TimestampMixin):
     manager_user_id: Mapped[uuid.UUID | None] = mapped_column(
         ForeignKey(f"{USERS_TABLE}.id", ondelete=RESTRICT), nullable=True
     )
+    #: ORD (0053): this member's own daily token budget; NULL = the unit's
+    #: ``UnitSettings.default_daily_tokens``.
+    daily_tokens: Mapped[Decimal | None] = mapped_column(Numeric(6, 2), nullable=True)
     joined_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=func.now()
     )

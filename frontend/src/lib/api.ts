@@ -3262,6 +3262,25 @@ export interface Dashboard {
 // --- Units, orders and the shared board -------------------------------------
 // Mirrors src/meobot/api/schemas/{units,orders,board}.py.
 
+/** ORD performance score weights: output, on time, quality. */
+export interface PerfWeights {
+  output: number;
+  on_time: number;
+  quality: number;
+}
+
+/**
+ * A deadline's state: `ON_TRACK`, `DUE_SOON` (< 24h left), `OVERDUE` (active,
+ * past due), `MET` (finished on time), `MISSED` (finished late), or null when
+ * there is no deadline. Labels and colours: `lib/deadline.ts`.
+ */
+export type DeadlineStatus =
+  | "ON_TRACK"
+  | "DUE_SOON"
+  | "OVERDUE"
+  | "MET"
+  | "MISSED";
+
 export interface UnitSettingsInfo {
   urgent_days: number;
   media_nas_url: string | null;
@@ -3273,6 +3292,15 @@ export interface UnitSettingsInfo {
   review_thiet_ke: boolean;
   review_dung: boolean;
   review_video_by_script_lead: boolean;
+  /** ORD: a member's token budget per working day unless their own is set (8). */
+  default_daily_tokens?: number;
+  /** ORD: weekdays (Monday = 0) with a full budget, and the half days (Saturday morning). */
+  work_weekdays?: number[];
+  half_weekdays?: number[];
+  /** ORD performance score weights (0.5 / 0.3 / 0.2). */
+  perf_weights?: PerfWeights;
+  /** ORD: the monthly output benchmark; null = the month's top performer in the ban. */
+  output_target?: number | null;
   /** Ads permission matrix: role -> permission -> NONE / OWN / ALL. */
   permissions?: Record<string, Record<string, string>>;
   permission_catalog?: Array<{
@@ -3348,6 +3376,8 @@ export interface UnitMember {
   account_active?: boolean;
   /** ORD: the one Leader (an orderer: head) this member reports to; null = the whole ban. */
   manager_user_id?: Uuid | null;
+  /** ORD: own token budget per working day; null = the unit's `default_daily_tokens`. */
+  daily_tokens?: number | null;
 }
 
 export interface UnitMemberList {
@@ -3442,6 +3472,11 @@ export interface TaskCell {
   is_current: boolean;
   since: string | null;
   revisions: number;
+  /** ORD: the step's effective deadline (the revision one while it is being fixed). */
+  deadline_at?: string | null;
+  deadline_status?: DeadlineStatus | string | null;
+  /** ORD: token estimate + revision tokens. */
+  tokens?: number | null;
 }
 
 export interface TaskExtra {
@@ -3498,6 +3533,13 @@ export interface TaskRow {
   /** The newest file handed in. */
   latest_link: string | null;
   extras: TaskExtra[];
+  /** ORD: the orderer's wished deadline. PR rows: null. */
+  desired_deadline_at?: string | null;
+  /** The current step's deadline (at the orderer's gates: the desired one). */
+  deadline_at?: string | null;
+  deadline_status?: DeadlineStatus | string | null;
+  /** ORD: how many times the desired deadline was exceeded. */
+  over_deadline_count?: number | null;
 }
 
 export interface TaskPage {
@@ -3533,6 +3575,8 @@ export interface BoardFilters {
   order?: "todo_first";
   priority?: boolean;
   urgent?: boolean;
+  /** Rows whose current step (or the desired deadline at the gates) is overdue. */
+  overdue?: boolean;
   q?: string;
   limit?: number;
   offset?: number;
@@ -3543,6 +3587,7 @@ export interface PersonStat {
   name: string;
   opened: number;
   done: number;
+  /** Nodes finished after their deadline + nodes overdue now. */
   late: number;
 }
 
@@ -3554,6 +3599,8 @@ export interface DashboardSummary {
   completed: number;
   pending_review: number;
   urgent: number;
+  /** Rows past their deadline ("Trễ hạn"). Optional: older APIs omit it. */
+  overdue?: number;
   progress_percent: number | null;
   by_phase: Array<{ phase: string; label: string; count: number }>;
   by_owner: PersonStat[];
@@ -3600,6 +3647,10 @@ export interface OrderInfo {
   version: number;
   created_at: string;
   updated_at: string;
+  /** The orderer's wished deadline (null on old orders). */
+  desired_deadline_at?: string | null;
+  /** "Quá deadline mong muốn: N lần". */
+  over_deadline_count?: number;
 }
 
 export interface OrderNode {
@@ -3622,6 +3673,16 @@ export interface OrderNode {
   revision_count: number;
   submission_count: number;
   version: number;
+  token_estimate?: number | null;
+  /** Sum of the revision tokens. */
+  token_revision?: number;
+  deadline_at?: string | null;
+  revision_deadline_at?: string | null;
+  /** Fixed at the first completion; null until then or without a deadline. */
+  deadline_met?: boolean | null;
+  /** A return left the Leader to enter revision tokens. */
+  revision_tokens_pending?: boolean;
+  deadline_status?: DeadlineStatus | string | null;
 }
 
 export interface OrderSubmission {
@@ -3691,6 +3752,8 @@ export interface CreateOrderBody {
   source_link?: string | null;
   note?: string | null;
   preassigned?: Record<string, Uuid>;
+  /** ORD: required. ISO-8601 (`new Date(local).toISOString()`). */
+  desired_deadline_at?: string | null;
 }
 
 // --- The unified task (PR content + Ads order) ------------------------------
@@ -3700,6 +3763,12 @@ export interface CreateOrderBody {
 export interface TaskPerson {
   user_id: Uuid;
   name: string;
+  /** ORD assignee options: today's budget and what is left of it (may be negative). */
+  tokens_budget_today?: number | null;
+  tokens_left_today?: number | null;
+  /** Tokens on nodes handed out and not finished, and how many such nodes. */
+  tokens_open?: number;
+  open_tasks?: number;
 }
 
 export interface TaskInfo {
@@ -3729,6 +3798,13 @@ export interface TaskInfo {
   latest_link: string | null;
   revisions: number;
   version: number;
+  /** ORD: the orderer's wished deadline. */
+  desired_deadline_at?: string | null;
+  /** The current step's deadline (at the orderer's gates: the desired one). */
+  deadline_at?: string | null;
+  deadline_status?: DeadlineStatus | string | null;
+  /** ORD: how many times the desired deadline was exceeded (PR: 0/null). */
+  over_deadline_count?: number | null;
   /** The row this task extends: a PR content item or an Ads order. */
   source: { type: "PR_CONTENT" | "ORDER"; id: Uuid };
 }
@@ -3769,7 +3845,13 @@ export interface TaskTimelineEntry {
   note: string | null;
 }
 
-export type TaskActionInput = "note" | "link" | "text" | "assignee";
+export type TaskActionInput =
+  | "note"
+  | "link"
+  | "text"
+  | "assignee"
+  | "tokens"
+  | "deadline";
 
 export interface TaskAction {
   /** Opaque; posted back unchanged. The client never parses it. */
@@ -3781,6 +3863,10 @@ export interface TaskAction {
   assignee_options: TaskPerson[];
   /** Inputs that may not be left empty (the last node's product link). */
   required_inputs?: TaskActionInput[];
+  /** Prefill for the "tokens" / "deadline" inputs. */
+  defaults?: { tokens?: number | null; deadline_at?: string | null };
+  /** ESTIMATE → "Token" / "Deadline"; REVISION → "Token sửa" / "Deadline sửa". */
+  plan_mode?: "ESTIMATE" | "REVISION";
 }
 
 /**
@@ -3805,6 +3891,10 @@ export interface TaskActionBody {
   link?: string;
   text?: string;
   assignee_user_id?: Uuid;
+  /** ORD: the node's tokens (estimate, or revision tokens on a return). */
+  tokens?: number;
+  /** ORD: the node's deadline, ISO-8601. */
+  deadline_at?: string;
 }
 
 // --- Password login and the account screen ----------------------------------
@@ -3826,8 +3916,96 @@ export interface MemberStats {
   pr_productions_done: number;
   pr_approvals: number;
   work_items_counted: number;
-  /** Share (0..1) of completed nodes approved without a return; null when none. */
+  /**
+   * Share (0..1) of finished nodes with a deadline that met it; null when
+   * none. (It used to mean "approved without a return": that is now
+   * `first_pass_rate`.)
+   */
   on_time_rate: number | null;
+  /** Share (0..1) of completed nodes approved without a return ("Không bị trả"). */
+  first_pass_rate?: number | null;
+  /** Nodes finished after their deadline ("Số lần trễ hạn"). */
+  late_count?: number;
+  /** ORD tokens deducted this month, and the month's working-day budget. */
+  tokens_used?: number;
+  tokens_budget?: number;
+  /** tokens_used / tokens_budget; null when the budget is 0. */
+  effort_rate?: number | null;
+  /** 0..100; null when nothing was done. */
+  performance_score?: number | null;
+  /** The output benchmark the score used. */
+  output_target?: number | null;
+}
+
+/** One person-day of `GET /api/units/{code}/effort`. */
+export interface EffortDay {
+  /** `YYYY-MM-DD`. */
+  date: string;
+  /** 0 on non-working days. */
+  budget: number;
+  used: number;
+  /** budget - used; negative = over budget. */
+  left: number;
+}
+
+export interface EffortPerson {
+  user_id: Uuid;
+  full_name: string;
+  role_label: string;
+  function_tag?: string | null;
+  is_lead: boolean;
+  daily_tokens: number;
+  open_tokens: number;
+  open_tasks: number;
+  days: EffortDay[];
+}
+
+export interface EffortGrid {
+  date_from: string;
+  date_to: string;
+  days: string[];
+  today: string;
+  people: EffortPerson[];
+}
+
+/** `GET /api/units/ADS/ban-stats`: the dashboard's "Theo ban". */
+export interface BanMemberStat {
+  user_id: Uuid;
+  full_name: string;
+  is_lead: boolean;
+  budget: number;
+  used: number;
+  left: number;
+  /** Today's budget left (may be negative: over effort). */
+  today_left: number;
+  open_tokens: number;
+  open_tasks: number;
+  done: number;
+}
+
+export interface BanStat {
+  /** BIEN_TAP | THIET_KE | DUNG */
+  role: string;
+  label: string;
+  budget: number;
+  used: number;
+  left: number;
+  open_tokens: number;
+  open_tasks: number;
+  done: number;
+  in_progress: number;
+  overdue: number;
+  late: number;
+  members: BanMemberStat[];
+}
+
+export interface BanStats {
+  date_from: string;
+  date_to: string;
+  today: string;
+  /** The viewer's own ban (their default); null = "Tất cả". */
+  my_ban: string | null;
+  bans: BanStat[];
 }
 
 export interface AccountUnit {
@@ -4044,10 +4222,19 @@ export const api = {
       personal_nas_url?: string | null;
       /** ORD: the member's own Leader / head; null = back to the whole ban. */
       manager_user_id?: Uuid | null;
+      /** ORD: own tokens per working day; null = back to the unit default. */
+      daily_tokens?: number | null;
     },
   ) => patch<UnitMember>(`/api/units/${code}/members/${userId}`, body),
   untagUnitMember: (code: string, userId: Uuid) =>
     del<UnitMember>(`/api/units/${code}/members/${userId}`),
+  /** Tokens per person and day (default: this Mon..Sun week; max 62 days). */
+  unitEffort: (
+    code: string,
+    params: { date_from?: string; date_to?: string; user_id?: Uuid } = {},
+  ) => get<EffortGrid>(`/api/units/${code}/effort${query(params)}`),
+  unitBanStats: (code: string, params: { date_from?: string; date_to?: string } = {}) =>
+    get<BanStats>(`/api/units/${code}/ban-stats${query(params)}`),
   updateUnitSettings: (code: string, body: Partial<UnitSettingsInfo>) =>
     patch<UnitSettingsInfo>(`/api/units/${code}/settings`, body),
   /** Active kinds for any member; `includeInactive` is for unit admins. */

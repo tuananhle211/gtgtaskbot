@@ -104,7 +104,15 @@ class MemberStatsResponse(BaseModel):
     pr_productions_done: int
     pr_approvals: int
     work_items_counted: int
+    #: 0053: deadline-based now ("Đúng hạn"); the old meaning is first_pass_rate.
     on_time_rate: float | None
+    first_pass_rate: float | None = None
+    late_count: int = 0
+    tokens_used: float = 0.0
+    tokens_budget: float = 0.0
+    effort_rate: float | None = None
+    performance_score: float | None = None
+    output_target: int | None = None
 
     @classmethod
     def from_domain(cls, stats: MemberStats) -> MemberStatsResponse:
@@ -121,6 +129,13 @@ class MemberStatsResponse(BaseModel):
             pr_approvals=stats.pr_approvals,
             work_items_counted=stats.work_items_counted,
             on_time_rate=stats.on_time_rate,
+            first_pass_rate=stats.first_pass_rate,
+            late_count=stats.late_count,
+            tokens_used=stats.tokens_used,
+            tokens_budget=stats.tokens_budget,
+            effort_rate=stats.effort_rate,
+            performance_score=stats.performance_score,
+            output_target=stats.output_target,
         )
 
 

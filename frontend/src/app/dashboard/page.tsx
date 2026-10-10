@@ -10,6 +10,7 @@ import { formatAgo } from "@/lib/labels";
 import { currentUnit, firstOfMonth, isUntagged, lastOfMonth, unitName, byStreamOrder } from "@/lib/units";
 import { Select } from "@/components/pr";
 import { ErrorBox, Loading, Pill } from "@/components/states";
+import { BanStatsPanel } from "@/components/ban-stats";
 
 export default function DashboardPage() {
   return (
@@ -112,6 +113,8 @@ function Dashboard() {
       ? "Cả hai luồng"
       : unitName(unit, me.data.units.find((item) => item.code === unit)?.label);
   const data = summary.data;
+  // "Trễ hạn": ORD deadlines (PR has none). Older APIs send no `overdue`.
+  const showOverdue = unit !== "PR" && data?.overdue !== undefined;
   const phases = data?.by_phase.filter((item) => item.phase !== "CANCELLED") ?? [];
   const maxPhase = Math.max(1, ...phases.map((item) => item.count));
 
@@ -183,7 +186,10 @@ function Dashboard() {
       {summary.isError ? <ErrorBox error={summary.error} onRetry={() => summary.refetch()} /> : null}
       {data ? (
         <>
-          <section aria-label="Số liệu tổng" className="grid grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-5">
+          <section
+            aria-label="Số liệu tổng"
+            className={`grid grid-cols-2 gap-3 md:grid-cols-3 ${showOverdue ? "xl:grid-cols-6" : "xl:grid-cols-5"}`}
+          >
             <Tile label="Tổng số order" value={data.total} href={tasksHref({})} hint="lên order trong khoảng lọc" />
             <Tile
               label="Đã hoàn thành"
@@ -206,6 +212,15 @@ function Dashboard() {
               hint="quá hạn mốc Gấp của luồng, chưa xong"
               tone={data.urgent > 0 ? "bad" : undefined}
             />
+            {showOverdue ? (
+              <Tile
+                label="Trễ hạn"
+                value={data.overdue ?? 0}
+                href={tasksHref({ overdue: "true" })}
+                hint="bước đang làm đã quá deadline"
+                tone={(data.overdue ?? 0) > 0 ? "bad" : undefined}
+              />
+            ) : null}
             <Tile
               label="Tiến độ hoàn thành"
               value={data.progress_percent === null ? "–" : `${data.progress_percent}%`}
@@ -281,6 +296,15 @@ function Dashboard() {
             </section>
           </div>
 
+          {unit !== "PR" && (me.data?.can_view_all || me.data?.units.some((item) => item.code === "ADS")) ? (
+            <BanStatsPanel
+              dateFrom={dateFrom}
+              dateTo={dateTo}
+              ban={params.get("ban")}
+              onBan={(next) => setParams({ ban: next })}
+            />
+          ) : null}
+
           <div className="grid gap-4 xl:grid-cols-2">
             <PeopleTable
               title={unit === "PR" ? "Theo người phụ trách" : "Theo người order"}
@@ -290,7 +314,7 @@ function Dashboard() {
             />
             <PeopleTable
               title="Theo người làm"
-              columns={["Công đoạn giữ", "Xong", "Đang gấp"]}
+              columns={["Công đoạn giữ", "Xong", unit === "PR" ? "Đang gấp" : "Trễ hạn"]}
               rows={data.by_worker}
               href={(id) => tasksHref({ assignee: id })}
             />

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import uuid
 from datetime import datetime
+from decimal import Decimal
 from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field
@@ -18,6 +19,15 @@ class _Out(BaseModel):
 class PersonRefResponse(_Out):
     user_id: uuid.UUID | None
     name: str
+
+
+class AssigneeOptionResponse(PersonRefResponse):
+    """A "Giao việc" option (0053): today's effort and what they hold open."""
+
+    tokens_budget_today: float | None = None
+    tokens_left_today: float | None = None
+    tokens_open: float | None = None
+    open_tasks: int | None = None
 
 
 class TaskSourceResponse(_Out):
@@ -55,6 +65,12 @@ class TaskSummaryResponse(_Out):
     revisions: int
     version: int
     source: TaskSourceResponse
+    #: ORD (0053): the orderer's wish, the deadline that counts now and where
+    #: it stands, how often the wish was overrun.
+    desired_deadline_at: datetime | None = None
+    deadline_at: datetime | None = None
+    deadline_status: str | None = None
+    over_deadline_count: int = 0
 
 
 class TaskStepResponse(_Out):
@@ -66,6 +82,9 @@ class TaskStepResponse(_Out):
     is_current: bool
     since: datetime | None
     revisions: int
+    deadline_at: datetime | None = None
+    deadline_status: str | None = None
+    tokens: float | None = None
 
 
 class TaskPersonResponse(_Out):
@@ -101,15 +120,24 @@ class TaskTimelineResponse(_Out):
     note: str | None
 
 
+class PlanDefaultsResponse(_Out):
+    tokens: float | None = None
+    deadline_at: datetime | None = None
+
+
 class TaskActionResponse(_Out):
     key: str
     label: str
     emphasis: Literal["PRIMARY", "SECONDARY", "DANGER"]
     requires_note: bool
-    inputs: list[Literal["note", "link", "text", "assignee"]]
-    assignee_options: list[PersonRefResponse]
+    inputs: list[Literal["note", "link", "text", "assignee", "tokens", "deadline"]]
+    assignee_options: list[AssigneeOptionResponse]
     #: Inputs that may not be left empty (the last node's product link).
-    required_inputs: list[Literal["note", "link", "text", "assignee"]] = []
+    required_inputs: list[Literal["note", "link", "text", "assignee", "tokens", "deadline"]] = []
+    #: ORD (0053): ``ESTIMATE`` (the node's plan) or ``REVISION`` (this
+    #: round's "Token sửa" / "Deadline sửa"), and the values to start from.
+    plan_mode: Literal["ESTIMATE", "REVISION"] | None = None
+    defaults: PlanDefaultsResponse | None = None
 
 
 class TaskDetailResponse(_Out):
@@ -134,6 +162,10 @@ class TaskActionRequest(BaseModel):
     link: str | None = Field(default=None, max_length=2000)
     text: str | None = None
     assignee_user_id: uuid.UUID | None = None
+    #: 0053: a node's tokens and deadline (Giao việc, Nhận việc by a Leader,
+    #: Sửa token/deadline) or, on Trả sửa, the revision tokens and deadline.
+    tokens: Decimal | None = Field(default=None, ge=0, le=Decimal("999.99"))
+    deadline_at: datetime | None = None
 
 
 __all__ = [

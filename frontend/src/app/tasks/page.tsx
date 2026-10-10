@@ -1,5 +1,6 @@
 "use client";
 
+import { TokenBadge } from "@/components/token-badge";
 import Link from "next/link";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { Suspense, useState } from "react";
@@ -18,6 +19,8 @@ import {
   unitTagClass,
 } from "@/lib/units";
 import { ConfirmButton } from "@/components/confirm";
+import { DeadlineBadge } from "@/components/deadline-badge";
+import { formatTokens } from "@/lib/deadline";
 import { Select } from "@/components/pr";
 import { Empty, ErrorBox, Loading, NoticeBox, Pill } from "@/components/states";
 import {
@@ -50,6 +53,9 @@ const QUICK = [
   ["awaiting_me", "Chờ tôi xử lý"],
   ["priority", "Ưu tiên"],
   ["urgent", "Gấp"],
+  // The rows whose current step - or, at the orderer's gates, the wished
+  // deadline - is past due. ORD only: PR has no deadlines.
+  ["overdue", "Trễ hạn"],
 ] as const;
 
 
@@ -106,6 +112,7 @@ function TaskBoard() {
     order,
     priority: read("priority") === "true",
     urgent: read("urgent") === "true",
+    overdue: unit !== "PR" && read("overdue") === "true",
     q: read("q") || undefined,
     limit: PAGE_SIZE,
     offset: (page - 1) * PAGE_SIZE,
@@ -240,7 +247,7 @@ function TaskBoard() {
             aria-label="Lọc nhanh"
             className="flex flex-wrap gap-1.5"
           >
-            {QUICK.map(([key, label]) => (
+            {QUICK.filter(([key]) => key !== "overdue" || unit !== "PR").map(([key, label]) => (
               <button
                 key={key}
                 type="button"
@@ -435,6 +442,7 @@ function TaskBoard() {
                   <th scope="col">Order</th>
                   <th scope="col">Tên · Loại</th>
                   <th scope="col">Trạng thái · Đang giữ</th>
+                  {unit !== "PR" ? <th scope="col">Deadline</th> : null}
                   {cellHeads.map((cell) => (
                     <th key={cell.key} scope="col">
                       {cell.label}
@@ -452,6 +460,7 @@ function TaskBoard() {
                     key={`${row.unit}:${row.id}`}
                     row={row}
                     showUnit={unit === "ALL"}
+                    showDeadline={unit !== "PR"}
                     viewerId={viewerId}
                     decides={decides}
                     dense={dense}
@@ -515,6 +524,12 @@ function Cell({ cell, dense, stage }: { cell: TaskCell; dense: boolean; stage: s
             {withoutNames(cell.status_label, cell.person_name)}
           </StatusBadge>
         )}
+        {!dense && (cell.tokens != null || cell.deadline_at) ? (
+          <span className="flex flex-wrap items-center gap-1 text-[11px] text-[var(--text-muted)]">
+            <TokenBadge value={cell.tokens} size="sm" />
+            <DeadlineBadge at={cell.deadline_at} status={cell.deadline_status} />
+          </span>
+        ) : null}
         {!dense && (cell.since || cell.revisions > 0) ? (
           <span className="text-[11px] text-[var(--text-muted)]">
             {cell.since ? formatAgo(cell.since) : ""}
@@ -531,6 +546,7 @@ function Cell({ cell, dense, stage }: { cell: TaskCell; dense: boolean; stage: s
 function TaskTableRow({
   row,
   showUnit,
+  showDeadline,
   viewerId,
   decides,
   dense,
@@ -538,6 +554,8 @@ function TaskTableRow({
 }: {
   row: TaskRow;
   showUnit: boolean;
+  /** The "Deadline" column (not on the PR-only table: PR has no deadlines). */
+  showDeadline: boolean;
   /** The signed-in person, for "Cần làm" when the API sends no `awaiting_me`. */
   viewerId: string | null;
   decides: boolean;
@@ -646,6 +664,28 @@ function TaskTableRow({
           </span>
         )}
       </td>
+      {showDeadline ? (
+        <td className="whitespace-nowrap text-xs" data-testid="row-deadline">
+          {row.deadline_at ? (
+            <span className="flex flex-col items-start gap-1">
+              <DeadlineBadge at={row.deadline_at} status={row.deadline_status} />
+              {row.deadline_status === "OVERDUE" ? (
+                <Pill tone="critical">Quá hạn</Pill>
+              ) : null}
+            </span>
+          ) : (
+            <span className="text-[var(--text-muted)]">–</span>
+          )}
+          {(row.over_deadline_count ?? 0) > 0 ? (
+            <span
+              className="mt-0.5 block text-[11px] text-[var(--warn)]"
+              title="Số lần vượt deadline mong muốn"
+            >
+              Vượt mong muốn {row.over_deadline_count} lần
+            </span>
+          ) : null}
+        </td>
+      ) : null}
       {row.cells.map((cell) => (
         <Cell key={cell.key} cell={cell} dense={dense} stage={row.status} />
       ))}

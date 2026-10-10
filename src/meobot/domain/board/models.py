@@ -108,6 +108,11 @@ class TaskCell:
     since: datetime | None = None
     #: How many times the work in this cell was sent back.
     revisions: int = 0
+    #: ORD (0053): the step's deadline that counts now, where it stands
+    #: (``DeadlineStatus``), and its tokens (estimate + revision).
+    deadline_at: datetime | None = None
+    deadline_status: str | None = None
+    tokens: float | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -159,6 +164,13 @@ class TaskRow:
     #: hand out), ``DA_GIAO`` (handed out, not accepted yet), ``CHUA_GIAO``
     #: (nobody to hand it out), else the node's own status or ``None``.
     state: str | None = None
+    #: ORD (0053): the orderer's wished finish; the deadline that counts now
+    #: (the current step's, or the wish at the orderer's gates) and where it
+    #: stands; how often the wish was overrun.
+    desired_deadline_at: datetime | None = None
+    deadline_at: datetime | None = None
+    deadline_status: str | None = None
+    over_deadline_count: int = 0
 
 
 @dataclass(frozen=True, slots=True)
@@ -188,6 +200,8 @@ class BoardQuery:
     awaiting_me: bool = False
     priority: bool = False
     urgent: bool = False
+    #: ORD (0053): the rows whose deadline that counts now has passed.
+    overdue: bool = False
     search: str | None = None
     #: ``order=todo_first``: the rows awaiting the viewer first, then the rest
     #: of the filter, each part in the usual priority-then-newest order.
@@ -226,6 +240,8 @@ class DashboardSummary:
     urgent: int
     #: ``completed / total`` in percent, or ``None`` when there is nothing.
     progress_percent: int | None
+    #: ORD (0053): rows past the deadline that counts now ("Trễ hạn").
+    overdue: int = 0
     by_phase: dict[Phase, int] = field(default_factory=dict)
     by_owner: tuple[PersonStat, ...] = ()
     by_worker: tuple[PersonStat, ...] = ()
