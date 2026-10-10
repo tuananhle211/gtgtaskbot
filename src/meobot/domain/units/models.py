@@ -140,7 +140,7 @@ class UnitSettings(BaseModel):
     permissions: dict[str, dict[str, str]] = Field(default_factory=dict)
     #: 0053: a member's token budget per working day, unless their tag sets
     #: their own (``org_unit_members.daily_tokens``).
-    default_daily_tokens: float = Field(default=8, ge=0, le=999)
+    default_daily_tokens: float = Field(default=80, ge=0, le=999)
     #: Monday = 0. The days that have a full budget.
     work_weekdays: tuple[int, ...] = (0, 1, 2, 3, 4)
     #: The half days (Saturday morning by default): half the budget. Days in

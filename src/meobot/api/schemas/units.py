@@ -63,7 +63,7 @@ class UnitSettingsResponse(BaseModel):
     permission_roles: list[PermissionRoleEntry]
     scope_labels: dict[str, str]
     #: 0053: token budget and the performance score's knobs.
-    default_daily_tokens: float = 8
+    default_daily_tokens: float = 80
     work_weekdays: list[int] = [0, 1, 2, 3, 4]
     #: Half days (half the budget): Saturday morning by default.
     half_weekdays: list[int] = [5]

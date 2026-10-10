@@ -62,7 +62,7 @@ Phạm vi: chỉ luồng ORD. PR vẫn đóng băng, không đụng vào sổ KP
   - unique `(node_id, kind, revision_no)` để không trừ trùng;
   - index `(unit_id, user_id, work_date)`.
 - `org_unit_members.daily_tokens` Numeric(6,2), nullable.
-- `UnitSettings`: thêm `default_daily_tokens` (mặc định 8) và `perf_weights` (output/on_time/quality, mặc định 0.5/0.3/0.2).
+- `UnitSettings`: thêm `default_daily_tokens` (mặc định 80, đổi 10/10/2026) và `perf_weights` (output/on_time/quality, mặc định 0.5/0.3/0.2).
 - Nhập token sửa sau RETURN_VIDEO/FINAL: dùng thêm cột `order_nodes.revision_tokens_pending` (bool) để biết còn chờ nhập.
 
 ## Backend

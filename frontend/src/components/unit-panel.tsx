@@ -629,7 +629,7 @@ function AddMember({
 const FUNCTION_ROLES = new Set(["BIEN_TAP", "THIET_KE", "DUNG"]);
 
 /** The server's own default for `default_daily_tokens`, until settings load. */
-const DEFAULT_DAILY_TOKENS = 8;
+const DEFAULT_DAILY_TOKENS = 80;
 /** The server's own default performance weights. */
 const DEFAULT_WEIGHTS: PerfWeights = { output: 0.5, on_time: 0.3, quality: 0.2 };
 

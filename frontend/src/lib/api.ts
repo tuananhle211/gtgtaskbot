@@ -3292,7 +3292,7 @@ export interface UnitSettingsInfo {
   review_thiet_ke: boolean;
   review_dung: boolean;
   review_video_by_script_lead: boolean;
-  /** ORD: a member's token budget per working day unless their own is set (8). */
+  /** ORD: a member's token budget per working day unless their own is set (80). */
   default_daily_tokens?: number;
   /** ORD: weekdays (Monday = 0) with a full budget, and the half days (Saturday morning). */
   work_weekdays?: number[];
