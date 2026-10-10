@@ -98,40 +98,54 @@ class DashboardService:
         )
 
     async def _by_owner(self, rows: tuple[TaskRow, ...]) -> tuple[PersonStat, ...]:
-        stats: dict[uuid.UUID, list[int]] = {}
+        stats: dict[uuid.UUID, list[int | float]] = {}
         for row in rows:
-            item = stats.setdefault(row.owner_user_id, [0, 0, 0])
+            item = stats.setdefault(row.owner_user_id, [0, 0, 0, 0.0])
             item[0] += 1
             if row.phase is Phase.DONE:
                 item[1] += 1
             if _row_late(row):
                 item[2] += 1
+            item[3] += sum(c.tokens or 0 for c in row.cells)
         names = await display_names(self._session, set(stats))
         return tuple(
-            PersonStat(user_id=user_id, name=names.get(user_id, ""), opened=a, done=b, late=c)
-            for user_id, (a, b, c) in sorted(stats.items(), key=lambda item: -item[1][0])
+            PersonStat(
+                user_id=user_id,
+                name=names.get(user_id, ""),
+                opened=int(a),
+                done=int(b),
+                late=int(c),
+                tokens=round(float(t), 2),
+            )
+            for user_id, (a, b, c, t) in sorted(stats.items(), key=lambda item: -item[1][0])
         )
 
     async def _by_worker(self, rows: tuple[TaskRow, ...]) -> tuple[PersonStat, ...]:
         """Per person holding a cell: cells held, cells finished, cells late -
         finished after their deadline or past it now (ORD, 0053). Names are
         what the cells carry, so no second lookup."""
-        stats: dict[str, list[int]] = {}
+        stats: dict[str, list[int | float]] = {}
         for row in rows:
             for cell in row.cells:
                 if not cell.person_name:
                     continue
-                item = stats.setdefault(cell.person_name, [0, 0, 0])
+                item = stats.setdefault(cell.person_name, [0, 0, 0, 0.0])
                 item[0] += 1
                 if cell.status in ("HOAN_THANH", "DONE"):
                     item[1] += 1
                 if _cell_late(row, cell):
                     item[2] += 1
+                item[3] += cell.tokens or 0
         return tuple(
             PersonStat(
-                user_id=uuid.uuid5(uuid.NAMESPACE_URL, name), name=name, opened=a, done=b, late=c
+                user_id=uuid.uuid5(uuid.NAMESPACE_URL, name),
+                name=name,
+                opened=int(a),
+                done=int(b),
+                late=int(c),
+                tokens=round(float(t), 2),
             )
-            for name, (a, b, c) in sorted(stats.items(), key=lambda item: -item[1][0])
+            for name, (a, b, c, t) in sorted(stats.items(), key=lambda item: -item[1][0])
         )
 
 

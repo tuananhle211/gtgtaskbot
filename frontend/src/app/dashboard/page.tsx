@@ -11,6 +11,8 @@ import { currentUnit, firstOfMonth, isUntagged, lastOfMonth, unitName, byStreamO
 import { Select } from "@/components/pr";
 import { ErrorBox, Loading, Pill } from "@/components/states";
 import { BanStatsPanel } from "@/components/ban-stats";
+import { formatTokens } from "@/lib/deadline";
+import { BoltIcon } from "@/components/token-badge";
 
 export default function DashboardPage() {
   return (
@@ -311,12 +313,14 @@ function Dashboard() {
               columns={["Lên", "Xong", "Gấp"]}
               rows={data.by_owner}
               href={(id) => tasksHref({ owner: id })}
+              showTokens={unit !== "PR"}
             />
             <PeopleTable
               title="Theo người làm"
               columns={["Công đoạn giữ", "Xong", unit === "PR" ? "Đang gấp" : "Trễ hạn"]}
               rows={data.by_worker}
               href={(id) => tasksHref({ assignee: id })}
+              showTokens={unit !== "PR"}
             />
           </div>
         </>
@@ -362,11 +366,13 @@ function PeopleTable({
   columns,
   rows,
   href,
+  showTokens,
 }: {
   title: string;
   columns: [string, string, string];
-  rows: Array<{ user_id: string; name: string; opened: number; done: number; late: number }>;
+  rows: Array<{ user_id: string; name: string; opened: number; done: number; late: number; tokens?: number }>;
   href: (userId: string) => string;
+  showTokens?: boolean;
 }) {
   return (
     <section className="panel p-4">
@@ -383,6 +389,11 @@ function PeopleTable({
                   {column}
                 </th>
               ))}
+              {showTokens ? (
+                <th className="py-2 pr-3 text-right font-medium">
+                  <span className="inline-flex items-center gap-1"><BoltIcon className="size-3.5" />Token</span>
+                </th>
+              ) : null}
             </tr>
           </thead>
           <tbody>
@@ -398,6 +409,11 @@ function PeopleTable({
                 <td className={`py-2 pr-3 text-right tabular-nums ${row.late > 0 ? "font-semibold text-[var(--bad)]" : ""}`}>
                   {row.late}
                 </td>
+                {showTokens ? (
+                  <td className="py-2 pr-3 text-right tabular-nums text-[var(--effort)]">
+                    {formatTokens(row.tokens ?? 0)}
+                  </td>
+                ) : null}
               </tr>
             ))}
           </tbody>

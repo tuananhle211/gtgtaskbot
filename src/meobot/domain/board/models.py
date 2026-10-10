@@ -227,6 +227,8 @@ class PersonStat:
     opened: int
     done: int
     late: int
+    #: ORD (0053): total tokens across their cells (estimate + revision).
+    tokens: float = 0
 
 
 @dataclass(frozen=True, slots=True)

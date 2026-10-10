@@ -181,6 +181,7 @@ class PersonStatResponse(BaseModel):
     opened: int
     done: int
     late: int
+    tokens: float = 0
 
 
 class PhaseCountResponse(BaseModel):
@@ -231,6 +232,7 @@ class DashboardResponse(BaseModel):
                     opened=item.opened,
                     done=item.done,
                     late=item.late,
+                    tokens=item.tokens,
                 )
                 for item in summary.by_owner
             ],
@@ -241,6 +243,7 @@ class DashboardResponse(BaseModel):
                     opened=item.opened,
                     done=item.done,
                     late=item.late,
+                    tokens=item.tokens,
                 )
                 for item in summary.by_worker
             ],
