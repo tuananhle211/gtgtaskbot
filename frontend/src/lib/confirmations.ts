@@ -1016,6 +1016,30 @@ export const deactivateAccountConfirmation = (name: string): ConfirmSpec => ({
   variant: "destructive",
 });
 
+/**
+ * "Xoá thành viên" (OWNER only): the account is removed for good. Their past
+ * orders and work stay, named "<tên> (đã xoá)". The reversible way out is
+ * "Vô hiệu hoá", and the dialog says so.
+ */
+export const deleteAccountConfirmation = (name: string): ConfirmSpec => ({
+  title: `Xoá hẳn tài khoản ${name}?`,
+  description:
+    "Không khôi phục được. Order và công việc cũ vẫn giữ, ghi tên kèm “(đã xoá)”. Muốn tạm khoá thì dùng Vô hiệu hoá.",
+  confirmLabel: "Xoá thành viên",
+  variant: "destructive",
+});
+
+/**
+ * "Xoá task" on the task page (OWNER only): the order or the content and
+ * everything hanging off it are gone for good.
+ */
+export const deleteTaskConfirmation = (code: string): ConfirmSpec => ({
+  title: `Xoá hẳn task ${code}?`,
+  description: "Không khôi phục được: bài nộp, lịch sử, token đã tính đều mất.",
+  confirmLabel: "Xoá task",
+  variant: "destructive",
+});
+
 /** "Kích hoạt lại": the account works again, with the tags it had. */
 export const reactivateAccountConfirmation = (name: string): ConfirmSpec => ({
   title: `Kích hoạt lại tài khoản ${name}?`,
@@ -1081,6 +1105,8 @@ export const ACTION_INVENTORY: readonly ActionInventoryEntry[] = [
   },
   { action: "Đặt lại mật khẩu thành viên", policy: "dialog" },
   { action: "Vô hiệu hoá / kích hoạt lại tài khoản (Quản trị viên)", policy: "dialog" },
+  { action: "Xoá hẳn tài khoản thành viên (Chủ sở hữu)", policy: "dialog" },
+  { action: "Xoá hẳn task (Chủ sở hữu)", policy: "dialog" },
   { action: "Gắn / gỡ thành viên khỏi luồng, gắn tài khoản chưa có luồng", policy: "dialog" },
   { action: "Tạo mã mời / thu hồi mã mời", policy: "dialog" },
   {

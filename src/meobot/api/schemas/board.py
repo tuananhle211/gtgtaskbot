@@ -145,6 +145,17 @@ class PhaseOption(BaseModel):
     label: str
 
 
+class BoardCountsResponse(BaseModel):
+    """``GET /api/board/counts``: how many rows each quick filter of the task
+    table would show, for the unit on screen (the other filters aside)."""
+
+    mine: int
+    awaiting_me: int
+    priority: int
+    urgent: int
+    overdue: int
+
+
 class TaskPageResponse(BaseModel):
     unit: str
     items: list[TaskRowResponse]
@@ -251,6 +262,7 @@ class DashboardResponse(BaseModel):
 
 
 __all__ = [
+    "BoardCountsResponse",
     "DashboardResponse",
     "PersonStatResponse",
     "PhaseCountResponse",

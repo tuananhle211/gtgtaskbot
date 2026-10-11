@@ -82,6 +82,9 @@ async def ads_world(world: World) -> Ads:
     lead_dung = await person(world, "Editor A")
     editor = await person(world, "Editor C")
     outsider = world.lead  # tagged PR by the world, outside Ads
+    # This world keeps the Dựng Leader's review on (it is off by default since
+    # 0054) - most suites here are about that review.
+    ads.settings = {**(ads.settings or {}), "review_dung": True}
     await tag(world, ads, head, UnitMemberRole.HEAD)
     # The orderer works in Ads only: the world tagged them PR, so close it.
     await untag(world, units[UnitCode.PR], orderer)
@@ -258,6 +261,7 @@ async def test_03_a_full_pipeline_order_runs_from_submission_to_the_product_link
     ads.unit.settings = {
         "review_bien_tap": True,
         "review_thiet_ke": True,
+        "review_dung": True,
         "review_video_by_script_lead": True,
     }
     await world.session.flush()
@@ -776,7 +780,7 @@ async def test_14_the_last_production_node_hands_in_the_product_link(world: Worl
 
 async def test_15_the_orderer_decides_the_final_review(world: World) -> None:
     ads = await ads_world(world)
-    ads.unit.settings = {"review_video_by_script_lead": True}
+    ads.unit.settings = {"review_video_by_script_lead": True, "review_dung": True}
     await world.session.flush()
     # BD has a script node: the script lead watches the cut first.
     detail = create(

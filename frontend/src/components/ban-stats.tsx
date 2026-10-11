@@ -13,6 +13,9 @@ const ALL = "ALL";
  * (done, in progress, overdue) for Biên kịch, Design and Dựng over the
  * dashboard's dates. A ban's member opens on their own ban (`my_ban`); the
  * switch goes back to "Tất cả". `ban` is the URL's choice, if any.
+ *
+ * With effort switched off (`effort_enabled: false` on the answer) the token
+ * figures are all 0 and none is drawn: only the work stays.
  */
 export function BanStatsPanel({
   dateFrom,
@@ -35,6 +38,7 @@ export function BanStatsPanel({
   const data = stats.data;
   const chosen = ban ?? data.my_ban ?? ALL;
   const current = data.bans.find((item) => item.role === chosen);
+  const tokens = data.effort_enabled !== false;
 
   return (
     <section className="panel space-y-4 p-4" aria-labelledby="ban-stats-title">
@@ -62,7 +66,11 @@ export function BanStatsPanel({
           ))}
         </div>
       </div>
-      {current ? <OneBan ban={current} /> : <AllBans bans={data.bans} />}
+      {current ? (
+        <OneBan ban={current} tokens={tokens} />
+      ) : (
+        <AllBans bans={data.bans} tokens={tokens} />
+      )}
     </section>
   );
 }
@@ -99,19 +107,25 @@ function Figure({
   );
 }
 
-function OneBan({ ban }: { ban: BanStat }) {
+function OneBan({ ban, tokens }: { ban: BanStat; tokens: boolean }) {
   return (
     <div className="space-y-4" data-testid={`ban-${ban.role}`}>
-      <div className="grid grid-cols-2 gap-3 sm:grid-cols-4 xl:grid-cols-7">
-        <Figure label="Quỹ token" value={formatTokens(ban.budget)} token />
-        <Figure label="Đã dùng" value={formatTokens(ban.used)} token />
-        <Figure
-          label="Còn lại"
-          value={formatTokens(ban.left)}
-          tone={ban.left < 0 ? "bad" : "good"}
-          token
-        />
-        <Figure label={`Đang ôm (${ban.open_tasks} task)`} value={formatTokens(ban.open_tokens)} token />
+      <div
+        className={`grid grid-cols-2 gap-3 ${tokens ? "sm:grid-cols-4 xl:grid-cols-7" : "sm:grid-cols-3"}`}
+      >
+        {tokens ? (
+          <>
+            <Figure label="Quỹ token" value={formatTokens(ban.budget)} token />
+            <Figure label="Đã dùng" value={formatTokens(ban.used)} token />
+            <Figure
+              label="Còn lại"
+              value={formatTokens(ban.left)}
+              tone={ban.left < 0 ? "bad" : "good"}
+              token
+            />
+            <Figure label={`Đang ôm (${ban.open_tasks} task)`} value={formatTokens(ban.open_tokens)} token />
+          </>
+        ) : null}
         <Figure label="Việc xong" value={ban.done} />
         <Figure label="Đang làm" value={ban.in_progress} />
         <Figure label="Trễ hạn" value={ban.overdue + ban.late} tone={ban.overdue + ban.late ? "bad" : undefined} />
@@ -124,9 +138,13 @@ function OneBan({ ban }: { ban: BanStat }) {
             <thead>
               <tr className="border-b border-[var(--border)] text-left text-xs text-[var(--text-muted)]">
                 <th className="py-2 pr-3 font-medium">Thành viên</th>
-                <th className="py-2 pr-3 text-right font-medium">Còn hôm nay</th>
-                <th className="py-2 pr-3 text-right font-medium">Đã dùng / Quỹ</th>
-                <th className="py-2 pr-3 text-right font-medium">Đang ôm</th>
+                {tokens ? (
+                  <>
+                    <th className="py-2 pr-3 text-right font-medium">Còn hôm nay</th>
+                    <th className="py-2 pr-3 text-right font-medium">Đã dùng / Quỹ</th>
+                    <th className="py-2 pr-3 text-right font-medium">Đang ôm</th>
+                  </>
+                ) : null}
                 <th className="py-2 pr-3 text-right font-medium">Xong</th>
               </tr>
             </thead>
@@ -139,24 +157,28 @@ function OneBan({ ban }: { ban: BanStat }) {
                       <span className="ml-1 text-xs text-[var(--text-muted)]">(trưởng ban)</span>
                     ) : null}
                   </td>
-                  <td
-                    className={`py-2 pr-3 text-right font-bold tabular-nums ${
-                      member.today_left < 0 ? "text-[var(--bad)]" : "text-[var(--good)]"
-                    }`}
-                  >
-                    {member.today_left < 0
-                      ? `vượt ${formatTokens(-member.today_left)}`
-                      : formatTokens(member.today_left)}
-                  </td>
-                  <td className="py-2 pr-3 text-right tabular-nums">
-                    {formatTokens(member.used)}/{formatTokens(member.budget)}
-                  </td>
-                  <td className="py-2 pr-3 text-right">
-                    <TokenBadge value={member.open_tokens} suffix="" size="sm" />{" "}
-                    <span className="text-xs text-[var(--text-muted)]">
-                      ({member.open_tasks} task)
-                    </span>
-                  </td>
+                  {tokens ? (
+                    <>
+                      <td
+                        className={`py-2 pr-3 text-right font-bold tabular-nums ${
+                          member.today_left < 0 ? "text-[var(--bad)]" : "text-[var(--good)]"
+                        }`}
+                      >
+                        {member.today_left < 0
+                          ? `vượt ${formatTokens(-member.today_left)}`
+                          : formatTokens(member.today_left)}
+                      </td>
+                      <td className="py-2 pr-3 text-right tabular-nums">
+                        {formatTokens(member.used)}/{formatTokens(member.budget)}
+                      </td>
+                      <td className="py-2 pr-3 text-right">
+                        <TokenBadge value={member.open_tokens} suffix="" size="sm" />{" "}
+                        <span className="text-xs text-[var(--text-muted)]">
+                          ({member.open_tasks} task)
+                        </span>
+                      </td>
+                    </>
+                  ) : null}
                   <td className="py-2 pr-3 text-right tabular-nums">{member.done}</td>
                 </tr>
               ))}
@@ -168,7 +190,7 @@ function OneBan({ ban }: { ban: BanStat }) {
   );
 }
 
-function AllBans({ bans }: { bans: BanStat[] }) {
+function AllBans({ bans, tokens }: { bans: BanStat[]; tokens: boolean }) {
   const sum = (pick: (ban: BanStat) => number) => bans.reduce((total, ban) => total + pick(ban), 0);
   const rows = [
     ...bans.map((ban) => ({ key: ban.role, label: ban.label, members: ban.members.length, ban })),
@@ -180,10 +202,14 @@ function AllBans({ bans }: { bans: BanStat[] }) {
           <tr className="border-b border-[var(--border)] text-left text-xs text-[var(--text-muted)]">
             <th className="py-2 pr-3 font-medium">Ban</th>
             <th className="py-2 pr-3 text-right font-medium">Thành viên</th>
-            <th className="py-2 pr-3 text-right font-medium">Quỹ</th>
-            <th className="py-2 pr-3 text-right font-medium">Đã dùng</th>
-            <th className="py-2 pr-3 text-right font-medium">Còn lại</th>
-            <th className="py-2 pr-3 text-right font-medium">Đang ôm</th>
+            {tokens ? (
+              <>
+                <th className="py-2 pr-3 text-right font-medium">Quỹ</th>
+                <th className="py-2 pr-3 text-right font-medium">Đã dùng</th>
+                <th className="py-2 pr-3 text-right font-medium">Còn lại</th>
+                <th className="py-2 pr-3 text-right font-medium">Đang ôm</th>
+              </>
+            ) : null}
             <th className="py-2 pr-3 text-right font-medium">Xong</th>
             <th className="py-2 pr-3 text-right font-medium">Đang làm</th>
             <th className="py-2 pr-3 text-right font-medium">Trễ hạn</th>
@@ -194,20 +220,24 @@ function AllBans({ bans }: { bans: BanStat[] }) {
             <tr key={key} className="border-b border-[var(--border)]">
               <td className="py-2 pr-3 font-medium">{label}</td>
               <td className="py-2 pr-3 text-right tabular-nums">{members}</td>
-              <td className="py-2 pr-3 text-right tabular-nums">{formatTokens(ban.budget)}</td>
-              <td className="py-2 pr-3 text-right font-bold tabular-nums text-[var(--warn)]">
-                {formatTokens(ban.used)}
-              </td>
-              <td
-                className={`py-2 pr-3 text-right font-bold tabular-nums ${
-                  ban.left < 0 ? "text-[var(--bad)]" : "text-[var(--good)]"
-                }`}
-              >
-                {formatTokens(ban.left)}
-              </td>
-              <td className="py-2 pr-3 text-right">
-                <TokenBadge value={ban.open_tokens} suffix="" size="sm" />
-              </td>
+              {tokens ? (
+                <>
+                  <td className="py-2 pr-3 text-right tabular-nums">{formatTokens(ban.budget)}</td>
+                  <td className="py-2 pr-3 text-right font-bold tabular-nums text-[var(--warn)]">
+                    {formatTokens(ban.used)}
+                  </td>
+                  <td
+                    className={`py-2 pr-3 text-right font-bold tabular-nums ${
+                      ban.left < 0 ? "text-[var(--bad)]" : "text-[var(--good)]"
+                    }`}
+                  >
+                    {formatTokens(ban.left)}
+                  </td>
+                  <td className="py-2 pr-3 text-right">
+                    <TokenBadge value={ban.open_tokens} suffix="" size="sm" />
+                  </td>
+                </>
+              ) : null}
               <td className="py-2 pr-3 text-right tabular-nums">{ban.done}</td>
               <td className="py-2 pr-3 text-right tabular-nums">{ban.in_progress}</td>
               <td
@@ -220,10 +250,14 @@ function AllBans({ bans }: { bans: BanStat[] }) {
           <tr className="font-semibold">
             <td className="py-2 pr-3">Tổng</td>
             <td className="py-2 pr-3 text-right tabular-nums">{sum((ban) => ban.members.length)}</td>
-            <td className="py-2 pr-3 text-right tabular-nums">{formatTokens(sum((ban) => ban.budget))}</td>
-            <td className="py-2 pr-3 text-right tabular-nums">{formatTokens(sum((ban) => ban.used))}</td>
-            <td className="py-2 pr-3 text-right tabular-nums">{formatTokens(sum((ban) => ban.left))}</td>
-            <td className="py-2 pr-3 text-right tabular-nums">{formatTokens(sum((ban) => ban.open_tokens))}</td>
+            {tokens ? (
+              <>
+                <td className="py-2 pr-3 text-right tabular-nums">{formatTokens(sum((ban) => ban.budget))}</td>
+                <td className="py-2 pr-3 text-right tabular-nums">{formatTokens(sum((ban) => ban.used))}</td>
+                <td className="py-2 pr-3 text-right tabular-nums">{formatTokens(sum((ban) => ban.left))}</td>
+                <td className="py-2 pr-3 text-right tabular-nums">{formatTokens(sum((ban) => ban.open_tokens))}</td>
+              </>
+            ) : null}
             <td className="py-2 pr-3 text-right tabular-nums">{sum((ban) => ban.done)}</td>
             <td className="py-2 pr-3 text-right tabular-nums">{sum((ban) => ban.in_progress)}</td>
             <td className="py-2 pr-3 text-right tabular-nums">{sum((ban) => ban.overdue + ban.late)}</td>

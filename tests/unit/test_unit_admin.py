@@ -192,8 +192,10 @@ async def test_07_settings_are_validated_and_defaulted(world: World) -> None:
         "telegram_enabled": False,
         "review_bien_tap": False,
         "review_thiet_ke": False,
-        "review_dung": True,
+        # Off since 0054: a Design / Dựng hand-in needs no Leader review.
+        "review_dung": False,
         "review_video_by_script_lead": False,
+        "effort_enabled": True,
         # 0053: the token budget and the performance score's knobs.
         "default_daily_tokens": 80.0,
         "work_weekdays": [0, 1, 2, 3, 4],

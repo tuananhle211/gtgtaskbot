@@ -662,7 +662,7 @@ class AdsBoardSource:
                     )
                 )
             )
-        if assigns:
+        if assigns and self._unit.effort_enabled:
             # Sent back by the orderer or the script lead: the Leader still has
             # to enter the revision tokens ("Nhập token sửa", 0053).
             conditions.append(
@@ -856,7 +856,7 @@ class AdsBoardSource:
                     revisions=node.revision_count,
                     deadline_at=_node_deadline(node),
                     deadline_status=_node_deadline_status(node, now),
-                    tokens=_node_tokens(node),
+                    tokens=_node_tokens(node) if self._unit.effort_enabled else None,
                 )
             )
         final = self._final_cell(order, by_type, names, approvers)

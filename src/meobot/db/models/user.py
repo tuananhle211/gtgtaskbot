@@ -109,6 +109,9 @@ class User(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     #: ``scrypt$16384$8$1$<salt b64>$<hash b64>`` - see
     #: :mod:`meobot.application.account.passwords`. ``NULL`` means "still on the
     #: default password"; the password itself is never stored.
+    #: 0054: deleted for good by the OWNER. The row stays for the history it
+    #: is named in; the account cannot sign in and is listed nowhere.
+    deleted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     password_hash: Mapped[str | None] = mapped_column(String(255), nullable=True)
     password_changed_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True), nullable=True

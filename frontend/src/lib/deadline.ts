@@ -116,8 +116,8 @@ export interface AssigneeLoad {
   name: string;
   tokens_budget_today?: number | null;
   tokens_left_today?: number | null;
-  tokens_open?: number;
-  open_tasks?: number;
+  tokens_open?: number | null;
+  open_tasks?: number | null;
 }
 
 /**
@@ -140,7 +140,8 @@ export function assigneeLoadLabel(person: AssigneeLoad): string {
         : `⚡ còn ${formatTokens(left)}${budget} hôm nay`,
     );
   }
-  if (person.tokens_open !== undefined || person.open_tasks !== undefined) {
+  // null = the server sent no load (effort is off), like a missing field.
+  if (person.tokens_open != null || person.open_tasks != null) {
     parts.push(
       `⚡ đang ôm ${formatTokens(person.tokens_open ?? 0)} (${person.open_tasks ?? 0} task)`,
     );

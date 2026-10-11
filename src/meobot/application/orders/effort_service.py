@@ -146,6 +146,8 @@ class BanStats:
     #: The viewer's own ban, the dashboard's default; None = "Tất cả".
     my_ban: UnitMemberRole | None
     bans: tuple[BanStat, ...]
+    #: Effort (token) mode. Off: every token figure is 0 and not shown.
+    effort_enabled: bool = True
 
 
 @dataclass(frozen=True, slots=True)
@@ -427,9 +429,10 @@ async def ban_stats(
     ).all()
     ids = [member.user_id for member, _ in rows]
     service = EffortService(session)
-    used = await service.used(unit_id, ids, date_from, date_to)
-    used_today = await service.used(unit_id, ids, today, today)
-    held = await service.holding(unit_id, ids)
+    effort = settings.effort_enabled
+    used = await service.used(unit_id, ids, date_from, date_to) if effort else {}
+    used_today = await service.used(unit_id, ids, today, today) if effort else {}
+    held = await service.holding(unit_id, ids) if effort else {}
     done_by = {
         (user_id, node_type): int(count)
         for user_id, node_type, count in (
@@ -495,7 +498,7 @@ async def ban_stats(
         for member, user in rows:
             if member.role is not role:
                 continue
-            daily = daily_budget(member, settings)
+            daily = daily_budget(member, settings) if effort else 0.0
             members.append(
                 BanMember(
                     user_id=user.id,
@@ -526,7 +529,12 @@ async def ban_stats(
     entry = membership.entry(UnitCode.ADS)
     mine = entry.role if entry is not None and entry.role in FUNCTION_ROLES else None
     return BanStats(
-        date_from=date_from, date_to=date_to, today=today, my_ban=mine, bans=tuple(bans)
+        date_from=date_from,
+        date_to=date_to,
+        today=today,
+        my_ban=mine,
+        bans=tuple(bans),
+        effort_enabled=effort,
     )
 
 

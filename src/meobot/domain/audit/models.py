@@ -57,6 +57,8 @@ class AuditAction(StrEnum):
     USER_SUSPENDED = "user.suspended"
     USER_ENABLED = "user.enabled"
     USER_REVOKED = "user.revoked"
+    #: The OWNER deleted the account for good (its history stays).
+    USER_DELETED = "user.deleted"
     GROUP_POLICY_SET = "group_member_policy.set"
     GROUP_POLICY_RESET = "group_member_policy.reset"
     GUEST_ACCESS_GRANTED = "guest_access.granted"
@@ -486,6 +488,8 @@ class AuditAction(StrEnum):
     ORDER_FINAL_RETURNED = "order.final.returned"
     ORDER_PRIORITY_CHANGED = "order.priority.changed"
     ORDER_CANCELLED = "order.cancelled"
+    #: The OWNER deleted the order and everything hanging off it.
+    ORDER_DELETED = "order.deleted"
 
 
 class AuditEntry(BaseModel):

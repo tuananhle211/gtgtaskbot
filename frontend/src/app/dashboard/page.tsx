@@ -6,6 +6,7 @@ import { Suspense } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { api } from "@/lib/api";
 import { UnitSwitch, UntaggedState } from "@/components/unit-switch";
+import { effortEnabled } from "@/lib/effort";
 import { formatAgo } from "@/lib/labels";
 import { currentUnit, firstOfMonth, isUntagged, lastOfMonth, unitName, byStreamOrder } from "@/lib/units";
 import { Select } from "@/components/pr";
@@ -313,14 +314,14 @@ function Dashboard() {
               columns={["Lên", "Xong", "Gấp"]}
               rows={data.by_owner}
               href={(id) => tasksHref({ owner: id })}
-              showTokens={unit !== "PR"}
+              showTokens={unit !== "PR" && effortEnabled(me.data)}
             />
             <PeopleTable
               title="Theo người làm"
               columns={["Công đoạn giữ", "Xong", unit === "PR" ? "Đang gấp" : "Trễ hạn"]}
               rows={data.by_worker}
               href={(id) => tasksHref({ assignee: id })}
-              showTokens={unit !== "PR"}
+              showTokens={unit !== "PR" && effortEnabled(me.data)}
             />
           </div>
         </>

@@ -4,9 +4,9 @@ import { BoltIcon, TokenBadge } from "@/components/token-badge";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { Suspense } from "react";
 import { keepPreviousData, useQuery } from "@tanstack/react-query";
-import { api, type EffortDay, type EffortPerson } from "@/lib/api";
+import { ApiError, api, type EffortDay, type EffortPerson } from "@/lib/api";
 import { formatTokens } from "@/lib/deadline";
-import { addDays, dayHeading, isDay, mondayOf } from "@/lib/effort";
+import { addDays, dayHeading, effortEnabled, isDay, mondayOf } from "@/lib/effort";
 import { ErrorBox, Loading } from "@/components/states";
 
 export default function EffortPage() {
@@ -40,6 +40,9 @@ const BUTTON =
  * The week is on the URL (`?from=<Monday>`); without it the server answers
  * with the current week. The ban filter is on the URL too (`?ban=BT|TK|D`);
  * none = everybody the viewer may see.
+ *
+ * With effort switched off for ORD the nav entry is gone and the route answers
+ * 404 `effort_disabled`; opened directly, the page only says so.
  */
 function EffortGridScreen() {
   const router = useRouter();
@@ -49,6 +52,7 @@ function EffortGridScreen() {
   const from = isDay(fromParam) ? mondayOf(fromParam) : null;
   const banParam = params.get("ban");
   const ban = BANS.some((item) => item.tag === banParam) ? banParam : null;
+  const me = useQuery({ queryKey: ["units", "me"], queryFn: api.unitsMe });
   const grid = useQuery({
     queryKey: ["units", "ADS", "effort", from],
     queryFn: () =>
@@ -57,7 +61,22 @@ function EffortGridScreen() {
         from ? { date_from: from, date_to: addDays(from, 6) } : {},
       ),
     placeholderData: keepPreviousData,
+    // Not asked for while effort is known to be off (it would answer 404).
+    enabled: !me.isPending && effortEnabled(me.data),
   });
+  const refused =
+    grid.error instanceof ApiError &&
+    (grid.error.code === "effort_disabled" || grid.error.details?.reason === "effort_disabled");
+  if (!effortEnabled(me.data) || refused) {
+    return (
+      <div className="space-y-4">
+        <h1 className="text-xl font-semibold tracking-tight sm:text-2xl">Effort</h1>
+        <p role="status" className="panel p-4 text-sm text-[var(--text-muted)]">
+          Chế độ tính effort (token) đang tắt.
+        </p>
+      </div>
+    );
+  }
   const data = grid.data;
   const shown = from ?? data?.date_from ?? null;
   const navigate = (changes: { from?: string | null; ban?: string | null }) => {

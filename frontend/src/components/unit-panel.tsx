@@ -18,10 +18,12 @@ import { PlatformManager } from "@/components/platforms";
 import { VideoKindsManager } from "@/components/video-kinds";
 import {
   deactivateAccountConfirmation,
+  deleteAccountConfirmation,
   reactivateAccountConfirmation,
   makeAdminConfirmation,
   tagIntoStreamConfirmation,
 } from "@/lib/confirmations";
+import { effortEnabled } from "@/lib/effort";
 import { formatAgo } from "@/lib/labels";
 import {
   canTagIn,
@@ -169,6 +171,66 @@ export function AccountStatusButton({
   );
 }
 
+/**
+ * Whether the viewer may delete this account for good: the OWNER only, never
+ * themselves nor another OWNER. A convenience - the server refuses the rest
+ * anyway (403 `member_delete_forbidden`).
+ */
+export function mayDeleteAccount(
+  viewer: { role?: string; userId: string | null },
+  target: { user_id: string; role?: string | null },
+): boolean {
+  if (viewer.role !== "OWNER") return false;
+  if (viewer.userId && viewer.userId === target.user_id) return false;
+  return target.role !== "OWNER";
+}
+
+/**
+ * "Xoá" / "Xoá thành viên" (destructive, confirmed) for one account:
+ * `DELETE /api/account/members/{id}`. Somebody who still holds open work is
+ * refused (422 `member_has_open_work`): the server's sentence is shown on its
+ * own line under the row's buttons (the caller's box is a wrapping flex row).
+ */
+export function DeleteAccountButton({
+  userId,
+  name,
+  onDone,
+  children = "Xoá",
+}: {
+  userId: string;
+  name: string;
+  onDone: () => void;
+  children?: React.ReactNode;
+}) {
+  const remove = useMutation({
+    mutationFn: () => api.deleteMember(userId),
+    onSuccess: onDone,
+  });
+  return (
+    <>
+      <ConfirmButton
+        spec={deleteAccountConfirmation(name)}
+        onConfirm={() => remove.mutate()}
+        pending={remove.isPending}
+        error={remove.error}
+        tone="danger"
+        ariaLabel={`Xoá hẳn tài khoản ${name}`}
+        className="min-h-9 px-3 text-xs"
+        onOpenChange={(open) => {
+          if (open) remove.reset();
+        }}
+      >
+        {children}
+      </ConfirmButton>
+      {remove.isError ? (
+        <div className="min-w-[16rem] basis-full whitespace-normal text-left">
+          <NoticeBox error={remove.error} onDismiss={() => remove.reset()} />
+        </div>
+      ) : null}
+    </>
+  );
+}
+
 /** "Đã vô hiệu hoá": a deactivated account, on any roster. */
 export function DeactivatedPill() {
   return <Pill tone="bad">Đã vô hiệu hoá</Pill>;
@@ -224,6 +286,8 @@ export function UnitPanel({
   if (members.isError)
     return <ErrorBox error={members.error} onRetry={() => members.refetch()} />;
   const administers = Boolean(me.data?.can_admin.includes(code));
+  // ORD with effort switched off: no "Token/ngày" column at all.
+  const showTokens = code === "ADS" && effortEnabled(me.data);
   const accountActive = (member: UnitMember) => member.account_active ?? member.active;
   // OWNER / ADMIN choose whether deactivated accounts are listed (to bring
   // them back); everyone else sees what the server lists.
@@ -284,7 +348,7 @@ export function UnitPanel({
                 <th className="px-3 py-2 font-medium">Vai trò trong luồng</th>
                 <th className="px-3 py-2 font-medium">Mã thành viên</th>
                 <th className="px-3 py-2 font-medium">Kho cá nhân</th>
-                {code === "ADS" ? (
+                {showTokens ? (
                   <th className="px-3 py-2 font-medium">Token/ngày</th>
                 ) : null}
                 <th className="px-3 py-2 font-medium">
@@ -314,7 +378,12 @@ export function UnitPanel({
                     user_id: member.user_id,
                     role: member.base_role,
                   })}
+                  mayDelete={mayDeleteAccount(viewer, {
+                    user_id: member.user_id,
+                    role: member.base_role,
+                  })}
                   accountActive={accountActive(member)}
+                  showTokens={showTokens}
                   defaultTokens={
                     me.data?.units.find((unit) => unit.code === code)?.settings
                       .default_daily_tokens ?? DEFAULT_DAILY_TOKENS
@@ -665,7 +734,9 @@ function MemberRow({
   editable,
   mayUntag,
   mayChangeStatus,
+  mayDelete,
   accountActive,
+  showTokens,
   defaultTokens,
   onDone,
 }: {
@@ -680,7 +751,11 @@ function MemberRow({
   mayUntag: boolean;
   /** OWNER / ADMIN: "Vô hiệu hoá" / "Kích hoạt lại". */
   mayChangeStatus: boolean;
+  /** OWNER: "Xoá" (the account, for good). */
+  mayDelete: boolean;
   accountActive: boolean;
+  /** ORD with effort on: the "Token/ngày" cell. */
+  showTokens: boolean;
   /** ORD: the unit's `default_daily_tokens` (an empty "Token/ngày" means it). */
   defaultTokens: number;
   onDone: () => void;
@@ -692,7 +767,7 @@ function MemberRow({
       ? ""
       : String(member.daily_tokens);
   const [tokens, setTokens] = useState(savedTokens);
-  const tokensChanged = code === "ADS" && tokens.trim() !== savedTokens;
+  const tokensChanged = showTokens && tokens.trim() !== savedTokens;
   const tokensInvalid = tokens.trim() !== "" && parseTokens(tokens) === null;
   const update = useMutation({
     mutationFn: (body: Parameters<typeof api.updateUnitMember>[2]) =>
@@ -786,7 +861,7 @@ function MemberRow({
           <span className="break-all text-xs">{member.personal_nas_url ?? "–"}</span>
         )}
       </td>
-      {code === "ADS" ? (
+      {showTokens ? (
         <td className="px-3 py-2">
           {editable ? (
             <input
@@ -856,6 +931,13 @@ function MemberRow({
               onDone={onDone}
             />
           ) : null}
+          {mayDelete ? (
+            <DeleteAccountButton
+              userId={member.user_id}
+              name={member.full_name}
+              onDone={onDone}
+            />
+          ) : null}
         </div>
         {update.isError ? <NoticeBox error={update.error} /> : null}
         {untag.isError ? <NoticeBox error={untag.error} /> : null}
@@ -915,6 +997,7 @@ function ManagerPicker({
 
 export function SettingsForm({ code, onDone }: { code: string; onDone: () => void }) {
   const me = useQuery({ queryKey: ["units", "me"], queryFn: api.unitsMe });
+  const viewer = useViewer();
   const current = me.data?.units.find((unit) => unit.code === code)?.settings;
   const [draft, setDraft] = useState<Partial<UnitSettingsInfo>>({});
   const [texts, setTexts] = useState<Record<string, string>>({});
@@ -927,6 +1010,9 @@ export function SettingsForm({ code, onDone }: { code: string; onDone: () => voi
     },
   });
   if (!current) return null;
+  // The saved switch decides what is drawn; a draft only changes on save.
+  const effortOn = current.effort_enabled !== false;
+  const isOwner = viewer.role === "OWNER";
   const value = <K extends keyof UnitSettingsInfo>(
     key: K,
   ): UnitSettingsInfo[K] => (draft[key] ?? current[key]) as UnitSettingsInfo[K];
@@ -982,6 +1068,30 @@ export function SettingsForm({ code, onDone }: { code: string; onDone: () => voi
       onSubmit={(event) => event.preventDefault()}
     >
       <h2 className="text-sm font-semibold sm:col-span-2">Thiết lập luồng</h2>
+      {/* Effort (tokens) on / off for the whole stream. The OWNER's alone:
+          anybody else sees where it stands (403 `effort_setting_forbidden`). */}
+      <div className="sm:col-span-2">
+        <label className="inline-flex min-h-11 items-center gap-2 text-sm">
+          <input
+            type="checkbox"
+            role="switch"
+            checked={draft.effort_enabled ?? effortOn}
+            disabled={!isOwner}
+            onChange={(event) =>
+              setDraft((all) => ({
+                ...all,
+                effort_enabled: event.target.checked,
+              }))
+            }
+          />
+          Tính effort (token)
+        </label>
+        {isOwner ? null : (
+          <span className="block text-xs text-[var(--text-muted)]">
+            Chỉ chủ sở hữu đổi được
+          </span>
+        )}
+      </div>
       <label className="text-xs text-[var(--text-muted)]">
         Mốc Gấp (ngày)
         <input
@@ -1041,35 +1151,39 @@ export function SettingsForm({ code, onDone }: { code: string; onDone: () => voi
         />
         Gửi thêm thông báo qua Telegram
       </label>
-      <label className="text-xs text-[var(--text-muted)]">
-        Token/ngày mặc định
-        <input
-          type="number"
-          inputMode="decimal"
-          min={0}
-          max={999.99}
-          step={0.5}
-          value={numberText("default_daily_tokens", current.default_daily_tokens ?? DEFAULT_DAILY_TOKENS)}
-          onChange={(event) => setNumber("default_daily_tokens", event.target.value)}
-          className={`mt-1 ${field}`}
-        />
-        <span className="mt-0.5 block">
-          Quỹ mỗi ngày làm việc của một người, khi người đó chưa có quỹ riêng
-        </span>
-      </label>
-      <label className="inline-flex min-h-11 items-center gap-2 text-sm">
-        <input
-          type="checkbox"
-          checked={(value("half_weekdays") ?? [5]).includes(5)}
-          onChange={(event) =>
-            setDraft((all) => ({
-              ...all,
-              half_weekdays: event.target.checked ? [5] : [],
-            }))
-          }
-        />
-        Thứ 7 làm buổi sáng (½ quỹ token/ngày)
-      </label>
+      {effortOn ? (
+        <label className="text-xs text-[var(--text-muted)]">
+          Token/ngày mặc định
+          <input
+            type="number"
+            inputMode="decimal"
+            min={0}
+            max={999.99}
+            step={0.5}
+            value={numberText("default_daily_tokens", current.default_daily_tokens ?? DEFAULT_DAILY_TOKENS)}
+            onChange={(event) => setNumber("default_daily_tokens", event.target.value)}
+            className={`mt-1 ${field}`}
+          />
+          <span className="mt-0.5 block">
+            Quỹ mỗi ngày làm việc của một người, khi người đó chưa có quỹ riêng
+          </span>
+        </label>
+      ) : null}
+      {effortOn ? (
+        <label className="inline-flex min-h-11 items-center gap-2 text-sm">
+          <input
+            type="checkbox"
+            checked={(value("half_weekdays") ?? [5]).includes(5)}
+            onChange={(event) =>
+              setDraft((all) => ({
+                ...all,
+                half_weekdays: event.target.checked ? [5] : [],
+              }))
+            }
+          />
+          Thứ 7 làm buổi sáng (½ quỹ token/ngày)
+        </label>
+      ) : null}
       <label className="text-xs text-[var(--text-muted)]">
         Mốc sản lượng (công đoạn/tháng)
         <input

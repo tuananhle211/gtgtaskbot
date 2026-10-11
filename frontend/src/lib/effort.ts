@@ -5,6 +5,24 @@
  * a day.
  */
 
+import { useQuery } from "@tanstack/react-query";
+import { api, type UnitsMe } from "@/lib/api";
+
+/**
+ * Whether ORD counts effort (tokens). Off only when `/api/units/me` says so
+ * (`effort_enabled: false`, the OWNER's switch in the ORD settings): the server
+ * then sends no token figures, and the screens draw none.
+ */
+export function effortEnabled(me: UnitsMe | undefined): boolean {
+  return me?.effort_enabled !== false;
+}
+
+/** `effortEnabled` for the signed-in person; on while `/api/units/me` loads or fails. */
+export function useEffortEnabled(): boolean {
+  const me = useQuery({ queryKey: ["units", "me"], queryFn: api.unitsMe });
+  return effortEnabled(me.data);
+}
+
 const WEEKDAYS = ["CN", "T2", "T3", "T4", "T5", "T6", "T7"];
 
 function parseDay(day: string): Date {

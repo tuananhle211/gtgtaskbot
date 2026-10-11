@@ -334,10 +334,11 @@ class AccountStatsService:
             )
         )
         per: dict[uuid.UUID | None, dict[str, Any]] = {}
-        for member in members:
-            per[member.user_id] = {"budget": daily_budget(member, settings) * work_days}
-        for user_id, total in used.all():
-            per.setdefault(user_id, {"budget": 0.0})["used"] = float(total or 0)
+        if settings.effort_enabled:
+            for member in members:
+                per[member.user_id] = {"budget": daily_budget(member, settings) * work_days}
+            for user_id, total in used.all():
+                per.setdefault(user_id, {"budget": 0.0})["used"] = float(total or 0)
         target = settings.output_target
         if target is None:
             counts = (

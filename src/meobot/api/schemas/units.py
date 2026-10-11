@@ -25,7 +25,13 @@ from meobot.domain.units.labels import (
     unit_role_label,
     unit_short_label,
 )
-from meobot.domain.units.models import UnitMemberRole, UnitMembership, UnitSettings, stream_rank
+from meobot.domain.units.models import (
+    UnitCode,
+    UnitMemberRole,
+    UnitMembership,
+    UnitSettings,
+    stream_rank,
+)
 
 
 class PermissionCatalogEntry(BaseModel):
@@ -62,6 +68,8 @@ class UnitSettingsResponse(BaseModel):
     permission_catalog: list[PermissionCatalogEntry]
     permission_roles: list[PermissionRoleEntry]
     scope_labels: dict[str, str]
+    #: Effort (token) mode; only the OWNER switches it.
+    effort_enabled: bool = True
     #: 0053: token budget and the performance score's knobs.
     default_daily_tokens: float = 80
     work_weekdays: list[int] = [0, 1, 2, 3, 4]
@@ -83,6 +91,7 @@ class UnitSettingsResponse(BaseModel):
             review_dung=settings.review_dung,
             review_video_by_script_lead=settings.review_video_by_script_lead,
             permissions=normalise_matrix(settings.permissions),
+            effort_enabled=settings.effort_enabled,
             default_daily_tokens=settings.default_daily_tokens,
             work_weekdays=list(settings.work_weekdays),
             half_weekdays=list(settings.half_weekdays),
@@ -128,6 +137,9 @@ class UnitMeResponse(BaseModel):
     can_tag: list[str] = []
     #: No open tag at all. ``units`` is then empty unless OWNER/ADMIN.
     is_untagged: bool = False
+    #: ORD's effort (token) mode, for every screen that shows tokens. False
+    #: only when the OWNER switched it off.
+    effort_enabled: bool = True
 
     @classmethod
     def from_domain(
@@ -146,6 +158,14 @@ class UnitMeResponse(BaseModel):
             can_admin=sorted(can_admin, key=stream_rank),
             can_tag=sorted(can_tag or [], key=stream_rank),
             is_untagged=membership.is_untagged,
+            effort_enabled=next(
+                (
+                    entry.settings.effort_enabled
+                    for entry in entries
+                    if entry.code == UnitCode.ADS.value and entry.settings is not None
+                ),
+                True,
+            ),
         )
 
 
@@ -275,6 +295,8 @@ class UpdateUnitSettingsRequest(BaseModel):
     review_dung: bool | None = None
     review_video_by_script_lead: bool | None = None
     permissions: dict[str, dict[str, str]] | None = None
+    #: OWNER only (403 ``effort_setting_forbidden``).
+    effort_enabled: bool | None = None
     default_daily_tokens: float | None = Field(default=None, ge=0, le=999)
     work_weekdays: list[int] | None = None
     half_weekdays: list[int] | None = None
@@ -513,6 +535,7 @@ class BanStatsResponse(BaseModel):
     today: date_type
     my_ban: str | None
     bans: list[BanStatResponse]
+    effort_enabled: bool = True
 
     @classmethod
     def from_domain(cls, stats: BanStats) -> BanStatsResponse:
@@ -521,6 +544,7 @@ class BanStatsResponse(BaseModel):
             date_to=stats.date_to,
             today=stats.today,
             my_ban=None if stats.my_ban is None else stats.my_ban.value,
+            effort_enabled=stats.effort_enabled,
             bans=[
                 BanStatResponse(
                     role=ban.role.value,

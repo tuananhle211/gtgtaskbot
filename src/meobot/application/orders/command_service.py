@@ -430,7 +430,9 @@ class OrderCommandService:
             video_type=loaded.order.video_type,
         )
         before = self._snapshot(loaded.order)
-        await self._apply_plan(loaded, node, actor, plan or NodePlan(), required=_unplanned(node))
+        await self._apply_plan(
+            loaded, node, actor, plan or NodePlan(), required=_unplanned(node, loaded.settings)
+        )
         changed = node.assignee_user_id != assignee_user_id
         node.assignee_user_id = assignee_user_id
         node.assigned_at = utcnow()
@@ -478,7 +480,7 @@ class OrderCommandService:
             # Only somebody who may plan the node puts a plan on it here; a
             # worker's own accept never changes their tokens.
             await self._apply_plan(
-                loaded, node, actor, plan or NodePlan(), required=_unplanned(node)
+                loaded, node, actor, plan or NodePlan(), required=_unplanned(node, loaded.settings)
             )
         node.accepted_at = utcnow()
         node.version += 1
@@ -623,7 +625,13 @@ class OrderCommandService:
             node.approved_at = now
         node.revision_tokens_pending = False
         node.version += 1
-        await self._tokens.record_completion(order=order, node=node, at=now, first=first_approval)
+        await self._tokens.record_completion(
+            order=order,
+            node=node,
+            at=now,
+            first=first_approval,
+            take_tokens=loaded.settings.effort_enabled,
+        )
         # The next node may only become active once this one is no longer.
         await self._session.flush()
         latest = await self._latest_submission(node)
@@ -700,7 +708,8 @@ class OrderCommandService:
         )
         note = _require_note(note)
         plan = plan or NodePlan()
-        tokens = _tokens(plan.tokens)
+        effort = loaded.settings.effort_enabled
+        tokens = _tokens(plan.tokens) if effort else Decimal(0)
         if tokens is None:
             raise OrderValidationError(
                 "Cần nhập token sửa (có thể là 0).",
@@ -714,7 +723,9 @@ class OrderCommandService:
         deadline = None if plan.deadline_at is None else _future(plan.deadline_at)
         if deadline is not None:
             node.revision_deadline_at = deadline
-        await self._plan_events(loaded, node, actor, tokens, deadline, revision=True)
+        await self._plan_events(
+            loaded, node, actor, tokens if effort else None, deadline, revision=True
+        )
         node.version += 1
         self._bump(loaded.order)
         await self._session.flush()
@@ -749,7 +760,12 @@ class OrderCommandService:
             loaded.scope.context,
             node_id=node.id,
         )
-        if node.revision_count > 0 and plan.tokens is None and node.revision_tokens_pending:
+        if (
+            loaded.settings.effort_enabled
+            and node.revision_count > 0
+            and plan.tokens is None
+            and node.revision_tokens_pending
+        ):
             raise OrderValidationError(
                 "Cần nhập token sửa (có thể là 0).",
                 details={"reason": "tokens_required", "field": "tokens"},
@@ -787,8 +803,9 @@ class OrderCommandService:
         ``deadline_at``. A node sent back (``revision_count > 0``): this
         round's revision tokens / ``revision_deadline_at``. Returns whether
         anything was given."""
-        tokens = _tokens(plan.tokens)
-        if required and tokens is None:
+        # Effort mode off: no tokens are asked for, kept or shown.
+        tokens = _tokens(plan.tokens) if loaded.settings.effort_enabled else None
+        if required and tokens is None and loaded.settings.effort_enabled:
             raise OrderValidationError(
                 "Cần nhập token cho công đoạn.",
                 details={"reason": "tokens_required", "field": "tokens"},
@@ -1181,7 +1198,7 @@ class OrderCommandService:
         node.revision_count += 1
         # The returner does not plan the node: its Leader enters the revision
         # tokens ("Nhập token sửa"); the worker may start meanwhile.
-        node.revision_tokens_pending = True
+        node.revision_tokens_pending = loaded.settings.effort_enabled
         node.version += 1
         order.stage = stage_for_node(node.node_type)
         await self._approval(
@@ -1514,9 +1531,14 @@ class OrderCommandService:
             )
 
 
-def _unplanned(node: OrderNode) -> bool:
-    """A node nobody has put tokens on yet, on its first pass."""
-    return node.token_estimate is None and node.revision_count == 0
+def _unplanned(node: OrderNode, settings: UnitSettings) -> bool:
+    """A node nobody has planned yet, on its first pass: no tokens on it -
+    or, with effort mode off, no deadline."""
+    if node.revision_count > 0:
+        return False
+    if settings.effort_enabled:
+        return node.token_estimate is None
+    return node.deadline_at is None
 
 
 def _tokens(value: Decimal | float | str | None) -> Decimal | None:

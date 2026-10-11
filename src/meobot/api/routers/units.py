@@ -341,11 +341,16 @@ async def unit_effort(
         raise UnitNotFoundError(NOT_VISIBLE, details={"reason": "unit_not_visible"})
     await directory.require(actor, unit_code)
     unit = await directory.unit(unit_code)
+    settings = UnitSettings.model_validate(unit.settings or {})
+    if not settings.effort_enabled:
+        raise UnitNotFoundError(
+            "Chế độ tính effort (token) đang tắt.", details={"reason": "effort_disabled"}
+        )
     grid = await EffortService(session).grid(
         actor=actor,
         membership=membership,
         unit_id=unit.id,
-        settings=UnitSettings.model_validate(unit.settings or {}),
+        settings=settings,
         date_from=date_from,
         date_to=date_to,
         user_id=user_id,

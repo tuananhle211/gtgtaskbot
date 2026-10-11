@@ -2,7 +2,7 @@
 
 import { TokenBadge } from "@/components/token-badge";
 import Link from "next/link";
-import { useParams } from "next/navigation";
+import { useParams, useRouter } from "next/navigation";
 import React, { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
@@ -26,6 +26,8 @@ import {
   toIsoFromLocal,
   toLocalInput,
 } from "@/lib/deadline";
+import { deleteTaskConfirmation } from "@/lib/confirmations";
+import { useEffortEnabled } from "@/lib/effort";
 import { unitShortLabel, unitTagClass } from "@/lib/units";
 import { ConfirmButton } from "@/components/confirm";
 import { DeadlineBadge } from "@/components/deadline-badge";
@@ -101,6 +103,8 @@ export default function TaskDetailPage() {
   const ref = String(params?.ref ?? "");
   const queryClient = useQueryClient();
   const [tab, setTab] = useState<string>("overview");
+  // Off = ORD does not count tokens: no token badge, no load beside a name.
+  const effortOn = useEffortEnabled();
   const detail = useQuery({
     queryKey: ["task", ref],
     queryFn: () => api.task(ref),
@@ -157,7 +161,9 @@ export default function TaskDetailPage() {
 
       <TaskHeader detail={data} />
 
-      {data.steps.length > 0 ? <StepStrip steps={data.steps} /> : null}
+      {data.steps.length > 0 ? (
+        <StepStrip steps={data.steps} showTokens={effortOn} />
+      ) : null}
 
       {isPr ? (
         <TabStrip
@@ -181,6 +187,7 @@ export default function TaskDetailPage() {
           <div className="space-y-4 xl:sticky xl:top-20">
             <ActionPanel
               detail={data}
+              showLoad={effortOn}
               onDone={(fresh) => {
                 queryClient.setQueryData(["task", ref], fresh);
                 void queryClient.invalidateQueries({ queryKey: ["board"] });
@@ -188,6 +195,18 @@ export default function TaskDetailPage() {
               }}
               onStale={refreshAll}
             />
+            {data.can_delete ? (
+              <DeleteTaskPanel
+                detail={data}
+                onDeleted={() => {
+                  void queryClient.invalidateQueries({ queryKey: ["board"] });
+                  if (isPr) {
+                    void queryClient.invalidateQueries({ queryKey: ["contents"] });
+                    void queryClient.invalidateQueries({ queryKey: ["content-board"] });
+                  }
+                }}
+              />
+            ) : null}
             <PeoplePanel detail={data} />
           </div>
         </aside>
@@ -274,7 +293,7 @@ function TaskHeader({ detail }: { detail: UnifiedTaskDetail }) {
   );
 }
 
-function StepStrip({ steps }: { steps: TaskStep[] }) {
+function StepStrip({ steps, showTokens }: { steps: TaskStep[]; showTokens: boolean }) {
   return (
     <section aria-label="Tiến trình" className="panel overflow-x-auto p-3">
       <ol
@@ -320,7 +339,7 @@ function StepStrip({ steps }: { steps: TaskStep[] }) {
                   trả sửa {step.revisions} lần
                 </span>
               ) : null}
-              <TokenBadge value={step.tokens} size="sm" />
+              {showTokens ? <TokenBadge value={step.tokens} size="sm" /> : null}
               <DeadlineBadge at={step.deadline_at} status={step.deadline_status} />
             </li>
           );
@@ -552,10 +571,13 @@ const FIELD_CLASS =
  */
 function ActionPanel({
   detail,
+  showLoad,
   onDone,
   onStale,
 }: {
   detail: UnifiedTaskDetail;
+  /** ORD with effort on: each assignee's token load beside their name. */
+  showLoad: boolean;
   onDone: (fresh: UnifiedTaskDetail) => void;
   onStale: () => void;
 }) {
@@ -652,9 +674,11 @@ function ActionPanel({
               <option
                 key={person.user_id}
                 value={person.user_id}
-                className={isOverBudget(person) ? "text-[var(--bad)]" : undefined}
+                className={
+                  showLoad && isOverBudget(person) ? "text-[var(--bad)]" : undefined
+                }
               >
-                {assigneeLoadLabel(person)}
+                {showLoad ? assigneeLoadLabel(person) : person.name}
               </option>
             ))}
           </Select>
@@ -663,7 +687,7 @@ function ActionPanel({
       const chosen = action.assignee_options.find(
         (person) => person.user_id === valueOf(action, "assignee"),
       );
-      if (chosen && chosen.tokens_left_today != null) {
+      if (showLoad && chosen && chosen.tokens_left_today != null) {
         parts.push(
           <p
             key="load"
@@ -838,6 +862,54 @@ function ActionPanel({
       {run.isError ? (
         <div className="mt-3">
           <NoticeBox error={run.error} onDismiss={() => run.reset()} />
+        </div>
+      ) : null}
+    </section>
+  );
+}
+
+/**
+ * "Xoá task": the OWNER's way to remove a task for good, drawn only when the
+ * server says so (`can_delete`). Its own panel under the actions, so it is
+ * there for a task with no workflow action left too. Once deleted there is
+ * nothing to show: back to the task table of the task's stream.
+ */
+function DeleteTaskPanel({
+  detail,
+  onDeleted,
+}: {
+  detail: UnifiedTaskDetail;
+  onDeleted: () => void;
+}) {
+  const router = useRouter();
+  const task = detail.task;
+  const remove = useMutation({
+    mutationFn: () => api.deleteTask(task.id),
+    onSuccess: () => {
+      onDeleted();
+      router.push(`/tasks?unit=${task.unit}`);
+    },
+  });
+  return (
+    <section className="panel flex flex-wrap items-center justify-between gap-2 p-4 text-sm">
+      <p className="text-xs text-[var(--text-muted)]">
+        Xoá hẳn task này, không khôi phục được.
+      </p>
+      <ConfirmButton
+        spec={deleteTaskConfirmation(task.code)}
+        onConfirm={() => remove.mutate()}
+        onOpenChange={(open) => {
+          if (open) remove.reset();
+        }}
+        pending={remove.isPending}
+        error={remove.error}
+        tone="danger"
+      >
+        Xoá task
+      </ConfirmButton>
+      {remove.isError ? (
+        <div className="basis-full">
+          <NoticeBox error={remove.error} onDismiss={() => remove.reset()} />
         </div>
       ) : null}
     </section>

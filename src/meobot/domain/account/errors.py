@@ -111,6 +111,16 @@ class AccountStatusForbiddenError(AuthorizationError):
         super().__init__(message, details={"reason": self.code})
 
 
+class MemberDeleteForbiddenError(AuthorizationError):
+    """Deleting an account for good: the OWNER only, never oneself or another
+    OWNER. 403."""
+
+    code = "member_delete_forbidden"
+
+    def __init__(self, message: str = "Chỉ chủ sở hữu mới xoá được thành viên.") -> None:
+        super().__init__(message, details={"reason": self.code})
+
+
 class PasswordResetUndeliverableError(ConflictError):
     """An admin reset for somebody MeoBot cannot message privately. 409.
 
@@ -173,6 +183,7 @@ __all__ = [
     "AvatarRejectedError",
     "LoginFailedError",
     "LoginLockedError",
+    "MemberDeleteForbiddenError",
     "PasswordChangeRequiredError",
     "PasswordRejectedError",
     "PasswordResetForbiddenError",

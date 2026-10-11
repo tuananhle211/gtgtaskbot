@@ -649,7 +649,9 @@ describe("the effort page", () => {
     renderWithQuery(<EffortPage />);
     await screen.findByTestId("effort-2026-10-05");
     // The first request leaves the week to the server.
-    expect(calls(stub)[0].url).toBe("/api/units/ADS/effort");
+    expect(calls(stub).find((call) => call.url.includes("/effort"))?.url).toBe(
+      "/api/units/ADS/effort",
+    );
     await userEvent.click(screen.getByRole("button", { name: "Tuần sau ›" }));
     expect(SEARCH.value.get("from")).toBe("2026-10-12");
     await waitFor(() =>

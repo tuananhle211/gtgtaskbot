@@ -442,7 +442,7 @@ async def test_09c_two_people_on_a_step_both_hold_it_and_one_decision_is_enough(
     await tag(world, ads.unit, head2, UnitMemberRole.HEAD)
     lead_bt2 = await person(world, "Leader BT Hai")
     await tag(world, ads.unit, lead_bt2, UnitMemberRole.BIEN_TAP, is_lead=True)
-    ads.unit.settings = {"review_bien_tap": True}
+    ads.unit.settings = {"review_bien_tap": True, "review_dung": True}
     await world.session.flush()
     order = create(world, ads)  # BTD, nobody chosen for any node
     code = order["order"]["code"]

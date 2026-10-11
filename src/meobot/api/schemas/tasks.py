@@ -148,6 +148,8 @@ class TaskDetailResponse(_Out):
     submissions: list[TaskSubmissionResponse]
     timeline: list[TaskTimelineResponse]
     actions: list[TaskActionResponse]
+    #: "Xoá task" is offered to this viewer (the OWNER only).
+    can_delete: bool = False
 
     @classmethod
     def from_domain(cls, detail: TaskDetail) -> TaskDetailResponse:

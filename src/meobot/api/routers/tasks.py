@@ -10,14 +10,16 @@ from __future__ import annotations
 
 from typing import Annotated, Any
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Response, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from meobot.api.deps import CurrentActorDep, RequestIdDep, get_app_settings, get_session
 from meobot.api.schemas.tasks import TaskActionRequest, TaskDetailResponse
+from meobot.application.audit_service import AuditService
 from meobot.application.orders.services import build_order_services
 from meobot.application.pr_services import build_pr_services
 from meobot.application.tasks.action_service import TaskActionCommand, TaskActionService
+from meobot.application.tasks.delete_service import TaskDeleteService
 from meobot.application.tasks.detail_service import TaskDetailService
 from meobot.application.units.directory import UnitDirectoryService
 from meobot.core.config import Settings
@@ -36,9 +38,12 @@ _ACTION_RESPONSES: dict[int | str, dict[str, Any]] = {
 
 
 class TaskServices:
-    def __init__(self, detail: TaskDetailService, actions: TaskActionService) -> None:
+    def __init__(
+        self, detail: TaskDetailService, actions: TaskActionService, deletes: TaskDeleteService
+    ) -> None:
         self.detail = detail
         self.actions = actions
+        self.deletes = deletes
 
 
 def get_task_services(
@@ -50,7 +55,11 @@ def get_task_services(
     detail = TaskDetailService(
         session, settings, directory=UnitDirectoryService(session), pr=pr, orders=orders
     )
-    return TaskServices(detail, TaskActionService(detail=detail, pr=pr, orders=orders))
+    return TaskServices(
+        detail,
+        TaskActionService(detail=detail, pr=pr, orders=orders),
+        TaskDeleteService(session, detail=detail, pr=pr, audit=AuditService(session)),
+    )
 
 
 ServicesDep = Annotated[TaskServices, Depends(get_task_services)]
@@ -62,6 +71,20 @@ async def task_detail(
 ) -> TaskDetailResponse:
     """By task id or code, or by the PR content / order id behind it."""
     return TaskDetailResponse.from_domain(await services.detail.detail(actor, ref))
+
+
+@router.delete(
+    "/{ref}",
+    status_code=status.HTTP_204_NO_CONTENT,
+    responses={**_NOT_FOUND, 403: {"description": "task_delete_forbidden - the OWNER only."}},
+)
+async def delete_task(
+    ref: str, actor: CurrentActorDep, request_id: RequestIdDep, services: ServicesDep
+) -> Response:
+    """*Xoá task.* The OWNER only, for good: the order (or, by PR's own rules,
+    the content item) and everything hanging off it."""
+    await services.deletes.delete(actor=actor, request_id=request_id, ref=ref)
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
 @router.post("/{ref}/actions", response_model=TaskDetailResponse, responses=_ACTION_RESPONSES)

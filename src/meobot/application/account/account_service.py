@@ -27,7 +27,7 @@ from collections.abc import Iterable
 from dataclasses import dataclass, field
 from datetime import datetime
 
-from sqlalchemy import func, select
+from sqlalchemy import delete, func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from meobot.application.account.avatar_service import avatar_urls
@@ -36,8 +36,10 @@ from meobot.application.account.stats_service import AccountStatsService, Member
 from meobot.application.audit_service import AuditService
 from meobot.application.web_auth_service import WebAuthService
 from meobot.core.time import ensure_utc, utcnow
+from meobot.db.models.order import Order, OrderNode
 from meobot.db.models.org_unit import OrgUnit, OrgUnitMember
 from meobot.db.models.user import User
+from meobot.db.models.user_avatar import UserAvatar
 from meobot.db.models.web_session import WebSession, WebSessionKind
 from meobot.domain.access.models import UserStatus
 from meobot.domain.account.errors import (
@@ -45,12 +47,14 @@ from meobot.domain.account.errors import (
     AccountNotFoundError,
     AccountStatusForbiddenError,
     AccountValidationError,
+    MemberDeleteForbiddenError,
     PasswordResetForbiddenError,
     PasswordResetUndeliverableError,
 )
 from meobot.domain.audit.models import AuditAction, AuditResult
 from meobot.domain.identity.labels import role_label
 from meobot.domain.identity.models import Actor, Role
+from meobot.domain.orders.models import ACTIVE_NODE_STATUSES, TERMINAL_STAGES
 from meobot.domain.units.labels import unit_role_label
 from meobot.domain.units.models import UnitCode, UnitMemberRole, UnitMembership
 
@@ -198,7 +202,8 @@ class AccountService:
         if wanted is not None and wanted not in visibility.units:
             raise AccountMembersForbiddenError()
 
-        statement = select(User).order_by(User.full_name, User.id)
+        # A deleted account (0054) is listed nowhere.
+        statement = select(User).where(User.deleted_at.is_(None)).order_by(User.full_name, User.id)
         if not include_inactive:
             statement = statement.where(User.active.is_(True))
         users = (await self._session.scalars(statement)).all()
@@ -370,6 +375,107 @@ class AccountService:
             },
         )
         return target
+
+    async def delete_member(
+        self, *, actor: Actor, request_id: uuid.UUID, user_id: uuid.UUID
+    ) -> None:
+        """ "Xoá thành viên": remove an account for good. The OWNER only.
+
+        The row stays - the orders they placed and the work they did keep
+        their history, named "<tên> (đã xoá)" - but nothing of the account
+        does: it cannot sign in (web sessions closed, password and Telegram
+        identity cleared, so the same Telegram account may be invited afresh),
+        every tag is closed and it is listed nowhere. Open work is handed
+        over first.
+
+        Raises:
+            MemberDeleteForbiddenError: not the OWNER, oneself, or an OWNER.
+            AccountNotFoundError: no such account (or already deleted).
+            AccountValidationError: ``member_has_open_work``.
+        """
+        if actor.role is not Role.OWNER:
+            raise MemberDeleteForbiddenError()
+        if actor.user_id == user_id:
+            raise MemberDeleteForbiddenError("Bạn không thể tự xoá tài khoản của chính mình.")
+        target = await self._session.get(User, user_id)
+        if target is None or target.deleted_at is not None:
+            raise AccountNotFoundError()
+        if target.role is Role.OWNER:
+            raise MemberDeleteForbiddenError("Không thể xoá tài khoản Chủ sở hữu.")
+        if await self._holds_open_work(user_id):
+            raise AccountValidationError(
+                "member_has_open_work",
+                "Thành viên này còn order hoặc công đoạn đang mở. Bàn giao xong rồi xoá.",
+            )
+        now = utcnow()
+        before: dict[str, object] = {"full_name": target.full_name, "role": target.role.value}
+        tags = (
+            await self._session.scalars(
+                select(OrgUnitMember).where(
+                    OrgUnitMember.user_id == user_id, OrgUnitMember.left_at.is_(None)
+                )
+            )
+        ).all()
+        for tag in tags:
+            tag.left_at = now
+            tag.manager_user_id = None
+        # Whoever reported to them falls back to the whole ban.
+        await self._session.execute(
+            update(OrgUnitMember)
+            .where(OrgUnitMember.manager_user_id == user_id)
+            .values(manager_user_id=None)
+        )
+        await self._session.execute(delete(UserAvatar).where(UserAvatar.user_id == user_id))
+        target.deleted_at = now
+        target.active = False
+        target.status = UserStatus.REVOKED
+        target.revoked_at = now
+        target.revoked_by_user_id = actor.user_id
+        target.last_status_changed_at = now
+        target.full_name = f"{target.full_name[:190]} (đã xoá)"
+        target.telegram_user_id = None
+        target.telegram_username = None
+        target.telegram_private_chat_id = None
+        target.private_chat_available = False
+        target.password_hash = None
+        await self._session.flush()
+        revoked = await self._auth.revoke_all_for_user(user_id=target.id)
+        await self._audit.record_action(
+            request_id=request_id,
+            actor=actor,
+            action=AuditAction.USER_DELETED.value,
+            result=AuditResult.SUCCESS,
+            entity_type="user",
+            entity_id=str(target.id),
+            before_data=before,
+            after_data={
+                "deleted_at": now.isoformat(),
+                "tags_closed": len(tags),
+                "sessions_revoked": revoked,
+            },
+        )
+
+    async def _holds_open_work(self, user_id: uuid.UUID) -> bool:
+        """An ORD order of theirs still running, or a step they hold."""
+        closed = sorted(TERMINAL_STAGES, key=lambda stage: stage.value)
+        owns = await self._session.scalar(
+            select(Order.id)
+            .where(Order.owner_user_id == user_id, Order.stage.notin_(closed))
+            .limit(1)
+        )
+        if owns is not None:
+            return True
+        holds = await self._session.scalar(
+            select(OrderNode.id)
+            .join(Order, Order.id == OrderNode.order_id)
+            .where(
+                OrderNode.assignee_user_id == user_id,
+                OrderNode.status.in_(sorted(ACTIVE_NODE_STATUSES, key=lambda s: s.value)),
+                Order.stage.notin_(closed),
+            )
+            .limit(1)
+        )
+        return holds is not None
 
     # --- internals ----------------------------------------------------------------------
 

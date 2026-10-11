@@ -129,7 +129,9 @@ class UnitSettings(BaseModel):
     #: handing the work in finishes the node and the next one starts at once.
     review_bien_tap: bool = False
     review_thiet_ke: bool = False
-    review_dung: bool = True
+    #: Off since 0054: a Design or Dựng hand-in (with its link) finishes the
+    #: step and the next one starts, without the Leader's review.
+    review_dung: bool = False
     #: Whether the script lead watches the finished cut of an order whose
     #: process has a script node before the orderer's final review. Off with
     #: the script review above.
@@ -138,6 +140,10 @@ class UnitSettings(BaseModel):
     #: differs from :data:`~meobot.domain.orders.permissions.DEFAULT_MATRIX`
     #: needs storing; validated by the admin service.
     permissions: dict[str, dict[str, str]] = Field(default_factory=dict)
+    #: Effort (token) mode. Off = no tokens anywhere: not asked for when work
+    #: is handed out, not taken off anybody's day, not shown. Only the OWNER
+    #: switches it.
+    effort_enabled: bool = True
     #: 0053: a member's token budget per working day, unless their tag sets
     #: their own (``org_unit_members.daily_tokens``).
     default_daily_tokens: float = Field(default=80, ge=0, le=999)

@@ -319,6 +319,28 @@ async def reactivate_member(
     return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
+@router.delete(
+    "/members/{user_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+    responses={
+        403: {"model": ErrorEnvelope, "description": "member_delete_forbidden - OWNER only."},
+        404: {"model": ErrorEnvelope, "description": "account_not_found."},
+        422: {"model": ErrorEnvelope, "description": "member_has_open_work."},
+    },
+)
+async def delete_member(
+    user_id: uuid.UUID,
+    actor: CurrentActorDep,
+    accounts: AccountServiceDep,
+    request_id: RequestIdDep,
+) -> Response:
+    """*Xoá thành viên.* The OWNER only, for good: the account cannot sign in
+    and is listed nowhere; the orders and work it left stay, named
+    "<tên> (đã xoá)". Refused while they hold open work."""
+    await accounts.delete_member(actor=actor, request_id=request_id, user_id=user_id)
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+
 @router.post(
     "/members/{user_id}/role",
     status_code=status.HTTP_204_NO_CONTENT,

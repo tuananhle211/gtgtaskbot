@@ -13,7 +13,7 @@ from fastapi import APIRouter, Depends, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from meobot.api.deps import CurrentActorDep, get_app_settings, get_session
-from meobot.api.schemas.board import DashboardResponse, TaskPageResponse
+from meobot.api.schemas.board import BoardCountsResponse, DashboardResponse, TaskPageResponse
 from meobot.application.board.dashboard_service import DashboardService
 from meobot.application.board.task_board_service import ALL_UNITS, TaskBoardService
 from meobot.application.pr_services import build_pr_services
@@ -141,6 +141,28 @@ async def board_tasks(
         _unit_label(unit, tuple(code.value for code in codes)),
         page,
         ads_steps=codes == (UnitCode.ADS,),
+    )
+
+
+@router.get("/counts", response_model=BoardCountsResponse)
+async def board_counts(
+    actor: CurrentActorDep,
+    board: BoardDep,
+    unit: Annotated[str | None, Query()] = None,
+) -> BoardCountsResponse:
+    """The numbers behind the task table's quick filters - "Task của tôi (8)":
+    each is the total that filter alone would list in this unit."""
+    await board.resolve_units(actor, unit)
+
+    async def count(query: BoardQuery) -> int:
+        return (await board.page(actor, unit=unit, query=query)).total
+
+    return BoardCountsResponse(
+        mine=await count(BoardQuery(mine=True, limit=1)),
+        awaiting_me=await count(BoardQuery(awaiting_me=True, limit=1)),
+        priority=await count(BoardQuery(priority=True, limit=1)),
+        urgent=await count(BoardQuery(urgent=True, limit=1)),
+        overdue=await count(BoardQuery(overdue=True, limit=1)),
     )
 
 

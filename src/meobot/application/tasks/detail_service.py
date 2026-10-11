@@ -24,7 +24,7 @@ and ``pr:<KIND>[:<argument>]``.
 from __future__ import annotations
 
 import uuid
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from datetime import datetime
 from typing import Literal
 
@@ -64,7 +64,7 @@ from meobot.application.units.directory import ROLE_FOR_NODE, UnitDirectoryServi
 from meobot.core.config import Settings
 from meobot.core.errors import NotFoundError
 from meobot.core.time import ensure_utc, utcnow
-from meobot.db.models.order import Order
+from meobot.db.models.order import Order, OrderNode
 from meobot.db.models.pr import PrApprovalEvent, PrContentItem
 from meobot.db.models.pr_content_version import PrContentVersion
 from meobot.db.models.pr_production import PrProductionSubmission
@@ -344,6 +344,8 @@ class TaskDetail:
     submissions: tuple[TaskSubmission, ...] = ()
     timeline: tuple[TaskTimelineEntry, ...] = ()
     actions: tuple[TaskActionView, ...] = field(default_factory=tuple)
+    #: "Xoá task" is offered: the OWNER only (``DELETE /api/tasks/{ref}``).
+    can_delete: bool = False
 
 
 # --- the service ---------------------------------------------------------------
@@ -424,9 +426,12 @@ class TaskDetailService:
         task = await self.resolve(actor, ref)
         if task.source_type == SOURCE_PR_CONTENT:
             assert task.pr_content_id is not None
-            return await self._pr_detail(actor, task, task.pr_content_id)
-        assert task.order_id is not None
-        return await self._ads_detail(actor, task, task.order_id)
+            found = await self._pr_detail(actor, task, task.pr_content_id)
+        else:
+            assert task.order_id is not None
+            found = await self._ads_detail(actor, task, task.order_id)
+        # "Xoá task": the OWNER only.
+        return replace(found, can_delete=actor.role is Role.OWNER)
 
     # --- Ads -------------------------------------------------------------------
 
@@ -528,7 +533,7 @@ class TaskDetailService:
             if kind is OrderActionKind.ASSIGN and node is not None:
                 inputs = ("assignee", "tokens", "deadline")
                 # The plan is required the first time the node is planned.
-                if node.token_estimate is None and node.revision_count == 0:
+                if _unplanned(node, settings):
                     required = ("tokens", "deadline")
                 options = await self._ads_assignees(
                     order.unit_id, node.node_type, order.video_type, settings
@@ -537,16 +542,16 @@ class TaskDetailService:
                     emphasis = "PRIMARY"
             elif kind is OrderActionKind.ACCEPT and node is not None:
                 # A Leader taking a node routed to them plans it here.
-                if (
-                    node.token_estimate is None
-                    and node.revision_count == 0
-                    and any(item.kind is OrderActionKind.SET_NODE_PLAN for item in detail.actions)
+                if _unplanned(node, settings) and any(
+                    item.kind is OrderActionKind.SET_NODE_PLAN for item in detail.actions
                 ):
                     inputs = ("tokens", "deadline")
                     required = ("tokens", "deadline")
             elif kind is OrderActionKind.SET_NODE_PLAN and node is not None:
                 inputs = ("tokens", "deadline")
-                if node.revision_tokens_pending:
+                if not settings.effort_enabled:
+                    label = f"Sửa deadline · {node_type_label(node.node_type)}"
+                elif node.revision_tokens_pending:
                     label = f"Nhập token sửa · {node_type_label(node.node_type)}"
                     required = ("tokens",)
                     emphasis = "PRIMARY"
@@ -575,6 +580,12 @@ class TaskDetailService:
                 OrderActionKind.APPROVE_NODE,
             ):
                 inputs = ("note",)
+            if not settings.effort_enabled:
+                # Effort mode off: no token is asked for or shown anywhere.
+                inputs = tuple(name for name in inputs if name != "tokens")
+                required = tuple(name for name in required if name != "tokens")
+                if defaults is not None:
+                    defaults = PlanDefaults(deadline_at=defaults.deadline_at)
             views.append(
                 TaskActionView(
                     key=key,
@@ -584,8 +595,8 @@ class TaskDetailService:
                     inputs=inputs,
                     assignee_options=options,
                     required_inputs=required,
-                    plan_mode=plan_mode if "tokens" in inputs else None,
-                    defaults=defaults if "tokens" in inputs else None,
+                    plan_mode=plan_mode if "deadline" in inputs else None,
+                    defaults=defaults if "deadline" in inputs else None,
                 )
             )
         return tuple(sorted(views, key=lambda view: _EMPHASIS_ORDER[view.emphasis]))
@@ -608,8 +619,12 @@ class TaskDetailService:
             for row in await self._directory.members(unit_id, role=wanted)
             if not row.membership.is_lead
         ]
-        loads = await EffortService(self._session).loads(
-            unit_id, [row.user.id for row in rows], settings
+        loads = (
+            await EffortService(self._session).loads(
+                unit_id, [row.user.id for row in rows], settings
+            )
+            if settings.effort_enabled
+            else {}
         )
         options = []
         for row in rows:
@@ -1198,6 +1213,14 @@ def _pr_timeline(
             )
         )
     return tuple(sorted(entries, key=lambda entry: entry.at, reverse=True))
+
+
+def _unplanned(node: OrderNode, settings: UnitSettings) -> bool:
+    """Nobody planned the node yet, on its first pass (as the command checks):
+    no tokens on it - or, with effort mode off, no deadline."""
+    if node.revision_count > 0:
+        return False
+    return node.token_estimate is None if settings.effort_enabled else node.deadline_at is None
 
 
 def _utc(value: datetime | None) -> datetime | None:

@@ -51,14 +51,15 @@ class OrderTokenLedgerService:
         return max(Decimal(node.token_revision or 0) - await self.revision_taken(node), Decimal(0))
 
     async def record_completion(
-        self, *, order: Order, node: OrderNode, at: datetime, first: bool
+        self, *, order: Order, node: OrderNode, at: datetime, first: bool, take_tokens: bool = True
     ) -> None:
+        """``take_tokens=False`` (effort mode off): only the deadline verdict."""
         if first:
             node.deadline_met = (
                 None if node.deadline_at is None else at <= ensure_utc(node.deadline_at)
             )
         worker = node.assignee_user_id
-        if worker is None:
+        if worker is None or not take_tokens:
             return
         day = work_day(at)
         if first and node.token_estimate:

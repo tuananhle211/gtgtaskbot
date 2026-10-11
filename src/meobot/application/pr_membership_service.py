@@ -172,7 +172,16 @@ class PrMembershipService:
     async def list_members(self, *, actor: Actor, on: date | None = None) -> MemberList:
         """Every registered person, by name, with status and grant count."""
         _require_read(actor)
-        rows = (await self._session.execute(select(User).order_by(User.full_name))).scalars().all()
+        # A deleted account (0054) is listed nowhere.
+        rows = (
+            (
+                await self._session.execute(
+                    select(User).where(User.deleted_at.is_(None)).order_by(User.full_name)
+                )
+            )
+            .scalars()
+            .all()
+        )
         today = on or utcnow().date()
         grant_counts = await self._active_grant_counts(on=today)
         members = tuple(

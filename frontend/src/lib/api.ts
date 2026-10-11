@@ -3292,6 +3292,11 @@ export interface UnitSettingsInfo {
   review_thiet_ke: boolean;
   review_dung: boolean;
   review_video_by_script_lead: boolean;
+  /**
+   * ORD: whether effort (tokens) is counted at all. Only the OWNER may change
+   * it (403 `effort_setting_forbidden`). Optional: an older API omits it = on.
+   */
+  effort_enabled?: boolean;
   /** ORD: a member's token budget per working day unless their own is set (80). */
   default_daily_tokens?: number;
   /** ORD: weekdays (Monday = 0) with a full budget, and the half days (Saturday morning). */
@@ -3340,6 +3345,11 @@ export interface UnitsMe {
   can_tag?: string[];
   /** No active stream tag at all. Optional, like `can_tag`. */
   is_untagged?: boolean;
+  /**
+   * False only when ORD turned effort (tokens) off: every screen then hides
+   * its token figures (`lib/effort.ts`). Optional: an older API omits it = on.
+   */
+  effort_enabled?: boolean;
 }
 
 /** `GET /api/units/untagged`: active accounts with no stream yet. */
@@ -3582,6 +3592,18 @@ export interface BoardFilters {
   offset?: number;
 }
 
+/**
+ * `GET /api/board/counts`: the task table's quick-filter badges, for the unit
+ * on screen and whatever the other filters say. `overdue` is 0 for PR.
+ */
+export interface BoardCounts {
+  mine: number;
+  awaiting_me: number;
+  priority: number;
+  urgent: number;
+  overdue: number;
+}
+
 export interface PersonStat {
   user_id: Uuid;
   name: string;
@@ -3767,8 +3789,8 @@ export interface TaskPerson {
   tokens_budget_today?: number | null;
   tokens_left_today?: number | null;
   /** Tokens on nodes handed out and not finished, and how many such nodes. */
-  tokens_open?: number;
-  open_tasks?: number;
+  tokens_open?: number | null;
+  open_tasks?: number | null;
 }
 
 export interface TaskInfo {
@@ -3882,6 +3904,8 @@ export interface UnifiedTaskDetail {
   /** Newest first. */
   timeline: TaskTimelineEntry[];
   actions: TaskAction[];
+  /** The viewer may delete the task for good (OWNER only). Optional: older APIs omit it. */
+  can_delete?: boolean;
 }
 
 export interface TaskActionBody {
@@ -4005,6 +4029,8 @@ export interface BanStats {
   today: string;
   /** The viewer's own ban (their default); null = "Tất cả". */
   my_ban: string | null;
+  /** False = effort is off: every token figure is 0 and not drawn. Optional = on. */
+  effort_enabled?: boolean;
   bans: BanStat[];
 }
 
@@ -4166,6 +4192,13 @@ export const api = {
     post<void>(`/api/account/members/${userId}/deactivate`),
   reactivateAccount: (userId: Uuid) =>
     post<void>(`/api/account/members/${userId}/reactivate`),
+  /**
+   * OWNER only. 204: the account is gone for good; their past orders and work
+   * stay, named "<tên> (đã xoá)". 403 `member_delete_forbidden` (also oneself
+   * or another OWNER); 422 `member_has_open_work` while they hold open work.
+   */
+  deleteMember: (userId: Uuid) =>
+    del<void>(`/api/account/members/${userId}`),
   /** OWNER only: the account's system role (e.g. "ADMIN" = sees both streams). */
   setSystemRole: (userId: Uuid, role: string) =>
     post<void>(`/api/account/members/${userId}/role`, { role }),
@@ -4272,6 +4305,9 @@ export const api = {
     get<TaskPage>(`/api/board/tasks${query(filters)}`),
   boardDashboard: (filters: BoardFilters = {}) =>
     get<DashboardSummary>(`/api/board/dashboard${query(filters)}`),
+  /** How many rows each quick filter of the task table holds, for one unit. */
+  boardCounts: (unit: string) =>
+    get<BoardCounts>(`/api/board/counts${query({ unit })}`),
   createOrder: (body: CreateOrderBody) =>
     post<OrderDetail>("/api/orders", body),
   order: (ref: string) =>
@@ -4285,6 +4321,12 @@ export const api = {
   /** One workflow action; answers with the fresh task. 409 on a stale version. */
   taskAction: (taskId: Uuid, body: TaskActionBody) =>
     post<UnifiedTaskDetail>(`/api/tasks/${taskId}/actions`, body),
+  /**
+   * 204. OWNER only (403 `task_delete_forbidden`). Permanent: the order or the
+   * content and everything hanging off it.
+   */
+  deleteTask: (ref: string) =>
+    del<void>(`/api/tasks/${encodeURIComponent(ref)}`),
 
   dashboard: () => get<Dashboard>("/api/pr/dashboard"),
   people: () => get<Person[]>("/api/pr/people"),

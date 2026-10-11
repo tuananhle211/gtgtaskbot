@@ -25,7 +25,9 @@ import { ErrorBox, Loading } from "@/components/states";
 import {
   AccountStatusButton,
   DeactivatedPill,
+  DeleteAccountButton,
   mayChangeAccountStatus,
+  mayDeleteAccount,
   UnitTags,
   UntaggedPanel,
 } from "@/components/unit-panel";
@@ -35,7 +37,7 @@ import { PasswordDialog, PasswordForm } from "./password";
 import { InvitePanel, mayInvite as mayInviteFor } from "./invites";
 import { STREAM_NAMES, byStreamOrder } from "@/lib/units";
 import { formatTokens } from "@/lib/deadline";
-import { dayHeading } from "@/lib/effort";
+import { dayHeading, useEffortEnabled } from "@/lib/effort";
 
 const FIELD =
   "min-h-10 w-full rounded-lg border border-[var(--border)] bg-[var(--surface)] px-3 text-[var(--text)] transition-colors focus-visible:border-[var(--accent)] focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-[var(--accent)]/15";
@@ -602,6 +604,8 @@ function MyPerformance({
     enabled: other,
   });
   const data: MemberStats | undefined = other ? stats.data : me.stats;
+  // Off = ORD does not count tokens: no "Effort" card, no "Effort tuần này".
+  const effortOn = useEffortEnabled();
 
   return (
     <section className="space-y-4" aria-labelledby="account-performance">
@@ -616,8 +620,10 @@ function MyPerformance({
       </div>
       {other && stats.isPending ? <Loading label="Đang tải số liệu…" /> : null}
       {other && stats.isError ? <ErrorBox error={stats.error} onRetry={() => stats.refetch()} /> : null}
-      {data ? <StatCards stats={data} /> : null}
-      {me.units.some((unit) => unit.code === "ADS") ? <MyEffortWeek userId={me.user_id} /> : null}
+      {data ? <StatCards stats={data} showEffort={effortOn} /> : null}
+      {effortOn && me.units.some((unit) => unit.code === "ADS") ? (
+        <MyEffortWeek userId={me.user_id} />
+      ) : null}
     </section>
   );
 }
@@ -688,7 +694,7 @@ const TONE_ICON: Record<Tone, string> = {
   amber: "bg-[var(--warn-soft)] text-[var(--warn)]",
 };
 
-function StatCards({ stats }: { stats: MemberStats }) {
+function StatCards({ stats, showEffort }: { stats: MemberStats; showEffort: boolean }) {
   const asRate = (value: number | null | undefined) =>
     value === null || value === undefined ? null : Number(value);
   const score =
@@ -697,7 +703,7 @@ function StatCards({ stats }: { stats: MemberStats }) {
       : Number(stats.performance_score);
   const effort = asRate(stats.effort_rate);
   const lateCount = stats.late_count ?? 0;
-  const headline: Array<{
+  type StatCard = {
     label: string;
     value: string;
     hint: string;
@@ -705,7 +711,24 @@ function StatCards({ stats }: { stats: MemberStats }) {
     tone: Tone;
     meter?: number | null;
     warn?: boolean;
-  }> = [
+  };
+  /** Token figures: not drawn while ORD has effort switched off. */
+  const effortCard: StatCard = {
+    label: "Effort",
+    value:
+      stats.tokens_used === undefined
+        ? "–"
+        : `${formatPoints(stats.tokens_used)}/${formatPoints(stats.tokens_budget ?? 0)}`,
+    hint:
+      effort === null
+        ? "Token đã dùng / quỹ các ngày làm việc"
+        : `Token đã dùng / quỹ · ${formatRate(effort)}${effort > 1 ? " · vượt quỹ" : ""}`,
+    icon: "bolt",
+    tone: "blue",
+    meter: effort === null ? undefined : Math.min(effort, 1),
+    warn: effort !== null && effort > 1,
+  };
+  const headline: StatCard[] = [
     {
       label: "Điểm hiệu suất",
       value: score === null ? "–" : `${formatPoints(score)}/100`,
@@ -741,21 +764,7 @@ function StatCards({ stats }: { stats: MemberStats }) {
       tone: "violet",
       meter: asRate(stats.first_pass_rate),
     },
-    {
-      label: "Effort",
-      value:
-        stats.tokens_used === undefined
-          ? "–"
-          : `${formatPoints(stats.tokens_used)}/${formatPoints(stats.tokens_budget ?? 0)}`,
-      hint:
-        effort === null
-          ? "Token đã dùng / quỹ các ngày làm việc"
-          : `Token đã dùng / quỹ · ${formatRate(effort)}${effort > 1 ? " · vượt quỹ" : ""}`,
-      icon: "bolt",
-      tone: "blue",
-      meter: effort === null ? undefined : Math.min(effort, 1),
-      warn: effort !== null && effort > 1,
-    },
+    ...(showEffort ? [effortCard] : []),
     {
       label: "Mục KPI được tính",
       value: String(stats.work_items_counted),
@@ -897,6 +906,8 @@ function Members({
   // reset again (ADMIN may not reset an OWNER, for one).
   const mayReset = me.role === "OWNER" || me.role === "ADMIN";
   const viewer = { role: me.role, userId: me.user_id };
+  // Off = ORD does not count tokens: no "Effort" column.
+  const effortOn = useEffortEnabled();
   const refreshMembers = () => {
     void queryClient.invalidateQueries({ queryKey: ["account", "members"] });
     void queryClient.invalidateQueries({ queryKey: ["units"] });
@@ -986,7 +997,7 @@ function Members({
                   <th className={th}>Trả sửa</th>
                   <th className={th}>Đúng hạn</th>
                   <th className={th}>Không bị trả</th>
-                  <th className={th}>Effort</th>
+                  {effortOn ? <th className={th}>Effort</th> : null}
                   <th className={th}>Điểm HS</th>
                   <th className={th}>Order tạo / xong</th>
                   <th className={th}>PR phụ trách</th>
@@ -1001,7 +1012,10 @@ function Members({
               <tbody>
                 {rows.length === 0 ? (
                   <tr>
-                    <td colSpan={mayReset ? 18 : 17} className="text-[var(--text-muted)]">
+                    <td
+                      colSpan={(mayReset ? 18 : 17) - (effortOn ? 0 : 1)}
+                      className="text-[var(--text-muted)]"
+                    >
                       Không có thành viên nào trong bộ lọc này.
                     </td>
                   </tr>
@@ -1052,15 +1066,17 @@ function Members({
                         ) : null}
                       </td>
                       <td className="text-right tabular-nums">{formatRate(row.stats.first_pass_rate ?? null)}</td>
-                      <td
-                        className={`text-right tabular-nums ${
-                          (row.stats.effort_rate ?? 0) > 1 ? "text-[var(--bad)]" : ""
-                        }`}
-                      >
-                        {row.stats.tokens_used === undefined
-                          ? "–"
-                          : `${formatPoints(row.stats.tokens_used)}/${formatPoints(row.stats.tokens_budget ?? 0)}`}
-                      </td>
+                      {effortOn ? (
+                        <td
+                          className={`text-right tabular-nums ${
+                            (row.stats.effort_rate ?? 0) > 1 ? "text-[var(--bad)]" : ""
+                          }`}
+                        >
+                          {row.stats.tokens_used === undefined
+                            ? "–"
+                            : `${formatPoints(row.stats.tokens_used)}/${formatPoints(row.stats.tokens_budget ?? 0)}`}
+                        </td>
+                      ) : null}
                       <td className="text-right font-semibold tabular-nums">
                         {row.stats.performance_score === null || row.stats.performance_score === undefined
                           ? "–"
@@ -1108,6 +1124,15 @@ function Members({
                                 active={active}
                                 onDone={refreshMembers}
                               />
+                            ) : null}
+                            {mayDeleteAccount(viewer, row) ? (
+                              <DeleteAccountButton
+                                userId={row.user_id}
+                                name={row.full_name}
+                                onDone={refreshMembers}
+                              >
+                                Xoá thành viên
+                              </DeleteAccountButton>
                             ) : null}
                           </div>
                         </td>

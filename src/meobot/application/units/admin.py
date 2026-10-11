@@ -345,7 +345,11 @@ class UnitAdminService:
                 "Bạn không có quyền quản trị luồng nào.",
                 details={"reason": "unit_admin_forbidden"},
             )
-        users = (await self._session.scalars(select(User).order_by(User.full_name, User.id))).all()
+        users = (
+            await self._session.scalars(
+                select(User).where(User.deleted_at.is_(None)).order_by(User.full_name, User.id)
+            )
+        ).all()
         tags = (
             await self._session.execute(
                 select(OrgUnitMember.user_id, OrgUnit.code)
@@ -722,6 +726,13 @@ class UnitAdminService:
     ) -> UnitSettings:
         unit = await self._require_admin(actor, code)
         current = UnitSettings.model_validate(unit.settings or {})
+        wanted = patch.get("effort_enabled")
+        if wanted is not None and wanted != current.effort_enabled and actor.role is not Role.OWNER:
+            # Effort (token) mode is the owner's own switch.
+            raise UnitAccessDeniedError(
+                "Chỉ chủ sở hữu bật/tắt được chế độ tính effort (token).",
+                details={"reason": "effort_setting_forbidden"},
+            )
         try:
             updated = current.model_copy(update=patch)
             updated = UnitSettings.model_validate(updated.model_dump())

@@ -5,6 +5,7 @@ import { usePathname, useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { api, type UnitsMe } from "@/lib/api";
+import { effortEnabled } from "@/lib/effort";
 import { roleLabel } from "@/lib/labels";
 import { unitShortLabel, unitTagClass } from "@/lib/units";
 import { ErrorBox, Loading } from "@/components/states";
@@ -70,9 +71,12 @@ const EFFORT_NAV: NavItem[] = [
   { href: "/tasks/effort", label: "Effort", icon: "effort" },
 ];
 
-/** Whether this person may open the ORD effort grid of others. */
+/**
+ * Whether this person may open the ORD effort grid of others. Nobody while
+ * effort (tokens) is switched off for ORD.
+ */
 export function seesOrdEffort(me: UnitsMe | undefined, sessionRole?: string): boolean {
-  if (!me) return false;
+  if (!me || !effortEnabled(me)) return false;
   if (me.can_view_all || sessionRole === "OWNER" || sessionRole === "ADMIN") return true;
   const ads = me.units.find((unit) => unit.code === "ADS");
   return Boolean(ads && (ads.role === "HEAD" || ads.is_lead));

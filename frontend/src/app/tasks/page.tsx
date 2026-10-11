@@ -3,10 +3,11 @@
 import { TokenBadge } from "@/components/token-badge";
 import Link from "next/link";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
-import { Suspense, useState } from "react";
+import { Suspense, useEffect, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api, type TaskCell, type TaskRow } from "@/lib/api";
 import { UnitSwitch, UntaggedState } from "@/components/unit-switch";
+import { effortEnabled } from "@/lib/effort";
 import { formatAgo, formatShortDay } from "@/lib/labels";
 import { PROCESS_CODES, processCodeLabel } from "@/lib/ads-process";
 import {
@@ -129,6 +130,27 @@ function TaskBoard() {
     queryFn: () => api.unitMembers(unit),
     enabled: me.isSuccess && !untagged && unit !== "ALL",
   });
+  // The "(n)" on each quick filter: how many rows it holds in the unit on
+  // screen, whatever the other filters say (an inbox count). Live: polled, and
+  // refetched with the list - every `["board"]` invalidation covers it too.
+  const counts = useQuery({
+    queryKey: ["board", "counts", unit],
+    queryFn: () => api.boardCounts(unit),
+    enabled: me.isSuccess && !untagged,
+    refetchInterval: 10_000,
+    refetchOnWindowFocus: true,
+  });
+  const listAt = board.dataUpdatedAt;
+  const countsAt = counts.dataUpdatedAt;
+  const countsBusy = counts.isFetching;
+  useEffect(() => {
+    // The list came back fresher than the counts (a new page, a filter, a
+    // refetch): the badges follow it. Not while they are already on their way.
+    if (!listAt || !countsAt || countsBusy || listAt - countsAt < 1000) return;
+    void queryClient.invalidateQueries({ queryKey: ["board", "counts"] });
+    // Only the list's arrival triggers this; the counts' own state is read as it is.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [listAt]);
   // The "Loại video" filter: the unit's active kinds, readable by any member.
   const videoKinds = useQuery({
     queryKey: ["units", "ADS", "video-kinds"],
@@ -184,6 +206,12 @@ function TaskBoard() {
   const first = board.data?.items[0];
   const cellHeads = first?.cells ?? [];
   const people = members.data?.members.filter((member) => member.active) ?? [];
+  // No "(n)" until the first counts arrive (or when they cannot be read).
+  const countOf = (key: (typeof QUICK)[number][0]) => {
+    const count = counts.data?.[key];
+    return typeof count === "number" ? ` (${count})` : "";
+  };
+  const showTokens = effortEnabled(me.data);
 
   return (
     <div className="space-y-4">
@@ -260,6 +288,7 @@ function TaskBoard() {
                 }`}
               >
                 {label}
+                {countOf(key)}
               </button>
             ))}
           </div>
@@ -464,6 +493,7 @@ function TaskBoard() {
                     viewerId={viewerId}
                     decides={decides}
                     dense={dense}
+                    showTokens={showTokens}
                     onChanged={() =>
                       void queryClient.invalidateQueries({
                         queryKey: ["board"],
@@ -496,8 +526,20 @@ function TaskBoard() {
   );
 }
 
-function Cell({ cell, dense, stage }: { cell: TaskCell; dense: boolean; stage: string }) {
+function Cell({
+  cell,
+  dense,
+  stage,
+  showTokens,
+}: {
+  cell: TaskCell;
+  dense: boolean;
+  stage: string;
+  /** Off when ORD does not count effort: no token badge on a step. */
+  showTokens: boolean;
+}) {
   const skipped = cell.status === "BO_QUA";
+  const tokens = showTokens ? cell.tokens : null;
   return (
     <td>
       <div
@@ -524,9 +566,9 @@ function Cell({ cell, dense, stage }: { cell: TaskCell; dense: boolean; stage: s
             {withoutNames(cell.status_label, cell.person_name)}
           </StatusBadge>
         )}
-        {!dense && (cell.tokens != null || cell.deadline_at) ? (
+        {!dense && (tokens != null || cell.deadline_at) ? (
           <span className="flex flex-wrap items-center gap-1 text-[11px] text-[var(--text-muted)]">
-            <TokenBadge value={cell.tokens} size="sm" />
+            <TokenBadge value={tokens} size="sm" />
             <DeadlineBadge at={cell.deadline_at} status={cell.deadline_status} />
           </span>
         ) : null}
@@ -550,6 +592,7 @@ function TaskTableRow({
   viewerId,
   decides,
   dense,
+  showTokens,
   onChanged,
 }: {
   row: TaskRow;
@@ -560,6 +603,7 @@ function TaskTableRow({
   viewerId: string | null;
   decides: boolean;
   dense: boolean;
+  showTokens: boolean;
   onChanged: () => void;
 }) {
   const decide = useMutation({
@@ -687,7 +731,13 @@ function TaskTableRow({
         </td>
       ) : null}
       {row.cells.map((cell) => (
-        <Cell key={cell.key} cell={cell} dense={dense} stage={row.status} />
+        <Cell
+          key={cell.key}
+          cell={cell}
+          dense={dense}
+          stage={row.status}
+          showTokens={showTokens}
+        />
       ))}
       <td className="whitespace-nowrap text-xs">
         {row.delivered_at ? (
