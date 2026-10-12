@@ -317,6 +317,16 @@ textarea {
   overflow-wrap: anywhere;
   text-align: left;
 }
+/* A short fixed text (a deadline "Hạn 13/10 09:48") stays on one line: it must
+   never break inside a date. */
+.st.st-nowrap {
+  white-space: nowrap;
+  overflow-wrap: normal;
+  align-items: center;
+}
+.st.st-nowrap::before {
+  margin-top: 0;
+}
 .st::before {
   flex: none;
   margin-top: 0.4em;

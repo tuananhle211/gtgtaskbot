@@ -4094,6 +4094,12 @@ export interface MemberRow {
 export interface AccountMembers {
   month: string;
   members: MemberRow[];
+  /** The viewer has an ORD team of their own ("Thành viên nhóm tôi"). */
+  has_team?: boolean;
+  /** The viewer may also list everybody they are shown ("Tất cả"). */
+  can_view_all?: boolean;
+  /** This listing is the viewer's team. */
+  team?: boolean;
 }
 
 // --- Invites ------------------------------------------------------------------
@@ -4183,9 +4189,14 @@ export const api = {
       new_password: next,
     }),
   /** 403 `account_members_forbidden` for somebody who may not see the roster. */
-  accountMembers: (month: string, unit: string, includeInactive = false) =>
+  accountMembers: (month: string, unit: string, includeInactive = false, team = false) =>
     get<AccountMembers>(
-      `/api/account/members${query({ month, unit, include_inactive: includeInactive })}`,
+      `/api/account/members${query({
+        month,
+        unit,
+        include_inactive: includeInactive,
+        team: team ? "mine" : undefined,
+      })}`,
     ),
   /** OWNER / ADMIN. 204; 403 `account_status_forbidden` for self or an OWNER. */
   deactivateAccount: (userId: Uuid) =>

@@ -18,7 +18,7 @@ export function DeadlineBadge({
   const words = deadlineStatusLabel(status);
   return (
     <span
-      className={`st st-${deadlineColor(status)}`}
+      className={`st st-nowrap st-${deadlineColor(status)}`}
       title={words || undefined}
       data-deadline-status={status ?? undefined}
     >

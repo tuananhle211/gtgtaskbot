@@ -34,6 +34,7 @@ from meobot.application.account.avatar_service import avatar_urls
 from meobot.application.account.password_reset_service import PasswordResetService
 from meobot.application.account.stats_service import AccountStatsService, MemberStats, Month
 from meobot.application.audit_service import AuditService
+from meobot.application.units.directory import manager_fits
 from meobot.application.web_auth_service import WebAuthService
 from meobot.core.time import ensure_utc, utcnow
 from meobot.db.models.order import Order, OrderNode
@@ -56,7 +57,7 @@ from meobot.domain.identity.labels import role_label
 from meobot.domain.identity.models import Actor, Role
 from meobot.domain.orders.models import ACTIVE_NODE_STATUSES, TERMINAL_STAGES
 from meobot.domain.units.labels import unit_role_label
-from meobot.domain.units.models import UnitCode, UnitMemberRole, UnitMembership
+from meobot.domain.units.models import FUNCTION_ROLES, UnitCode, UnitMemberRole, UnitMembership
 
 FULL_NAME_MIN = 2
 FULL_NAME_MAX = 80
@@ -90,6 +91,12 @@ class MemberView:
 class MemberListing:
     month: Month
     members: list[MemberView] = field(default_factory=list)
+    #: The viewer has a team of their own ("Thành viên nhóm tôi").
+    has_team: bool = False
+    #: The viewer may also list everybody they are shown ("Tất cả").
+    can_view_all: bool = False
+    #: Whether this listing is the viewer's team.
+    team: bool = False
 
 
 @dataclass(frozen=True, slots=True)
@@ -192,14 +199,25 @@ class AccountService:
         month: Month,
         unit: str | None,
         include_inactive: bool = False,
+        team: bool = False,
     ) -> MemberListing:
+        """The roster with the month's figures.
+
+        ``team=True`` ("Thành viên nhóm tôi") lists the viewer's own team: their
+        Leader (head) and the people who report to the same one - open to every
+        ORD member, with the account-security columns blanked for somebody who
+        is not shown the full roster. A viewer with no team gets the full
+        roster instead, if they may see it.
+        """
         visibility = _visibility(actor, membership)
-        if visibility is None:
+        mine = await self._team_of(actor, membership)
+        team = team and mine is not None
+        if visibility is None and not team:
             raise AccountMembersForbiddenError()
         if include_inactive and actor.role not in (Role.OWNER, Role.ADMIN):
             raise AccountMembersForbiddenError()
-        wanted = self._parse_unit_filter(unit)
-        if wanted is not None and wanted not in visibility.units:
+        wanted = None if team else self._parse_unit_filter(unit)
+        if wanted is not None and (visibility is None or wanted not in visibility.units):
             raise AccountMembersForbiddenError()
 
         # A deleted account (0054) is listed nowhere.
@@ -213,10 +231,14 @@ class AccountService:
         for user in users:
             units = units_by_user.get(user.id, ())
             codes = {item.code for item in units}
-            if wanted is not None:
+            if team:
+                assert mine is not None
+                if user.id not in mine:
+                    continue
+            elif wanted is not None:
                 if wanted not in codes:
                     continue
-            elif not visibility.everyone and not codes & visibility.units:
+            elif visibility is None or (not visibility.everyone and not codes & visibility.units):
                 continue
             listed.append((user, units))
 
@@ -225,25 +247,99 @@ class AccountService:
         last_logins = await self._last_logins(ids)
         avatars = await avatar_urls(self._session, ids)
         now = utcnow()
+        # Sign-in details are for whoever is shown the full roster.
+        private = visibility is None
         return MemberListing(
             month=month,
+            has_team=mine is not None,
+            can_view_all=visibility is not None,
+            team=team,
             members=[
                 MemberView(
                     user=user,
                     units=units,
                     role_label=member_role_label(user, units),
-                    last_login_at=last_logins.get(user.id),
-                    has_custom_password=(
-                        user.password_hash is not None and not user.password_temporary
-                    ),
-                    password_temporary=bool(user.password_temporary),
-                    locked=user.locked_until is not None and ensure_utc(user.locked_until) > now,
+                    last_login_at=None if private else last_logins.get(user.id),
+                    has_custom_password=not private
+                    and user.password_hash is not None
+                    and not user.password_temporary,
+                    password_temporary=not private and bool(user.password_temporary),
+                    locked=not private
+                    and user.locked_until is not None
+                    and ensure_utc(user.locked_until) > now,
                     stats=stats[user.id],
                     avatar_url=avatars.get(user.id),
                 )
                 for user, units in listed
             ],
         )
+
+    async def _team_of(self, actor: Actor, membership: UnitMembership) -> set[uuid.UUID] | None:
+        """The viewer's own ORD team: their Leader (an orderer: head) and
+        everybody who reports to the same one, themselves included.
+
+        A Leader's (head's) team is the staff whose own Leader they are, plus
+        the staff with none set - those belong to every Leader of the ban.
+        Staff with no Leader set see the whole ban. ``None``: no ORD team.
+        """
+        entry = membership.entry(UnitCode.ADS)
+        if entry is None or actor.user_id is None:
+            return None
+        rows = (
+            await self._session.scalars(
+                select(OrgUnitMember)
+                .join(User, User.id == OrgUnitMember.user_id)
+                .where(
+                    OrgUnitMember.unit_id == entry.unit_id,
+                    OrgUnitMember.left_at.is_(None),
+                    User.active.is_(True),
+                    User.deleted_at.is_(None),
+                )
+            )
+        ).all()
+        by_user = {row.user_id: row for row in rows}
+        me = by_user.get(actor.user_id)
+        if me is None:
+            return None
+
+        def boss_of(row: OrgUnitMember) -> uuid.UUID | None:
+            boss = None if row.manager_user_id is None else by_user.get(row.manager_user_id)
+            return boss.user_id if boss is not None and manager_fits(boss, row) else None
+
+        def leads(row: OrgUnitMember) -> bool:
+            return row.role is UnitMemberRole.HEAD or (row.role in FUNCTION_ROLES and row.is_lead)
+
+        staff_role: UnitMemberRole
+        if leads(me):
+            bosses = {me.user_id}
+            staff_role = UnitMemberRole.ORDERER if me.role is UnitMemberRole.HEAD else me.role
+        elif me.role is UnitMemberRole.ORDERER or me.role in FUNCTION_ROLES:
+            staff_role = me.role
+            own = boss_of(me)
+            bosses = (
+                {own}
+                if own is not None
+                else {
+                    row.user_id
+                    for row in rows
+                    if leads(row)
+                    and (
+                        row.role is UnitMemberRole.HEAD
+                        if staff_role is UnitMemberRole.ORDERER
+                        else row.role is staff_role
+                    )
+                }
+            )
+        else:
+            return None
+        found = {me.user_id, *bosses}
+        for row in rows:
+            if row.role is not staff_role or leads(row):
+                continue
+            boss = boss_of(row)
+            if boss is None or boss in bosses:
+                found.add(row.user_id)
+        return found
 
     # --- reset -----------------------------------------------------------------------
 

@@ -588,7 +588,7 @@ describe("deactivating and reactivating an account", () => {
     await waitFor(() =>
       expect(
         callsOf(fetchMock).some(
-          (call) => call.url === "/api/account/members?month=2026-10&unit=ALL&include_inactive=true",
+          (call) => call.url === "/api/account/members?month=2026-10&unit=ALL&include_inactive=true&team=mine",
         ),
       ).toBe(true),
     );

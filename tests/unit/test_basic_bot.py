@@ -405,3 +405,34 @@ async def test_owners_get_the_full_menu_in_their_own_chat(
         assert isinstance(scope, BotCommandScopeChat)
         assert scope.chat_id == chat_id
         assert {command.command for command in call.commands} == set(BY_NAME)  # type: ignore[attr-defined]
+
+
+async def test_a_bans_leader_creates_an_invite_over_telegram(
+    dispatcher: Dispatcher,
+    bot_database: SqliteDatabase,
+    bot_and_session: tuple[Bot, RecordingSession],
+) -> None:
+    """A Trưởng phòng Biên kịch / Design / Dựng may be a plain "Nhân viên" by
+    system role: /create_invite still answers them, with a code for their ban."""
+    from meobot.db.models.org_unit import OrgUnit, OrgUnitMember
+    from meobot.domain.units.models import UnitCode, UnitMemberRole, unit_seed_id
+
+    await add_person(bot_database, Role.EMPLOYEE)
+    async with bot_database.transaction() as db:
+        person = await db.scalar(select(User).where(User.telegram_user_id == PERSON))
+        assert person is not None
+        unit = OrgUnit(id=unit_seed_id(UnitCode.ADS), code=UnitCode.ADS, name="ORD")
+        db.add(unit)
+        await db.flush()
+        db.add(
+            OrgUnitMember(
+                unit_id=unit.id, user_id=person.id, role=UnitMemberRole.DUNG, is_lead=True
+            )
+        )
+    bot, session = bot_and_session
+    await dispatcher.feed_update(
+        bot, make_update("/create_invite", user_id=PERSON, chat_id=PERSON, update_id=uid(90))
+    )
+    reply = session.combined_text()
+    assert "Mã mời" in reply, reply
+    assert "Dựng" in reply and "Trưởng quản lý" in reply

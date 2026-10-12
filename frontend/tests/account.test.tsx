@@ -742,6 +742,35 @@ describe("the account page", () => {
     expect(screen.queryByText("Không có quyền xem.")).not.toBeInTheDocument();
   });
 
+  it("opens the members tab on my team and switches to everybody", async () => {
+    const fetchMock = stubFetch([
+      {
+        match: "/api/account/members",
+        body: { month: "2026-10", members: ROWS, has_team: true, can_view_all: true, team: true },
+      },
+      { match: "/api/account/me", body: ME },
+    ]);
+    renderWithQuery(<AccountPage />);
+    const user = userEvent.setup();
+    await user.click(await screen.findByRole("tab", { name: "Thành viên" }));
+    const scope = await screen.findByRole("tablist", { name: "Phạm vi thành viên" });
+    expect(within(scope).getByRole("tab", { name: "Thành viên nhóm tôi" })).toHaveAttribute(
+      "aria-selected",
+      "true",
+    );
+    expect(callsOf(fetchMock).some((call) => call.url.endsWith("&team=mine"))).toBe(true);
+    // The stream filter is for the full roster only.
+    expect(screen.queryByLabelText("Luồng")).not.toBeInTheDocument();
+    await user.click(within(scope).getByRole("tab", { name: "Tất cả" }));
+    await waitFor(() =>
+      expect(
+        callsOf(fetchMock).some(
+          (call) => call.url === "/api/account/members?month=2026-10&unit=ALL",
+        ),
+      ).toBe(true),
+    );
+  });
+
   it("lists members, sorts by points and resets a password behind a confirmation", async () => {
     const fetchMock = stubFetch([
       { match: "/reset-password", method: "POST", status: 204 },
@@ -760,7 +789,7 @@ describe("the account page", () => {
     const user = userEvent.setup();
     await user.click(await screen.findByRole("tab", { name: "Thành viên" }));
     expect(
-      callsOf(fetchMock).some((call) => call.url === "/api/account/members?month=2026-10&unit=ALL"),
+      callsOf(fetchMock).some((call) => call.url === "/api/account/members?month=2026-10&unit=ALL&team=mine"),
     ).toBe(true);
 
     const table = screen.getByRole("table");

@@ -286,6 +286,12 @@ class MemberRowResponse(BaseModel):
 class MemberListResponse(BaseModel):
     month: str
     members: list[MemberRowResponse]
+    #: The caller has an ORD team of their own ("Thành viên nhóm tôi").
+    has_team: bool = False
+    #: The caller may also list everybody they are shown ("Tất cả").
+    can_view_all: bool = False
+    #: This listing is the caller's team.
+    team: bool = False
 
 
 __all__ = [

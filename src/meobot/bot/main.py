@@ -10,9 +10,11 @@ from __future__ import annotations
 
 import asyncio
 from collections.abc import Iterable
+from typing import Any
 
 from aiogram import Bot, Dispatcher
-from aiogram.types import BotCommand, BotCommandScopeChat
+from aiogram.dispatcher.event.bases import UNHANDLED
+from aiogram.types import BotCommand, BotCommandScopeChat, ErrorEvent
 from sqlalchemy import select
 
 from meobot.application.conversation_service import ConversationService
@@ -121,6 +123,9 @@ def build_dispatcher(settings: Settings, database: Database) -> Dispatcher:
     # After the actor is known, before any handler: everybody but the owner
     # gets the basic commands only. Outer middlewares run in this order.
     dispatcher.message.outer_middleware(BasicCommandsMiddleware())
+    # A handler that blew up must not look like silence: tell the person,
+    # then let the error go on to the log as before.
+    dispatcher.errors.register(tell_the_person_it_failed)
     # First: a Guest\'s update is consumed here and never offered to a handler
     # that expects an Actor.
     dispatcher.include_router(guest_router)
@@ -162,6 +167,22 @@ def build_dispatcher(settings: Settings, database: Database) -> Dispatcher:
     # had its chance first.
     dispatcher.include_router(conversation_router)
     return dispatcher
+
+
+#: What somebody reads when their command or button failed on our side.
+HANDLER_FAILED = "⚠️ Có lỗi khi xử lý yêu cầu này. Bạn thử lại sau, hoặc báo quản trị viên."
+
+
+async def tell_the_person_it_failed(event: ErrorEvent) -> Any:
+    """Answer the message whose handler raised, and leave the exception
+    unhandled so it is logged and raised exactly as without this."""
+    message = event.update.message
+    if message is not None:
+        try:
+            await message.answer(HANDLER_FAILED)
+        except Exception:  # the report must never mask the original error
+            logger.warning("handler_failure_notice_not_sent", exc_info=True)
+    return UNHANDLED
 
 
 async def publish_command_menu(bot: Bot, *, owner_chat_ids: Iterable[int] = ()) -> bool:

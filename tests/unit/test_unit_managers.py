@@ -133,3 +133,47 @@ async def test_04_without_a_manager_every_leader_is_named(world: World) -> None:
     row = row_of(world, ads.head, code)
     assert row is not None
     assert ads.head.full_name in row["status_label"] and head2.full_name in row["status_label"]
+
+
+async def test_05_my_team_on_the_members_tab(world: World) -> None:
+    """ "Thành viên nhóm tôi": the Leader and everybody reporting to the same one."""
+    ads, _, lead_dung2 = await two_leads(world)
+    editor2 = await person(world, "Editor D")
+    await tag(world, ads.unit, editor2, UnitMemberRole.DUNG)
+    assert set_manager(world, ads.editor, lead_dung2).status_code == 200
+
+    def team(user: User) -> dict[str, Any]:
+        world.act_as(user)
+        response = world.client.get("/api/account/members", params={"team": "mine"})
+        assert response.status_code == 200, response.json()
+        body: dict[str, Any] = response.json()
+        return body
+
+    def names(body: dict[str, Any]) -> set[str]:
+        return {row["full_name"] for row in body["members"]}
+
+    # Staff: their own Leader and that Leader's people; a member with no
+    # Leader set belongs to every Leader of the ban.
+    mine = team(ads.editor)
+    assert names(mine) == {lead_dung2.full_name, ads.editor.full_name, editor2.full_name}
+    assert mine["team"] is True and mine["has_team"] is True and mine["can_view_all"] is False
+    # Sign-in details are not theirs to see, and neither is the full roster.
+    assert all(row["last_login_at"] is None for row in mine["members"])
+    assert world.client.get("/api/account/members").status_code == 403
+    # The other Leader's team has no place for somebody else's member.
+    assert names(team(ads.lead_dung)) == {ads.lead_dung.full_name, editor2.full_name}
+    # Staff with no Leader set see the whole ban.
+    assert names(team(editor2)) == {
+        ads.lead_dung.full_name,
+        lead_dung2.full_name,
+        ads.editor.full_name,
+        editor2.full_name,
+    }
+    # The head: their orderers - and "Tất cả" stays theirs.
+    heads = team(ads.head)
+    assert names(heads) == {ads.head.full_name, ads.orderer.full_name}
+    assert heads["can_view_all"] is True
+    # No team of one's own (the OWNER): the full roster instead.
+    everyone = team(world.owner)
+    assert everyone["team"] is False and everyone["has_team"] is False
+    assert len(everyone["members"]) > 5

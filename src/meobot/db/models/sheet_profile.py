@@ -7,6 +7,7 @@ from datetime import datetime
 from typing import Any
 
 from sqlalchemy import (
+    BigInteger,
     Boolean,
     DateTime,
     ForeignKey,
@@ -68,7 +69,8 @@ class SheetProfile(Base, UUIDPrimaryKeyMixin, TimestampMixin):
     created_by: Mapped[uuid.UUID | None] = mapped_column(
         ForeignKey("users.id", ondelete="SET NULL"), nullable=True
     )
-    created_by_telegram_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    #: BIGINT: Telegram ids passed 2**31 long ago (0055).
+    created_by_telegram_id: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
     last_synced_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     last_sync_status: Mapped[str | None] = mapped_column(String(30), nullable=True)
     last_sync_error: Mapped[str | None] = mapped_column(Text, nullable=True)

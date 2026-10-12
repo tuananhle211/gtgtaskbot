@@ -232,20 +232,30 @@ async def members(
     month: str | None = Query(default=None, max_length=7),
     unit: str | None = Query(default=None, max_length=10),
     include_inactive: bool = Query(default=False),
+    team: str | None = Query(default=None, max_length=10),
 ) -> MemberListResponse:
     """The team's figures for one month. OWNER and ADMIN (everyone), ORD HEAD
     (the ORD members). ``include_inactive=true`` (OWNER/ADMIN only) lists the
-    deactivated accounts too, with ``active: false``."""
+    deactivated accounts too, with ``active: false``.
+
+    ``team=mine`` ("Thành viên nhóm tôi"): the caller's own ORD team - their
+    Leader and the people reporting to the same one - open to every ORD
+    member. Somebody with no team gets the full roster (if they may see it);
+    ``has_team`` / ``can_view_all`` / ``team`` say which it is."""
     listing = await accounts.members(
         actor=actor,
         membership=membership,
         month=resolve_month(month, tz=settings.timezone),
         unit=unit,
         include_inactive=include_inactive,
+        team=(team or "").strip().lower() == "mine",
     )
     return MemberListResponse(
         month=listing.month.label,
         members=[MemberRowResponse.from_view(view) for view in listing.members],
+        has_team=listing.has_team,
+        can_view_all=listing.can_view_all,
+        team=listing.team,
     )
 
 

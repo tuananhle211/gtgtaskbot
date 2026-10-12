@@ -90,13 +90,16 @@ function Account({ me }: { me: AccountMe }) {
   const [unit, setUnit] = useState("ALL");
   // OWNER / ADMIN may list deactivated accounts too, to bring them back.
   const [includeInactive, setIncludeInactive] = useState(false);
+  // "Thành viên nhóm tôi": on when the tab opens. The server falls back to the
+  // full roster for somebody with no team of their own.
+  const [teamOnly, setTeamOnly] = useState(true);
 
   // The roster is offered only to somebody the server shows it to: a 403 hides
   // the tab. Once it has loaded, a later failure (a filter the server refuses)
   // is shown inside the tab instead of taking the tab away mid-use.
   const members = useQuery({
-    queryKey: ["account", "members", month, unit, includeInactive],
-    queryFn: () => api.accountMembers(month, unit, includeInactive),
+    queryKey: ["account", "members", month, unit, includeInactive, teamOnly],
+    queryFn: () => api.accountMembers(month, unit, includeInactive, teamOnly),
     enabled: !mustChange,
     placeholderData: keepPreviousData,
     retry: false,
@@ -156,6 +159,8 @@ function Account({ me }: { me: AccountMe }) {
           onUnit={setUnit}
           includeInactive={includeInactive}
           onIncludeInactive={setIncludeInactive}
+          teamOnly={teamOnly}
+          onTeamOnly={setTeamOnly}
           query={members}
         />
       ) : null}
@@ -888,6 +893,8 @@ function Members({
   onUnit,
   includeInactive,
   onIncludeInactive,
+  teamOnly,
+  onTeamOnly,
   query,
 }: {
   me: AccountMe;
@@ -897,8 +904,15 @@ function Members({
   onUnit: (value: string) => void;
   includeInactive: boolean;
   onIncludeInactive: (value: boolean) => void;
+  /** "Thành viên nhóm tôi" (the default) or everybody the viewer is shown. */
+  teamOnly: boolean;
+  onTeamOnly: (value: boolean) => void;
   query: UseQueryResult<AccountMembers>;
 }) {
+  // What the server actually listed: the viewer's team, or the full roster.
+  const showingTeam = query.data?.team ?? false;
+  const hasTeam = query.data?.has_team ?? false;
+  const canViewAll = query.data?.can_view_all ?? true;
   const queryClient = useQueryClient();
   const [sort, setSort] = useState<"none" | "desc" | "asc">("none");
   const [notice, setNotice] = useState<string | null>(null);
@@ -939,19 +953,45 @@ function Members({
             Thành viên
           </h2>
           <p className="mt-0.5 text-sm text-[var(--text-muted)]">
+            {showingTeam ? "Nhóm của tôi · " : ""}
             {monthLabel(month)} · {rows.length} người
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-3">
           <MonthField month={month} onMonth={onMonth} />
-          <label className="inline-flex items-center gap-2 text-sm text-[var(--text-muted)]">
-            Luồng
-            <Select value={unit} onChange={(event) => onUnit(event.target.value)} className="min-h-10 text-sm">
-              <option value="ALL">Tất cả</option>
-              <option value="ADS">{STREAM_NAMES.ADS}</option>
-              <option value="PR">{STREAM_NAMES.PR}</option>
-            </Select>
-          </label>
+          {hasTeam && canViewAll ? (
+            <div role="tablist" aria-label="Phạm vi thành viên" className="flex gap-1.5">
+              {[
+                { team: true, label: "Thành viên nhóm tôi" },
+                { team: false, label: "Tất cả" },
+              ].map((item) => (
+                <button
+                  key={item.label}
+                  type="button"
+                  role="tab"
+                  aria-selected={teamOnly === item.team}
+                  onClick={() => onTeamOnly(item.team)}
+                  className={`min-h-10 rounded-lg border px-3 text-sm font-medium ${
+                    teamOnly === item.team
+                      ? "border-[var(--accent)] bg-[var(--accent-soft)] text-[var(--accent-strong)]"
+                      : "border-[var(--border)] hover:bg-[var(--surface-muted)]"
+                  }`}
+                >
+                  {item.label}
+                </button>
+              ))}
+            </div>
+          ) : null}
+          {showingTeam ? null : (
+            <label className="inline-flex items-center gap-2 text-sm text-[var(--text-muted)]">
+              Luồng
+              <Select value={unit} onChange={(event) => onUnit(event.target.value)} className="min-h-10 text-sm">
+                <option value="ALL">Tất cả</option>
+                <option value="ADS">{STREAM_NAMES.ADS}</option>
+                <option value="PR">{STREAM_NAMES.PR}</option>
+              </Select>
+            </label>
+          )}
           {mayReset ? (
             <label className="inline-flex min-h-10 items-center gap-2 text-sm text-[var(--text-muted)]">
               <input

@@ -10,7 +10,7 @@ from __future__ import annotations
 import uuid
 from datetime import datetime
 
-from sqlalchemy import Boolean, DateTime, ForeignKey, Integer, String, Text
+from sqlalchemy import BigInteger, Boolean, DateTime, ForeignKey, Integer, String, Text
 from sqlalchemy import Enum as SAEnum
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -37,7 +37,8 @@ class InviteCode(Base, UUIDPrimaryKeyMixin, TimestampMixin):
     created_by: Mapped[uuid.UUID | None] = mapped_column(
         ForeignKey("users.id", ondelete="SET NULL"), nullable=True
     )
-    created_by_telegram_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    #: BIGINT: Telegram ids passed 2**31 long ago (0055).
+    created_by_telegram_id: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
     expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     max_uses: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
     use_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
