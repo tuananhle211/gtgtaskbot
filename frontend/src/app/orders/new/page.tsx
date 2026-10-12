@@ -131,8 +131,8 @@ export default function NewOrderPage() {
               <label
                 key={code}
                 className={`flex min-w-[16rem] flex-1 cursor-pointer gap-3 rounded-xl border-2 p-3 ${chosen === code
-                    ? "border-[var(--accent)]"
-                    : "border-[var(--border)]"
+                  ? "border-[var(--accent)]"
+                  : "border-[var(--border)]"
                   }`}
               >
                 <input
@@ -424,8 +424,8 @@ function AdsOrderForm({
               <label
                 key={item.node}
                 className={`flex min-h-12 min-w-28 cursor-pointer items-center gap-2 rounded-lg border-2 px-4 text-[15px] font-semibold transition-colors ${nodes.includes(item.node)
-                    ? "border-[var(--accent)] bg-[var(--accent-soft)] text-[var(--accent-strong)] shadow-sm"
-                    : "border-[var(--border)] hover:border-[var(--accent)] hover:bg-[var(--accent-soft)]"
+                  ? "border-[var(--accent)] bg-[var(--accent-soft)] text-[var(--accent-strong)] shadow-sm"
+                  : "border-[var(--border)] hover:border-[var(--accent)] hover:bg-[var(--accent-soft)]"
                   }`}
               >
                 <input
@@ -613,7 +613,7 @@ function AdsOrderForm({
             />
           </label>
           <label className="block text-sm font-medium">
-            7 · Link source
+            7 · Link nguồn
             <input
               type="url"
               value={form.source_link}
