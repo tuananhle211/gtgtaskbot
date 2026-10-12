@@ -79,12 +79,17 @@ async def test_02_an_order_waits_on_the_orderers_own_head_only(world: World) -> 
     mine = row_of(world, head2, code)
     assert mine is not None and mine["awaiting_me"] is True
     assert mine["status_label"] == f"Chờ {head2.full_name} duyệt order"
-    other = row_of(world, ads.head, code)
-    assert other is not None and other["awaiting_me"] is False
+    # Another head's team is not theirs to see, let alone decide.
+    assert row_of(world, ads.head, code) is None
     assert any(kind == "order_submitted" for kind, _ in await inbox(world, head2))
     assert all(kind != "order_submitted" for kind, _ in await inbox(world, ads.head))
-    # The other head may still decide it (a stand-in).
-    approved = act(world, ads.head, "/approve", detail)
+    world.act_as(ads.head)
+    hidden = world.client.post(
+        f"/api/orders/{detail['order']['id']}/approve",
+        json={"version": detail["order"]["version"]},
+    )
+    assert hidden.status_code == 404
+    approved = act(world, head2, "/approve", detail)
     assert approved["order"]["stage"] != "ORDER_PENDING"
 
 
@@ -201,8 +206,8 @@ async def test_06_the_orderer_picks_who_approves_the_order(world: World) -> None
     mine = row_of(world, head2, code)
     assert mine is not None and mine["awaiting_me"] is True
     assert mine["status_label"] == f"Chờ {head2.full_name} duyệt order"
-    other = row_of(world, ads.head, code)
-    assert other is not None and other["awaiting_me"] is False
+    # Chosen for somebody else: the other head does not see it.
+    assert row_of(world, ads.head, code) is None
     assert any(kind == "order_submitted" for kind, _ in await inbox(world, head2))
     assert all(kind != "order_submitted" for kind, _ in await inbox(world, ads.head))
     # The task page shows the orderer's note.
@@ -225,3 +230,40 @@ async def test_07_a_heads_own_order_needs_no_approval(world: World) -> None:
         world, ads, by=head2, video_type="D", design_link="d", approver_user_id=str(ads.head.id)
     )
     assert again["order"]["stage"] == "DUNG" and again["order"]["approver_user_id"] is None
+
+
+async def test_08_an_order_team_sees_only_its_own_orders(world: World) -> None:
+    """One order team does not read another's ideas: a head sees the orders of
+    the orderers who report to them; an orderer only their own - not even a
+    teammate's."""
+    ads, head2, _ = await two_leads(world)
+    mate = await person(world, "Marketing cùng nhóm")
+    await tag(world, ads.unit, mate, UnitMemberRole.ORDERER, member_code="MATE")
+    rival = await person(world, "Marketing nhóm khác")
+    await tag(world, ads.unit, rival, UnitMemberRole.ORDERER, member_code="RIVAL")
+    for member, head in ((ads.orderer, ads.head), (mate, ads.head), (rival, head2)):
+        assert set_manager(world, member, head).status_code == 200
+    ours = create(world, ads, video_type="D", design_link="d")["order"]["code"]
+    theirs = create(world, ads, by=rival, video_type="D", design_link="d")["order"]["code"]
+
+    def seen(user: User) -> set[str]:
+        world.act_as(user)
+        page = world.client.get("/api/board/tasks?unit=ADS&limit=50").json()
+        return {row["code"] for row in page["items"]}
+
+    assert seen(ads.head) == {ours}
+    assert seen(head2) == {theirs}
+    assert seen(mate) == set()  # a teammate's order is not theirs to see
+    assert seen(ads.orderer) == {ours}
+    assert seen(rival) == {theirs}
+    # Hidden is hidden everywhere: the page, the dashboard, the counts.
+    world.act_as(ads.head)
+    assert world.client.get(f"/api/tasks/{theirs}").status_code == 404
+    assert world.client.get("/api/board/dashboard?unit=ADS").json()["total"] == 1
+    # The production side still sees what it works on, whoever ordered it;
+    # the OWNER sees everything.
+    world.act_as(head2)
+    detail = world.client.get(f"/api/orders/{theirs}").json()
+    act(world, head2, "/approve", detail)
+    assert theirs in seen(ads.lead_dung)
+    assert seen(world.owner) == {ours, theirs}

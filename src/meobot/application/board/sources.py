@@ -20,7 +20,7 @@ from datetime import date, datetime, time, timedelta
 from decimal import Decimal
 from typing import Any, Protocol
 
-from sqlalchemy import ColumnElement, Select, and_, case, exists, func, or_, select
+from sqlalchemy import ColumnElement, Select, case, exists, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import aliased
 
@@ -38,7 +38,7 @@ from meobot.application.board.holders import (
     pr_reviewers,
     waiting_for,
 )
-from meobot.application.orders.scope import OrderScope
+from meobot.application.orders.scope import OrderScope, boss_of
 from meobot.application.pr_content_query import ContentQuery
 from meobot.application.pr_query_service import PrQueryService
 from meobot.core.config import Settings
@@ -591,7 +591,7 @@ class AdsBoardSource:
             # The approver the orderer chose (0056), else the orderer's own
             # head, else every head.
             chosen = _chosen_approver()
-            boss = func.coalesce(chosen, _boss_of(Order.owner_user_id, head=True))
+            boss = func.coalesce(chosen, boss_of(Order.owner_user_id, head=True))
             conditions.append(
                 (Order.stage == OrderStage.ORDER_PENDING) & or_(boss.is_(None), boss == user_id)
             )
@@ -625,8 +625,8 @@ class AdsBoardSource:
                         OrderNode.status == OrderNodeStatus.CHO_DUYET,
                         # A worker with their own Leader waits on that Leader only.
                         or_(
-                            _boss_of(OrderNode.assignee_user_id).is_(None),
-                            _boss_of(OrderNode.assignee_user_id) == user_id,
+                            boss_of(OrderNode.assignee_user_id).is_(None),
+                            boss_of(OrderNode.assignee_user_id) == user_id,
                         ),
                     )
                 )
@@ -1194,36 +1194,6 @@ def _chosen_approver() -> Any:
             head.role == UnitMemberRole.HEAD,
             head.left_at.is_(None),
             head_user.active.is_(True),
-        )
-        .limit(1)
-        .scalar_subquery()
-    )
-
-
-def _boss_of(member: Any, *, head: bool = False) -> Any:
-    """SQL twin of ``AdsApprovers.managers``: the active manager ``member``
-    reports to in the order's unit while the link fits (an orderer's head, a
-    staff member's Leader of the same function), else NULL."""
-    worker = aliased(OrgUnitMember)
-    boss = aliased(OrgUnitMember)
-    boss_user = aliased(User)
-    fits = (
-        and_(worker.role == UnitMemberRole.ORDERER, boss.role == UnitMemberRole.HEAD)
-        if head
-        else and_(worker.is_lead.is_(False), boss.is_lead.is_(True), boss.role == worker.role)
-    )
-    return (
-        select(boss.user_id)
-        .select_from(worker)
-        .join(boss, and_(boss.unit_id == worker.unit_id, boss.user_id == worker.manager_user_id))
-        .join(boss_user, boss_user.id == boss.user_id)
-        .where(
-            worker.unit_id == Order.unit_id,
-            worker.user_id == member,
-            worker.left_at.is_(None),
-            boss.left_at.is_(None),
-            boss_user.active.is_(True),
-            fits,
         )
         .limit(1)
         .scalar_subquery()

@@ -103,11 +103,26 @@ SCOPE_LABELS: Mapping[AdsScope, str] = MappingProxyType(
 _ALL = AdsScope.ALL
 _OWN = AdsScope.OWN
 
-#: Managers run every node of every order; a Leader runs their function;
-#: staff do the work they are given; Marketing orders.
+#: What the production side decides, and a Trưởng phòng ORD does not (0057):
+#: handing a step out, reviewing a hand-in, and the script lead's video review.
+PRODUCTION_PERMISSIONS: frozenset[AdsPermission] = frozenset(
+    {AdsPermission.NODE_ASSIGN, AdsPermission.NODE_REVIEW, AdsPermission.VIDEO_REVIEW}
+)
+
+#: A Trưởng phòng ORD decides their own gate - the order - and the final
+#: product, and may prioritise or cancel; the production steps (Biên kịch,
+#: Design, Dựng) are their Leaders' to hand out and review. An Admin runs
+#: everything; a Leader runs their function; staff do the work they are
+#: given; Marketing orders.
 DEFAULT_MATRIX: Mapping[AdsRoleKey, Mapping[AdsPermission, AdsScope]] = MappingProxyType(
     {
-        AdsRoleKey.HEAD: MappingProxyType(dict.fromkeys(AdsPermission, _ALL)),
+        AdsRoleKey.HEAD: MappingProxyType(
+            {
+                permission: _ALL
+                for permission in AdsPermission
+                if permission not in PRODUCTION_PERMISSIONS
+            }
+        ),
         AdsRoleKey.ADMIN: MappingProxyType(dict.fromkeys(AdsPermission, _ALL)),
         AdsRoleKey.LEAD: MappingProxyType(
             {

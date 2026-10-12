@@ -245,7 +245,7 @@ describe("the create form's Quy trình", () => {
     expect(codePreview()).toBe("TUAN-?-yymmdd-nn");
   });
 
-  it("makes the orderer pick who approves the order", async () => {
+  it("lets the orderer pick who approves the order, or leave it to their own head", async () => {
     const head = (id: string, name: string) => ({
       ...MEMBERS.members[0],
       user_id: id,
@@ -253,7 +253,7 @@ describe("the create form's Quy trình", () => {
       role: "HEAD",
       role_label: "Trưởng phòng ORD",
     });
-    const fetchMock = stubFetch([
+    const routes = [
       { match: "/api/units/me", body: ORDERER },
       {
         match: "/api/units/ADS/members",
@@ -261,26 +261,40 @@ describe("the create form's Quy trình", () => {
       },
       { match: "/api/units/ADS/video-kinds", body: { kinds: [] } },
       { match: "/api/orders", method: "POST", body: { order: { code: "TUAN-TD-261008-01" } } },
-    ]);
+    ];
+    const send = async () => {
+      await userEvent.click(submit());
+      await userEvent.click(
+        within(await screen.findByRole("dialog")).getByRole("button", { name: "Gửi order" }),
+      );
+    };
+    const posted = (stub: unknown) =>
+      calls(stub).find((call) => call.method === "POST" && call.url.includes("/api/orders"));
+
+    // Optional: left on "Tự động", no approver is sent - the server routes it.
+    const first = stubFetch(routes);
+    const { unmount } = renderWithQuery(<NewOrderPage />);
+    await fillBasics();
+    await userEvent.click(screen.getByRole("checkbox", { name: "Design" }));
+    const picker = await screen.findByLabelText(/Người duyệt order/);
+    expect(picker).toHaveValue("");
+    expect(within(picker).getAllByRole("option")[0]).toHaveTextContent("Tự động");
+    expect(submit()).toBeEnabled();
+    await send();
+    await waitFor(() => expect(posted(first)).toBeDefined());
+    expect(posted(first)?.body).not.toHaveProperty("approver_user_id");
+    unmount();
+
+    // Picked: that head is sent.
+    const second = stubFetch(routes);
     renderWithQuery(<NewOrderPage />);
     await fillBasics();
     await userEvent.click(screen.getByRole("checkbox", { name: "Design" }));
-    // Two heads and no own head: the orderer has to choose.
-    const picker = await screen.findByLabelText(/Người duyệt order/);
-    expect(picker).toHaveValue("");
-    expect(submit()).toBeDisabled();
-    await userEvent.selectOptions(picker, "h-2");
-    expect(submit()).toBeEnabled();
-    await userEvent.click(submit());
-    await userEvent.click(
-      within(await screen.findByRole("dialog")).getByRole("button", { name: "Gửi order" }),
+    await userEvent.selectOptions(await screen.findByLabelText(/Người duyệt order/), "h-2");
+    await send();
+    await waitFor(() =>
+      expect(posted(second)?.body).toMatchObject({ approver_user_id: "h-2" }),
     );
-    await waitFor(() => {
-      const sent = calls(fetchMock).find(
-        (call) => call.method === "POST" && call.url.includes("/api/orders"),
-      );
-      expect(sent?.body).toMatchObject({ approver_user_id: "h-2" });
-    });
   });
 
   it("asks a Trưởng phòng ORD for no approver: their order needs no approval", async () => {

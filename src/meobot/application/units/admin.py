@@ -790,8 +790,8 @@ class UnitAdminService:
                     (
                         f"no_lead_{node_type.value.lower()}",
                         f"Ban {node_type_label(node_type)} có thành viên nhưng chưa có "
-                        f"{LEAD_ROLE_LABELS[ROLE_FOR_NODE[node_type]]}: việc tới sẽ dồn về "
-                        "Trưởng phòng ORD.",
+                        f"{LEAD_ROLE_LABELS[ROLE_FOR_NODE[node_type]]}: việc tới sẽ chờ giao, "
+                        "chưa có ai phân công.",
                     )
                 )
         # No warning for a missing member code: the first order derives one

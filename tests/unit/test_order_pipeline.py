@@ -290,10 +290,8 @@ def test_09_the_two_last_gates_belong_to_the_script_lead_and_the_head() -> None:
         OrderActionKind.APPROVE_VIDEO,
         OrderActionKind.RETURN_VIDEO,
     }
-    # The default matrix gives the head every gate, the script lead's included.
+    # The script lead's video review is production's: not the head's (0057).
     assert kinds(available_actions(video_gate, nodes, head)) == {
-        OrderActionKind.APPROVE_VIDEO,
-        OrderActionKind.RETURN_VIDEO,
         OrderActionKind.SET_PRIORITY,
         OrderActionKind.CANCEL,
     }

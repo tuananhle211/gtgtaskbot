@@ -88,22 +88,36 @@ async def test_02_effective_permissions_are_the_union_of_a_persons_roles() -> No
 # --- the engine reads it ------------------------------------------------------------
 
 
-async def test_03_by_default_managers_run_every_node_and_leaders_their_own(
+async def test_03_by_default_leaders_run_their_own_node_and_the_head_none(
     world: World,
 ) -> None:
+    """The production steps are the Leaders' (and the Admin's, the OWNER's);
+    a Trưởng phòng ORD decides the order and the final product only (0057)."""
     ads = await ads_world(world)
     admin = await person(world, "Quản trị Ads", Role.ADMIN)
     await tag(world, ads.unit, admin, UnitMemberRole.ORDERER)
     detail = create(world, ads, video_type="TD")
     detail = act(world, ads.head, "/approve", detail)
-    for manager in (ads.head, world.owner, admin, ads.lead_tk):
+    for manager in (world.owner, admin, ads.lead_tk):
         assert "ASSIGN" in kinds(world, manager, detail), manager.full_name
-    assert "ASSIGN" not in kinds(world, ads.lead_dung, detail)
-    assert "ASSIGN" not in kinds(world, ads.designer, detail)
+    for other in (ads.head, ads.lead_dung, ads.designer):
+        assert "ASSIGN" not in kinds(world, other, detail), other.full_name
+    assert "SET_NODE_PLAN" not in kinds(world, ads.head, detail)
 
     tk = node(detail, "THIET_KE")["id"]
+    world.act_as(ads.head)
+    refused = world.client.post(
+        f"/api/orders/{detail['order']['id']}/nodes/{tk}/assign",
+        json={
+            "version": detail["order"]["version"],
+            "assignee_user_id": str(ads.designer.id),
+            "tokens": 1,
+            "deadline_at": "2030-01-01T00:00:00+00:00",
+        },
+    )
+    assert refused.status_code == 403, refused.json()
     detail = act(
-        world, ads.head, f"/nodes/{tk}/assign", detail, assignee_user_id=str(ads.designer.id)
+        world, ads.lead_tk, f"/nodes/{tk}/assign", detail, assignee_user_id=str(ads.designer.id)
     )
     assert node(detail, "THIET_KE")["assignee_user_id"] == str(ads.designer.id)
 
@@ -114,8 +128,8 @@ async def test_04_editing_the_matrix_changes_what_people_may_do(world: World) ->
     detail = act(world, ads.head, "/approve", detail)
     assert "ASSIGN" in kinds(world, ads.lead_tk, detail)
 
-    # Leaders no longer assign; the head still does.
-    response = set_matrix(world, {"LEAD": {"NODE_ASSIGN": "NONE"}})
+    # Leaders no longer assign; the head does once the matrix says so.
+    response = set_matrix(world, {"LEAD": {"NODE_ASSIGN": "NONE"}, "HEAD": {"NODE_ASSIGN": "ALL"}})
     assert response.status_code == 200, response.json()
     assert response.json()["permissions"]["LEAD"]["NODE_ASSIGN"] == "NONE"
     assert "ASSIGN" not in kinds(world, ads.lead_tk, detail)
@@ -169,8 +183,13 @@ async def test_06_who_a_review_waits_for_follows_the_matrix(world: World) -> Non
         return str(row["current_person_name"])
 
     assert holder() == ads.lead_dung.full_name
-    # Leaders stop reviewing: the head (who still may) is the one waited for.
-    assert set_matrix(world, {"LEAD": {"NODE_REVIEW": "NONE"}}).status_code == 200
+    # Leaders stop reviewing and the matrix lets the head: the head is waited for.
+    assert (
+        set_matrix(
+            world, {"LEAD": {"NODE_REVIEW": "NONE"}, "HEAD": {"NODE_REVIEW": "ALL"}}
+        ).status_code
+        == 200
+    )
     assert holder() == ads.head.full_name
     # Nobody may review: "Chờ giao".
     assert (
@@ -187,9 +206,11 @@ async def test_06_who_a_review_waits_for_follows_the_matrix(world: World) -> Non
     assert holder() == "Chờ giao"
 
 
-async def test_07_a_node_nobody_was_chosen_for_goes_to_its_leader_then_the_head(
+async def test_07_a_node_nobody_was_chosen_for_goes_to_its_leader(
     world: World,
 ) -> None:
+    """...and to nobody else by default: a Trưởng phòng ORD does not hand out
+    production steps (0057) unless the matrix gives them that."""
     ads = await ads_world(world)
     first = create(world, ads, video_type="D", design_link="https://example.com/d1")
     first = act(world, ads.head, "/approve", first)
@@ -201,13 +222,18 @@ async def test_07_a_node_nobody_was_chosen_for_goes_to_its_leader_then_the_head(
     )
     assert node(first, "DUNG")["assignee_user_id"] == str(ads.editor.id)
 
-    # No Dựng Leader left: the head gets it.
+    # No Dựng Leader left: it waits unassigned - not the head's to hand out.
     await world.session.execute(
         update(OrgUnitMember)
         .where(OrgUnitMember.user_id == ads.lead_dung.id)
         .values(left_at=datetime.now(UTC))
     )
     await world.session.flush()
+    waiting = create(world, ads, video_type="D", design_link="https://example.com/d0")
+    waiting = act(world, ads.head, "/approve", waiting)
+    assert node(waiting, "DUNG")["status"] == "CHUA_GIAO"
+    # The matrix may give the head that job: then the head gets it.
+    assert set_matrix(world, {"HEAD": {"NODE_ASSIGN": "ALL"}}).status_code == 200
     second = create(world, ads, video_type="D", design_link="https://example.com/d2")
     second = act(world, ads.head, "/approve", second)
     assert node(second, "DUNG")["assignee_user_id"] == str(ads.head.id)

@@ -264,9 +264,9 @@ async def test_07_the_counts_behind_the_quick_filters(world: World) -> None:
     counts = world.client.get("/api/board/counts?unit=ADS").json()
     assert counts == {"mine": 2, "awaiting_me": 0, "priority": 1, "urgent": 0, "overdue": 0}
     world.act_as(ads.head)
-    # One order waits for the head's approval; the approved one may be handed
-    # out by the head too.
-    assert world.client.get("/api/board/counts?unit=ADS").json()["awaiting_me"] == 2
+    # One order waits for the head's approval; the approved one is the
+    # Dựng Leader's to hand out, not the head's.
+    assert world.client.get("/api/board/counts?unit=ADS").json()["awaiting_me"] == 1
     world.act_as(ads.lead_dung)
     # The approved one was routed to the Dựng Leader to hand out.
     assert world.client.get("/api/board/counts?unit=ADS").json()["awaiting_me"] == 1
