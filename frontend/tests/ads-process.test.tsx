@@ -245,6 +245,58 @@ describe("the create form's Quy trình", () => {
     expect(codePreview()).toBe("TUAN-?-yymmdd-nn");
   });
 
+  it("makes the orderer pick who approves the order", async () => {
+    const head = (id: string, name: string) => ({
+      ...MEMBERS.members[0],
+      user_id: id,
+      full_name: name,
+      role: "HEAD",
+      role_label: "Trưởng phòng ORD",
+    });
+    const fetchMock = stubFetch([
+      { match: "/api/units/me", body: ORDERER },
+      {
+        match: "/api/units/ADS/members",
+        body: { ...MEMBERS, members: [head("h-1", "Trưởng A"), head("h-2", "Trưởng B")] },
+      },
+      { match: "/api/units/ADS/video-kinds", body: { kinds: [] } },
+      { match: "/api/orders", method: "POST", body: { order: { code: "TUAN-TD-261008-01" } } },
+    ]);
+    renderWithQuery(<NewOrderPage />);
+    await fillBasics();
+    await userEvent.click(screen.getByRole("checkbox", { name: "Design" }));
+    // Two heads and no own head: the orderer has to choose.
+    const picker = await screen.findByLabelText(/Người duyệt order/);
+    expect(picker).toHaveValue("");
+    expect(submit()).toBeDisabled();
+    await userEvent.selectOptions(picker, "h-2");
+    expect(submit()).toBeEnabled();
+    await userEvent.click(submit());
+    await userEvent.click(
+      within(await screen.findByRole("dialog")).getByRole("button", { name: "Gửi order" }),
+    );
+    await waitFor(() => {
+      const sent = calls(fetchMock).find(
+        (call) => call.method === "POST" && call.url.includes("/api/orders"),
+      );
+      expect(sent?.body).toMatchObject({ approver_user_id: "h-2" });
+    });
+  });
+
+  it("asks a Trưởng phòng ORD for no approver: their order needs no approval", async () => {
+    stubFetch([
+      {
+        match: "/api/units/me",
+        body: { ...ORDERER, units: [{ ...ADS_ENTRY, role: "HEAD", role_label: "Trưởng phòng ORD" }] },
+      },
+      { match: "/api/units/ADS/video-kinds", body: { kinds: [] } },
+    ]);
+    renderWithQuery(<NewOrderPage />);
+    await fillBasics();
+    expect(screen.queryByLabelText(/Người duyệt order/)).not.toBeInTheDocument();
+    expect(screen.getByText(/order của bạn không cần duyệt/)).toBeInTheDocument();
+  });
+
   it("requires the desired deadline, and refuses one in the past", async () => {
     stubCreateForm({ kinds: [] });
     renderWithQuery(<NewOrderPage />);

@@ -625,8 +625,9 @@ async def test_14_the_all_tab_puts_both_units_on_the_same_five_columns(world: Wo
 async def test_15_the_dashboard_can_be_narrowed_to_one_person(world: World) -> None:
     ads = await ads_world(world)
     mine = create(world, ads, video_type="D", design_link="https://example.com/design")
-    create(world, ads, by=ads.head, video_type="D", design_link="https://example.com/d2")
-    # The editor works on the first order only.
+    # A head's own order needs no approval (0056): it is routed at once.
+    theirs = create(world, ads, by=ads.head, video_type="D", design_link="https://example.com/d2")
+    assert theirs["order"]["stage"] == "DUNG"
     act(world, ads.head, "/approve", mine)
     world.act_as(world.owner)
 
@@ -639,7 +640,7 @@ async def test_15_the_dashboard_can_be_narrowed_to_one_person(world: World) -> N
     assert summary()["total"] == 2
     assert summary(ads.orderer)["total"] == 1  # ordered one
     assert summary(ads.head)["total"] == 1  # ordered the other
-    assert summary(ads.lead_dung)["total"] == 1  # holds the routed edit node
+    assert summary(ads.lead_dung)["total"] == 2  # holds both routed edit nodes
     assert summary(ads.writer)["total"] == 0
     rows = tasks(world, unit="ADS", person=str(ads.lead_dung.id))["items"]
-    assert [row["code"] for row in rows] == [mine["order"]["code"]]
+    assert {row["code"] for row in rows} == {mine["order"]["code"], theirs["order"]["code"]}

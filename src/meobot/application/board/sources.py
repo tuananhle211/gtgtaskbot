@@ -588,8 +588,10 @@ class AdsBoardSource:
         may = self._scope.context.permissions
         conditions: list[ColumnElement[bool]] = []
         if may.allows(AdsPermission.ORDER_APPROVE):
-            # An orderer with their own head waits on that head only.
-            boss = _boss_of(Order.owner_user_id, head=True)
+            # The approver the orderer chose (0056), else the orderer's own
+            # head, else every head.
+            chosen = _chosen_approver()
+            boss = func.coalesce(chosen, _boss_of(Order.owner_user_id, head=True))
             conditions.append(
                 (Order.stage == OrderStage.ORDER_PENDING) & or_(boss.is_(None), boss == user_id)
             )
@@ -1051,7 +1053,7 @@ class AdsBoardSource:
         if stage in TERMINAL_STAGES:
             return NOBODY, label, None
         if stage is OrderStage.ORDER_PENDING:
-            heads = approvers.order_approvers(order.owner_user_id)
+            heads = approvers.order_approvers(order.owner_user_id, order.approver_user_id)
             return (
                 held_by(heads),
                 waiting_for(heads, "duyệt order"),
@@ -1176,6 +1178,26 @@ def _overdue(now: datetime) -> ColumnElement[bool]:
     )
     late_wish = Order.stage.in_(_ORDERER_GATES) & (Order.desired_deadline_at < now)
     return or_(late_node, late_wish)
+
+
+def _chosen_approver() -> Any:
+    """SQL twin of ``AdsApprovers.order_approvers``'s first rule: the order's
+    chosen approver while they are still an active head of the unit, else NULL."""
+    head = aliased(OrgUnitMember)
+    head_user = aliased(User)
+    return (
+        select(head.user_id)
+        .join(head_user, head_user.id == head.user_id)
+        .where(
+            head.unit_id == Order.unit_id,
+            head.user_id == Order.approver_user_id,
+            head.role == UnitMemberRole.HEAD,
+            head.left_at.is_(None),
+            head_user.active.is_(True),
+        )
+        .limit(1)
+        .scalar_subquery()
+    )
 
 
 def _boss_of(member: Any, *, head: bool = False) -> Any:

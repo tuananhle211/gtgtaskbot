@@ -162,8 +162,16 @@ class AdsApprovers:
             return (boss,)
         return team
 
-    def order_approvers(self, owner_user_id: uuid.UUID | None) -> People:
-        """Who an order waits on: the orderer's own head, else every head."""
+    def order_approvers(
+        self, owner_user_id: uuid.UUID | None, chosen: uuid.UUID | None = None
+    ) -> People:
+        """Who an order waits on: the approver the orderer chose on the form
+        (0056) while they still decide orders, else the orderer's own head,
+        else every head."""
+        if chosen is not None:
+            for person in self.head:
+                if person.user_id == chosen:
+                    return (person,)
         return self._managed(owner_user_id, self.head)
 
     def reviewers(self, node_type: OrderNodeType, worker: uuid.UUID | None) -> People:

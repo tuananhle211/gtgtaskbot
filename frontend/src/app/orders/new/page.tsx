@@ -93,6 +93,7 @@ export default function NewOrderPage() {
         <AdsOrderForm
           key={`${order.id}:${order.version}`}
           memberCode={unitEntry(me.data, "ADS")?.member_code ?? null}
+          isHead={unitEntry(me.data, "ADS")?.role === "HEAD"}
           editing={order}
         />
       </div>
@@ -161,6 +162,7 @@ export default function NewOrderPage() {
       {chosen === "ADS" ? (
         <AdsOrderForm
           memberCode={unitEntry(me.data, "ADS")?.member_code ?? null}
+          isHead={unitEntry(me.data, "ADS")?.role === "HEAD"}
         />
       ) : (
         <PrCreateSection onCreated={() => router.push("/tasks?unit=PR")} />
@@ -205,13 +207,38 @@ function PrCreateSection({ onCreated }: { onCreated: () => void }) {
 
 function AdsOrderForm({
   memberCode,
+  isHead = false,
   editing,
 }: {
   memberCode: string | null;
+  /** A Trưởng phòng ORD's own order needs no approval: no approver to pick. */
+  isHead?: boolean;
   /** A returned order being fixed: the form starts from it and resubmits. */
   editing?: OrderInfo;
 }) {
   const router = useRouter();
+  // "Người duyệt order": the Trưởng phòng ORD the orderer picks.
+  const session = useQuery({ queryKey: ["session"], queryFn: api.session, retry: false });
+  const roster = useQuery({
+    queryKey: ["units", "ADS", "members"],
+    queryFn: () => api.unitMembers("ADS"),
+    enabled: !isHead,
+  });
+  const myId = session.data?.user_id ?? null;
+  const heads = (roster.data?.members ?? []).filter(
+    (member) => member.role === "HEAD" && member.active && member.user_id !== myId,
+  );
+  const [pickedApprover, setPickedApprover] = useState<string | null>(null);
+  // Until picked: the order's own (when fixing one), else the orderer's own
+  // head ("Trưởng quản lý"), else the only head there is.
+  const myHead = (roster.data?.members ?? []).find((member) => member.user_id === myId)
+    ?.manager_user_id;
+  const defaultApprover =
+    [editing?.approver_user_id, myHead].find(
+      (id) => id && heads.some((head) => head.user_id === id),
+    ) ?? (heads.length === 1 ? heads[0].user_id : "");
+  const approver = pickedApprover ?? defaultApprover ?? "";
+  const needsApprover = !isHead && heads.length > 0;
   const kinds = useQuery({
     queryKey: ["units", "ADS", "video-kinds"],
     queryFn: () => api.unitVideoKinds("ADS"),
@@ -258,6 +285,7 @@ function AdsOrderForm({
           reference_link: body.reference_link ?? "",
           source_link: body.source_link ?? "",
           note: body.note ?? "",
+          ...(body.approver_user_id ? { approver_user_id: body.approver_user_id } : {}),
           // Sent only when changed: an old wish may lie in the past by now.
           ...(form.desired_deadline !== initialDeadline
             ? { desired_deadline_at: body.desired_deadline_at }
@@ -315,6 +343,7 @@ function AdsOrderForm({
     source_link: form.source_link || null,
     note: form.note || null,
     desired_deadline_at: toIsoFromLocal(form.desired_deadline),
+    ...(needsApprover && approver ? { approver_user_id: approver } : {}),
   };
   // A wish in the past is refused by the server (an unchanged one on a
   // resubmit is not sent at all).
@@ -330,7 +359,8 @@ function AdsOrderForm({
     (!needsDuration || form.duration_id) &&
     (!needsDesignLink || form.design_link.trim()) &&
     body.desired_deadline_at &&
-    !deadlinePast;
+    !deadlinePast &&
+    (!needsApprover || approver);
   const field =
     "min-h-11 w-full rounded-lg border border-[var(--border)] bg-[var(--surface)] px-3 text-sm text-[var(--text)]";
 
@@ -500,6 +530,31 @@ function AdsOrderForm({
             </span>
           )}
         </label>
+        {isHead ? (
+          <p className="rounded-lg bg-[var(--surface-muted)] px-3 py-2 text-xs text-[var(--text-muted)]">
+            Bạn là Trưởng phòng ORD: order của bạn không cần duyệt, gửi là chuyển thẳng tới công
+            đoạn đầu.
+          </p>
+        ) : needsApprover ? (
+          <label className="block text-sm font-medium">
+            Người duyệt order
+            <Select
+              value={approver}
+              onChange={(event) => setPickedApprover(event.target.value)}
+              className="mt-1 w-full sm:max-w-xs"
+            >
+              <option value="">Chọn Trưởng phòng ORD…</option>
+              {heads.map((head) => (
+                <option key={head.user_id} value={head.user_id}>
+                  {head.full_name}
+                </option>
+              ))}
+            </Select>
+            <span className="block text-xs font-normal text-[var(--text-muted)]">
+              Bắt buộc · order chờ đúng người này duyệt
+            </span>
+          </label>
+        ) : null}
         <div className="space-y-1">
           <p className="text-sm font-medium">4 · Khung nhập kịch bản</p>
           <div className="flex gap-4 text-sm">
@@ -619,7 +674,13 @@ function AdsOrderForm({
           </h2>
           <ol className="mt-2 space-y-1">
             <li>ORD lên order</li>
-            <li>Trưởng phòng ORD duyệt order</li>
+            {isHead ? null : (
+              <li>
+                {heads.find((head) => head.user_id === approver)?.full_name ??
+                  "Trưởng phòng ORD"}{" "}
+                duyệt order
+              </li>
+            )}
             {nodes.map((node, index) => (
               <li key={node}>
                 {NODE_LABELS[node]} · tự giao cho {NODE_HEADS[node]} để phân

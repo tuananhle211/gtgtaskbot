@@ -3671,6 +3671,9 @@ export interface OrderInfo {
   updated_at: string;
   /** The orderer's wished deadline (null on old orders). */
   desired_deadline_at?: string | null;
+  /** The approver the orderer chose; null = their own head / every head. */
+  approver_user_id?: Uuid | null;
+  approver_name?: string | null;
   /** "Quá deadline mong muốn: N lần". */
   over_deadline_count?: number;
 }
@@ -3776,6 +3779,8 @@ export interface CreateOrderBody {
   preassigned?: Record<string, Uuid>;
   /** ORD: required. ISO-8601 (`new Date(local).toISOString()`). */
   desired_deadline_at?: string | null;
+  /** The Trưởng phòng ORD chosen to approve it (ignored for a head's own order). */
+  approver_user_id?: Uuid | null;
 }
 
 // --- The unified task (PR content + Ads order) ------------------------------

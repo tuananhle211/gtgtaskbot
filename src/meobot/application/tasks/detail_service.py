@@ -929,7 +929,12 @@ def _ads_people(detail: OrderDetail, approvers: AdsApprovers) -> tuple[TaskPerso
             )
         )
     elif order.stage is OrderStage.ORDER_PENDING:
-        people.append(waiting("Chờ duyệt order", approvers.order_approvers(order.owner_user_id)))
+        people.append(
+            waiting(
+                "Chờ duyệt order",
+                approvers.order_approvers(order.owner_user_id, order.approver_user_id),
+            )
+        )
     for node in detail.nodes:
         # A legacy link node is no step of its own any more.
         if node.status is OrderNodeStatus.BO_QUA or node.node_type is OrderNodeType.GAN_LINK:
@@ -979,6 +984,13 @@ def _ads_fields(order: Order) -> tuple[TaskField, ...]:
         TaskField("design_link", "Link thiết kế", order.design_link, "link", "ads"),
         TaskField("source_link", "Link nguồn", order.source_link, "link", "ads"),
     ]
+    # What the orderer filled in on the form and the team works from.
+    if order.platform_name:
+        fields.append(TaskField("platform", "Nền tảng", order.platform_name, "text", "ads"))
+    if order.duration_name:
+        fields.append(TaskField("duration", "Thời lượng", order.duration_name, "text", "ads"))
+    if order.note:
+        fields.append(TaskField("note", "Note yêu cầu", order.note, "longtext", "ads"))
     if order.desired_deadline_at is not None:
         fields.append(
             TaskField(

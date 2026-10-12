@@ -142,6 +142,8 @@ class OrderQueryService:
         )
         actions = available_actions(view, node_views, scoped.scope.context)
         user_ids: set[uuid.UUID] = {order.owner_user_id}
+        if order.approver_user_id is not None:
+            user_ids.add(order.approver_user_id)
         if order.order_approved_by_user_id:
             user_ids.add(order.order_approved_by_user_id)
         for node in nodes:

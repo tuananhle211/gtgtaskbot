@@ -177,6 +177,7 @@ async def create_order(
             platform_id=body.platform_id,
             duration_id=body.duration_id,
             desired_deadline_at=body.desired_deadline_at,
+            approver_user_id=body.approver_user_id,
             note=body.note,
         ),
     )
@@ -229,6 +230,7 @@ async def resubmit_order(
             platform_id=body.platform_id,
             duration_id=body.duration_id,
             desired_deadline_at=body.desired_deadline_at,
+            approver_user_id=body.approver_user_id,
             note=body.note,
         ),
     )

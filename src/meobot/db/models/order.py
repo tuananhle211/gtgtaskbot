@@ -173,6 +173,11 @@ class Order(Base, UUIDPrimaryKeyMixin, TimestampMixin):
     product_link: Mapped[str | None] = mapped_column(Text, nullable=True)
     completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     cancelled_reason: Mapped[str | None] = mapped_column(Text, nullable=True)
+    #: 0056: the Trưởng phòng ORD the orderer chose to approve this order.
+    #: NULL = the orderer's own head, else every head.
+    approver_user_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey(f"{USERS_TABLE}.id", ondelete=RESTRICT), nullable=True
+    )
     #: 0053: the orderer's wished finish; required for new orders by the API.
     desired_deadline_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True), nullable=True

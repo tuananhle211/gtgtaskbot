@@ -54,8 +54,13 @@ class OrderNotificationService:
 
     async def order_submitted(self, *, actor: Actor, order: Order, unit: UnitSettings) -> None:
         heads = [row.user.id for row in await self._directory.heads(order.unit_id)]
-        # An orderer with their own head: only that head is told.
-        own = await self._directory.manager_of(order.unit_id, order.owner_user_id)
+        # The approver chosen on the form (0056), else the orderer's own head:
+        # only that one is told.
+        own = (
+            order.approver_user_id
+            if order.approver_user_id in heads
+            else await self._directory.manager_of(order.unit_id, order.owner_user_id)
+        )
         await self._tell(
             actor=actor,
             order=order,

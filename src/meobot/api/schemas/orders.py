@@ -149,6 +149,9 @@ class OrderResponse(BaseModel):
     #: 0053: the orderer's wished finish and how often it was overrun.
     desired_deadline_at: datetime | None = None
     over_deadline_count: int = 0
+    #: 0056: the approver the orderer chose; null = their own head / every head.
+    approver_user_id: uuid.UUID | None = None
+    approver_name: str | None = None
 
 
 class OrderDetailResponse(BaseModel):
@@ -220,6 +223,8 @@ class OrderDetailResponse(BaseModel):
                 updated_at=order.updated_at,
                 desired_deadline_at=order.desired_deadline_at,
                 over_deadline_count=order.over_deadline_count,
+                approver_user_id=order.approver_user_id,
+                approver_name=name(order.approver_user_id),
             ),
             nodes=[
                 OrderNodeResponse(
@@ -340,6 +345,9 @@ class CreateOrderRequest(BaseModel):
     preassigned: dict[str, uuid.UUID] = Field(default_factory=dict)
     #: 0053: the orderer's wished finish. Required (422 ``deadline_required``).
     desired_deadline_at: datetime | None = None
+    #: 0056: the Trưởng phòng ORD chosen to approve it (422 ``approver_invalid``).
+    #: Ignored for a head's own order, which needs no approval.
+    approver_user_id: uuid.UUID | None = None
 
 
 class VersionedRequest(BaseModel):
@@ -359,6 +367,7 @@ class ResubmitOrderRequest(VersionedRequest):
     duration_id: uuid.UUID | None = None
     note: str | None = Field(default=None, max_length=5000)
     desired_deadline_at: datetime | None = None
+    approver_user_id: uuid.UUID | None = None
 
 
 class NoteRequest(VersionedRequest):

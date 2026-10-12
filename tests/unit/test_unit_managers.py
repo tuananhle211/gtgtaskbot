@@ -177,3 +177,51 @@ async def test_05_my_team_on_the_members_tab(world: World) -> None:
     everyone = team(world.owner)
     assert everyone["team"] is False and everyone["has_team"] is False
     assert len(everyone["members"]) > 5
+
+
+async def test_06_the_orderer_picks_who_approves_the_order(world: World) -> None:
+    ads, head2, lead_dung2 = await two_leads(world)
+    # Not a head: refused.
+    world.act_as(ads.orderer)
+    base = {
+        "title": "X",
+        "video_type": "D",
+        "order_content": "y",
+        "design_link": "d",
+        "desired_deadline_at": "2030-01-01T00:00:00+00:00",
+        "note": "Nhạc nền vui, logo góc phải",
+    }
+    wrong = world.client.post("/api/orders", json={**base, "approver_user_id": str(lead_dung2.id)})
+    assert wrong.status_code == 422 and error_reason(wrong.json()) == "approver_invalid"
+
+    detail = create(world, ads, approver_user_id=str(head2.id), note=base["note"])
+    code = detail["order"]["code"]
+    assert detail["order"]["approver_user_id"] == str(head2.id)
+    assert detail["order"]["approver_name"] == head2.full_name
+    mine = row_of(world, head2, code)
+    assert mine is not None and mine["awaiting_me"] is True
+    assert mine["status_label"] == f"Chờ {head2.full_name} duyệt order"
+    other = row_of(world, ads.head, code)
+    assert other is not None and other["awaiting_me"] is False
+    assert any(kind == "order_submitted" for kind, _ in await inbox(world, head2))
+    assert all(kind != "order_submitted" for kind, _ in await inbox(world, ads.head))
+    # The task page shows the orderer's note.
+    world.act_as(head2)
+    fields = {f["key"]: f["value"] for f in world.client.get(f"/api/tasks/{code}").json()["fields"]}
+    assert fields["note"] == base["note"]
+
+
+async def test_07_a_heads_own_order_needs_no_approval(world: World) -> None:
+    ads, head2, _ = await two_leads(world)
+    detail = create(world, ads, by=ads.head, video_type="D", design_link="d")
+    # Approved as it is placed: straight to the first step, nobody asked.
+    assert detail["order"]["stage"] == "DUNG"
+    assert detail["order"]["order_approved_at"] is not None
+    assert detail["order"]["approver_user_id"] is None
+    for head in (ads.head, head2):
+        assert all(kind != "order_submitted" for kind, _ in await inbox(world, head))
+    # An approver sent along is ignored, not refused.
+    again = create(
+        world, ads, by=head2, video_type="D", design_link="d", approver_user_id=str(ads.head.id)
+    )
+    assert again["order"]["stage"] == "DUNG" and again["order"]["approver_user_id"] is None

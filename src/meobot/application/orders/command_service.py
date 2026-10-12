@@ -85,7 +85,7 @@ from meobot.domain.orders.pipeline import (
     video_review_applies,
 )
 from meobot.domain.units.member_code import derive_member_code
-from meobot.domain.units.models import UnitCode, UnitMembership, UnitSettings
+from meobot.domain.units.models import UnitCode, UnitMemberRole, UnitMembership, UnitSettings
 
 
 @dataclass(frozen=True, slots=True)
@@ -108,6 +108,9 @@ class CreateOrderCommand:
     note: str | None = None
     #: 0053: the orderer's wished finish. Required.
     desired_deadline_at: datetime | None = None
+    #: 0056: the Trưởng phòng ORD chosen to approve this order. None = the
+    #: orderer's own head, else every head.
+    approver_user_id: uuid.UUID | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -127,6 +130,7 @@ class OrderEdit:
     duration_id: uuid.UUID | None = None
     note: str | None = None
     desired_deadline_at: datetime | None = None
+    approver_user_id: uuid.UUID | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -225,6 +229,15 @@ class OrderCommandService:
             command.video_type, command.title, command.order_content, command.design_link
         )
         desired = _desired_deadline(command.desired_deadline_at, now=utcnow())
+        # A head's own order needs no approval - and so no approver.
+        own_gate = (entry is None or entry.role is UnitMemberRole.HEAD) and (
+            context.permissions.allows(AdsPermission.ORDER_APPROVE)
+        )
+        approver = (
+            None
+            if own_gate
+            else await self._approver(unit.id, command.approver_user_id, actor.user_id)
+        )
         await self._validate_preassigned(unit.id, command.video_type, command.preassigned)
         kind = await self._video_kind(unit.id, command.video_kind_id, required=True)
         platform = await self._platform(unit.id, command.platform_id, required=True)
@@ -264,6 +277,7 @@ class OrderCommandService:
             stage=OrderStage.ORDER_PENDING,
             submitted_at=now,
             desired_deadline_at=desired,
+            approver_user_id=approver,
         )
         self._session.add(order)
         await self._session.flush()
@@ -279,8 +293,32 @@ class OrderCommandService:
         await self._session.flush()
         await self._event(order, OrderEventKind.SUBMITTED, actor)
         await self._audit_order(actor, request_id, AuditAction.ORDER_SUBMITTED, order, before=None)
+        if own_gate:
+            # Placed by a head: approved as it is placed, straight to the
+            # first step. Nobody is asked to approve it.
+            return await self.approve_order(
+                actor=actor,
+                request_id=request_id,
+                order_id=order.id,
+                expected_version=order.version,
+            )
         await self._notify.order_submitted(actor=actor, order=order, unit=settings)
         return order
+
+    async def _approver(
+        self, unit_id: uuid.UUID, chosen: uuid.UUID | None, orderer: uuid.UUID | None
+    ) -> uuid.UUID | None:
+        """The approver picked on the form: an active Trưởng phòng ORD, not
+        the orderer themselves."""
+        if chosen is None:
+            return None
+        heads = {row.user.id for row in await self._directory.heads(unit_id)}
+        if chosen not in heads or chosen == orderer:
+            raise OrderValidationError(
+                "Người duyệt order phải là một Trưởng phòng ORD đang hoạt động.",
+                details={"reason": "approver_invalid", "field": "approver_user_id"},
+            )
+        return chosen
 
     async def resubmit(
         self,
@@ -331,6 +369,10 @@ class OrderCommandService:
             order.note = _blank_to_none(edit.note)
         if edit.desired_deadline_at is not None:
             order.desired_deadline_at = _desired_deadline(edit.desired_deadline_at, now=utcnow())
+        if edit.approver_user_id is not None:
+            order.approver_user_id = await self._approver(
+                order.unit_id, edit.approver_user_id, order.owner_user_id
+            )
         if edit.preassigned is not None:
             await self._validate_preassigned(order.unit_id, order.video_type, edit.preassigned)
             for node_type, node in loaded.nodes.items():
