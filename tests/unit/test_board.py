@@ -132,7 +132,9 @@ async def test_04_each_person_sees_their_own_slice_of_ads(world: World) -> None:
     assert tasks(world, unit="ADS", awaiting_me="true")["total"] == 1
     assert tasks(world, unit="ADS", mine="true")["total"] == 1
 
-    world.act_as(ads.lead_tk)  # design lead: BTD orders pass through design
+    world.act_as(ads.lead_tk)  # design lead: the BTD order is still at the script step
+    assert tasks(world, unit="ADS")["total"] == 0
+    world.act_as(ads.lead_bt)  # the script lead: it has reached their step
     assert tasks(world, unit="ADS")["total"] == 1
     world.act_as(ads.designer)  # not assigned anything yet
     assert tasks(world, unit="ADS")["total"] == 0

@@ -246,6 +246,7 @@ class UnitAdminService:
         clear_manager: bool = False,
         daily_tokens: Decimal | None = None,
         clear_daily_tokens: bool = False,
+        birthday_orders: bool | None = None,
     ) -> UnitMemberRow:
         unit = await self._require_tagger(actor, code, user_id)
         row = await self._directory.member(unit.id, user_id)
@@ -273,6 +274,8 @@ class UnitAdminService:
             row.daily_tokens = None
         elif daily_tokens is not None:
             row.daily_tokens = daily_tokens
+        if birthday_orders is not None:
+            row.birthday_orders = birthday_orders
         if clear_manager:
             row.manager_user_id = None
         elif manager_user_id is not None:
@@ -319,6 +322,8 @@ class UnitAdminService:
             )
         before = self._snapshot(row)
         row.left_at = utcnow()
+        # A grant belongs to the tag: it does not survive it.
+        row.birthday_orders = False
         await self._refit_managers(unit.id, row)
         await self._session.flush()
         user = await self._session.get_one(User, user_id)
@@ -926,6 +931,7 @@ class UnitAdminService:
             "member_code": row.member_code,
             "personal_nas_url": row.personal_nas_url,
             "manager_user_id": None if row.manager_user_id is None else str(row.manager_user_id),
+            "birthday_orders": bool(row.birthday_orders),
             "left_at": None if row.left_at is None else row.left_at.isoformat(),
         }
 

@@ -20,7 +20,7 @@ from meobot.application.pr_services import build_pr_services
 from meobot.application.units.directory import UnitDirectoryService
 from meobot.core.config import Settings
 from meobot.core.errors import ValidationError
-from meobot.domain.board.models import BoardQuery, Phase
+from meobot.domain.board.models import DESIGN_STATES, BoardQuery, Phase
 from meobot.domain.orders.models import OrderCategory
 from meobot.domain.units.errors import UnitNotFoundError
 from meobot.domain.units.models import UnitCode
@@ -96,6 +96,18 @@ def _category(value: str | None) -> str:
         ) from error
 
 
+def _design_status(value: str | None) -> str | None:
+    cleaned = (value or "").strip().upper()
+    if not cleaned:
+        return None
+    if cleaned not in DESIGN_STATES:
+        raise ValidationError(
+            "Trạng thái thiết kế không hợp lệ.",
+            details={"reason": "invalid_design_status", "field": "design_status", "value": value},
+        )
+    return cleaned
+
+
 def _unit_label(unit: str | None, board_units: tuple[str, ...]) -> str:
     if unit and unit.strip().upper() == ALL_UNITS:
         return ALL_UNITS
@@ -125,6 +137,7 @@ async def board_tasks(
     q: Annotated[str | None, Query(max_length=200)] = None,
     order: Annotated[str | None, Query(max_length=40)] = None,
     category: Annotated[str | None, Query(max_length=20)] = None,
+    design_status: Annotated[str | None, Query(max_length=20)] = None,
     limit: Annotated[int, Query(ge=1, le=_MAX_LIMIT)] = 50,
     offset: Annotated[int, Query(ge=0)] = 0,
 ) -> TaskPageResponse:
@@ -134,7 +147,10 @@ async def board_tasks(
 
     ``category`` (ORD): ``STANDARD`` by default - "Order tổng" does not list
     the birthday orders; ``BIRTHDAY`` is the birthday board, usually with
-    ``order=birthday`` (the nearest coming birthday first)."""
+    ``order=birthday`` (the nearest coming birthday first).
+
+    ``design_status`` (ORD): where the Design step stands, as the Design
+    team's table shows it - one of ``design_states`` in the response."""
     codes = await board.resolve_units(actor, unit)
     ordering = _order(order)
     query = BoardQuery(
@@ -157,6 +173,7 @@ async def board_tasks(
         todo_first=ordering == ORDER_TODO_FIRST,
         birthday_first=ordering == ORDER_BIRTHDAY,
         category=_category(category),
+        design_status=_design_status(design_status),
         limit=limit,
         offset=offset,
     )

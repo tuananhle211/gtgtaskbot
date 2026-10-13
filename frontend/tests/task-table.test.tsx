@@ -254,6 +254,10 @@ const birthdayPage = (rows: TaskRow[], extra: Routes = []) => {
     { match: "/api/auth/session", body: { ...SESSION, role: "EMPLOYEE" } },
     { match: "/api/units/me", body: ME_AS("THIET_KE", DESIGNER) },
     { match: "/api/units/ADS/design-codes", body: { codes: [] } },
+    {
+      match: "/api/units/ADS/members",
+      body: { unit: "ADS", unit_label: "ORD", members: [], assignable_roles: [] },
+    },
     { match: "/api/orders/birthday/options", body: { branches: [] } },
     { match: "/api/board/counts", body: COUNTS },
     { match: "/api/board/tasks", body: PAGE(rows) },

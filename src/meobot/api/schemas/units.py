@@ -165,7 +165,8 @@ class DesignAccessResponse(BaseModel):
     view: bool = False
     #: Keeps the catalogue of design codes: the Design Leader, OWNER, ADMIN.
     manage_codes: bool = False
-    #: May open the birthday board and place birthday orders.
+    #: May open the birthday board and place birthday orders: the Design
+    #: team, OWNER / ADMIN, and a member granted it on their ORD tag (0059).
     birthday: bool = False
     #: The Design team's library ("Thư viện") for the sidebar: empty for
     #: anybody outside the Design team. ``manage_library``: may edit it.
@@ -245,6 +246,11 @@ class UnitMemberResponse(BaseModel):
     manager_user_id: uuid.UUID | None = None
     #: Additive (0053): their own daily token budget; null = the unit default.
     daily_tokens: float | None = None
+    #: Additive (0059): granted the birthday-order board on this tag, and
+    #: whether they have the board in the end (the Design team does without
+    #: the grant: ``birthday_orders_default``).
+    birthday_orders: bool = False
+    birthday_orders_default: bool = False
 
     @classmethod
     def from_row(cls, row: UnitMemberRow, avatar_url: str | None = None) -> UnitMemberResponse:
@@ -269,6 +275,8 @@ class UnitMemberResponse(BaseModel):
             daily_tokens=(
                 None if membership.daily_tokens is None else float(membership.daily_tokens)
             ),
+            birthday_orders=bool(membership.birthday_orders),
+            birthday_orders_default=membership.role is UnitMemberRole.THIET_KE,
         )
 
 
@@ -335,6 +343,8 @@ class UpdateMemberRequest(BaseModel):
     manager_user_id: uuid.UUID | None = None
     #: ORD (0053): their own daily token budget; null = the unit default.
     daily_tokens: Decimal | None = Field(default=None, ge=0, le=Decimal("999.99"))
+    #: ORD (0059): grant / take back the birthday-order board.
+    birthday_orders: bool | None = None
 
 
 class UpdateUnitSettingsRequest(BaseModel):

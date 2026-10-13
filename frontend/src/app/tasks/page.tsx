@@ -27,7 +27,13 @@ import { Empty, ErrorBox, Loading, NoticeBox, Pill } from "@/components/states";
 import {
   DesignCodesCell,
   DesignContentCell,
+  DesignDeadlineCell,
+  DesignStatusCell,
+  DesignStatusSelect,
   DesignerCell,
+  designDeadline,
+  designStatusLabel,
+  designTeam,
 } from "@/components/design-cells";
 import { RowActions } from "@/components/task-actions";
 import {
@@ -97,6 +103,11 @@ const field =
  * "Kết quả". Which rows they get is the server's scope, not this file's.
  * Their rows also carry the step's own buttons ("Nhận việc", "Nộp bài",
  * "Duyệt": `RowActions`), which open the task page's dialog in place.
+ * The status and the deadline they read are the Design step's own, and so are
+ * their filters: no "Pha", "Quy trình", "Loại video" or "Marketing", but the
+ * Design step's "Trạng thái" (`design_status`) and a "Người làm" that lists
+ * the Design ban only. A removed filter still on the URL (an old link) is not
+ * sent for them: nothing may hide rows behind a control that is not there.
  *
  * On every variant: a click on a row opens its task, the page size is a
  * choice (`?size=`), and a double click on a column header sorts the rows on
@@ -124,6 +135,10 @@ function TaskBoard() {
   const size = pageSizeOf(params.get("size"));
   const sort = parseSort(params.get("sort"));
   const dense = read("view") === "compact";
+  // The Design ban's own table, on ORD only (never PR or the merged view).
+  const designView = unit === "ADS" && Boolean(me.data?.design?.view);
+  // The filters the Design ban does not have: read as empty for them.
+  const general = (key: string) => (designView ? undefined : read(key) || undefined);
   const filters = {
     unit,
     date_from: read("from") || undefined,
@@ -131,10 +146,12 @@ function TaskBoard() {
     // Ads filters "Pha" by its four steps (Order, Biên tập, Thiết kế, Dựng);
     // PR and the merged view by the five shared phases.
     phase: unit === "ADS" ? undefined : read("phase") || undefined,
-    step: unit === "ADS" ? read("step") || undefined : undefined,
-    kind: read("kind") || undefined,
-    video_kind_id: unit === "ADS" ? read("video_kind_id") || undefined : undefined,
-    owner: read("owner") || undefined,
+    step: unit === "ADS" ? general("step") : undefined,
+    kind: general("kind"),
+    video_kind_id: unit === "ADS" ? general("video_kind_id") : undefined,
+    owner: general("owner"),
+    // The Design ban's "Trạng thái": where the Design step stands.
+    design_status: designView ? read("design_status") || undefined : undefined,
     assignee: read("assignee") || undefined,
     person: read("person") || undefined,
     mine,
@@ -184,7 +201,8 @@ function TaskBoard() {
   const videoKinds = useQuery({
     queryKey: ["units", "ADS", "video-kinds"],
     queryFn: () => api.unitVideoKinds("ADS"),
-    enabled: me.isSuccess && !untagged && unit === "ADS",
+    // Not for the Design ban: they have no "Loại video" filter.
+    enabled: me.isSuccess && !untagged && unit === "ADS" && !designView,
   });
   const [search, setSearch] = useState(read("q"));
 
@@ -207,18 +225,13 @@ function TaskBoard() {
     key === "mine"
       ? setParams({ mine: mine ? (staff ? "false" : "") : staff ? "" : "true" })
       : setParams({ [key]: read(key) === "true" ? "" : "true" });
-  const activeFilters = [
-    "from",
-    "to",
-    "phase",
-    "step",
-    "kind",
-    "video_kind_id",
-    "owner",
-    "assignee",
-    "person",
-    "q",
-  ].filter((key) => read(key)).length;
+  // Only the filters this viewer has: a removed one left on the URL is not
+  // applied, so it is not counted either.
+  const activeFilters = (
+    designView
+      ? ["from", "to", "design_status", "assignee", "person", "q"]
+      : ["from", "to", "phase", "step", "kind", "video_kind_id", "owner", "assignee", "person", "q"]
+  ).filter((key) => read(key)).length;
 
   if (me.isPending) return <Loading />;
   if (me.isError)
@@ -234,22 +247,25 @@ function TaskBoard() {
       : unitName(unit, me.data.units.find((item) => item.code === unit)?.label);
   const first = board.data?.items[0];
   const cellHeads = first?.cells ?? [];
-  const people = members.data?.members.filter((member) => member.active) ?? [];
+  // "Người làm" for the Design ban: its own people only.
+  const people = designView
+    ? designTeam(members.data?.members)
+    : (members.data?.members.filter((member) => member.active) ?? []);
   // No "(n)" until the first counts arrive (or when they cannot be read).
   const countOf = (key: (typeof QUICK)[number][0]) => {
     const count = counts.data?.[key];
     return typeof count === "number" ? ` (${count})` : "";
   };
   const showTokens = effortEnabled(me.data);
-  // The Design ban's own table, on ORD only (never PR or the merged view).
-  const designView = unit === "ADS" && Boolean(me.data.design?.view);
   // What each column sorts by (a double click on its header). The step
   // columns are the row's own cells, so they sort by that step's status.
   const sortValues: Record<string, SortValueOf<TaskRow>> = {
     order: (row) => row.code,
     title: (row) => row.title,
-    status: (row) => row.status_label,
-    deadline: (row) => sortTime(row.deadline_at),
+    // The Design table draws the Design step's status and deadline: it sorts
+    // by what is drawn.
+    status: (row) => (designView ? designStatusLabel(row) : row.status_label),
+    deadline: (row) => sortTime(designView ? designDeadline(row) : row.deadline_at),
     ...(designView
       ? {
           content: (row: TaskRow) => row.design?.script_by,
@@ -397,93 +413,109 @@ function TaskBoard() {
               className={field}
             />
           </label>
-          <label className="flex flex-col gap-1 text-xs text-[var(--text-muted)]">
-            Pha
-            {unit === "ADS" ? (
-              <Select
-                value={read("step")}
-                onChange={(event) => setParams({ step: event.target.value })}
+          {designView ? (
+            <label className="flex flex-col gap-1 text-xs text-[var(--text-muted)]">
+              Trạng thái
+              <DesignStatusSelect
+                value={read("design_status")}
+                states={board.data?.design_states}
+                onChange={(value) => setParams({ design_status: value })}
                 className="min-h-10"
-              >
-                <option value="">Tất cả</option>
-                {(board.data?.steps?.length ? board.data.steps : ADS_STEPS).map(
-                  (step) => (
-                    <option key={step.value} value={step.value}>
-                      {step.label}
-                    </option>
-                  ),
-                )}
-              </Select>
-            ) : (
-              <Select
-                value={read("phase")}
-                onChange={(event) => setParams({ phase: event.target.value })}
-                className="min-h-10"
-              >
-                <option value="">Tất cả</option>
-                {(board.data?.phases ?? []).map((phase) => (
-                  <option key={phase.value} value={phase.value}>
-                    {phase.label}
-                  </option>
-                ))}
-              </Select>
-            )}
-          </label>
-          {unit === "ADS" ? (
+              />
+            </label>
+          ) : (
             <>
               <label className="flex flex-col gap-1 text-xs text-[var(--text-muted)]">
-                Quy trình
-                <Select
-                  value={read("kind")}
-                  onChange={(event) => setParams({ kind: event.target.value })}
-                  className="min-h-10"
-                >
-                  <option value="">Tất cả</option>
-                  {PROCESS_CODES.map((code) => (
-                    <option key={code} value={code}>
-                      {`${code} · ${processCodeLabel(code)}`}
-                    </option>
-                  ))}
-                </Select>
-              </label>
-              {(videoKinds.data?.kinds.length ?? 0) > 0 ? (
-                <label className="flex flex-col gap-1 text-xs text-[var(--text-muted)]">
-                  Loại video
+                Pha
+                {unit === "ADS" ? (
                   <Select
-                    value={read("video_kind_id")}
-                    onChange={(event) =>
-                      setParams({ video_kind_id: event.target.value })
-                    }
+                    value={read("step")}
+                    onChange={(event) => setParams({ step: event.target.value })}
                     className="min-h-10"
                   >
                     <option value="">Tất cả</option>
-                    {videoKinds.data!.kinds.map((kind) => (
-                      <option key={kind.id} value={kind.id}>
-                        {kind.name}
+                    {(board.data?.steps?.length ? board.data.steps : ADS_STEPS).map(
+                      (step) => (
+                        <option key={step.value} value={step.value}>
+                          {step.label}
+                        </option>
+                      ),
+                    )}
+                  </Select>
+                ) : (
+                  <Select
+                    value={read("phase")}
+                    onChange={(event) => setParams({ phase: event.target.value })}
+                    className="min-h-10"
+                  >
+                    <option value="">Tất cả</option>
+                    {(board.data?.phases ?? []).map((phase) => (
+                      <option key={phase.value} value={phase.value}>
+                        {phase.label}
+                      </option>
+                    ))}
+                  </Select>
+                )}
+              </label>
+              {unit === "ADS" ? (
+                <>
+                  <label className="flex flex-col gap-1 text-xs text-[var(--text-muted)]">
+                    Quy trình
+                    <Select
+                      value={read("kind")}
+                      onChange={(event) => setParams({ kind: event.target.value })}
+                      className="min-h-10"
+                    >
+                      <option value="">Tất cả</option>
+                      {PROCESS_CODES.map((code) => (
+                        <option key={code} value={code}>
+                          {`${code} · ${processCodeLabel(code)}`}
+                        </option>
+                      ))}
+                    </Select>
+                  </label>
+                  {(videoKinds.data?.kinds.length ?? 0) > 0 ? (
+                    <label className="flex flex-col gap-1 text-xs text-[var(--text-muted)]">
+                      Loại video
+                      <Select
+                        value={read("video_kind_id")}
+                        onChange={(event) =>
+                          setParams({ video_kind_id: event.target.value })
+                        }
+                        className="min-h-10"
+                      >
+                        <option value="">Tất cả</option>
+                        {videoKinds.data!.kinds.map((kind) => (
+                          <option key={kind.id} value={kind.id}>
+                            {kind.name}
+                          </option>
+                        ))}
+                      </Select>
+                    </label>
+                  ) : null}
+                </>
+              ) : null}
+            </>
+          )}
+          {unit !== "ALL" ? (
+            <>
+              {designView ? null : (
+                <label className="flex flex-col gap-1 text-xs text-[var(--text-muted)]">
+                  {unit === "ADS" ? "Marketing" : "Người phụ trách"}
+                  <Select
+                    value={read("owner")}
+                    onChange={(event) => setParams({ owner: event.target.value })}
+                    className="min-h-10"
+                  >
+                    <option value="">Tất cả</option>
+                    {people.map((member) => (
+                      <option key={member.user_id} value={member.user_id}>
+                        {member.full_name}
                       </option>
                     ))}
                   </Select>
                 </label>
-              ) : null}
-            </>
-          ) : null}
-          {unit !== "ALL" ? (
-            <>
-              <label className="flex flex-col gap-1 text-xs text-[var(--text-muted)]">
-                {unit === "ADS" ? "Marketing" : "Người phụ trách"}
-                <Select
-                  value={read("owner")}
-                  onChange={(event) => setParams({ owner: event.target.value })}
-                  className="min-h-10"
-                >
-                  <option value="">Tất cả</option>
-                  {people.map((member) => (
-                    <option key={member.user_id} value={member.user_id}>
-                      {member.full_name}
-                    </option>
-                  ))}
-                </Select>
-              </label>
+              )}
               <label className="flex flex-col gap-1 text-xs text-[var(--text-muted)]">
                 {unit === "ADS" ? "Người làm" : "Người dựng"}
                 <Select
@@ -804,8 +836,18 @@ function TaskTableRow({
             : null}
         </div>
       </td>
-      <RowStatusCell row={row} dense={dense} />
-      {showDeadline ? <RowDeadlineCell row={row} /> : null}
+      {design ? (
+        <DesignStatusCell row={row} dense={dense} />
+      ) : (
+        <RowStatusCell row={row} dense={dense} />
+      )}
+      {showDeadline ? (
+        design ? (
+          <DesignDeadlineCell row={row} />
+        ) : (
+          <RowDeadlineCell row={row} />
+        )
+      ) : null}
       {design ? (
         <>
           <DesignContentCell row={row} />

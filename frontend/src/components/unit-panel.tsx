@@ -832,6 +832,14 @@ function MemberRow({
             onPick={(managerId) => update.mutate({ manager_user_id: managerId })}
           />
         ) : null}
+        {code === "ADS" ? (
+          <BirthdayOrdersSwitch
+            member={member}
+            editable={editable}
+            pending={update.isPending}
+            onChange={(granted) => update.mutate({ birthday_orders: granted })}
+          />
+        ) : null}
       </td>
       <td className="px-3 py-2">
         {code === "ADS" && editable ? (
@@ -991,6 +999,55 @@ function ManagerPicker({
           </option>
         ))}
       </Select>
+    </label>
+  );
+}
+
+/**
+ * "Order sinh nhật": whether this ORD member has the birthday-order board
+ * (the nav entry and `/tasks/birthday`). The Design ban has it by default -
+ * ticked and locked, with a word on why. For anybody else it is a grant on
+ * their ORD tag, saved the moment it is ticked, like the role and "Trưởng
+ * quản lý" beside it (the row's `update`; its refresh re-reads every
+ * `["units"]` query, `/api/units/me` included, so the editor's own sidebar
+ * follows when they changed themselves).
+ *
+ * Nothing is drawn for a roster that does not carry the fields (an older API).
+ */
+function BirthdayOrdersSwitch({
+  member,
+  editable,
+  pending,
+  onChange,
+}: {
+  member: UnitMember;
+  editable: boolean;
+  pending: boolean;
+  onChange: (granted: boolean) => void;
+}) {
+  if (member.birthday_orders === undefined && member.birthday_orders_default === undefined)
+    return null;
+  const byDefault = Boolean(member.birthday_orders_default);
+  const has = byDefault || Boolean(member.birthday_orders);
+  if (!editable) {
+    return (
+      <span className="mt-1.5 block text-xs text-[var(--text-muted)]">
+        Order sinh nhật: {has ? "Có" : "–"}
+        {byDefault ? " (Ban Design: mặc định)" : ""}
+      </span>
+    );
+  }
+  return (
+    <label className="mt-1.5 flex items-center gap-1.5 text-xs text-[var(--text-muted)]">
+      <input
+        type="checkbox"
+        checked={has}
+        disabled={byDefault || pending}
+        onChange={(event) => onChange(event.target.checked)}
+        aria-label={`Order sinh nhật của ${member.full_name}`}
+      />
+      Order sinh nhật
+      {byDefault ? <span>· Ban Design: mặc định</span> : null}
     </label>
   );
 }

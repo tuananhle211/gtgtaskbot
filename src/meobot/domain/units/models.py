@@ -188,6 +188,8 @@ class UnitMembershipEntry:
     is_lead: bool = False
     member_code: str | None = None
     personal_nas_url: str | None = None
+    #: ORD (0059): granted the birthday-order board on this tag.
+    birthday_orders: bool = False
 
 
 @dataclass(frozen=True, slots=True)

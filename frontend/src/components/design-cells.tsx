@@ -1,8 +1,16 @@
 "use client";
 
+import { Select } from "@/components/pr";
 import { Pill } from "@/components/states";
-import type { DesignCodeItem, TaskRow } from "@/lib/api";
-import { formatShortDay, formatWhen } from "@/lib/labels";
+import {
+  RowDeadlineCell,
+  RowStatusCell,
+  StatusBadge,
+  boldNames,
+} from "@/components/task-table";
+import type { DesignCodeItem, TaskCell, TaskRow, UnitMember } from "@/lib/api";
+import { formatAgo, formatShortDay, formatWhen } from "@/lib/labels";
+import { stepColor } from "@/lib/status-colors";
 
 /**
  * What the Design ban reads on a task row, drawn from the row's `design`
@@ -10,7 +18,124 @@ import { formatShortDay, formatWhen } from "@/lib/labels";
  * ("Tên task") and what the designer handed in ("Thiết kế"). The task table's
  * Design view and the birthday board share these cells; the task page reuses
  * the code list. Nothing here decides anything - a missing value is a dash.
+ *
+ * On those two tables the status and the deadline are the Design step's own
+ * (`DesignStatusCell`, `DesignDeadlineCell`), not the order's: what the ban
+ * follows is where *its* step stands, so an order that moved on to Dựng reads
+ * "Hoàn thành" there. Their filters are here too: the Design step's state
+ * (`DesignStatusSelect`, from the page's `design_states`) and the ban's own
+ * people (`designTeam`).
  */
+
+/** The key of the Design step among a row's `cells`. */
+export const DESIGN_STEP = "THIET_KE";
+
+/** The row's Design step, when the order has one (and the API sent its cells). */
+export function designStep(row: TaskRow): TaskCell | undefined {
+  return (row.cells ?? []).find((cell) => cell.key === DESIGN_STEP);
+}
+
+/** What the Design tables' status column shows, and sorts by. */
+export function designStatusLabel(row: TaskRow): string {
+  return designStep(row)?.status_label ?? row.status_label;
+}
+
+/** The deadline the Design tables show, and sort by: the Design step's, else the row's. */
+export function designDeadline(row: TaskRow): string | null | undefined {
+  return designStep(row)?.deadline_at ?? row.deadline_at;
+}
+
+/** The Design ban's people on a unit roster: the designers and their Leader. */
+export function designTeam(members: UnitMember[] | undefined): UnitMember[] {
+  return (members ?? []).filter((member) => member.active && member.role === DESIGN_STEP);
+}
+
+/**
+ * "Trạng thái · Đang giữ" as the Design ban reads it: the Design step's own
+ * state, coloured like a step cell, with the designer when the label does not
+ * already name them and how often the step was sent back. A row without a
+ * Design step is drawn as everywhere else.
+ */
+export function DesignStatusCell({ row, dense = false }: { row: TaskRow; dense?: boolean }) {
+  const step = designStep(row);
+  if (!step) return <RowStatusCell row={row} dense={dense} />;
+  const named = Boolean(step.person_name && step.status_label.includes(step.person_name));
+  return (
+    <td className="w-[15rem] min-w-[13rem] max-w-[17rem]" data-testid="design-status">
+      {step.status_label === "—" ? (
+        dash
+      ) : (
+        <StatusBadge color={stepColor(step.status, row.status, step.status_label)}>
+          {boldNames(step.status_label, step.person_name)}
+        </StatusBadge>
+      )}
+      {!dense && (step.since || step.revisions > 0) ? (
+        <span className="block text-[11px] text-[var(--text-muted)]">
+          {step.since ? `ở bước này ${formatAgo(step.since)}` : ""}
+          {step.revisions > 0 ? `${step.since ? " · " : ""}sửa ${step.revisions}` : ""}
+        </span>
+      ) : null}
+      {step.person_name && !named ? (
+        <span className="mt-0.5 flex flex-wrap items-center gap-1 text-xs">
+          <span className="text-[var(--text-muted)]">Người làm:</span>
+          <span className="person">{step.person_name}</span>
+        </span>
+      ) : null}
+    </td>
+  );
+}
+
+/** "Deadline" as the Design ban reads it: the Design step's own, else the row's. */
+export function DesignDeadlineCell({ row }: { row: TaskRow }) {
+  const step = designStep(row);
+  return (
+    <RowDeadlineCell
+      row={
+        step?.deadline_at
+          ? { ...row, deadline_at: step.deadline_at, deadline_status: step.deadline_status }
+          : row
+      }
+    />
+  );
+}
+
+/**
+ * The Design ban's "Trạng thái" filter: where the Design step stands. The
+ * choices are the server's (`design_states` on the board page); a value from
+ * the URL that is not among them yet (the list has not arrived) is kept as a
+ * choice, so the control never shows "Tất cả" over an active filter.
+ */
+export function DesignStatusSelect({
+  value,
+  states,
+  onChange,
+  className = "",
+}: {
+  value: string;
+  states: Array<{ value: string; label: string }> | undefined;
+  onChange: (value: string) => void;
+  className?: string;
+}) {
+  const known = states ?? [];
+  return (
+    <Select
+      aria-label="Trạng thái"
+      value={value}
+      onChange={(event) => onChange(event.target.value)}
+      className={className}
+    >
+      <option value="">Tất cả</option>
+      {known.map((state) => (
+        <option key={state.value} value={state.value}>
+          {state.label}
+        </option>
+      ))}
+      {value && !known.some((state) => state.value === value) ? (
+        <option value={value}>{value}</option>
+      ) : null}
+    </Select>
+  );
+}
 
 const dash = <span className="text-[var(--text-muted)]">–</span>;
 

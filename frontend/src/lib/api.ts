@@ -3360,7 +3360,9 @@ export interface UnitsMe {
  * - `view`: in the Design ban (not OWNER / ADMIN) - `/tasks` draws the
  *   simplified Design table for ORD;
  * - `manage_codes`: may edit the "mã video" catalogue (Design Leader, OWNER, ADMIN);
- * - `birthday`: may open the birthday board and create birthday orders;
+ * - `birthday`: may open the birthday board and create birthday orders - the
+ *   Design ban, OWNER / ADMIN, and an ORD member granted it (`birthday_orders`
+ *   on their roster row);
  * - `library`: the Design team's "Thư viện" menu, in menu order (`[]` for
  *   anybody outside the team);
  * - `manage_library`: may edit that menu (Design Leader, OWNER, ADMIN).
@@ -3438,6 +3440,16 @@ export interface UnitMember {
   manager_user_id?: Uuid | null;
   /** ORD: own token budget per working day; null = the unit's `default_daily_tokens`. */
   daily_tokens?: number | null;
+  /**
+   * ORD: this member was granted the "Order sinh nhật" board (on their ORD
+   * tag). Optional: older APIs, and the PR roster, omit it.
+   */
+  birthday_orders?: boolean;
+  /**
+   * ORD: the member has that board without the grant - the Design ban does by
+   * default. Optional, like `birthday_orders`.
+   */
+  birthday_orders_default?: boolean;
 }
 
 export interface UnitMemberList {
@@ -3731,6 +3743,12 @@ export interface TaskPage {
   phases: Array<{ value: string; label: string }>;
   /** Ads only: the four steps of the "Pha" filter. */
   steps?: Array<{ value: string; label: string }>;
+  /**
+   * ORD only: where the Design step can stand ("Chờ phân công", "Đang làm"...),
+   * for the Design ban's "Trạng thái" filter (`design_status`). Optional:
+   * older APIs omit it.
+   */
+  design_states?: Array<{ value: string; label: string }>;
 }
 
 export interface BoardFilters {
@@ -3749,6 +3767,11 @@ export interface BoardFilters {
   assignee?: string;
   /** Everything one person takes part in (ordered, holds a step, or PR owner). */
   person?: string;
+  /**
+   * ORD: where the Design step stands - one `value` of the page's
+   * `design_states` (an unknown one is a 422).
+   */
+  design_status?: string;
   mine?: boolean;
   awaiting_me?: boolean;
   /**
@@ -4464,6 +4487,8 @@ export const api = {
       manager_user_id?: Uuid | null;
       /** ORD: own tokens per working day; null = back to the unit default. */
       daily_tokens?: number | null;
+      /** ORD: grant / withdraw the "Order sinh nhật" board. */
+      birthday_orders?: boolean;
     },
   ) => patch<UnitMember>(`/api/units/${code}/members/${userId}`, body),
   untagUnitMember: (code: string, userId: Uuid) =>

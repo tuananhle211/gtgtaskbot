@@ -20,7 +20,7 @@ from datetime import date, datetime, time, timedelta
 from decimal import Decimal
 from typing import Any, Protocol
 
-from sqlalchemy import ColumnElement, Select, case, exists, extract, func, or_, select
+from sqlalchemy import ColumnElement, Select, and_, case, exists, extract, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import aliased
 
@@ -143,6 +143,46 @@ def awaiting_hand_out(node: OrderNode) -> bool:
     if node.assigned_at is not None and node.activated_at is not None:
         return ensure_utc(node.assigned_at) <= ensure_utc(node.activated_at)
     return True
+
+
+def _design_state(state: str) -> ColumnElement[bool] | None:
+    """Where a node stands, as a condition on ``order_nodes`` - the SQL twin
+    of :meth:`AdsBoardSource._node_state` for the Design team's status filter
+    (:data:`~meobot.domain.board.models.DESIGN_STATES`). ``None`` = unknown."""
+    untaken = OrderNode.accepted_at.is_(None)
+    # ``awaiting_hand_out``: routed to a Leader at activation, not handed on.
+    routed = and_(
+        OrderNode.status == OrderNodeStatus.DANG_LAM,
+        untaken,
+        OrderNode.assignee_user_id.is_not(None),
+        or_(
+            OrderNode.preassigned_user_id.is_(None),
+            OrderNode.assignee_user_id != OrderNode.preassigned_user_id,
+        ),
+        or_(
+            OrderNode.assigned_at.is_(None),
+            OrderNode.activated_at.is_(None),
+            OrderNode.assigned_at <= OrderNode.activated_at,
+        ),
+    )
+    conditions: dict[str, ColumnElement[bool]] = {
+        STATE_CHO_PHAN_CONG: or_(OrderNode.status == OrderNodeStatus.CHUA_GIAO, routed),
+        STATE_DA_GIAO: and_(
+            OrderNode.status.in_([OrderNodeStatus.DANG_LAM, OrderNodeStatus.DANG_SUA]),
+            OrderNode.assignee_user_id.is_not(None),
+            untaken,
+            ~routed,
+        ),
+        OrderNodeStatus.DANG_LAM.value: and_(
+            OrderNode.status == OrderNodeStatus.DANG_LAM, OrderNode.accepted_at.is_not(None)
+        ),
+        OrderNodeStatus.DANG_SUA.value: and_(
+            OrderNode.status == OrderNodeStatus.DANG_SUA, OrderNode.accepted_at.is_not(None)
+        ),
+        STATE_CHO_DUYET: OrderNode.status == OrderNodeStatus.CHO_DUYET,
+        OrderNodeStatus.HOAN_THANH.value: OrderNode.status == OrderNodeStatus.HOAN_THANH,
+    }
+    return conditions.get(state)
 
 
 def awaiting_acceptance(node: OrderNode) -> bool:
@@ -533,11 +573,27 @@ class AdsBoardSource:
             statement = statement.where(Order.video_kind_id == query.video_kind_id)
         if query.category:
             try:
-                statement = statement.where(
-                    Order.category == OrderCategory(query.category.strip().upper())
-                )
+                category = OrderCategory(query.category.strip().upper())
             except ValueError:
                 statement = statement.where(Order.id.is_(None))
+            else:
+                statement = statement.where(Order.category == category)
+                if category is OrderCategory.BIRTHDAY and not self._scope.birthday_board:
+                    # The birthday board is for those granted it (0059).
+                    statement = statement.where(Order.id.is_(None))
+        if query.design_status:
+            state = _design_state(query.design_status.strip().upper())
+            statement = statement.where(
+                Order.id.is_(None)
+                if state is None
+                else exists(
+                    select(OrderNode.id).where(
+                        OrderNode.order_id == Order.id,
+                        OrderNode.node_type == OrderNodeType.THIET_KE,
+                        state,
+                    )
+                )
+            )
         if query.status:
             try:
                 statement = statement.where(Order.stage == OrderStage(query.status))

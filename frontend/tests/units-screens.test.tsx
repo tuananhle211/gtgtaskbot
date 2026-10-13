@@ -15,6 +15,7 @@ import TasksPage from "@/app/tasks/page";
 import DashboardPage from "@/app/dashboard/page";
 import OrderDetailPage from "@/app/orders/[ref]/page";
 import UnitsAdminPage from "@/app/admin/units/page";
+import { UnitPanel } from "@/components/unit-panel";
 import { renderWithQuery, SESSION, stubFetch, urlStore } from "./helpers";
 
 const SEARCH = { value: new URLSearchParams() };
@@ -865,6 +866,126 @@ describe("the unit admin page", () => {
   });
 });
 
+
+describe('the "Order sinh nhật" switch on an ORD member', () => {
+  type Call = { url: string; method: string; body: unknown };
+  const callsOf = (stub: unknown) => (stub as { calls: Call[] }).calls;
+
+  const person = (user_id: string, full_name: string, role: string, over: object = {}) => ({
+    user_id,
+    full_name,
+    base_role: "EMPLOYEE",
+    base_role_label: "Nhân viên",
+    role,
+    role_label: role,
+    is_lead: false,
+    member_code: null,
+    personal_nas_url: null,
+    joined_at: "2026-10-07T02:00:00Z",
+    left_at: null,
+    active: true,
+    manager_user_id: null,
+    birthday_orders: false,
+    birthday_orders_default: false,
+    ...over,
+  });
+  const ORDERER = person("u-orderer", "Tuấn Order", "ORDERER");
+  const GRANTED = person("u-granted", "Hà Được Cấp", "BIEN_TAP", { birthday_orders: true });
+  const DESIGNER = person("u-design", "Diễm My", "THIET_KE", { birthday_orders_default: true });
+
+  const panel = (
+    code: "ADS" | "PR",
+    members: object[],
+    me: object = { ...OWNER_OF_BOTH, can_tag: ["PR", "ADS"] },
+  ) => {
+    const stub = stubFetch([
+      { match: "/api/auth/session", body: { ...SESSION, role: "OWNER" } },
+      { match: "/api/units/me", body: me },
+      { match: `/api/units/${code}/members/`, method: "PATCH", body: {} },
+      {
+        match: `/api/units/${code}/members`,
+        method: "GET",
+        body: { unit: code, unit_label: code, members, assignable_roles: [] },
+      },
+      { match: `/api/units/${code}/health`, body: { unit: code, warnings: [] } },
+      { match: "/api/units/directory", body: [] },
+      { match: "/api/units/untagged", body: { users: [] } },
+    ]);
+    renderWithQuery(<UnitPanel code={code} settings={false} />);
+    return stub;
+  };
+  const patches = (stub: unknown) => callsOf(stub).filter((call) => call.method === "PATCH");
+  const meReads = (stub: unknown) =>
+    callsOf(stub).filter((call) => call.url === "/api/units/me").length;
+
+  it("grants the board to an ORD member, and re-reads /api/units/me", async () => {
+    const stub = panel("ADS", [ORDERER, GRANTED, DESIGNER]);
+    const box = await screen.findByRole("checkbox", { name: "Order sinh nhật của Tuấn Order" });
+    expect(box).not.toBeChecked();
+    expect(box).toBeEnabled();
+    const before = meReads(stub);
+    await userEvent.click(box);
+    await waitFor(() => expect(patches(stub)).toHaveLength(1));
+    expect(patches(stub)[0].url).toBe("/api/units/ADS/members/u-orderer");
+    expect(patches(stub)[0].body).toEqual({ birthday_orders: true });
+    // The editor's own sidebar follows if they changed themselves.
+    await waitFor(() => expect(meReads(stub)).toBeGreaterThan(before));
+  });
+
+  it("withdraws it from somebody who was granted it", async () => {
+    const stub = panel("ADS", [ORDERER, GRANTED, DESIGNER]);
+    const box = await screen.findByRole("checkbox", { name: "Order sinh nhật của Hà Được Cấp" });
+    expect(box).toBeChecked();
+    expect(box).toBeEnabled();
+    await userEvent.click(box);
+    await waitFor(() => expect(patches(stub)).toHaveLength(1));
+    expect(patches(stub)[0].url).toBe("/api/units/ADS/members/u-granted");
+    expect(patches(stub)[0].body).toEqual({ birthday_orders: false });
+  });
+
+  it("is ticked and locked for the Design ban, which has the board by default", async () => {
+    const stub = panel("ADS", [ORDERER, GRANTED, DESIGNER]);
+    const box = await screen.findByRole("checkbox", { name: "Order sinh nhật của Diễm My" });
+    expect(box).toBeChecked();
+    expect(box).toBeDisabled();
+    const row = box.closest("tr") as HTMLElement;
+    expect(within(row).getByText(/Ban Design: mặc định/)).toBeInTheDocument();
+    // Only the Design ban carries the hint.
+    expect(screen.getAllByText(/Ban Design: mặc định/)).toHaveLength(1);
+    await userEvent.click(box);
+    expect(patches(stub)).toHaveLength(0);
+  });
+
+  it("is not on the PR roster, whatever its rows carry", async () => {
+    panel("PR", [person("u-pr", "Lan PR", "MEMBER", { birthday_orders: true })]);
+    expect(await screen.findByText("Lan PR")).toBeInTheDocument();
+    expect(screen.queryByRole("checkbox", { name: /Order sinh nhật/ })).not.toBeInTheDocument();
+    expect(screen.queryByText(/Order sinh nhật/)).not.toBeInTheDocument();
+  });
+
+  it("is plain text for somebody who may not edit the row", async () => {
+    panel("ADS", [ORDERER, GRANTED, DESIGNER], {
+      ...ADS_ONLY,
+      can_admin: [],
+      can_tag: [],
+    });
+    const row = (name: string) => screen.getByText(name).closest("tr") as HTMLElement;
+    expect(await screen.findByText("Tuấn Order")).toBeInTheDocument();
+    expect(screen.queryByRole("checkbox", { name: /Order sinh nhật/ })).not.toBeInTheDocument();
+    expect(row("Tuấn Order")).toHaveTextContent("Order sinh nhật: –");
+    expect(row("Hà Được Cấp")).toHaveTextContent("Order sinh nhật: Có");
+    expect(row("Diễm My")).toHaveTextContent("Order sinh nhật: Có (Ban Design: mặc định)");
+  });
+
+  it("is not drawn for a roster from an API that predates it", async () => {
+    const old = { ...ORDERER } as Record<string, unknown>;
+    delete old.birthday_orders;
+    delete old.birthday_orders_default;
+    panel("ADS", [old]);
+    expect(await screen.findByText("Tuấn Order")).toBeInTheDocument();
+    expect(screen.queryByText(/Order sinh nhật/)).not.toBeInTheDocument();
+  });
+});
 
 describe("the dashboard", () => {
   it("narrows every figure to one person picked from the dropdown", async () => {

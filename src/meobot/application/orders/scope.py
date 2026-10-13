@@ -14,9 +14,11 @@ does not read another's ideas:
   themselves, the ones they were chosen to approve, and the orders nobody else
   answers for (an orderer with no head set and no approver chosen);
 * a marketer sees the orders they placed - not their teammates';
-* a function's Leader sees every order that visits their node;
+* a function's Leader sees every order that **has reached** their node - not
+  the ones still upstream (an order at Biên kịch is not Design's or Dựng's
+  yet), and still the ones that moved on;
 * a function's member sees the orders where they hold, or were chosen for, a
-  node;
+  node the order has reached;
 * the Design team - Leader and staff alike - sees every **birthday order**
   (0058): that board is the team's own.
 """
@@ -41,6 +43,10 @@ from meobot.domain.units.models import UnitCode, UnitMemberRole, UnitMembership,
 
 NOT_VISIBLE = "Không tìm thấy."
 
+#: A node the order has not come to: skipped by the process, or still upstream.
+#: A function's people see an order only once it has reached their node.
+NOT_REACHED = (OrderNodeStatus.BO_QUA, OrderNodeStatus.CHUA_TOI)
+
 
 @dataclass(frozen=True, slots=True)
 class OrderScope:
@@ -54,6 +60,10 @@ class OrderScope:
     team_role: UnitMemberRole | None = None
     #: In the Design team: every birthday order is theirs to see.
     design_team: bool = False
+    #: May use the birthday-order board at all (0059). Without it the board
+    #: lists nothing - an order somebody placed before losing the grant is
+    #: still theirs to open by its link.
+    birthday_board: bool = True
 
     @classmethod
     def for_actor(
@@ -85,6 +95,11 @@ class OrderScope:
             context=context,
             team_role=team_role,
             design_team=entry is not None and entry.role is UnitMemberRole.THIET_KE,
+            birthday_board=membership.sees_all
+            or (
+                entry is not None
+                and (entry.role is UnitMemberRole.THIET_KE or entry.birthday_orders)
+            ),
         )
 
     def apply(self, statement: Select) -> Select:  # type: ignore[type-arg]
@@ -114,7 +129,7 @@ class OrderScope:
                     select(OrderNode.id).where(
                         OrderNode.order_id == Order.id,
                         OrderNode.node_type.in_(list(self.lead_node_types)),
-                        OrderNode.status != OrderNodeStatus.BO_QUA,
+                        OrderNode.status.notin_(NOT_REACHED),
                     )
                 )
             )
@@ -122,6 +137,8 @@ class OrderScope:
             exists(
                 select(OrderNode.id).where(
                     OrderNode.order_id == Order.id,
+                    # Chosen on the form counts once the order gets there.
+                    OrderNode.status.notin_(NOT_REACHED),
                     or_(
                         OrderNode.assignee_user_id == self.user_id,
                         OrderNode.preassigned_user_id == self.user_id,

@@ -93,6 +93,7 @@ class UnitDirectoryService:
                 is_lead=member.is_lead,
                 member_code=member.member_code,
                 personal_nas_url=member.personal_nas_url,
+                birthday_orders=bool(member.birthday_orders),
             )
             for member, code in rows
             if member.left_at is None

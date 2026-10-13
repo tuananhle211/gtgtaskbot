@@ -65,6 +65,7 @@ from meobot.application.account.avatar_service import avatar_urls
 from meobot.application.audit_service import AuditService
 from meobot.application.orders.design_code_service import (
     DesignCodeService,
+    has_birthday_orders,
     in_design_team,
     manages_design_codes,
 )
@@ -207,7 +208,6 @@ async def my_units(
             )
     can_admin = [code.value for code in await admin.admin_units(actor)]
     can_tag = [code.value for code in admin.tag_units(membership, actor)]
-    ads = membership.entry(UnitCode.ADS)
     library: tuple[LibraryLink, ...] = ()
     if sees_library(membership):
         try:
@@ -219,15 +219,7 @@ async def my_units(
         manage_library=manages_library(membership),
         view=in_design_team(membership) and not membership.sees_all,
         manage_codes=membership.has(UnitCode.ADS) and manages_design_codes(membership),
-        birthday=membership.has(UnitCode.ADS)
-        and (
-            membership.sees_all
-            or (
-                ads is not None
-                and ads.role
-                in (UnitMemberRole.HEAD, UnitMemberRole.ORDERER, UnitMemberRole.THIET_KE)
-            )
-        ),
+        birthday=has_birthday_orders(membership),
     )
     return UnitMeResponse.from_domain(
         membership, entries, can_admin=can_admin, can_tag=can_tag, design=design
@@ -351,6 +343,7 @@ async def update_member(
         clear_manager="manager_user_id" in fields and body.manager_user_id is None,
         daily_tokens=body.daily_tokens,
         clear_daily_tokens="daily_tokens" in fields and body.daily_tokens is None,
+        birthday_orders=body.birthday_orders,
     )
     return UnitMemberResponse.from_row(row)
 

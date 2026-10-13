@@ -9,6 +9,7 @@ from pydantic import BaseModel, ConfigDict
 
 from meobot.domain.board.models import (
     ADS_STEPS,
+    DESIGN_STATES,
     PHASE_LABELS,
     PHASE_ORDER,
     BirthdayView,
@@ -252,6 +253,8 @@ class TaskPageResponse(BaseModel):
     #: Ads only: the "Pha" filter's four steps (Order, Biên tập, Thiết kế,
     #: Dựng), sent as ``?step=``. Empty for PR and the merged view.
     steps: list[PhaseOption] = []
+    #: Ads only: the Design team's status filter, sent as ``?design_status=``.
+    design_states: list[PhaseOption] = []
 
     @classmethod
     def from_domain(
@@ -267,6 +270,11 @@ class TaskPageResponse(BaseModel):
                 PhaseOption(value=phase.value, label=PHASE_LABELS[phase]) for phase in PHASE_ORDER
             ],
             steps=[PhaseOption(value=key, label=label) for key, (label, _) in ADS_STEPS.items()]
+            if ads_steps
+            else [],
+            design_states=[
+                PhaseOption(value=key, label=label) for key, label in DESIGN_STATES.items()
+            ]
             if ads_steps
             else [],
         )

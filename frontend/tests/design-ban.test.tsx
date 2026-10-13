@@ -832,6 +832,19 @@ const BIRTHDAY_ROW: TaskRow = {
   status_label: "Design · Chờ Lan phân công",
   state: "CHO_PHAN_CONG",
   current_person_name: "Lan",
+  // A birthday order is a Design-only order: one step.
+  cells: [
+    {
+      key: "THIET_KE",
+      label: "Design",
+      person_name: null,
+      status: "CHO_PHAN_CONG",
+      status_label: "Chờ Lan phân công",
+      is_current: true,
+      since: null,
+      revisions: 0,
+    },
+  ],
   detail_path: "/tasks/MY-T-261012-01",
   version: 2,
   category: "BIRTHDAY",
@@ -880,6 +893,7 @@ const birthdayPage = (
     { match: "/api/auth/session", body: { ...SESSION, role: "EMPLOYEE" } },
     { match: "/api/units/me", body: me },
     { match: "/api/orders/birthday/options", body: { branches: ["CS - Hà Nội 2", "VP - Hà Nội"] } },
+    ADS_ROSTER,
     { match: "/api/board/counts", body: COUNTS },
     { match: "/api/board/tasks", body: PAGE(rows) },
   ]);
@@ -933,9 +947,10 @@ describe("the birthday board", () => {
     expect(first).toHaveTextContent("Nữ");
     expect(first).toHaveTextContent("01/10");
     expect(first).not.toHaveTextContent("1998");
-    // The status badge, coloured as on /tasks (a waiting state is amber).
+    // The status badge: the Design step's own state, coloured as a step is on
+    // /tasks (a waiting state is amber).
     expect(first.querySelector(".st")).toHaveClass("st-amber");
-    expect(first.querySelector(".st")).toHaveTextContent("Design · Chờ Lan phân công");
+    expect(first.querySelector(".st")).toHaveTextContent(/^Chờ Lan phân công$/);
     const content = within(first).getByTestId("birthday-content");
     expect(within(content).getByRole("link", { name: /Ảnh minh hoạ/ })).toHaveAttribute(
       "href",
@@ -1196,5 +1211,420 @@ describe('"Bảng mã video"', () => {
       "Bảng mã video do Trưởng phòng Design quản lý",
     );
     expect(calls(stub).some((call) => call.url.includes("design-codes"))).toBe(false);
+  });
+});
+
+// --- 7. The Design ban's filters, status and deadline ----------------------------
+
+const DESIGN_STATES = [
+  { value: "CHO_PHAN_CONG", label: "Chờ phân công" },
+  { value: "DA_GIAO", label: "Đã giao, chưa nhận" },
+  { value: "DANG_LAM", label: "Đang làm" },
+  { value: "CHO_DUYET", label: "Chờ duyệt" },
+  { value: "DANG_SUA", label: "Đang sửa" },
+  { value: "HOAN_THANH", label: "Hoàn thành" },
+];
+
+const member = (user_id: string, full_name: string, role: string, over: object = {}) => ({
+  user_id,
+  full_name,
+  base_role: "EMPLOYEE",
+  base_role_label: "Nhân viên",
+  role,
+  role_label: role,
+  is_lead: false,
+  member_code: null,
+  personal_nas_url: null,
+  joined_at: "2026-01-01T00:00:00Z",
+  left_at: null,
+  active: true,
+  ...over,
+});
+
+const ROSTER = [
+  member("u-my", "Diễm My", "THIET_KE"),
+  member("u-lan", "Lan Leader", "THIET_KE", { is_lead: true }),
+  member("u-cu", "Người Cũ", "THIET_KE", { active: false }),
+  member("u-ha", "Hà Biên Kịch", "BIEN_TAP"),
+  member("u-nhu", "Quỳnh Như", "DUNG"),
+  member("u-tuan", "Tuấn Marketing", "ORDERER"),
+];
+
+type Routes = Parameters<typeof stubFetch>[0];
+
+const filteredTasksPage = (me: unknown, rows: TaskRow[] = [ROW], extra: Routes = []) => {
+  const stub = stubFetch([
+    ...extra,
+    { match: "/api/auth/session", body: { ...SESSION, role: "EMPLOYEE" } },
+    { match: "/api/units/me", body: me },
+    {
+      match: "/api/units/ADS/members",
+      body: { unit: "ADS", unit_label: "ORD", members: ROSTER, assignable_roles: [] },
+    },
+    {
+      match: "/api/units/ADS/video-kinds",
+      body: { kinds: [{ id: "k-1", name: "Banner", points: 1, active: true, sort_order: 1 }] },
+    },
+    { match: "/api/board/counts", body: COUNTS },
+    { match: "/api/board/tasks", body: { ...PAGE(rows), design_states: DESIGN_STATES } },
+  ]);
+  renderWithQuery(<TasksPage />);
+  return stub;
+};
+
+const listRequests = (stub: unknown) =>
+  calls(stub)
+    .filter((call) => call.url.includes("/api/board/tasks"))
+    .map((call) => new URLSearchParams(call.url.split("?")[1]));
+const optionTexts = (select: HTMLElement) =>
+  within(select)
+    .getAllByRole("option")
+    .map((option) => option.textContent);
+
+/** The Design step of a row, as the board sends it. */
+const designCell = (over: Partial<TaskRow["cells"][number]>) => ({
+  key: "THIET_KE",
+  label: "Design",
+  person_name: "Diễm My",
+  status: "DANG_LAM",
+  status_label: "Đang làm",
+  is_current: true,
+  since: null,
+  revisions: 0,
+  ...over,
+});
+
+describe("the Design ban's own filters", () => {
+  it('drops "Pha", "Quy trình", "Loại video" and "Marketing"', async () => {
+    const stub = filteredTasksPage(ME_AS("THIET_KE", DESIGNER));
+    await screen.findByText("Banner khai trương");
+    for (const gone of ["Pha", "Quy trình", "Loại video", "Marketing"]) {
+      expect(screen.queryByRole("combobox", { name: gone })).not.toBeInTheDocument();
+    }
+    // What stays: the dates, the search, the quick filters, "Xoá lọc".
+    expect(screen.getByLabelText("Từ ngày")).toBeInTheDocument();
+    expect(screen.getByLabelText("Đến ngày")).toBeInTheDocument();
+    expect(screen.getByRole("searchbox", { name: "Tìm theo mã hoặc tên" })).toBeInTheDocument();
+    expect(within(screen.getByRole("group", { name: "Lọc nhanh" })).getAllByRole("button")).toHaveLength(5);
+    expect(screen.getByRole("button", { name: /Xoá lọc/ })).toBeInTheDocument();
+    expect(screen.getByRole("combobox", { name: "Số dòng" })).toBeInTheDocument();
+    // And what replaces them.
+    expect(screen.getByRole("combobox", { name: "Trạng thái" })).toBeInTheDocument();
+    expect(screen.getByRole("combobox", { name: "Người làm" })).toBeInTheDocument();
+    // No "Loại video" filter, so its catalogue is not asked for.
+    expect(calls(stub).some((call) => call.url.includes("video-kinds"))).toBe(false);
+  });
+
+  it("keeps all four for everybody else, and gives them no Design status", async () => {
+    filteredTasksPage(ME_AS("ORDERER", ORDERER));
+    await screen.findByText("Banner khai trương");
+    for (const kept of ["Pha", "Quy trình", "Marketing", "Người làm"]) {
+      expect(screen.getByRole("combobox", { name: kept })).toBeInTheDocument();
+    }
+    expect(await screen.findByRole("combobox", { name: "Loại video" })).toBeInTheDocument();
+    expect(screen.queryByRole("combobox", { name: "Trạng thái" })).not.toBeInTheDocument();
+    // Their "Người làm" is the whole stream.
+    expect(optionTexts(screen.getByRole("combobox", { name: "Người làm" }))).toEqual([
+      "Tất cả",
+      "Diễm My",
+      "Lan Leader",
+      "Hà Biên Kịch",
+      "Quỳnh Như",
+      "Tuấn Marketing",
+    ]);
+  });
+
+  it('lists the server\'s Design states under "Trạng thái" and sends design_status', async () => {
+    SEARCH.value = new URLSearchParams("page=3");
+    const stub = filteredTasksPage(ME_AS("THIET_KE", DESIGNER));
+    await screen.findByText("Banner khai trương");
+    const status = screen.getByRole("combobox", { name: "Trạng thái" });
+    expect(optionTexts(status)).toEqual([
+      "Tất cả",
+      "Chờ phân công",
+      "Đã giao, chưa nhận",
+      "Đang làm",
+      "Chờ duyệt",
+      "Đang sửa",
+      "Hoàn thành",
+    ]);
+    expect(listRequests(stub)[0].get("design_status")).toBeNull();
+    await userEvent.selectOptions(status, "CHO_DUYET");
+    // On the URL, and back on page 1.
+    expect(SEARCH.value.get("design_status")).toBe("CHO_DUYET");
+    expect(SEARCH.value.get("page")).toBeNull();
+    await waitFor(() => {
+      const last = listRequests(stub).at(-1)!;
+      expect(last.get("design_status")).toBe("CHO_DUYET");
+      expect(last.get("offset")).toBe("0");
+    });
+    await waitFor(() =>
+      expect(screen.getByRole("combobox", { name: "Trạng thái" })).toHaveValue("CHO_DUYET"),
+    );
+    expect(screen.getByRole("button", { name: "Xoá lọc (1)" })).toBeInTheDocument();
+    await userEvent.click(screen.getByRole("button", { name: /Xoá lọc/ }));
+    expect(SEARCH.value.get("design_status")).toBeNull();
+    await waitFor(() => expect(listRequests(stub).at(-1)!.get("design_status")).toBeNull());
+  });
+
+  it("keeps a status from the URL selected while the list of states is on its way", async () => {
+    SEARCH.value = new URLSearchParams("design_status=DANG_SUA");
+    const stub = filteredTasksPage(ME_AS("THIET_KE", DESIGNER));
+    await screen.findByText("Banner khai trương");
+    expect(listRequests(stub)[0].get("design_status")).toBe("DANG_SUA");
+    const status = screen.getByRole("combobox", { name: "Trạng thái" });
+    expect(status).toHaveValue("DANG_SUA");
+    expect(within(status).getByRole("option", { name: "Đang sửa" })).toBeInTheDocument();
+  });
+
+  it('lists only the Design ban under "Người làm" and sends assignee', async () => {
+    const stub = filteredTasksPage(ME_AS("THIET_KE", DESIGNER));
+    await screen.findByText("Banner khai trương");
+    const people = screen.getByRole("combobox", { name: "Người làm" });
+    // Designers and their Leader; nobody from another ban, nobody who left.
+    await waitFor(() => expect(optionTexts(people)).toEqual(["Tất cả", "Diễm My", "Lan Leader"]));
+    await userEvent.selectOptions(people, "u-lan");
+    expect(SEARCH.value.get("assignee")).toBe("u-lan");
+    await waitFor(() => expect(listRequests(stub).at(-1)!.get("assignee")).toBe("u-lan"));
+  });
+
+  it("does not send a removed filter left on the URL", async () => {
+    SEARCH.value = new URLSearchParams(
+      "step=DUNG&kind=BT&video_kind_id=k-1&owner=u-tuan&phase=REVIEW&design_status=DANG_LAM&from=2026-10-01",
+    );
+    const stub = filteredTasksPage(ME_AS("THIET_KE", DESIGNER));
+    await screen.findByText("Banner khai trương");
+    for (const request of listRequests(stub)) {
+      for (const removed of ["step", "kind", "video_kind_id", "owner", "phase"]) {
+        expect(request.get(removed), removed).toBeNull();
+      }
+      // The filters they do have still go.
+      expect(request.get("design_status")).toBe("DANG_LAM");
+      expect(request.get("date_from")).toBe("2026-10-01");
+    }
+    // Only what is applied is counted.
+    expect(screen.getByRole("button", { name: "Xoá lọc (2)" })).toBeInTheDocument();
+  });
+
+  it("still sends them for everybody else, and never their design_status", async () => {
+    SEARCH.value = new URLSearchParams("step=DUNG&kind=BT&owner=u-tuan&design_status=DANG_LAM");
+    const stub = filteredTasksPage(ME_AS("ORDERER", ORDERER));
+    await screen.findByText("Banner khai trương");
+    const first = listRequests(stub)[0];
+    expect(first.get("step")).toBe("DUNG");
+    expect(first.get("kind")).toBe("BT");
+    expect(first.get("owner")).toBe("u-tuan");
+    expect(first.get("design_status")).toBeNull();
+  });
+});
+
+describe("the Design step's status and deadline on the Design table", () => {
+  /** An order that left Design: at Dựng for everybody else. */
+  const AT_DUNG: TaskRow = {
+    ...ROW,
+    status: "DUNG",
+    status_label: "Dựng · Đang làm",
+    current_person_name: "Quỳnh Như",
+    deadline_at: "2026-10-25T03:00:00Z",
+    deadline_status: "ON_TRACK",
+    cells: [
+      designCell({
+        status: "HOAN_THANH",
+        status_label: "Hoàn thành",
+        is_current: false,
+        revisions: 2,
+        deadline_at: "2026-10-18T10:00:00Z",
+        deadline_status: "MET",
+      }),
+      {
+        key: "DUNG",
+        label: "Dựng",
+        person_name: "Quỳnh Như",
+        status: "DANG_LAM",
+        status_label: "Đang làm",
+        is_current: true,
+        since: null,
+        revisions: 0,
+      },
+    ],
+  };
+
+  it("reads the Design step, not the order's stage", async () => {
+    filteredTasksPage(ME_AS("THIET_KE", DESIGNER), [AT_DUNG]);
+    const status = await screen.findByTestId("design-status");
+    // Done for the Design ban, wherever the order went next.
+    expect(status.querySelector(".st")).toHaveTextContent(/^Hoàn thành$/);
+    expect(status.querySelector(".st")).toHaveClass("st-green");
+    expect(status).not.toHaveTextContent("Dựng");
+    expect(status).not.toHaveTextContent("Quỳnh Như");
+    // The designer, since the label does not name them, and the returns.
+    expect(status).toHaveTextContent(/Người làm:\s*Diễm My/);
+    expect(status).toHaveTextContent("sửa 2");
+  });
+
+  it("does not repeat a name the label already carries, and colours a waiting step amber", async () => {
+    filteredTasksPage(ME_AS("THIET_KE", DESIGNER), [
+      {
+        ...ROW,
+        cells: [
+          designCell({ person_name: "Quỳnh Như", status: "DA_GIAO", status_label: "Đã giao Quỳnh Như" }),
+        ],
+      },
+    ]);
+    const status = await screen.findByTestId("design-status");
+    expect(status.querySelector(".st")).toHaveClass("st-amber");
+    expect(status.querySelector(".st strong")).toHaveTextContent("Quỳnh Như");
+    expect(status).not.toHaveTextContent("Người làm:");
+  });
+
+  it("shows the Design step's own deadline, else the row's", async () => {
+    filteredTasksPage(ME_AS("THIET_KE", DESIGNER), [
+      AT_DUNG,
+      { ...ROW, id: "o-2", code: "TUAN-BT-261012-02", deadline_at: "2026-10-22T03:00:00Z" },
+    ]);
+    await screen.findAllByTestId("design-status");
+    const [own, fallback] = screen.getAllByTestId("row-deadline");
+    // 18/10 17:00 Việt Nam time: the step's deadline, and how it ended.
+    expect(own).toHaveTextContent("Hạn 18/10 17:00");
+    expect(own.querySelector("[data-deadline-status]")).toHaveAttribute(
+      "data-deadline-status",
+      "MET",
+    );
+    expect(own).not.toHaveTextContent("25/10");
+    // No deadline on the step: the row's.
+    expect(fallback).toHaveTextContent("Hạn 22/10 10:00");
+  });
+
+  it("falls back to the row's status when it has no Design step", async () => {
+    filteredTasksPage(ME_AS("THIET_KE", DESIGNER), [
+      { ...AT_DUNG, cells: AT_DUNG.cells.filter((cell) => cell.key !== "THIET_KE") },
+    ]);
+    await screen.findByText("Banner khai trương");
+    expect(screen.queryByTestId("design-status")).not.toBeInTheDocument();
+    expect(screen.getByText("Dựng · Đang làm")).toBeInTheDocument();
+    expect(screen.getByTestId("row-deadline")).toHaveTextContent("Hạn 25/10 10:00");
+  });
+
+  it("leaves everybody else on the order's own status and deadline", async () => {
+    filteredTasksPage(ME_AS("ORDERER", ORDERER), [AT_DUNG]);
+    await screen.findByText("Banner khai trương");
+    expect(screen.queryByTestId("design-status")).not.toBeInTheDocument();
+    expect(screen.getByText("Dựng · Đang làm")).toBeInTheDocument();
+    expect(screen.getByTestId("row-deadline")).toHaveTextContent("Hạn 25/10 10:00");
+  });
+
+  it("sorts those two columns by what they draw", async () => {
+    const at = (n: number, label: string, deadline: string | null, rowDeadline: string): TaskRow => ({
+      ...ROW,
+      id: `o-${n}`,
+      code: `TUAN-BT-261012-0${n}`,
+      // The order's own status and deadline run the other way on purpose.
+      status_label: `Dựng · ${4 - n}`,
+      deadline_at: rowDeadline,
+      cells: [designCell({ status_label: label, deadline_at: deadline })],
+    });
+    filteredTasksPage(ME_AS("THIET_KE", DESIGNER), [
+      at(1, "Hoàn thành", "2026-10-20T03:00:00Z", "2026-10-01T03:00:00Z"),
+      at(2, "Chờ duyệt", "2026-10-10T03:00:00Z", "2026-10-02T03:00:00Z"),
+      at(3, "Đang làm", null, "2026-10-15T03:00:00Z"),
+    ]);
+    await screen.findByRole("link", { name: "TUAN-BT-261012-01" });
+    const order = () =>
+      screen
+        .getAllByRole("row")
+        .slice(1)
+        .map((line) => within(line).getAllByRole("link")[0].textContent);
+    await userEvent.dblClick(screen.getByRole("columnheader", { name: "Trạng thái · Đang giữ" }));
+    expect(order()).toEqual(["TUAN-BT-261012-02", "TUAN-BT-261012-03", "TUAN-BT-261012-01"]);
+    await userEvent.dblClick(screen.getByRole("columnheader", { name: "Deadline" }));
+    // Row 3 has no step deadline: it shows, and sorts by, the row's (15/10).
+    expect(order()).toEqual(["TUAN-BT-261012-02", "TUAN-BT-261012-03", "TUAN-BT-261012-01"]);
+    await userEvent.dblClick(screen.getByRole("columnheader", { name: /Deadline/ }));
+    expect(order()).toEqual(["TUAN-BT-261012-01", "TUAN-BT-261012-03", "TUAN-BT-261012-02"]);
+    await userEvent.dblClick(screen.getByRole("columnheader", { name: /Deadline/ }));
+  });
+});
+
+describe("the birthday board's Design status", () => {
+  const board = (me: unknown, rows: TaskRow[] = [BIRTHDAY_ROW]) => {
+    const stub = stubFetch([
+      { match: "/api/auth/session", body: { ...SESSION, role: "EMPLOYEE" } },
+      { match: "/api/units/me", body: me },
+      { match: "/api/orders/birthday/options", body: { branches: [] } },
+      {
+        match: "/api/units/ADS/members",
+        body: { unit: "ADS", unit_label: "ORD", members: ROSTER, assignable_roles: [] },
+      },
+      { match: "/api/board/counts", body: COUNTS },
+      { match: "/api/board/tasks", body: { ...PAGE(rows), design_states: DESIGN_STATES } },
+    ]);
+    pathname = "/tasks/birthday";
+    renderWithQuery(<BirthdayOrdersPage />);
+    return stub;
+  };
+
+  it('has the "Trạng thái" filter for every viewer, and sends design_status', async () => {
+    SEARCH.value = new URLSearchParams("page=2");
+    const stub = board(ME_AS("ORDERER", ORDERER));
+    await screen.findByRole("link", { name: "MY-T-261012-01" });
+    const status = screen.getByRole("combobox", { name: "Trạng thái" });
+    expect(optionTexts(status)).toEqual(["Tất cả", ...DESIGN_STATES.map((state) => state.label)]);
+    await userEvent.selectOptions(status, "HOAN_THANH");
+    expect(SEARCH.value.get("design_status")).toBe("HOAN_THANH");
+    expect(SEARCH.value.get("page")).toBeNull();
+    await waitFor(() => {
+      const last = listRequests(stub).at(-1)!;
+      expect(last.get("design_status")).toBe("HOAN_THANH");
+      // Still the birthday list.
+      expect(last.get("category")).toBe("BIRTHDAY");
+      expect(last.get("order")).toBe("birthday");
+    });
+    await userEvent.selectOptions(screen.getByRole("combobox", { name: "Trạng thái" }), "");
+    expect(SEARCH.value.get("design_status")).toBeNull();
+  });
+
+  it('has no "Người làm" for somebody outside the Design ban, and sends no assignee', async () => {
+    SEARCH.value = new URLSearchParams("assignee=u-my");
+    const stub = board(ME_AS("ORDERER", ORDERER));
+    await screen.findByRole("link", { name: "MY-T-261012-01" });
+    expect(screen.queryByRole("combobox", { name: "Người làm" })).not.toBeInTheDocument();
+    expect(listRequests(stub)[0].get("assignee")).toBeNull();
+    // The roster is the Design ban's filter: nobody else reads it here.
+    expect(calls(stub).some((call) => call.url.includes("/members"))).toBe(false);
+  });
+
+  it('gives the Design ban "Người làm", with its own people only', async () => {
+    const stub = board(ME_AS("THIET_KE", DESIGNER));
+    await screen.findByRole("link", { name: "MY-T-261012-01" });
+    const people = screen.getByRole("combobox", { name: "Người làm" });
+    await waitFor(() => expect(optionTexts(people)).toEqual(["Tất cả", "Diễm My", "Lan Leader"]));
+    await userEvent.selectOptions(people, "u-my");
+    expect(SEARCH.value.get("assignee")).toBe("u-my");
+    await waitFor(() => expect(listRequests(stub).at(-1)!.get("assignee")).toBe("u-my"));
+  });
+
+  it("draws the Design step's status and deadline, for every viewer", async () => {
+    board(ME_AS("ORDERER", ORDERER), [
+      {
+        ...BIRTHDAY_ROW,
+        status: "COMPLETED",
+        status_label: "Hoàn thành order",
+        deadline_at: "2026-10-25T03:00:00Z",
+        cells: [
+          designCell({
+            status: "CHO_DUYET",
+            status_label: "Chờ Lan Leader duyệt",
+            person_name: "Diễm My",
+            deadline_at: "2026-10-18T10:00:00Z",
+            deadline_status: "DUE_SOON",
+          }),
+        ],
+      },
+    ]);
+    const status = await screen.findByTestId("design-status");
+    expect(status.querySelector(".st")).toHaveTextContent(/^Chờ Lan Leader duyệt$/);
+    expect(status.querySelector(".st")).toHaveClass("st-amber");
+    expect(status).toHaveTextContent(/Người làm:\s*Diễm My/);
+    expect(screen.getByTestId("row-deadline")).toHaveTextContent("Hạn 18/10 17:00");
   });
 });

@@ -115,6 +115,20 @@ class TaskCell:
     tokens: float | None = None
 
 
+#: The Design step's states the Design team filters by, with their labels.
+#: ``CHO_PHAN_CONG`` also covers a step nobody may hand out ("Chờ giao").
+DESIGN_STATES: MappingProxyType[str, str] = MappingProxyType(
+    {
+        "CHO_PHAN_CONG": "Chờ phân công",
+        "DA_GIAO": "Đã giao, chưa nhận",
+        "DANG_LAM": "Đang làm",
+        "CHO_DUYET": "Chờ duyệt",
+        "DANG_SUA": "Đang sửa",
+        "HOAN_THANH": "Hoàn thành",
+    }
+)
+
+
 @dataclass(frozen=True, slots=True)
 class DesignCodeView:
     code_id: uuid.UUID
@@ -257,6 +271,9 @@ class BoardQuery:
     category: str | None = None
     #: ``order=birthday``: the nearest coming birthday first.
     birthday_first: bool = False
+    #: ORD: where the Design step stands, as the Design team's table shows it
+    #: (one of :data:`DESIGN_STATES`).
+    design_status: str | None = None
     limit: int = 50
     offset: int = 0
 
@@ -316,6 +333,7 @@ ADS_STEPS: MappingProxyType[str, tuple[str, frozenset[OrderStage]]] = MappingPro
 __all__ = [
     "ADS_STAGE_PHASE",
     "ADS_STEPS",
+    "DESIGN_STATES",
     "PHASE_LABELS",
     "PHASE_ORDER",
     "PR_STAGE_PHASE",

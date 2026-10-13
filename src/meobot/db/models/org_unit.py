@@ -127,6 +127,11 @@ class OrgUnitMember(Base, UUIDPrimaryKeyMixin, TimestampMixin):
     #: ORD (0053): this member's own daily token budget; NULL = the unit's
     #: ``UnitSettings.default_daily_tokens``.
     daily_tokens: Mapped[Decimal | None] = mapped_column(Numeric(6, 2), nullable=True)
+    #: ORD (0059): may open the birthday-order board and place birthday orders.
+    #: The Design team has that without it; the OWNER and an ADMIN too.
+    birthday_orders: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False, server_default=text("false")
+    )
     joined_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=func.now()
     )

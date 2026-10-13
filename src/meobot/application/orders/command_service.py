@@ -33,7 +33,7 @@ from meobot.application.board.holders import ads_approvers
 from meobot.application.orders.code_service import OrderCodeService
 from meobot.application.orders.design_code_service import (
     DesignCodeService,
-    in_design_team,
+    has_birthday_orders,
     manages_design_codes,
 )
 from meobot.application.orders.notifications import OrderNotificationService
@@ -349,16 +349,14 @@ class OrderCommandService:
     ) -> Order:
         """Place an "Order sinh nhật": one person's birthday artwork, straight
         to the Design step. Nobody approves it first and Design's hand-in
-        finishes it. Placed by whoever orders in ORD, or by the Design team."""
+        finishes it. Placed by the Design team, or by a member granted the
+        birthday-order board (:func:`has_birthday_orders`)."""
         membership = await self._directory.require(actor, UnitCode.ADS)
         entry = membership.entry(UnitCode.ADS)
         unit = await self._directory.unit(UnitCode.ADS)
         settings = UnitSettings.model_validate(unit.settings or {})
         scope = OrderScope.for_actor(membership, settings, unit_id=unit.id)
-        if actor.user_id is None or not (
-            scope.context.permissions.allows(AdsPermission.ORDER_CREATE)
-            or in_design_team(membership)
-        ):
+        if actor.user_id is None or not has_birthday_orders(membership):
             raise OrderActionNotAllowedError(
                 "Bạn chưa có quyền tạo order sinh nhật.",
                 details={"reason": "birthday_forbidden"},

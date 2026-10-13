@@ -8,14 +8,22 @@ import { api, type BoardFilters, type TaskRow } from "@/lib/api";
 import { formatBirthday, genderLabel } from "@/lib/birthday";
 import { isUntagged } from "@/lib/units";
 import { BirthdayOrderDialog } from "@/components/birthday-order-form";
-import { DesignerCell, WebLink } from "@/components/design-cells";
+import {
+  DesignDeadlineCell,
+  DesignStatusCell,
+  DesignStatusSelect,
+  DesignerCell,
+  WebLink,
+  designDeadline,
+  designStatusLabel,
+  designTeam,
+} from "@/components/design-cells";
+import { Select } from "@/components/pr";
 import { Empty, ErrorBox, Loading } from "@/components/states";
 import { RowActions } from "@/components/task-actions";
 import {
   NO_ROW_NAV,
   Pager,
-  RowDeadlineCell,
-  RowStatusCell,
   SortHeader,
   type SortValueOf,
   nextSort,
@@ -55,7 +63,10 @@ const CLOSED_STATUSES = new Set(["COMPLETED", "CANCELLED"]);
  *
  * Who may open this is the server's word (`design.birthday` on
  * `/api/units/me`); the page asks for nothing until it says yes. The page, its
- * size, the two filters ("Cần làm", the search) and the sort live on the URL.
+ * size, the filters ("Cần làm", the Design step's "Trạng thái", the search -
+ * and "Người làm" for the Design ban itself) and the sort live on the URL.
+ * A birthday order is a Design-only order, so the status and the deadline
+ * drawn are the Design step's own, for everybody who opens this board.
  * The sort (a double click on a column header) rearranges the rows on screen
  * only: across pages the order stays the server's, nearest birthday first.
  */
@@ -67,8 +78,9 @@ const SORT_VALUES: Record<string, SortValueOf<TaskRow>> = {
   name: (row) => row.birthday?.full_name || row.title,
   gender: (row) => (row.birthday ? genderLabel(row.birthday.gender) : null),
   birthday: (row) => row.birthday?.birthday_on?.slice(5, 10),
-  status: (row) => row.status_label,
-  deadline: (row) => sortTime(row.deadline_at),
+  // The Design step's own status and deadline: what the two cells draw.
+  status: (row) => designStatusLabel(row),
+  deadline: (row) => sortTime(designDeadline(row)),
   content: (row) => row.design?.note,
   designer: (row) => [row.design?.designer, sortTime(row.design?.design_submitted_at)],
 };
@@ -87,11 +99,15 @@ function BirthdayBoard() {
   const size = pageSizeOf(params.get("size"));
   const sort = parseSort(params.get("sort"));
   const awaitingMe = read("awaiting_me") === "true";
+  // "Người làm" is the Design ban's own filter: nobody else has (or sends) it.
+  const inDesign = Boolean(me.data?.design?.view);
   const filters: BoardFilters = {
     unit: "ADS",
     category: "BIRTHDAY",
     order: "birthday",
     awaiting_me: awaitingMe,
+    design_status: read("design_status") || undefined,
+    assignee: inDesign ? read("assignee") || undefined : undefined,
     q: read("q") || undefined,
     limit: size,
     offset: (page - 1) * size,
@@ -109,6 +125,12 @@ function BirthdayBoard() {
     enabled: allowed,
     refetchInterval: 10_000,
     refetchOnWindowFocus: true,
+  });
+  // The Design ban's people, for "Người làm".
+  const members = useQuery({
+    queryKey: ["units", "ADS", "members"],
+    queryFn: () => api.unitMembers("ADS"),
+    enabled: allowed && inDesign,
   });
   const [search, setSearch] = useState(read("q"));
   const [creating, setCreating] = useState(false);
@@ -192,6 +214,33 @@ function BirthdayBoard() {
               Cần làm{typeof awaiting === "number" ? ` (${awaiting})` : ""}
             </button>
           </div>
+          <label className="flex items-center gap-1.5 text-xs text-[var(--text-muted)]">
+            Trạng thái
+            <DesignStatusSelect
+              value={read("design_status")}
+              states={board.data?.design_states}
+              onChange={(value) => setParams({ design_status: value })}
+              className="min-h-10 text-sm"
+            />
+          </label>
+          {inDesign ? (
+            <label className="flex items-center gap-1.5 text-xs text-[var(--text-muted)]">
+              Người làm
+              <Select
+                aria-label="Người làm"
+                value={read("assignee")}
+                onChange={(event) => setParams({ assignee: event.target.value })}
+                className="min-h-10 text-sm"
+              >
+                <option value="">Tất cả</option>
+                {designTeam(members.data?.members).map((member) => (
+                  <option key={member.user_id} value={member.user_id}>
+                    {member.full_name}
+                  </option>
+                ))}
+              </Select>
+            </label>
+          ) : null}
           <form
             className="ml-auto flex min-w-[16rem] flex-1 items-center gap-2 sm:max-w-sm"
             onSubmit={(event) => {
@@ -221,7 +270,7 @@ function BirthdayBoard() {
       {board.data && board.data.items.length === 0 ? (
         <Empty
           message={
-            awaitingMe || read("q")
+            awaitingMe || read("q") || filters.design_status || filters.assignee
               ? "Không có order sinh nhật nào khớp bộ lọc."
               : "Chưa có order sinh nhật nào."
           }
@@ -346,8 +395,8 @@ function BirthdayRow({
       <td className="whitespace-nowrap text-sm font-medium tabular-nums">
         {formatBirthday(person?.birthday_on)}
       </td>
-      <RowStatusCell row={row} />
-      <RowDeadlineCell row={row} />
+      <DesignStatusCell row={row} />
+      <DesignDeadlineCell row={row} />
       <td className="min-w-[11rem] max-w-[18rem] text-xs" data-testid="birthday-content">
         {reference ? <WebLink href={reference} label="Ảnh minh hoạ" /> : null}
         {note ? (

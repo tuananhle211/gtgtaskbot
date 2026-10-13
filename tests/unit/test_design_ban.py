@@ -162,8 +162,9 @@ async def test_02_units_me_says_what_the_design_screens_are_for_each_person(worl
     expected = {
         ads.designer: {"view": True, "manage_codes": False, "birthday": True},
         ads.lead_tk: {"view": True, "manage_codes": True, "birthday": True},
-        ads.orderer: {"view": False, "manage_codes": False, "birthday": True},
-        ads.head: {"view": False, "manage_codes": False, "birthday": True},
+        # The birthday board is the Design team's; others need the grant (0059).
+        ads.orderer: {"view": False, "manage_codes": False, "birthday": False},
+        ads.head: {"view": False, "manage_codes": False, "birthday": False},
         ads.writer: {"view": False, "manage_codes": False, "birthday": False},
         ads.editor: {"view": False, "manage_codes": False, "birthday": False},
         world.owner: {"view": False, "manage_codes": True, "birthday": True},
@@ -423,6 +424,16 @@ def birthday(world: World, user: User, **overrides: Any) -> Any:
     return world.client.post("/api/orders/birthday", json={**BIRTHDAY, **overrides})
 
 
+def grant_birthday(world: World, user: User, granted: bool = True) -> dict[str, Any]:
+    """The OWNER switches the birthday-order board on (or off) for a member."""
+    world.act_as(world.owner)
+    response = world.client.patch(
+        f"/api/units/ADS/members/{user.id}", json={"birthday_orders": granted}
+    )
+    assert response.status_code == 200, response.json()
+    return response.json()
+
+
 async def test_10_a_birthday_order_goes_straight_to_design_and_ends_there(world: World) -> None:
     ads, _ = await design_world(world)
     # The script and edit teams have nothing to do with it.
@@ -437,6 +448,10 @@ async def test_10_a_birthday_order_goes_straight_to_design_and_ends_there(world:
         refused = birthday(world, ads.designer, **body)
         assert refused.status_code == 422 and error_reason(refused.json()) == reason
 
+    # Neither does an orderer - until the birthday board is granted to them.
+    refused = birthday(world, ads.orderer)
+    assert refused.status_code == 403 and error_reason(refused.json()) == "birthday_forbidden"
+    grant_birthday(world, ads.orderer)
     made = birthday(world, ads.orderer)
     assert made.status_code == 201, made.json()
     code = made.json()["code"]
@@ -498,6 +513,8 @@ async def test_11_the_birthday_board_is_its_own_and_the_design_team_sees_all_of_
         return (day[5:] < f"{today:%m-%d}", day[5:])
 
     dates = {"late": born(3, 1990), "soon": born(1, 1996), "past": born(-2, 2000)}
+    grant_birthday(world, ads.orderer)
+    grant_birthday(world, other_orderer)
     late = birthday(world, ads.orderer, full_name="Muộn hơn", birthday_on=dates["late"]).json()
     soon = birthday(world, ads.designer, full_name="Sắp tới", birthday_on=dates["soon"]).json()
     past = birthday(world, other_orderer, full_name="Đã qua", birthday_on=dates["past"]).json()
@@ -544,6 +561,7 @@ async def test_12_a_birthday_order_is_edited_by_its_creator_or_the_design_leader
     world: World,
 ) -> None:
     ads, _ = await design_world(world)
+    grant_birthday(world, ads.orderer)
     made = birthday(world, ads.orderer).json()
     path = f"/api/orders/{made['id']}/birthday"
     world.act_as(ads.designer)
@@ -641,6 +659,7 @@ async def test_14_a_row_says_what_its_viewer_may_do_and_when_design_handed_in(
     assert waiting["design"]["design_submitted_at"] is not None
     assert "SUBMIT_WORK" not in row_of(ads.designer)["actions"]
     # A birthday row: the Leader hands it out, then the designer accepts and submits.
+    grant_birthday(world, ads.orderer)
     made = birthday(world, ads.orderer).json()
     rows = board(world, ads.lead_tk, category="BIRTHDAY")["items"]
     assert "ASSIGN" in next(r for r in rows if r["code"] == made["code"])["actions"]
@@ -733,3 +752,223 @@ async def test_15_the_design_leader_sets_up_the_library_the_design_team_sees(wor
     # ...and the settings form saving something else keeps the library.
     assert world.client.patch("/api/units/ADS/settings", json={"urgent_days": 5}).status_code == 200
     assert [link["name"] for link in menu(ads.designer)["library"]] == ["Template", "Mới"]
+
+
+# --- only once the order has reached your step ------------------------------------------
+
+
+async def test_16_a_team_sees_an_order_only_once_it_reaches_their_step(world: World) -> None:
+    ads, codes = await design_world(world)
+    detail = create(
+        world,
+        ads,
+        preassigned={
+            "BIEN_TAP": str(ads.writer.id),
+            "THIET_KE": str(ads.designer.id),
+            "DUNG": str(ads.editor.id),
+        },
+    )
+    code = detail["order"]["code"]
+
+    def sees(user: User) -> bool:
+        listed = code in [item["code"] for item in board(world, user)["items"]]
+        world.act_as(user)
+        opened = world.client.get(f"/api/tasks/{code}").status_code
+        assert opened == (200 if listed else 404), (user.full_name, opened)
+        return listed
+
+    script, design, cut = (
+        (ads.lead_bt, ads.writer),
+        (ads.lead_tk, ads.designer),
+        (ads.lead_dung, ads.editor),
+    )
+    # Waiting for the head: no production team has it yet, chosen or not.
+    assert sees(ads.orderer) and sees(ads.head)
+    assert not any(sees(person) for team in (script, design, cut) for person in team)
+    detail = act(world, ads.head, "/approve", detail)
+    # At the script step: the script team only.
+    assert all(sees(person) for person in script)
+    assert not any(sees(person) for team in (design, cut) for person in team)
+    bt = node(detail, "BIEN_TAP")["id"]
+    detail = act(world, ads.writer, f"/nodes/{bt}/accept", detail)
+    detail = act(
+        world,
+        ads.writer,
+        f"/nodes/{bt}/submit",
+        detail,
+        link="https://e/script",
+        design_codes=pick(codes, CA=1),
+    )
+    # At Design: Design joins, the script team keeps what it has worked on,
+    # the edit team still waits its turn.
+    assert all(sees(person) for team in (script, design) for person in team)
+    assert not any(sees(person) for person in cut)
+    tk = node(detail, "THIET_KE")["id"]
+    detail = act(world, ads.designer, f"/nodes/{tk}/accept", detail)
+    detail = act(world, ads.designer, f"/nodes/{tk}/submit", detail, link="https://e/design")
+    assert detail["order"]["stage"] == "DUNG"
+    assert all(sees(person) for team in (script, design, cut) for person in team)
+
+
+async def test_17_the_design_team_filters_by_where_the_design_step_stands(world: World) -> None:
+    ads, codes = await design_world(world)
+
+    def states() -> dict[str, list[str]]:
+        found = {}
+        for state in (
+            "CHO_PHAN_CONG",
+            "DA_GIAO",
+            "DANG_LAM",
+            "CHO_DUYET",
+            "DANG_SUA",
+            "HOAN_THANH",
+        ):
+            page = board(world, ads.lead_tk, design_status=state)
+            found[state] = sorted(item["title"] for item in page["items"])
+        return found
+
+    async def at_design(title: str, *, chosen: bool) -> tuple[str, dict[str, Any]]:
+        picked = {"BIEN_TAP": str(ads.writer.id)}
+        if chosen:
+            picked["THIET_KE"] = str(ads.designer.id)
+        detail = create(world, ads, title=title, preassigned=picked)
+        detail = act(world, ads.head, "/approve", detail)
+        bt = node(detail, "BIEN_TAP")["id"]
+        detail = act(world, ads.writer, f"/nodes/{bt}/accept", detail)
+        detail = act(
+            world,
+            ads.writer,
+            f"/nodes/{bt}/submit",
+            detail,
+            link="https://e/s",
+            design_codes=pick(codes, CA=1),
+        )
+        return detail["order"]["code"], detail
+
+    await at_design("Chờ phân công", chosen=False)  # routed to the Leader
+    await at_design("Đã giao", chosen=True)  # chosen on the form, not taken yet
+    _, doing = await at_design("Đang làm", chosen=True)
+    act(world, ads.designer, f"/nodes/{node(doing, 'THIET_KE')['id']}/accept", doing)
+    review_code, review = await at_design("Chờ duyệt", chosen=True)
+    tk = node(review, "THIET_KE")["id"]
+    act(world, ads.designer, f"/nodes/{tk}/accept", review)
+    changed = pick(codes, TKBTS=2)
+    assert (
+        do(
+            world,
+            ads.designer,
+            review_code,
+            "ads:SUBMIT_WORK:",
+            link="https://e/d",
+            design_codes=changed,
+        ).status_code
+        == 200
+    )
+    fix_code, fixing = await at_design("Đang sửa", chosen=True)
+    act(world, ads.designer, f"/nodes/{node(fixing, 'THIET_KE')['id']}/accept", fixing)
+    assert (
+        do(
+            world,
+            ads.designer,
+            fix_code,
+            "ads:SUBMIT_WORK:",
+            link="https://e/d",
+            design_codes=changed,
+        ).status_code
+        == 200
+    )
+    assert (
+        do(world, ads.lead_tk, fix_code, "ads:RETURN_NODE:", note="Sửa", tokens=0).status_code
+        == 200
+    )
+    done_code, done = await at_design("Hoàn thành", chosen=True)
+    act(world, ads.designer, f"/nodes/{node(done, 'THIET_KE')['id']}/accept", done)
+    assert (
+        do(world, ads.designer, done_code, "ads:SUBMIT_WORK:", link="https://e/d").status_code
+        == 200
+    )
+
+    assert states() == {
+        "CHO_PHAN_CONG": ["Chờ phân công"],
+        "DA_GIAO": ["Đã giao"],
+        "DANG_LAM": ["Đang làm"],
+        "CHO_DUYET": ["Chờ duyệt"],
+        "DANG_SUA": ["Đang sửa"],
+        "HOAN_THANH": ["Hoàn thành"],
+    }
+    # The filter's states match what each row's Design cell says.
+    for state, titles in states().items():
+        row = next(
+            item for item in board(world, ads.lead_tk)["items"] if item["title"] == titles[0]
+        )
+        cell = next(cell for cell in row["cells"] if cell["key"] == "THIET_KE")
+        assert cell["status"] == state, (state, cell)
+    page = board(world, ads.lead_tk)
+    assert [option["value"] for option in page["design_states"]] == list(states())
+    world.act_as(ads.lead_tk)
+    bad = world.client.get("/api/board/tasks", params={"unit": "ADS", "design_status": "X"})
+    assert bad.status_code == 422 and error_reason(bad.json()) == "invalid_design_status"
+
+
+# --- who the birthday board is for --------------------------------------------------------
+
+
+async def test_18_the_birthday_board_is_granted_member_by_member(world: World) -> None:
+    ads, _ = await design_world(world)
+
+    def has(user: User) -> bool:
+        world.act_as(user)
+        return bool(world.client.get("/api/units/me").json()["design"]["birthday"])
+
+    def listed(user: User) -> list[str]:
+        return [item["code"] for item in board(world, user, category="BIRTHDAY")["items"]]
+
+    # The Design team has it as it is; the OWNER too. Nobody else does.
+    assert has(ads.designer) and has(ads.lead_tk) and has(world.owner)
+    assert not any(has(user) for user in (ads.orderer, ads.head, ads.writer, ads.editor))
+    # The roster says who has the grant, and who needs none.
+    world.act_as(world.owner)
+    roster = {
+        row["user_id"]: row for row in world.client.get("/api/units/ADS/members").json()["members"]
+    }
+    assert roster[str(ads.designer.id)]["birthday_orders_default"] is True
+    assert roster[str(ads.writer.id)]["birthday_orders_default"] is False
+    assert roster[str(ads.writer.id)]["birthday_orders"] is False
+
+    # Granted to a writer: the tab, and their own birthday orders.
+    assert grant_birthday(world, ads.writer)["birthday_orders"] is True
+    assert has(ads.writer) and not has(ads.editor)
+    mine = birthday(world, ads.writer)
+    assert mine.status_code == 201, mine.json()
+    theirs = birthday(world, ads.designer).json()
+    assert listed(ads.writer) == [mine.json()["code"]]
+    assert sorted(listed(ads.designer)) == sorted([mine.json()["code"], theirs["code"]])
+    # The grant does not widen what else they see.
+    world.act_as(ads.writer)
+    assert world.client.get(f"/api/tasks/{theirs['code']}").status_code == 404
+
+    # Taken back: no tab, no new order, and the board lists nothing - the
+    # order they placed is still theirs to open.
+    assert grant_birthday(world, ads.writer, granted=False)["birthday_orders"] is False
+    assert not has(ads.writer)
+    refused = birthday(world, ads.writer)
+    assert refused.status_code == 403 and error_reason(refused.json()) == "birthday_forbidden"
+    assert listed(ads.writer) == []
+    world.act_as(ads.writer)
+    assert world.client.get(f"/api/tasks/{mine.json()['code']}").status_code == 200
+    # A member may not grant it to themselves.
+    world.act_as(ads.editor)
+    selfish = world.client.patch(
+        f"/api/units/ADS/members/{ads.editor.id}", json={"birthday_orders": True}
+    )
+    assert selfish.status_code in (403, 404), selfish.json()
+    assert not has(ads.editor)
+    # Untagging drops the grant with the tag.
+    grant_birthday(world, ads.editor)
+    world.act_as(world.owner)
+    assert world.client.delete(f"/api/units/ADS/members/{ads.editor.id}").status_code == 200
+    retagged = world.client.post(
+        "/api/units/ADS/members", json={"user_id": str(ads.editor.id), "role": "DUNG"}
+    )
+    assert retagged.status_code in (200, 201), retagged.json()
+    assert retagged.json()["birthday_orders"] is False and not has(ads.editor)

@@ -392,8 +392,9 @@ async def test_12_ord_todo_first_lists_what_waits_on_me_first_and_pages(world: W
     ads = await ads_world(world)
     # Five orders with the writer chosen for the script. The three oldest are
     # approved, so the writer holds their script node: they wait on the writer.
-    # The two newest still wait for the head: the writer sees them, but they do
-    # not wait on the writer.
+    # The two newest the writer has already handed in: still theirs to see,
+    # but no longer waiting on them. (An order the head has not approved yet
+    # has not reached the script step, so the writer would not see it at all.)
     pick = {"BIEN_TAP": str(ads.writer.id)}
     waiting = []
     for n in range(3):
@@ -401,11 +402,17 @@ async def test_12_ord_todo_first_lists_what_waits_on_me_first_and_pages(world: W
         act(world, ads.head, "/approve", detail)
         waiting.append(detail["order"]["code"])
     for n in range(2):
-        create(world, ads, title=f"Chờ duyệt {n}", preassigned=pick)
+        detail = create(world, ads, title=f"Đã nộp {n}", preassigned=pick)
+        detail = act(world, ads.head, "/approve", detail)
+        script = next(item for item in detail["nodes"] if item["node_type"] == "BIEN_TAP")["id"]
+        detail = act(world, ads.writer, f"/nodes/{script}/accept", detail)
+        act(world, ads.writer, f"/nodes/{script}/submit", detail, link="https://e/script")
+    unapproved = create(world, ads, title="Chưa duyệt", preassigned=pick)["order"]["code"]
 
     world.act_as(ads.writer)
     plain = [row["code"] for row in _tasks(world, unit="ADS")["items"]]
-    assert plain[0] not in waiting  # newest first: the pending ones lead
+    assert plain[0] not in waiting  # newest first: the handed-in ones lead
+    assert unapproved not in plain  # not at the script step yet
     page = _tasks(world, unit="ADS", order="todo_first")
     rows = page["items"]
     assert page["total"] == 5

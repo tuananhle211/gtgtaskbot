@@ -48,6 +48,18 @@ def in_design_team(membership: UnitMembership) -> bool:
     return entry is not None and entry.role is UnitMemberRole.THIET_KE
 
 
+def has_birthday_orders(membership: UnitMembership) -> bool:
+    """Who the birthday-order board is for (0059): the Design team - it is
+    theirs - the OWNER and an ADMIN, and any other ORD member granted it on
+    their tag (``org_unit_members.birthday_orders``)."""
+    if not membership.has(UnitCode.ADS):
+        return False
+    if membership.sees_all or in_design_team(membership):
+        return True
+    entry = membership.entry(UnitCode.ADS)
+    return entry is not None and entry.birthday_orders
+
+
 class DesignCodeService:
     def __init__(
         self, session: AsyncSession, *, directory: UnitDirectoryService, audit: AuditService
@@ -292,4 +304,4 @@ def _snapshot(row: UnitDesignCode) -> dict[str, Any]:
     }
 
 
-__all__ = ["DesignCodeService", "in_design_team", "manages_design_codes"]
+__all__ = ["DesignCodeService", "has_birthday_orders", "in_design_team", "manages_design_codes"]
