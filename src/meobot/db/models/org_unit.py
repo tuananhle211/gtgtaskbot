@@ -55,6 +55,7 @@ ORG_UNIT_MEMBERS = "org_unit_members"
 UNIT_VIDEO_KINDS = "unit_video_kinds"
 UNIT_PLATFORMS = "unit_platforms"
 UNIT_DURATIONS = "unit_durations"
+UNIT_DESIGN_CODES = "unit_design_codes"
 
 #: A tag is active while it has not been closed.
 ACTIVE_MEMBERSHIP = text("left_at IS NULL")
@@ -209,15 +210,43 @@ class UnitDuration(Base, UUIDPrimaryKeyMixin, TimestampMixin):
     )
 
 
+class UnitDesignCode(Base, UUIDPrimaryKeyMixin, TimestampMixin):
+    """One design code ("mã video") of a unit's catalogue (0058): a kind of
+    artwork the Design team produces, e.g. ``TKBTS`` "SOCIAL - Thiết kế Banner,
+    Thumb Video, Avatar". Kept by the Design Leader; never deleted, only
+    deactivated - orders snapshot the code and name."""
+
+    __tablename__ = UNIT_DESIGN_CODES
+    __table_args__ = (
+        CheckConstraint(_not_empty("code"), name="code_not_empty"),
+        CheckConstraint(_not_empty("name"), name="name_not_empty"),
+        Index("uq_unit_design_codes_unit_code", "unit_id", text("lower(code)"), unique=True),
+    )
+
+    unit_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey(f"{ORG_UNITS}.id", ondelete=RESTRICT), nullable=False
+    )
+    code: Mapped[str] = mapped_column(String(30), nullable=False)
+    name: Mapped[str] = mapped_column(String(200), nullable=False)
+    active: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=True, server_default=text("true")
+    )
+    sort_order: Mapped[int] = mapped_column(
+        Integer, nullable=False, default=0, server_default=text("0")
+    )
+
+
 __all__ = [
     "ACTIVE_MEMBERSHIP",
     "ORG_UNITS",
     "ORG_UNIT_MEMBERS",
+    "UNIT_DESIGN_CODES",
     "UNIT_DURATIONS",
     "UNIT_PLATFORMS",
     "UNIT_VIDEO_KINDS",
     "OrgUnit",
     "OrgUnitMember",
+    "UnitDesignCode",
     "UnitDuration",
     "UnitPlatform",
     "UnitVideoKind",

@@ -116,6 +116,42 @@ class TaskCell:
 
 
 @dataclass(frozen=True, slots=True)
+class DesignCodeView:
+    code_id: uuid.UUID
+    code: str
+    name: str
+    quantity: int
+
+
+@dataclass(frozen=True, slots=True)
+class DesignView:
+    """What the Design team reads of an ORD row (0058): what came in from the
+    script step, which design codes the order needs, and what Design handed
+    in. Filled for every ORD row; the Design team's table shows only this."""
+
+    #: The newest link the script step handed in, and who holds that step.
+    script_link: str | None = None
+    script_by: str | None = None
+    #: The order's own design / reference link (a birthday order's photo).
+    reference_link: str | None = None
+    note: str | None = None
+    codes: tuple[DesignCodeView, ...] = ()
+    #: A designer's different list, waiting for the Design Leader.
+    proposed_codes: tuple[DesignCodeView, ...] | None = None
+    designer: str | None = None
+    #: The newest link the Design step handed in.
+    design_link: str | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class BirthdayView:
+    full_name: str
+    branch: str | None
+    gender: str | None
+    birthday_on: date | None
+
+
+@dataclass(frozen=True, slots=True)
 class TaskRow:
     unit: UnitCode
     id: uuid.UUID
@@ -171,6 +207,11 @@ class TaskRow:
     deadline_at: datetime | None = None
     deadline_status: str | None = None
     over_deadline_count: int = 0
+    #: ORD (0058): ``STANDARD`` / ``BIRTHDAY``, the Design team's view of the
+    #: row, and a birthday order's details.
+    category: str | None = None
+    design: DesignView | None = None
+    birthday: BirthdayView | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -206,6 +247,11 @@ class BoardQuery:
     #: ``order=todo_first``: the rows awaiting the viewer first, then the rest
     #: of the filter, each part in the usual priority-then-newest order.
     todo_first: bool = False
+    #: ORD (0058): one order category (``STANDARD`` / ``BIRTHDAY``). ``None``
+    #: = every category - the dashboard and a person's own lists.
+    category: str | None = None
+    #: ``order=birthday``: the nearest coming birthday first.
+    birthday_first: bool = False
     limit: int = 50
     offset: int = 0
 
@@ -268,9 +314,12 @@ __all__ = [
     "PHASE_LABELS",
     "PHASE_ORDER",
     "PR_STAGE_PHASE",
+    "BirthdayView",
     "BoardPage",
     "BoardQuery",
     "DashboardSummary",
+    "DesignCodeView",
+    "DesignView",
     "PersonStat",
     "Phase",
     "TaskCell",

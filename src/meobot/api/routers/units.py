@@ -25,9 +25,13 @@ from meobot.api.deps import (
 )
 from meobot.api.schemas.units import (
     BanStatsResponse,
+    CreateDesignCodeRequest,
     CreateDurationRequest,
     CreatePlatformRequest,
     CreateVideoKindRequest,
+    DesignAccessResponse,
+    DesignCodeListResponse,
+    DesignCodeResponse,
     DirectoryUserResponse,
     DurationListResponse,
     DurationResponse,
@@ -44,6 +48,7 @@ from meobot.api.schemas.units import (
     UnitSettingsResponse,
     UntaggedUserResponse,
     UntaggedUsersResponse,
+    UpdateDesignCodeRequest,
     UpdateDurationRequest,
     UpdateMemberRequest,
     UpdatePlatformRequest,
@@ -55,9 +60,14 @@ from meobot.api.schemas.units import (
 )
 from meobot.application.account.avatar_service import avatar_urls
 from meobot.application.audit_service import AuditService
+from meobot.application.orders.design_code_service import (
+    DesignCodeService,
+    in_design_team,
+    manages_design_codes,
+)
 from meobot.application.orders.effort_service import EffortService, ban_stats
 from meobot.application.units.admin import ROLES_BY_UNIT, UnitAdminService
-from meobot.application.units.directory import NOT_VISIBLE
+from meobot.application.units.directory import NOT_VISIBLE, UnitDirectoryService
 from meobot.core.errors import ValidationError
 from meobot.domain.identity.labels import role_label
 from meobot.domain.units.errors import UnitNotFoundError
@@ -77,6 +87,17 @@ def get_unit_admin(session: Annotated[AsyncSession, Depends(get_session)]) -> Un
 
 
 AdminDep = Annotated[UnitAdminService, Depends(get_unit_admin)]
+
+
+def get_design_codes(
+    session: Annotated[AsyncSession, Depends(get_session)],
+) -> DesignCodeService:
+    return DesignCodeService(
+        session, directory=UnitDirectoryService(session), audit=AuditService(session)
+    )
+
+
+DesignCodesDep = Annotated[DesignCodeService, Depends(get_design_codes)]
 
 
 def _parse_unit(value: str) -> UnitCode:
@@ -166,7 +187,23 @@ async def my_units(
             )
     can_admin = [code.value for code in await admin.admin_units(actor)]
     can_tag = [code.value for code in admin.tag_units(membership, actor)]
-    return UnitMeResponse.from_domain(membership, entries, can_admin=can_admin, can_tag=can_tag)
+    ads = membership.entry(UnitCode.ADS)
+    design = DesignAccessResponse(
+        view=in_design_team(membership) and not membership.sees_all,
+        manage_codes=membership.has(UnitCode.ADS) and manages_design_codes(membership),
+        birthday=membership.has(UnitCode.ADS)
+        and (
+            membership.sees_all
+            or (
+                ads is not None
+                and ads.role
+                in (UnitMemberRole.HEAD, UnitMemberRole.ORDERER, UnitMemberRole.THIET_KE)
+            )
+        ),
+    )
+    return UnitMeResponse.from_domain(
+        membership, entries, can_admin=can_admin, can_tag=can_tag, design=design
+    )
 
 
 @router.get("/directory", response_model=list[DirectoryUserResponse])
@@ -445,6 +482,77 @@ async def update_video_kind(
         sort_order=body.sort_order,
     )
     return VideoKindResponse.from_row(row)
+
+
+# --- design codes ("mã video", 0058) ---------------------------------------------
+
+
+def _design_unit(code: str) -> None:
+    """The catalogue is ORD's: any other unit has none (404)."""
+    if _parse_unit(code) is not UnitCode.ADS:
+        raise UnitNotFoundError("Không tìm thấy.", details={"reason": "unit_not_visible"})
+
+
+@router.get("/{code}/design-codes", response_model=DesignCodeListResponse)
+async def design_codes(
+    code: str,
+    actor: CurrentActorDep,
+    catalogue: DesignCodesDep,
+    include_inactive: Annotated[bool, Query()] = False,
+) -> DesignCodeListResponse:
+    """The Design team's catalogue. Every ORD member reads the active codes;
+    the retired ones (``include_inactive``) are for whoever keeps it - the
+    Design Leader, the OWNER, an ADMIN (403 ``design_code_forbidden``)."""
+    _design_unit(code)
+    rows = await catalogue.catalogue(actor=actor, include_inactive=include_inactive)
+    return DesignCodeListResponse(codes=[DesignCodeResponse.from_row(row) for row in rows])
+
+
+@router.post(
+    "/{code}/design-codes",
+    response_model=DesignCodeResponse,
+    status_code=status.HTTP_201_CREATED,
+)
+async def create_design_code(
+    code: str,
+    body: CreateDesignCodeRequest,
+    actor: CurrentActorDep,
+    request_id: RequestIdDep,
+    catalogue: DesignCodesDep,
+) -> DesignCodeResponse:
+    _design_unit(code)
+    row = await catalogue.create(
+        actor=actor,
+        request_id=request_id,
+        code=body.code,
+        name=body.name,
+        active=body.active,
+        sort_order=body.sort_order,
+    )
+    return DesignCodeResponse.from_row(row)
+
+
+@router.patch("/{code}/design-codes/{code_id}", response_model=DesignCodeResponse)
+async def update_design_code(
+    code: str,
+    code_id: uuid.UUID,
+    body: UpdateDesignCodeRequest,
+    actor: CurrentActorDep,
+    request_id: RequestIdDep,
+    catalogue: DesignCodesDep,
+) -> DesignCodeResponse:
+    """Rename, re-code, reorder or (de)activate. There is no delete."""
+    _design_unit(code)
+    row = await catalogue.update(
+        actor=actor,
+        request_id=request_id,
+        code_id=code_id,
+        code=body.code,
+        name=body.name,
+        active=body.active,
+        sort_order=body.sort_order,
+    )
+    return DesignCodeResponse.from_row(row)
 
 
 # --- platforms ----------------------------------------------------------------

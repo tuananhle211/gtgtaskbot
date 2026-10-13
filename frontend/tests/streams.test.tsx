@@ -144,7 +144,6 @@ describe("an account with no stream", () => {
     expect(within(primary).getAllByRole("link").map((link) => link.getAttribute("href"))).toEqual([
       "/dashboard",
       "/tasks",
-      "/orders/new",
     ]);
   });
 });

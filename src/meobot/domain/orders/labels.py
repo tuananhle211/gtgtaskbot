@@ -82,6 +82,9 @@ EVENT_LABELS: dict[OrderEventKind, str] = {
     OrderEventKind.CANCELLED: "Huỷ order",
     OrderEventKind.PLAN_SET: "Đặt token / deadline",
     OrderEventKind.DEADLINE_EXCEEDED: "Quá deadline mong muốn",
+    OrderEventKind.DESIGN_CODES_SET: "Chốt mã video",
+    OrderEventKind.DESIGN_CODES_PROPOSED: "Yêu cầu thay đổi mã video",
+    OrderEventKind.BIRTHDAY_EDITED: "Sửa thông tin order sinh nhật",
 }
 
 

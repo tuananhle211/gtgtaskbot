@@ -20,7 +20,7 @@ from datetime import date, datetime, time, timedelta
 from decimal import Decimal
 from typing import Any, Protocol
 
-from sqlalchemy import ColumnElement, Select, case, exists, func, or_, select
+from sqlalchemy import ColumnElement, Select, case, exists, extract, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import aliased
 
@@ -53,8 +53,11 @@ from meobot.domain.board.models import (
     ADS_STEPS,
     PHASE_LABELS,
     PR_STAGE_PHASE,
+    BirthdayView,
     BoardPage,
     BoardQuery,
+    DesignCodeView,
+    DesignView,
     Phase,
     TaskCell,
     TaskRow,
@@ -66,6 +69,7 @@ from meobot.domain.orders.deadlines import (
     node_deadline_status,
     open_status,
 )
+from meobot.domain.orders.design_codes import items_from_json
 from meobot.domain.orders.labels import (
     node_status_label,
     node_type_label,
@@ -76,6 +80,7 @@ from meobot.domain.orders.models import (
     ACTIVE_NODE_STATUSES,
     PRODUCTION_NODES,
     TERMINAL_STAGES,
+    OrderCategory,
     OrderNodeStatus,
     OrderNodeType,
     OrderStage,
@@ -526,6 +531,13 @@ class AdsBoardSource:
                 statement = statement.where(Order.id.is_(None))
         if query.video_kind_id is not None:
             statement = statement.where(Order.video_kind_id == query.video_kind_id)
+        if query.category:
+            try:
+                statement = statement.where(
+                    Order.category == OrderCategory(query.category.strip().upper())
+                )
+            except ValueError:
+                statement = statement.where(Order.id.is_(None))
         if query.status:
             try:
                 statement = statement.where(Order.stage == OrderStage(query.status))
@@ -725,6 +737,21 @@ class AdsBoardSource:
         if query.todo_first and user_id is not None and not query.awaiting_me:
             # "Cần làm" first: the rows waiting on this person, then the rest.
             order_by.append(case((self._awaiting(user_id), 0), else_=1).asc())
+        if query.birthday_first:
+            # The nearest coming birthday first; the ones already past this
+            # year after them; an order with no date last.
+            today = now.astimezone(self._settings.timezone).date()
+            day_of_year = extract("month", Order.birthday_on) * 100 + extract(
+                "day", Order.birthday_on
+            )
+            order_by += [
+                case(
+                    (Order.birthday_on.is_(None), 2),
+                    (day_of_year >= today.month * 100 + today.day, 0),
+                    else_=1,
+                ).asc(),
+                day_of_year.asc(),
+            ]
         order_by += [
             Order.is_priority.desc(),
             returned_first.desc(),
@@ -747,6 +774,7 @@ class AdsBoardSource:
             },
         )
         links = await self._latest_links(nodes_by_order)
+        node_links = await self.node_links(nodes_by_order)
         approvers = (
             await ads_approvers(self._session, orders[0].unit_id) if orders else AdsApprovers()
         )
@@ -754,6 +782,7 @@ class AdsBoardSource:
             replace(
                 self._row(order, nodes_by_order.get(order.id, []), names, links, now, approvers),
                 awaiting_me=order.id in awaiting,
+                design=design_view(order, nodes_by_order.get(order.id, []), names, node_links),
             )
             for order in orders
         )
@@ -796,6 +825,26 @@ class AdsBoardSource:
             order_id = node_to_order[submission.node_id]
             if order_id not in latest and submission.link:
                 latest[order_id] = submission.link
+        return latest
+
+    async def node_links(
+        self, nodes_by_order: dict[uuid.UUID, list[OrderNode]]
+    ) -> dict[uuid.UUID, str]:
+        """The newest link handed in on each node, by node id."""
+        node_ids = [node.id for nodes in nodes_by_order.values() for node in nodes]
+        if not node_ids:
+            return {}
+        submissions = (
+            await self._session.scalars(
+                select(OrderSubmission)
+                .where(OrderSubmission.node_id.in_(node_ids), OrderSubmission.link.is_not(None))
+                .order_by(OrderSubmission.created_at.desc(), OrderSubmission.submission_no.desc())
+            )
+        ).all()
+        latest: dict[uuid.UUID, str] = {}
+        for submission in submissions:
+            if submission.node_id not in latest and submission.link:
+                latest[submission.node_id] = submission.link
         return latest
 
     async def count_by_phase(self, actor: Actor, query: BoardQuery) -> dict[Phase, int]:
@@ -934,6 +983,8 @@ class AdsBoardSource:
                 else _order_deadline_status(order, now)
             ),
             over_deadline_count=order.over_deadline_count,
+            category=order.category.value,
+            birthday=birthday_view(order),
         )
 
     @staticmethod
@@ -1231,8 +1282,61 @@ def format_points(value: Decimal) -> str:
 
 def ads_kind_label(order: Order) -> str:
     """What the "Loại" column says: the video kind when one was picked, else
-    the process ("Biên kịch, Dựng")."""
+    the process ("Biên kịch, Dựng"). A birthday order says so."""
+    if order.category is OrderCategory.BIRTHDAY:
+        return BIRTHDAY_KIND_LABEL
     return order.video_kind_name or video_type_label(order.video_type)
+
+
+BIRTHDAY_KIND_LABEL = "Sinh nhật"
+
+
+def code_views(raw: Any) -> tuple[DesignCodeView, ...]:
+    return tuple(
+        DesignCodeView(code_id=item.code_id, code=item.code, name=item.name, quantity=item.quantity)
+        for item in items_from_json(raw)
+    )
+
+
+def design_view(
+    order: Order,
+    nodes: list[OrderNode],
+    names: dict[uuid.UUID, str],
+    node_links: dict[uuid.UUID, str],
+) -> DesignView:
+    """The Design team's reading of one order (0058)."""
+    by_type = {node.node_type: node for node in nodes}
+    script = by_type.get(OrderNodeType.BIEN_TAP)
+    design = by_type.get(OrderNodeType.THIET_KE)
+
+    def person(node: OrderNode | None) -> str | None:
+        if node is None or node.status is OrderNodeStatus.BO_QUA:
+            return None
+        holder = node.assignee_user_id or node.preassigned_user_id
+        return None if holder is None else names.get(holder)
+
+    proposed = None if design is None else design.proposed_design_items
+    return DesignView(
+        script_link=None if script is None else node_links.get(script.id),
+        script_by=person(script),
+        reference_link=order.design_link or order.reference_link,
+        note=order.note,
+        codes=code_views(order.design_items),
+        proposed_codes=None if proposed is None else code_views(proposed),
+        designer=person(design),
+        design_link=None if design is None else node_links.get(design.id),
+    )
+
+
+def birthday_view(order: Order) -> BirthdayView | None:
+    if order.category is not OrderCategory.BIRTHDAY:
+        return None
+    return BirthdayView(
+        full_name=order.title,
+        branch=order.birthday_branch,
+        gender=None if order.birthday_gender is None else order.birthday_gender.value,
+        birthday_on=order.birthday_on,
+    )
 
 
 def _product_handed_in(order: Order, by_type: dict[OrderNodeType, OrderNode]) -> datetime | None:
@@ -1270,6 +1374,9 @@ __all__ = [
     "ads_kind_label",
     "awaiting_acceptance",
     "awaiting_hand_out",
+    "birthday_view",
+    "code_views",
+    "design_view",
     "display_names",
     "format_points",
 ]

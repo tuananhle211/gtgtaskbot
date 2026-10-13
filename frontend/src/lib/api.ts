@@ -3350,6 +3350,22 @@ export interface UnitsMe {
    * its token figures (`lib/effort.ts`). Optional: an older API omits it = on.
    */
   effort_enabled?: boolean;
+  /** What this person may do around the Design ban. Optional: an older API omits it. */
+  design?: DesignAccess | null;
+}
+
+/**
+ * The `design` block of `GET /api/units/me`.
+ *
+ * - `view`: in the Design ban (not OWNER / ADMIN) - `/tasks` draws the
+ *   simplified Design table for ORD;
+ * - `manage_codes`: may edit the "mã video" catalogue (Design Leader, OWNER, ADMIN);
+ * - `birthday`: may open the birthday board and create birthday orders.
+ */
+export interface DesignAccess {
+  view: boolean;
+  manage_codes: boolean;
+  birthday: boolean;
 }
 
 /** `GET /api/units/untagged`: active accounts with no stream yet. */
@@ -3468,6 +3484,108 @@ export interface UnitDurationBody {
   sort_order?: number;
 }
 
+/**
+ * One row of ORD's "mã video" catalogue (e.g. `TKBTS` "SOCIAL - Thiết kế
+ * Banner, Thumb Video, Avatar"). Never deleted: a retired row is `active: false`.
+ */
+export interface DesignCode {
+  id: Uuid;
+  code: string;
+  name: string;
+  active: boolean;
+  sort_order: number;
+}
+
+export interface DesignCodeList {
+  codes: DesignCode[];
+}
+
+export interface DesignCodeBody {
+  code?: string;
+  name?: string;
+  active?: boolean;
+  sort_order?: number;
+}
+
+/**
+ * One "mã video" on one order: a snapshot of the catalogue row (so a renamed
+ * or retired row still reads) and how many of it.
+ */
+export interface DesignCodeItem {
+  code_id: Uuid;
+  code: string;
+  name: string;
+  quantity: number;
+}
+
+/** What an action sends for one code: the catalogue row and a quantity >= 1. */
+export interface DesignCodePick {
+  code_id: Uuid;
+  quantity: number;
+}
+
+/** An ORD order's category: the ordinary one, or an "Order sinh nhật". */
+export type OrderCategory = "STANDARD" | "BIRTHDAY";
+
+export type Gender = "MALE" | "FEMALE";
+
+/** The person a birthday order is for. `birthday_on` is `YYYY-MM-DD`. */
+export interface BirthdayInfo {
+  full_name: string;
+  branch: string;
+  gender: Gender | string;
+  birthday_on: string;
+}
+
+/**
+ * What the Design ban reads on a board row: the script handed in to them, the
+ * codes to produce, and what the designer handed in.
+ */
+export interface TaskRowDesign {
+  /** The newest link the Biên kịch step handed in, and who was in charge. */
+  script_link?: string | null;
+  script_by?: string | null;
+  /** The order's own design / reference link (birthday: "Ảnh minh hoạ"). */
+  reference_link?: string | null;
+  /** The order's "Note yêu cầu". */
+  note?: string | null;
+  codes?: DesignCodeItem[];
+  /** The designer's changed list, waiting for the Design Leader. */
+  proposed_codes?: DesignCodeItem[] | null;
+  designer?: string | null;
+  /** The newest link the Design step handed in. */
+  design_link?: string | null;
+}
+
+/** The task page's "Mã video" block. */
+export interface TaskDesignCodes {
+  codes?: DesignCodeItem[];
+  proposed_codes?: DesignCodeItem[] | null;
+}
+
+/** `POST /api/orders/birthday`. The order goes straight to the Design step. */
+export interface BirthdayOrderBody {
+  full_name: string;
+  branch: string;
+  gender: Gender;
+  /** `YYYY-MM-DD`. */
+  birthday_on: string;
+  reference_link?: string | null;
+  note?: string | null;
+}
+
+/** What a birthday create / update answers with. */
+export interface BirthdayOrderResult {
+  id: Uuid;
+  code: string;
+  version: number;
+}
+
+export interface BirthdayOptions {
+  /** Branches already used, for the form's suggestions. */
+  branches: string[];
+}
+
 export interface UnitHealth {
   unit: string;
   warnings: Array<{ code: string; message: string }>;
@@ -3550,6 +3668,12 @@ export interface TaskRow {
   deadline_status?: DeadlineStatus | string | null;
   /** ORD: how many times the desired deadline was exceeded. */
   over_deadline_count?: number | null;
+  /** ORD: STANDARD ("Order tổng") or BIRTHDAY. Optional: older APIs omit it. */
+  category?: OrderCategory | string | null;
+  /** ORD: what the Design ban reads on the row. */
+  design?: TaskRowDesign | null;
+  /** A birthday order's person; the row's `title` is their name. */
+  birthday?: BirthdayInfo | null;
 }
 
 export interface TaskPage {
@@ -3581,8 +3705,16 @@ export interface BoardFilters {
   person?: string;
   mine?: boolean;
   awaiting_me?: boolean;
-  /** `todo_first`: the rows awaiting the viewer first, then the rest. */
-  order?: "todo_first";
+  /**
+   * `todo_first`: the rows awaiting the viewer first, then the rest.
+   * `birthday`: nearest upcoming birthday first (the birthday board).
+   */
+  order?: "todo_first" | "birthday";
+  /**
+   * ORD: `STANDARD` (the default, "Order tổng" - birthday orders are not
+   * listed there) or `BIRTHDAY` (with `unit=ADS`).
+   */
+  category?: OrderCategory;
   priority?: boolean;
   urgent?: boolean;
   /** Rows whose current step (or the desired deadline at the gates) is overdue. */
@@ -3878,7 +4010,8 @@ export type TaskActionInput =
   | "text"
   | "assignee"
   | "tokens"
-  | "deadline";
+  | "deadline"
+  | "design_codes";
 
 export interface TaskAction {
   /** Opaque; posted back unchanged. The client never parses it. */
@@ -3894,6 +4027,10 @@ export interface TaskAction {
   defaults?: { tokens?: number | null; deadline_at?: string | null };
   /** ESTIMATE → "Token" / "Deadline"; REVISION → "Token sửa" / "Deadline sửa". */
   plan_mode?: "ESTIMATE" | "REVISION";
+  /** What the "mã video" picker starts from (the order's codes, or a proposal). */
+  design_codes?: DesignCodeItem[] | null;
+  /** One line under the picker, e.g. what changing the codes leads to. */
+  hint?: string | null;
 }
 
 /**
@@ -3911,6 +4048,12 @@ export interface UnifiedTaskDetail {
   actions: TaskAction[];
   /** The viewer may delete the task for good (OWNER only). Optional: older APIs omit it. */
   can_delete?: boolean;
+  /** ORD: STANDARD or BIRTHDAY. Optional: older APIs omit it. */
+  category?: OrderCategory | string | null;
+  /** ORD: the order's "mã video" (and a change waiting for the Leader). PR: null. */
+  design?: TaskDesignCodes | null;
+  /** Set on a birthday order. */
+  birthday?: BirthdayInfo | null;
 }
 
 export interface TaskActionBody {
@@ -3924,6 +4067,8 @@ export interface TaskActionBody {
   tokens?: number;
   /** ORD: the node's deadline, ISO-8601. */
   deadline_at?: string;
+  /** ORD: the "mã video" list; sent only when the action lists the input. */
+  design_codes?: DesignCodePick[] | null;
 }
 
 // --- Password login and the account screen ----------------------------------
@@ -4317,13 +4462,46 @@ export const api = {
   ) => post<UnitDuration>(`/api/units/${code}/durations`, body),
   updateUnitDuration: (code: string, id: Uuid, body: UnitDurationBody) =>
     patch<UnitDuration>(`/api/units/${code}/durations/${id}`, body),
+  /**
+   * ORD's "mã video" catalogue. Active rows for any ORD member;
+   * `includeInactive` needs `design.manage_codes` (else 403).
+   */
+  designCodes: (includeInactive = false) =>
+    get<DesignCodeList>(
+      `/api/units/ADS/design-codes${query({ include_inactive: includeInactive })}`,
+    ),
+  /**
+   * 201. 403 `design_code_forbidden`; 422 `design_code_missing`,
+   * `design_code_taken`, `design_code_name_missing`.
+   */
+  createDesignCode: (body: DesignCodeBody & { code: string; name: string }) =>
+    post<DesignCode>("/api/units/ADS/design-codes", body),
+  /** No delete: a row is retired with `active: false`. */
+  updateDesignCode: (id: Uuid, body: DesignCodeBody) =>
+    patch<DesignCode>(`/api/units/ADS/design-codes/${id}`, body),
   boardTasks: (filters: BoardFilters = {}) =>
     get<TaskPage>(`/api/board/tasks${query(filters)}`),
   boardDashboard: (filters: BoardFilters = {}) =>
     get<DashboardSummary>(`/api/board/dashboard${query(filters)}`),
   /** How many rows each quick filter of the task table holds, for one unit. */
-  boardCounts: (unit: string) =>
-    get<BoardCounts>(`/api/board/counts${query({ unit })}`),
+  boardCounts: (unit: string, category?: OrderCategory) =>
+    get<BoardCounts>(`/api/board/counts${query({ unit, category })}`),
+  /**
+   * An "Order sinh nhật": 201, straight to the Design step. 403
+   * `birthday_forbidden`; 422 `birthday_name_missing`, `birthday_branch_missing`,
+   * `birthday_gender_invalid`, `birthday_date_required`.
+   */
+  createBirthdayOrder: (body: BirthdayOrderBody) =>
+    post<BirthdayOrderResult>("/api/orders/birthday", body),
+  /**
+   * For the creator, the Design Leader, OWNER / ADMIN while the order is open.
+   * 409 `order_stale_version` when the row moved since it was read.
+   */
+  updateBirthdayOrder: (
+    orderId: Uuid,
+    body: Partial<BirthdayOrderBody> & { version: number },
+  ) => patch<BirthdayOrderResult>(`/api/orders/${orderId}/birthday`, body),
+  birthdayOptions: () => get<BirthdayOptions>("/api/orders/birthday/options"),
   createOrder: (body: CreateOrderBody) =>
     post<OrderDetail>("/api/orders", body),
   order: (ref: string) =>

@@ -5,14 +5,17 @@ from __future__ import annotations
 import uuid
 from datetime import date, datetime
 
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict
 
 from meobot.domain.board.models import (
     ADS_STEPS,
     PHASE_LABELS,
     PHASE_ORDER,
+    BirthdayView,
     BoardPage,
     DashboardSummary,
+    DesignCodeView,
+    DesignView,
     Phase,
     TaskRow,
 )
@@ -37,6 +40,73 @@ class TaskCellResponse(BaseModel):
 class ExtraResponse(BaseModel):
     label: str
     value: str
+
+
+class DesignCodeItemResponse(BaseModel):
+    """One design code ("mã video") on an order, with its quantity."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    code_id: uuid.UUID
+    code: str
+    name: str
+    quantity: int
+
+    @classmethod
+    def from_domain(cls, item: DesignCodeView) -> DesignCodeItemResponse:
+        return cls(code_id=item.code_id, code=item.code, name=item.name, quantity=item.quantity)
+
+
+class DesignViewResponse(BaseModel):
+    """The Design team's reading of an ORD row (0058)."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    script_link: str | None = None
+    script_by: str | None = None
+    reference_link: str | None = None
+    note: str | None = None
+    codes: list[DesignCodeItemResponse] = []
+    #: The designer's different list, waiting for the Design Leader.
+    proposed_codes: list[DesignCodeItemResponse] | None = None
+    designer: str | None = None
+    design_link: str | None = None
+
+    @classmethod
+    def from_domain(cls, view: DesignView) -> DesignViewResponse:
+        return cls(
+            script_link=view.script_link,
+            script_by=view.script_by,
+            reference_link=view.reference_link,
+            note=view.note,
+            codes=[DesignCodeItemResponse.from_domain(item) for item in view.codes],
+            proposed_codes=(
+                None
+                if view.proposed_codes is None
+                else [DesignCodeItemResponse.from_domain(item) for item in view.proposed_codes]
+            ),
+            designer=view.designer,
+            design_link=view.design_link,
+        )
+
+
+class BirthdayResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    full_name: str
+    branch: str | None = None
+    #: ``MALE`` / ``FEMALE``.
+    gender: str | None = None
+    birthday_on: date | None = None
+
+    @classmethod
+    def from_domain(cls, view: BirthdayView) -> BirthdayResponse:
+        return cls(
+            full_name=view.full_name,
+            branch=view.branch,
+            gender=view.gender,
+            birthday_on=view.birthday_on,
+        )
 
 
 class TaskRowResponse(BaseModel):
@@ -82,6 +152,11 @@ class TaskRowResponse(BaseModel):
     deadline_at: datetime | None = None
     deadline_status: str | None = None
     over_deadline_count: int = 0
+    #: ORD (0058): the order's category, the Design team's view, and a
+    #: birthday order's details. Absent on PR rows.
+    category: str | None = None
+    design: DesignViewResponse | None = None
+    birthday: BirthdayResponse | None = None
 
     @classmethod
     def from_domain(cls, row: TaskRow) -> TaskRowResponse:
@@ -137,6 +212,9 @@ class TaskRowResponse(BaseModel):
             deadline_at=row.deadline_at,
             deadline_status=row.deadline_status,
             over_deadline_count=row.over_deadline_count,
+            category=row.category,
+            design=None if row.design is None else DesignViewResponse.from_domain(row.design),
+            birthday=None if row.birthday is None else BirthdayResponse.from_domain(row.birthday),
         )
 
 

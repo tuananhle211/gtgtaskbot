@@ -19,6 +19,9 @@ from meobot.api.deps import CurrentActorDep, RequestIdDep, get_app_settings, get
 from meobot.api.schemas.orders import (
     ApproveFinalRequest,
     AssignRequest,
+    BirthdayOptionsResponse,
+    BirthdayOrderResponse,
+    CreateBirthdayOrderRequest,
     CreateOrderRequest,
     NoteRequest,
     OrderActionResponse,
@@ -28,12 +31,19 @@ from meobot.api.schemas.orders import (
     ResubmitOrderRequest,
     ReturnNodeRequest,
     SubmitWorkRequest,
+    UpdateBirthdayOrderRequest,
     VersionedRequest,
 )
-from meobot.application.orders.command_service import CreateOrderCommand, NodePlan, OrderEdit
+from meobot.application.orders.command_service import (
+    BirthdayCommand,
+    CreateOrderCommand,
+    NodePlan,
+    OrderEdit,
+)
 from meobot.application.orders.services import OrderServices, build_order_services
 from meobot.core.config import Settings
 from meobot.core.errors import ValidationError
+from meobot.domain.orders.design_codes import DesignPick
 from meobot.domain.orders.models import (
     OrderNodeType,
     OrderScriptSource,
@@ -182,6 +192,74 @@ async def create_order(
         ),
     )
     return await _detail(services, actor, order.id)
+
+
+# --- birthday orders (0058): declared before "/{ref}" so the path is not a ref ---
+
+
+@router.post(
+    "/birthday",
+    response_model=BirthdayOrderResponse,
+    status_code=status.HTTP_201_CREATED,
+    responses=_ACTION_RESPONSES,
+)
+async def create_birthday_order(
+    body: CreateBirthdayOrderRequest,
+    actor: CurrentActorDep,
+    request_id: RequestIdDep,
+    services: ServicesDep,
+) -> BirthdayOrderResponse:
+    """ "Order sinh nhật": straight to the Design step - no approval before
+    it, no final review after. Whoever orders in ORD, or the Design team."""
+    order = await services.commands.create_birthday(
+        actor=actor,
+        request_id=request_id,
+        command=BirthdayCommand(
+            full_name=body.full_name,
+            branch=body.branch,
+            gender=body.gender,
+            birthday_on=body.birthday_on,
+            reference_link=body.reference_link,
+            note=body.note,
+        ),
+    )
+    return BirthdayOrderResponse(id=order.id, code=order.code, version=order.version)
+
+
+@router.get("/birthday/options", response_model=BirthdayOptionsResponse)
+async def birthday_options(
+    actor: CurrentActorDep, services: ServicesDep
+) -> BirthdayOptionsResponse:
+    """The branches already on the birthday orders this person may see."""
+    return BirthdayOptionsResponse(branches=await services.queries.birthday_branches(actor))
+
+
+@router.patch(
+    "/{order_id}/birthday", response_model=BirthdayOrderResponse, responses=_ACTION_RESPONSES
+)
+async def update_birthday_order(
+    order_id: uuid.UUID,
+    body: UpdateBirthdayOrderRequest,
+    actor: CurrentActorDep,
+    request_id: RequestIdDep,
+    services: ServicesDep,
+) -> BirthdayOrderResponse:
+    """Correct a birthday order: its creator, the Design Leader, OWNER/ADMIN."""
+    order = await services.commands.edit_birthday(
+        actor=actor,
+        request_id=request_id,
+        order_id=order_id,
+        expected_version=body.version,
+        command=BirthdayCommand(
+            full_name=body.full_name,
+            branch=body.branch,
+            gender=body.gender,
+            birthday_on=body.birthday_on,
+            reference_link=body.reference_link,
+            note=body.note,
+        ),
+    )
+    return BirthdayOrderResponse(id=order.id, code=order.code, version=order.version)
 
 
 @router.get("/{ref}", response_model=OrderDetailResponse, responses=_NOT_FOUND)
@@ -365,6 +443,14 @@ async def submit_work(
         link=body.link,
         script_text=body.script_text,
         note=body.note,
+        design_picks=(
+            None
+            if body.design_codes is None
+            else tuple(
+                DesignPick(code_id=item.code_id, quantity=item.quantity)
+                for item in body.design_codes
+            )
+        ),
     )
     return await _detail(services, actor, order_id)
 

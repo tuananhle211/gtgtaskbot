@@ -44,6 +44,7 @@ class OrderCodeService:
         member_code: str | None,
         video_type: OrderVideoType,
         at: datetime,
+        label: str | None = None,
     ) -> str:
         """The next code for this marketer today. Must run on the order's session."""
         if not member_code:
@@ -54,7 +55,7 @@ class OrderCodeService:
             )
         local = at.astimezone(self._settings.timezone)
         number = await self._next_number(unit_id, member_code, local)
-        code = format_order_code(member_code, video_type, local, number)
+        code = format_order_code(member_code, video_type, local, number, label=label)
         logger.info("order_code_allocated", extra={"order_code": code})
         return code
 

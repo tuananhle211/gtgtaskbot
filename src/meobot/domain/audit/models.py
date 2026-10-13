@@ -472,6 +472,8 @@ class AuditAction(StrEnum):
     UNIT_PLATFORM_UPDATED = "unit.platform.updated"
     UNIT_DURATION_CREATED = "unit.duration.created"
     UNIT_DURATION_UPDATED = "unit.duration.updated"
+    UNIT_DESIGN_CODE_CREATED = "unit.design_code.created"
+    UNIT_DESIGN_CODE_UPDATED = "unit.design_code.updated"
     ORDER_SUBMITTED = "order.submitted"
     ORDER_RESUBMITTED = "order.resubmitted"
     ORDER_APPROVED = "order.approved"
@@ -488,6 +490,8 @@ class AuditAction(StrEnum):
     ORDER_FINAL_RETURNED = "order.final.returned"
     ORDER_PRIORITY_CHANGED = "order.priority.changed"
     ORDER_CANCELLED = "order.cancelled"
+    #: A birthday order's details (name, branch, date, link, note) were edited.
+    ORDER_BIRTHDAY_EDITED = "order.birthday.edited"
     #: The OWNER deleted the order and everything hanging off it.
     ORDER_DELETED = "order.deleted"
 

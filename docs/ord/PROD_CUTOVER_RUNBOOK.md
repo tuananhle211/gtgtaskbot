@@ -90,8 +90,10 @@ DBNAME=$(on gtg-prod "docker compose exec -T postgres sh -c 'echo \$POSTGRES_DB'
 ### Anh Anh làm trước
 
 1. Commit `scripts/merge_dev_into_prod.py` và file này vào `dev`.
-2. Gộp `dev` vào `master`, push, chờ GitHub Actions chạy xong. Production vẫn lỗi như hiện
-   tại cho đến hết bước 1.5; đó là điều đã lường trước.
+2. Gộp `dev` vào `master`, push, chờ GitHub Actions chạy xong. Từ 12/10 job deploy `master`
+   tự backup DB (`~/db-backups/before-deploy-*.dump`) rồi chạy `alembic upgrade head` trước
+   khi khởi động code mới, nên sau lần push này production (dữ liệu PR cũ) đã ở head và chạy
+   lại được. Nếu job báo đỏ: code cũ vẫn chạy, báo Claude trước khi làm tiếp.
 3. Báo mọi người ngừng dùng dev.
 
 ### 1.1 Kiểm tra, chỉ đọc
@@ -105,8 +107,9 @@ sql gtg-dev "" "select (select count(*) from users), (select count(*) from order
 sql gtg-dev "" "select status, count(*) from outbound_messages group by 1"
 ```
 
-**Phải thấy:** hai máy cùng commit và cùng file migration cuối; DB dev ở đúng migration đó;
-production trống trên 5 GB. Ghi lại số user và số order của dev làm **mốc đối chiếu**. Nếu
+**Phải thấy:** hai máy cùng commit và cùng file migration cuối; DB dev và DB production đều ở
+đúng migration đó (production còn ở `0041` nghĩa là job deploy chưa chạy xong hoặc lỗi: dừng,
+báo anh Anh); production trống trên 5 GB. Ghi lại số user và số order của dev làm **mốc đối chiếu**. Nếu
 `outbound_messages` có dòng chưa gửi (khác `DELIVERED`/`FAILED`): báo anh Anh trước, vì bot
 production sẽ gửi chúng đi sau khi mở lại.
 
@@ -338,7 +341,7 @@ Vì mỗi lần thay dữ liệu chỉ là đổi tên, quay về cũng là đ�
 
 ```bash
 on gtg-prod "$C stop api bot worker beat web"
-# Sau đợt 1 (về dữ liệu production cũ; lưu ý DB đó ở 0041 nên phải chạy lại alembic upgrade head):
+# Sau đợt 1 (về dữ liệu production cũ):
 pgadmin gtg-prod "-c \"alter database \\\"$DBNAME\\\" rename to dev_data_rejected\" -c \"alter database prod_before_dev rename to \\\"$DBNAME\\\"\""
 # Sau đợt 2 (về production chỉ có ORD):
 pgadmin gtg-prod "-c \"alter database \\\"$DBNAME\\\" rename to pr_merge_rejected\" -c \"alter database prod_ord_only rename to \\\"$DBNAME\\\"\""
@@ -360,7 +363,9 @@ tên như trên.
   chưa chạy lệnh nào.
 - Lệnh nâng cấp riêng DB tạm (`DATABASE_URL` trỏ sang `pr_base`): chạy đúng trên local; trên
   production có bước kiểm tra ngay sau để bắt trường hợp nó chạy nhầm DB.
-- GitHub Actions deploy `master` với code mới.
+- GitHub Actions deploy `master` với code mới, kèm bước tự backup và tự migrate vừa thêm vào
+  `.github/workflows/deploy.yml` (cùng các lệnh đang chạy ổn trên dev; việc nâng cấp
+  0041 → 0057 đã chạy sạch trên bản sao production ở local).
 
 ## 5. Kết quả diễn tập 12/10/2026 (để so)
 

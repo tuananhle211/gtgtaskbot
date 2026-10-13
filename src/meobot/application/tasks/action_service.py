@@ -34,6 +34,7 @@ from meobot.application.tasks.detail_service import TaskDetailService
 from meobot.core.errors import ValidationError
 from meobot.db.models.task import SOURCE_PR_CONTENT, Task
 from meobot.domain.identity.models import Actor
+from meobot.domain.orders.design_codes import DesignPick
 from meobot.domain.orders.pipeline import OrderActionKind
 from meobot.domain.pr.errors import (
     PrPermissionDeniedError,
@@ -65,6 +66,8 @@ class TaskActionCommand:
     assignee_user_id: uuid.UUID | None = None
     tokens: Decimal | None = None
     deadline_at: datetime | None = None
+    #: ORD (0058): the design codes picked on a hand-in or an approval.
+    design_picks: tuple[DesignPick, ...] | None = None
 
 
 def _unknown(key: str) -> TaskActionKeyError:
@@ -209,6 +212,7 @@ class TaskActionService:
                 link=_blank(command.link),
                 script_text=_blank(command.text),
                 note=note,
+                design_picks=command.design_picks,
             )
         elif kind is OrderActionKind.APPROVE_NODE:
             await commands.approve_node(
@@ -218,6 +222,7 @@ class TaskActionService:
                 node_id=need_node(),
                 expected_version=version,
                 note=note,
+                design_picks=command.design_picks,
             )
         elif kind is OrderActionKind.RETURN_NODE:
             await commands.return_node(

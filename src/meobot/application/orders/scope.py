@@ -16,7 +16,9 @@ does not read another's ideas:
 * a marketer sees the orders they placed - not their teammates';
 * a function's Leader sees every order that visits their node;
 * a function's member sees the orders where they hold, or were chosen for, a
-  node.
+  node;
+* the Design team - Leader and staff alike - sees every **birthday order**
+  (0058): that board is the team's own.
 """
 
 from __future__ import annotations
@@ -32,7 +34,7 @@ from meobot.db.models.order import Order, OrderNode
 from meobot.db.models.org_unit import OrgUnitMember
 from meobot.db.models.user import User
 from meobot.domain.orders.errors import OrderNotFoundError
-from meobot.domain.orders.models import OrderNodeStatus, OrderNodeType
+from meobot.domain.orders.models import OrderCategory, OrderNodeStatus, OrderNodeType
 from meobot.domain.orders.permissions import AdsPermission
 from meobot.domain.orders.pipeline import OrderActorContext
 from meobot.domain.units.models import UnitCode, UnitMemberRole, UnitMembership, UnitSettings
@@ -50,6 +52,8 @@ class OrderScope:
     #: ``HEAD`` when the viewer is a Trưởng phòng ORD, limited to their own
     #: team's orders. None for everybody else.
     team_role: UnitMemberRole | None = None
+    #: In the Design team: every birthday order is theirs to see.
+    design_team: bool = False
 
     @classmethod
     def for_actor(
@@ -80,6 +84,7 @@ class OrderScope:
             | context.lead_node_types,
             context=context,
             team_role=team_role,
+            design_team=entry is not None and entry.role is UnitMemberRole.THIET_KE,
         )
 
     def apply(self, statement: Select) -> Select:  # type: ignore[type-arg]
@@ -90,6 +95,8 @@ class OrderScope:
         if self.user_id is None:
             return statement.where(false())
         conditions = [Order.owner_user_id == self.user_id]
+        if self.design_team:
+            conditions.append(Order.category == OrderCategory.BIRTHDAY)
         if self.team_role is UnitMemberRole.HEAD:
             owner_head = boss_of(Order.owner_user_id, head=True)
             conditions.extend(

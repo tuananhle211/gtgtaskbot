@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import uuid
-from datetime import datetime
+from datetime import date, datetime
 from decimal import Decimal
 
 from pydantic import BaseModel, Field
@@ -390,10 +390,55 @@ class ReturnNodeRequest(PlanRequest):
     note: str | None = None
 
 
+class DesignPickRequest(BaseModel):
+    """One design code ("mã video") and how many (0058)."""
+
+    code_id: uuid.UUID
+    quantity: int = Field(ge=1, le=999)
+
+
 class SubmitWorkRequest(VersionedRequest):
     link: str | None = Field(default=None, max_length=2000)
     script_text: str | None = None
     note: str | None = None
+    #: 0058: the script step picks them for Design (422
+    #: ``design_codes_required``); the designer may send a different list.
+    design_codes: list[DesignPickRequest] | None = Field(default=None, max_length=100)
+
+
+class CreateBirthdayOrderRequest(BaseModel):
+    """ "Order sinh nhật" (0058): the Design team's birthday artwork."""
+
+    full_name: str = Field(min_length=1, max_length=300)
+    branch: str = Field(min_length=1, max_length=120)
+    #: ``MALE`` / ``FEMALE``.
+    gender: str = Field(min_length=1, max_length=10)
+    birthday_on: date
+    #: "Ảnh minh hoạ".
+    reference_link: str | None = Field(default=None, max_length=2000)
+    note: str | None = Field(default=None, max_length=5000)
+
+
+class UpdateBirthdayOrderRequest(VersionedRequest):
+    """Only the fields sent change."""
+
+    full_name: str | None = Field(default=None, max_length=300)
+    branch: str | None = Field(default=None, max_length=120)
+    gender: str | None = Field(default=None, max_length=10)
+    birthday_on: date | None = None
+    reference_link: str | None = Field(default=None, max_length=2000)
+    note: str | None = Field(default=None, max_length=5000)
+
+
+class BirthdayOrderResponse(BaseModel):
+    id: uuid.UUID
+    code: str
+    version: int
+
+
+class BirthdayOptionsResponse(BaseModel):
+    #: The branches already used, for the form's suggestions.
+    branches: list[str]
 
 
 class ApproveFinalRequest(VersionedRequest):

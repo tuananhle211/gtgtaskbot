@@ -21,6 +21,7 @@ from meobot.application.units.directory import UnitDirectoryService
 from meobot.core.config import Settings
 from meobot.core.errors import ValidationError
 from meobot.domain.board.models import BoardQuery, Phase
+from meobot.domain.orders.models import OrderCategory
 from meobot.domain.units.errors import UnitNotFoundError
 from meobot.domain.units.models import UnitCode
 
@@ -66,18 +67,33 @@ def _phase(value: str | None) -> Phase | None:
 
 #: The orders ``/api/board/tasks`` accepts (``order=``).
 ORDER_TODO_FIRST = "todo_first"
-_ORDERS = frozenset({"", "default", ORDER_TODO_FIRST})
+#: ORD (0058): the nearest coming birthday first - the birthday board.
+ORDER_BIRTHDAY = "birthday"
+_ORDERS = frozenset({"", "default", ORDER_TODO_FIRST, ORDER_BIRTHDAY})
 
 
-def _order(value: str | None) -> bool:
-    """Whether ``order`` asks for "todo first". An unknown order is a 422."""
+def _order(value: str | None) -> str:
+    """The order asked for (``""`` = the default). An unknown one is a 422."""
     cleaned = (value or "").strip().lower()
     if cleaned not in _ORDERS:
         raise ValidationError(
             "Thứ tự sắp xếp không hợp lệ.",
             details={"reason": "invalid_order", "field": "order", "value": value},
         )
-    return cleaned == ORDER_TODO_FIRST
+    return cleaned
+
+
+def _category(value: str | None) -> str:
+    """The ORD order category a board lists: ``STANDARD`` ("Order tổng")
+    unless the birthday board asks for ``BIRTHDAY``. Unknown → 422."""
+    cleaned = (value or "").strip().upper() or OrderCategory.STANDARD.value
+    try:
+        return OrderCategory(cleaned).value
+    except ValueError as error:
+        raise ValidationError(
+            "Loại order không hợp lệ.",
+            details={"reason": "invalid_category", "field": "category", "value": value},
+        ) from error
 
 
 def _unit_label(unit: str | None, board_units: tuple[str, ...]) -> str:
@@ -108,13 +124,19 @@ async def board_tasks(
     overdue: Annotated[bool, Query()] = False,
     q: Annotated[str | None, Query(max_length=200)] = None,
     order: Annotated[str | None, Query(max_length=40)] = None,
+    category: Annotated[str | None, Query(max_length=20)] = None,
     limit: Annotated[int, Query(ge=1, le=_MAX_LIMIT)] = 50,
     offset: Annotated[int, Query(ge=0)] = 0,
 ) -> TaskPageResponse:
     """``order=todo_first``: the rows waiting on the caller first ("Cần làm",
     the ``awaiting_me`` rule), then the rest of the filter; each part keeps the
-    usual priority-then-newest order and paging continues across both."""
+    usual priority-then-newest order and paging continues across both.
+
+    ``category`` (ORD): ``STANDARD`` by default - "Order tổng" does not list
+    the birthday orders; ``BIRTHDAY`` is the birthday board, usually with
+    ``order=birthday`` (the nearest coming birthday first)."""
     codes = await board.resolve_units(actor, unit)
+    ordering = _order(order)
     query = BoardQuery(
         date_from=date_from,
         date_to=date_to,
@@ -132,7 +154,9 @@ async def board_tasks(
         urgent=urgent,
         overdue=overdue,
         search=q or None,
-        todo_first=_order(order),
+        todo_first=ordering == ORDER_TODO_FIRST,
+        birthday_first=ordering == ORDER_BIRTHDAY,
+        category=_category(category),
         limit=limit,
         offset=offset,
     )
@@ -149,20 +173,23 @@ async def board_counts(
     actor: CurrentActorDep,
     board: BoardDep,
     unit: Annotated[str | None, Query()] = None,
+    category: Annotated[str | None, Query(max_length=20)] = None,
 ) -> BoardCountsResponse:
     """The numbers behind the task table's quick filters - "Task của tôi (8)":
-    each is the total that filter alone would list in this unit."""
+    each is the total that filter alone would list in this unit, on the board
+    of this ``category`` (as on ``/tasks``)."""
     await board.resolve_units(actor, unit)
+    chosen = _category(category)
 
     async def count(query: BoardQuery) -> int:
         return (await board.page(actor, unit=unit, query=query)).total
 
     return BoardCountsResponse(
-        mine=await count(BoardQuery(mine=True, limit=1)),
-        awaiting_me=await count(BoardQuery(awaiting_me=True, limit=1)),
-        priority=await count(BoardQuery(priority=True, limit=1)),
-        urgent=await count(BoardQuery(urgent=True, limit=1)),
-        overdue=await count(BoardQuery(overdue=True, limit=1)),
+        mine=await count(BoardQuery(mine=True, limit=1, category=chosen)),
+        awaiting_me=await count(BoardQuery(awaiting_me=True, limit=1, category=chosen)),
+        priority=await count(BoardQuery(priority=True, limit=1, category=chosen)),
+        urgent=await count(BoardQuery(urgent=True, limit=1, category=chosen)),
+        overdue=await count(BoardQuery(overdue=True, limit=1, category=chosen)),
     )
 
 

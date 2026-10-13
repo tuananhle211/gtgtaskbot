@@ -25,13 +25,18 @@ import { formatTokens } from "@/lib/deadline";
 import { Select } from "@/components/pr";
 import { Empty, ErrorBox, Loading, NoticeBox, Pill } from "@/components/states";
 import {
-  STEP_LEGEND,
-  type StatusColor,
-  rowStatusColor,
-  stepColor,
-} from "@/lib/status-colors";
-
-const PAGE_SIZE = 10;
+  DesignCodesCell,
+  DesignContentCell,
+  DesignerCell,
+} from "@/components/design-cells";
+import {
+  PAGE_SIZE,
+  Pager,
+  RowDeadlineCell,
+  RowStatusCell,
+  StatusBadge,
+} from "@/components/task-table";
+import { STEP_LEGEND, stepColor } from "@/lib/status-colors";
 
 /** The ORD "Pha" filter, until the server's own list arrives. */
 const ADS_STEPS = [
@@ -75,6 +80,11 @@ const field =
  * a function's lead) opens on "Task của tôi" with the rows waiting on them
  * first (`order=todo_first`), unless the URL says otherwise: an explicit
  * `mine=false` keeps it off. Everyone else opens on everything.
+ *
+ * The Design ban (`design.view` on `/api/units/me`) reads ORD's table in a
+ * simpler shape: the same first four columns, then "Nội dung", "Tên task" and
+ * "Thiết kế" from the row's `design` block in place of the per-step cells and
+ * "Kết quả". Which rows they get is the server's scope, not this file's.
  */
 function TaskBoard() {
   const router = useRouter();
@@ -212,6 +222,8 @@ function TaskBoard() {
     return typeof count === "number" ? ` (${count})` : "";
   };
   const showTokens = effortEnabled(me.data);
+  // The Design ban's own table, on ORD only (never PR or the merged view).
+  const designView = unit === "ADS" && Boolean(me.data.design?.view);
 
   return (
     <div className="space-y-4">
@@ -472,12 +484,22 @@ function TaskBoard() {
                   <th scope="col">Tên · Loại</th>
                   <th scope="col">Trạng thái · Đang giữ</th>
                   {unit !== "PR" ? <th scope="col">Deadline</th> : null}
-                  {cellHeads.map((cell) => (
-                    <th key={cell.key} scope="col">
-                      {cell.label}
-                    </th>
-                  ))}
-                  <th scope="col">Kết quả</th>
+                  {designView ? (
+                    <>
+                      <th scope="col">Nội dung</th>
+                      <th scope="col">Tên task</th>
+                      <th scope="col">Thiết kế</th>
+                    </>
+                  ) : (
+                    <>
+                      {cellHeads.map((cell) => (
+                        <th key={cell.key} scope="col">
+                          {cell.label}
+                        </th>
+                      ))}
+                      <th scope="col">Kết quả</th>
+                    </>
+                  )}
                   <th scope="col">
                     <span className="sr-only">Thao tác</span>
                   </th>
@@ -494,6 +516,7 @@ function TaskBoard() {
                     decides={decides}
                     dense={dense}
                     showTokens={showTokens}
+                    design={designView}
                     onChanged={() =>
                       void queryClient.invalidateQueries({
                         queryKey: ["board"],
@@ -593,6 +616,7 @@ function TaskTableRow({
   decides,
   dense,
   showTokens,
+  design = false,
   onChanged,
 }: {
   row: TaskRow;
@@ -604,6 +628,11 @@ function TaskTableRow({
   decides: boolean;
   dense: boolean;
   showTokens: boolean;
+  /**
+   * The Design ban's view: "Nội dung", "Tên task" and "Thiết kế" in place of
+   * the per-step cells, "Kết quả" and the row's extras.
+   */
+  design?: boolean;
   onChanged: () => void;
 }) {
   const decide = useMutation({
@@ -675,7 +704,7 @@ function TaskTableRow({
           ) : null}
           {row.is_priority ? <Pill tone="warn">Ưu tiên</Pill> : null}
           {row.urgent ? <Pill tone="critical">Gấp</Pill> : null}
-          {!dense
+          {!dense && !design
             ? (row.extras ?? []).map((extra) => (
                 <span
                   key={extra.label}
@@ -687,49 +716,68 @@ function TaskTableRow({
             : null}
         </div>
       </td>
-      <td className="w-[15rem] min-w-[13rem] max-w-[17rem]">
-        <StatusBadge color={rowStatusColor(row.status, row.state, row.status_label)}>
-          {boldNames(row.status_label, row.current_person_name)}
-        </StatusBadge>
-        {!dense && row.stage_since ? (
-          <span className="block text-[11px] text-[var(--text-muted)]">
-            ở bước này {formatAgo(row.stage_since)}
-          </span>
-        ) : null}
-        {/* Skipped when the status already names the same people. */}
-        {row.current_person_name && row.status_label.includes(row.current_person_name) ? null : (
-          <span className="mt-0.5 flex flex-wrap items-center gap-1 text-xs">
-            <span className="text-[var(--text-muted)]">Đang giữ:</span>
-            {row.awaiting_assignment ? (
-              <Pill tone="warn">Chờ giao</Pill>
-            ) : (
-              <span className="person">{row.current_person_name ?? "–"}</span>
-            )}
-          </span>
-        )}
-      </td>
-      {showDeadline ? (
-        <td className="whitespace-nowrap text-xs" data-testid="row-deadline">
-          {row.deadline_at ? (
-            <span className="flex flex-col items-start gap-1">
-              <DeadlineBadge at={row.deadline_at} status={row.deadline_status} />
-              {row.deadline_status === "OVERDUE" ? (
-                <Pill tone="critical">Quá hạn</Pill>
-              ) : null}
-            </span>
-          ) : (
-            <span className="text-[var(--text-muted)]">–</span>
-          )}
-          {(row.over_deadline_count ?? 0) > 0 ? (
-            <span
-              className="mt-0.5 block text-[11px] text-[var(--warn)]"
-              title="Số lần vượt deadline mong muốn"
-            >
-              Vượt mong muốn {row.over_deadline_count} lần
-            </span>
+      <RowStatusCell row={row} dense={dense} />
+      {showDeadline ? <RowDeadlineCell row={row} /> : null}
+      {design ? (
+        <>
+          <DesignContentCell row={row} />
+          <DesignCodesCell row={row} />
+          <DesignerCell row={row} />
+        </>
+      ) : (
+        <ResultCells row={row} dense={dense} showTokens={showTokens} />
+      )}
+      <td>
+        <div className="flex items-center justify-end gap-1.5 whitespace-nowrap">
+          {pending ? (
+            <>
+              <ConfirmButton
+                spec={{
+                  title: `Duyệt order ${row.code}?`,
+                  description:
+                    "Order sẽ chuyển sang công đoạn đầu tiên theo quy trình.",
+                  confirmLabel: "Duyệt",
+                }}
+                onConfirm={() => decide.mutate({ path: "/approve" })}
+                pending={decide.isPending}
+                error={decide.error}
+                tone="primary"
+              >
+                Duyệt
+              </ConfirmButton>
+              <ReturnButton
+                code={row.code}
+                pending={decide.isPending}
+                error={decide.error}
+                onConfirm={(note) => decide.mutate({ path: "/return", note })}
+              />
+            </>
           ) : null}
-        </td>
-      ) : null}
+          <Link
+            href={row.detail_path}
+            className="inline-flex min-h-9 items-center rounded-lg border border-[var(--border)] px-2.5 text-xs"
+          >
+            Mở
+          </Link>
+        </div>
+        {decide.isError ? <NoticeBox error={decide.error} /> : null}
+      </td>
+    </tr>
+  );
+}
+
+/** The per-step cells and "Kết quả": everything a row shows outside the Design view. */
+function ResultCells({
+  row,
+  dense,
+  showTokens,
+}: {
+  row: TaskRow;
+  dense: boolean;
+  showTokens: boolean;
+}) {
+  return (
+    <>
       {row.cells.map((cell) => (
         <Cell
           key={cell.key}
@@ -780,42 +828,7 @@ function TaskTableRow({
           </span>
         ) : null}
       </td>
-      <td>
-        <div className="flex items-center justify-end gap-1.5 whitespace-nowrap">
-          {pending ? (
-            <>
-              <ConfirmButton
-                spec={{
-                  title: `Duyệt order ${row.code}?`,
-                  description:
-                    "Order sẽ chuyển sang công đoạn đầu tiên theo quy trình.",
-                  confirmLabel: "Duyệt",
-                }}
-                onConfirm={() => decide.mutate({ path: "/approve" })}
-                pending={decide.isPending}
-                error={decide.error}
-                tone="primary"
-              >
-                Duyệt
-              </ConfirmButton>
-              <ReturnButton
-                code={row.code}
-                pending={decide.isPending}
-                error={decide.error}
-                onConfirm={(note) => decide.mutate({ path: "/return", note })}
-              />
-            </>
-          ) : null}
-          <Link
-            href={row.detail_path}
-            className="inline-flex min-h-9 items-center rounded-lg border border-[var(--border)] px-2.5 text-xs"
-          >
-            Mở
-          </Link>
-        </div>
-        {decide.isError ? <NoticeBox error={decide.error} /> : null}
-      </td>
-    </tr>
+    </>
   );
 }
 
@@ -860,89 +873,6 @@ function ReturnButton({
   );
 }
 
-/**
- * Page numbers under the table: first, previous, a window of numbers around
- * the current page with ellipses, next, last. The range shown ("21–40 / 1223")
- * says where the visible rows sit in the whole list.
- */
-function Pager({
-  page,
-  total,
-  shown,
-  onPage,
-}: {
-  page: number;
-  total: number;
-  shown: number;
-  onPage: (page: number) => void;
-}) {
-  const pages = Math.max(1, Math.ceil(total / PAGE_SIZE));
-  const first = total === 0 ? 0 : (page - 1) * PAGE_SIZE + 1;
-  const last = (page - 1) * PAGE_SIZE + shown;
-  const numbers: Array<number | "gap"> = [];
-  for (let n = 1; n <= pages; n += 1) {
-    if (n === 1 || n === pages || Math.abs(n - page) <= 2) numbers.push(n);
-    else if (numbers[numbers.length - 1] !== "gap") numbers.push("gap");
-  }
-  const button =
-    "inline-flex min-h-9 min-w-9 items-center justify-center rounded-lg border border-[var(--border)] px-2.5 text-xs disabled:opacity-40";
-  return (
-    <nav
-      aria-label="Phân trang"
-      className="flex flex-wrap items-center justify-between gap-2 border-t border-[var(--border)] px-3 py-2 text-xs text-[var(--text-muted)]"
-    >
-      <span>
-        {first}–{last} / {total} task · {PAGE_SIZE} dòng mỗi trang
-      </span>
-      <div className="flex flex-wrap items-center gap-1">
-        <button type="button" className={button} disabled={page <= 1} onClick={() => onPage(1)} aria-label="Trang đầu">
-          «
-        </button>
-        <button type="button" className={button} disabled={page <= 1} onClick={() => onPage(page - 1)}>
-          Trước
-        </button>
-        {numbers.map((n, index) =>
-          n === "gap" ? (
-            <span key={`gap-${index}`} className="px-1">
-              …
-            </span>
-          ) : (
-            <button
-              key={n}
-              type="button"
-              aria-current={n === page ? "page" : undefined}
-              onClick={() => onPage(n)}
-              className={`${button} ${
-                n === page
-                  ? "border-[var(--accent)] bg-[var(--accent)] font-semibold text-[var(--accent-text)]"
-                  : "bg-[var(--surface)] hover:bg-[var(--surface-muted)]"
-              }`}
-            >
-              {n}
-            </button>
-          ),
-        )}
-        <button type="button" className={button} disabled={page >= pages} onClick={() => onPage(page + 1)}>
-          Sau
-        </button>
-        <button type="button" className={button} disabled={page >= pages} onClick={() => onPage(pages)} aria-label="Trang cuối">
-          »
-        </button>
-      </div>
-    </nav>
-  );
-}
-
-function StatusBadge({ color, children }: { color: StatusColor; children: React.ReactNode }) {
-  // One inner span: the badge is a flex box (dot + text), and without it each
-  // text piece and <strong> would become its own flex column.
-  return (
-    <span className={`st st-${color}`}>
-      <span>{children}</span>
-    </span>
-  );
-}
-
 function CalendarIcon() {
   return (
     <svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" aria-hidden="true">
@@ -969,17 +899,4 @@ function LinkIcon() {
 function withoutNames(label: string, names: string | null): string {
   if (!names || !label.includes(names)) return label;
   return label.replace(` ${names} `, " ").replace(names, "").replace(/\s{2,}/g, " ").trim();
-}
-
-/** The status text with the people's names in bold and everything else plain. */
-function boldNames(label: string, names: string | null): React.ReactNode {
-  if (!names || !label.includes(names)) return label;
-  const at = label.indexOf(names);
-  return (
-    <>
-      {label.slice(0, at)}
-      <strong className="font-bold">{names}</strong>
-      {label.slice(at + names.length)}
-    </>
-  );
 }

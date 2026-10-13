@@ -247,7 +247,12 @@ class Merge:
             "update org_units set settings = $2 where id = $1", ours["id"], theirs["settings"]
         )
         self.report["ORD settings taken from dev"] += 1
-        for table in ("unit_video_kinds", "unit_platforms", "unit_durations"):
+        for table in (
+            "unit_video_kinds",
+            "unit_platforms",
+            "unit_durations",
+            "unit_design_codes",
+        ):
             cols = await self.shared_columns(table)
             rest = [name for name in cols if name != "id"]
             sets = ", ".join(f'"{name}" = ${index}' for index, name in enumerate(rest, start=2))

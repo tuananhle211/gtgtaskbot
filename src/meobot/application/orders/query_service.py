@@ -22,7 +22,7 @@ from meobot.db.models.order import Order, OrderApproval, OrderEvent, OrderNode, 
 from meobot.db.models.user import User
 from meobot.domain.identity.models import Actor
 from meobot.domain.orders.errors import OrderNotFoundError
-from meobot.domain.orders.models import OrderNodeType
+from meobot.domain.orders.models import OrderCategory, OrderNodeType
 from meobot.domain.orders.pipeline import (
     NodeView,
     OrderAction,
@@ -82,6 +82,22 @@ class OrderQueryService:
             raise OrderNotFoundError("Không tìm thấy.", details={"reason": "order_not_visible"})
         return order
 
+    async def birthday_branches(self, actor: Actor) -> list[str]:
+        """The branches on the birthday orders this person may see, for the
+        form's suggestions."""
+        scoped = await self.scoped(actor)
+        rows = await self._session.scalars(
+            scoped.scope.apply(
+                select(Order.birthday_branch)
+                .where(
+                    Order.category == OrderCategory.BIRTHDAY,
+                    Order.birthday_branch.is_not(None),
+                )
+                .distinct()
+            )
+        )
+        return sorted({row for row in rows.all() if row}, key=str.lower)
+
     async def detail(self, actor: Actor, ref: str) -> OrderDetail:
         scoped = await self.scoped(actor)
         order = await self.resolve(actor, ref)
@@ -128,6 +144,7 @@ class OrderQueryService:
             stage=order.stage,
             owner_user_id=order.owner_user_id,
             is_priority=order.is_priority,
+            category=order.category,
         )
         node_views = tuple(
             NodeView(

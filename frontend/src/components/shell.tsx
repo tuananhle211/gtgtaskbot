@@ -16,10 +16,23 @@ import { Logo, LogoMark } from "@/components/logo";
 
 type NavItem = { href: string; label: string; icon: NavIcon };
 
+/** A branch of the nav tree: a heading that folds, and the screens under it. */
+type NavGroup = { label: string; icon: NavIcon; children: NavItem[] };
+
+type NavEntry = NavItem | NavGroup;
+
+const isGroup = (entry: NavEntry): entry is NavGroup => "children" in entry;
+
+/** Every screen of the nav, in order, whatever branch it sits in. */
+export const navLinks = (nav: NavEntry[]): NavItem[] =>
+  nav.flatMap((entry) => (isGroup(entry) ? entry.children : [entry]));
+
 type NavIcon =
   | "dashboard"
   | "table"
-  | "plus"
+  | "board"
+  | "birthday"
+  | "codes"
   | "content"
   | "work"
   | "task"
@@ -30,12 +43,41 @@ type NavIcon =
   | "effort"
   | "account";
 
-/** The screens every unit shares. */
-const COMMON_NAV: NavItem[] = [
-  { href: "/dashboard", label: "Dashboard", icon: "dashboard" },
-  { href: "/tasks", label: "Quản lý task", icon: "table" },
-  { href: "/orders/new", label: "Tạo order", icon: "plus" },
-];
+/** The screen every unit shares besides the order boards. */
+const DASHBOARD_NAV: NavItem = { href: "/dashboard", label: "Dashboard", icon: "dashboard" };
+
+/**
+ * "Bảng order": the task tables, one per kind of order. "Order tổng" is the
+ * shared table every stream has; the other two are the Design ban's and show
+ * only when `/api/units/me` says so (`design.birthday`, `design.manage_codes`).
+ *
+ * There is no "Tạo order" entry: an order is created from the board of its own
+ * kind ("+ Tạo order" on /tasks, and on the birthday board).
+ */
+const ORDER_TOTAL_NAV: NavItem = { href: "/tasks", label: "Order tổng", icon: "table" };
+const ORDER_BIRTHDAY_NAV: NavItem = {
+  href: "/tasks/birthday",
+  label: "Order sinh nhật",
+  icon: "birthday",
+};
+const DESIGN_CODES_NAV: NavItem = {
+  href: "/tasks/design-codes",
+  label: "Bảng mã video",
+  icon: "codes",
+};
+
+/** The order boards this person has, as one branch of the nav. */
+function orderBoards(me: UnitsMe | undefined): NavGroup {
+  return {
+    label: "Bảng order",
+    icon: "board",
+    children: [
+      ORDER_TOTAL_NAV,
+      ...(me?.design?.birthday ? [ORDER_BIRTHDAY_NAV] : []),
+      ...(me?.design?.manage_codes ? [DESIGN_CODES_NAV] : []),
+    ],
+  };
+}
 
 /**
  * Where an account still on the default password is sent, from every screen.
@@ -51,7 +93,7 @@ const FORCED_PASSWORD_CHANGE = "/account?doi-mat-khau=1";
  */
 const PR_NAV: NavItem[] = [
   // No "Nội dung PR" entry: PR pieces are created from the shared "Tạo order"
-  // screen and followed on the shared task table. The board at /pr/content
+  // screen (/orders/new) and followed on the shared task table. The board at /pr/content
   // stays reachable from a row and from the table's "bảng chi tiết" link.
   // M1. "Công việc" is the Work Ledger; "Giao việc" is the legacy task module
   // and stays until the bridge milestone decides its future.
@@ -89,6 +131,9 @@ const ADMIN_NAV: NavItem[] = [
 /** Whether the sidebar is folded; shared by every Shell mount in this tab. */
 let sidebarCollapsed = false;
 
+/** Whether the "Bảng order" branch is folded; shared the same way. */
+let boardsFolded = false;
+
 /**
  * The public legal pages. Deliberately *not* in the nav - see the footer below.
  */
@@ -104,12 +149,13 @@ const LEGAL_LINKS = [
  * shared entries are shown: an account with no stream tag is *not* PR any
  * more, so the PR screens wait until the server says the person is in PR (or
  * sees every stream). The shared screens are always there, so the frame never
- * strands anybody on a blank sidebar.
+ * strands anybody on a blank sidebar. The order boards are one branch
+ * ("Bảng order"), whose Design entries follow the `design` flags.
  *
  * "Quản trị đơn vị" is for whoever administers a unit or may tag members in
  * one (a team lead tags in their own stream there).
  */
-export function navFor(me: UnitsMe | undefined, sessionRole?: string): NavItem[] {
+export function navFor(me: UnitsMe | undefined, sessionRole?: string): NavEntry[] {
   const seesAll =
     Boolean(me?.can_view_all) || sessionRole === "OWNER" || sessionRole === "ADMIN";
   const pr = Boolean(me) && (seesAll || me!.units.some((unit) => unit.code === "PR"));
@@ -118,7 +164,8 @@ export function navFor(me: UnitsMe | undefined, sessionRole?: string): NavItem[]
   );
   const effort = seesOrdEffort(me, sessionRole);
   return [
-    ...COMMON_NAV,
+    DASHBOARD_NAV,
+    orderBoards(me),
     ...(effort ? EFFORT_NAV : []),
     ...(pr ? PR_NAV : []),
     ...(admin ? ADMIN_NAV : []),
@@ -147,10 +194,23 @@ function Icon({ name }: { name: NavIcon }) {
         <path d="M4 20V10M10 20V4M16 20v-7M22 20H2" />
       </>
     ),
-    plus: (
+    board: (
       <>
-        <circle cx="12" cy="12" r="9" />
-        <path d="M12 8v8M8 12h8" />
+        <rect x="3" y="4" width="18" height="16" rx="2" />
+        <path d="M3 10h18M9 10v10" />
+      </>
+    ),
+    birthday: (
+      <>
+        <path d="M4 21h16M5 21v-7a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2v7" />
+        <path d="M5 16c1.5 1.3 3 1.3 4.5 0s3-1.3 5 0 3 1.3 4.5 0" />
+        <path d="M12 12V8M12 5.5v-.5" />
+      </>
+    ),
+    codes: (
+      <>
+        <path d="M3 12V4h8l10 10-8 8z" />
+        <circle cx="7.5" cy="8.5" r="1.2" />
       </>
     ),
     content: (
@@ -264,20 +324,45 @@ export function Shell({ children }: { children: React.ReactNode }) {
     enabled: Boolean(session.data) && !mustChangePassword,
   });
 
+  const [folded, setFolded] = useState(boardsFolded);
+  const toggleBoards = () =>
+    setFolded((was) => {
+      boardsFolded = !was;
+      return !was;
+    });
   const nav = navFor(me.data, session.data?.role);
+  const links = navLinks(nav);
   const matches = (href: string) =>
     pathname === href || (href !== "/pr" && pathname.startsWith(`${href}/`));
-  // The most specific entry wins: /tasks/effort is "Effort", not "Quản lý task".
+  // The most specific entry wins: /tasks/effort is "Effort" and /tasks/birthday
+  // is "Order sinh nhật", not "Order tổng" (which keeps a task's own page).
   const isActive = (href: string) =>
     matches(href) &&
-    !nav.some(
+    !links.some(
       (other) =>
         other.href !== href &&
         other.href.startsWith(`${href}/`) &&
         matches(other.href),
     );
   const tags = me.data?.units ?? [];
-
+  const linkClass = (active: boolean) =>
+    `flex min-h-11 shrink-0 items-center gap-2.5 rounded-lg px-3 text-sm ${collapsed ? "lg:justify-center lg:px-0" : ""} transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--accent)] ${
+      active
+        ? "bg-[var(--accent-soft)] font-semibold text-[var(--accent-strong)]"
+        : "text-[var(--text-muted)] hover:bg-[var(--surface-muted)] hover:text-[var(--text)]"
+    }`;
+  const navLink = (item: NavItem) => (
+    <Link
+      key={item.href}
+      href={item.href}
+      aria-current={isActive(item.href) ? "page" : undefined}
+      title={collapsed ? item.label : undefined}
+      className={linkClass(isActive(item.href))}
+    >
+      <Icon name={item.icon} />
+      <span className={`whitespace-nowrap ${collapsed ? "lg:sr-only" : ""}`}>{item.label}</span>
+    </Link>
+  );
 
   return (
     <div className="min-h-screen lg:flex">
@@ -294,22 +379,62 @@ export function Shell({ children }: { children: React.ReactNode }) {
           aria-label="Điều hướng chính"
           className="flex gap-1 overflow-x-auto px-3 py-2 [scrollbar-width:none] lg:flex-col lg:overflow-visible lg:px-3 lg:py-0"
         >
-          {nav.map((item) => (
-            <Link
-              key={item.href}
-              href={item.href}
-              aria-current={isActive(item.href) ? "page" : undefined}
-              title={collapsed ? item.label : undefined}
-              className={`flex min-h-11 shrink-0 items-center gap-2.5 rounded-lg px-3 text-sm ${collapsed ? "lg:justify-center lg:px-0" : ""} transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--accent)] ${
-                isActive(item.href)
-                  ? "bg-[var(--accent-soft)] font-semibold text-[var(--accent-strong)]"
-                  : "text-[var(--text-muted)] hover:bg-[var(--surface-muted)] hover:text-[var(--text)]"
-              }`}
-            >
-              <Icon name={item.icon} />
-              <span className={`whitespace-nowrap ${collapsed ? "lg:sr-only" : ""}`}>{item.label}</span>
-            </Link>
-          ))}
+          {nav.map((entry) =>
+            isGroup(entry) ? (
+              // A branch. On a phone the strip is one row, so the heading is
+              // dropped and its screens sit in the row like any other; from
+              // `lg` it is a heading that folds, with its screens indented.
+              // With the sidebar folded to icons there is no heading to press,
+              // so the screens always show.
+              <div
+                key={entry.label}
+                role="group"
+                aria-label={entry.label}
+                className="contents lg:flex lg:flex-col lg:gap-1"
+              >
+                <button
+                  type="button"
+                  onClick={toggleBoards}
+                  aria-expanded={!folded}
+                  className={`hidden min-h-11 items-center gap-2.5 rounded-lg px-3 text-left text-sm transition-colors hover:bg-[var(--surface-muted)] hover:text-[var(--text)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--accent)] ${
+                    collapsed ? "" : "lg:flex"
+                  } ${
+                    folded && entry.children.some((child) => isActive(child.href))
+                      ? "font-semibold text-[var(--accent-strong)]"
+                      : "text-[var(--text-muted)]"
+                  }`}
+                >
+                  <Icon name={entry.icon} />
+                  <span className="flex-1 whitespace-nowrap">{entry.label}</span>
+                  <svg
+                    viewBox="0 0 24 24"
+                    width="14"
+                    height="14"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="2"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    aria-hidden="true"
+                    className="shrink-0"
+                  >
+                    <path d={folded ? "M9 6l6 6-6 6" : "M6 9l6 6 6-6"} />
+                  </svg>
+                </button>
+                <div
+                  className={`contents lg:flex-col lg:gap-1 ${
+                    collapsed
+                      ? "lg:flex"
+                      : `lg:ml-4 lg:border-l lg:border-[var(--border)] lg:pl-2 ${folded ? "lg:hidden" : "lg:flex"}`
+                  }`}
+                >
+                  {entry.children.map(navLink)}
+                </div>
+              </div>
+            ) : (
+              navLink(entry)
+            ),
+          )}
         </nav>
         {session.data ? (
           <div className={`mt-auto hidden border-t border-[var(--border)] px-4 py-4 ${collapsed ? "" : "lg:block"}`}>

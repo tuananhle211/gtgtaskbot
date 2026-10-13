@@ -988,6 +988,8 @@ describe("173. the confirmation policy has a maintainable regression strategy", 
         "Form đăng nhập bằng ID Telegram và mật khẩu; nút Đăng nhập trong form chính là bước xác nhận (policy parameter-modal). Chỉ mở phiên cho chính người gõ mật khẩu, không đổi dữ liệu nghiệp vụ. Form Quên mật khẩu (một ô ID Telegram) cũng vậy: mật khẩu tạm chỉ gửi vào Telegram của chính tài khoản đó.",
       "app/account/password.tsx":
         "Form đổi mật khẩu của chính mình (hộp thoại trên trang Tài khoản, hoặc thẻ duy nhất khi bắt buộc đổi); nút Đổi mật khẩu trong form là bước xác nhận (policy parameter-modal, xem ACTION_INVENTORY). Phải nhập đúng mật khẩu hiện tại và chỉ đổi tài khoản của chính người đang đăng nhập.",
+      "components/birthday-order-form.tsx":
+        "Hộp thoại form Order sinh nhật trên /tasks/birthday (họ tên, chi nhánh, giới tính, ngày sinh, ảnh minh hoạ, note); nút Tạo order / Chỉnh sửa trong form chính là bước xác nhận (policy parameter-modal, xem ACTION_INVENTORY). Tạo một order mới cho ban Design, hoặc sửa thông tin của một order đang mở kèm version (409 nếu người khác vừa đổi) - không chuyển bước, không đổi người đang giữ.",
       "app/pr/work/mapping.tsx":
         "Form ba lựa chọn (cột mốc, loại nội dung, loại công việc); nút lưu trong form chính là bước xác nhận — xem ACTION_INVENTORY, policy parameter-modal. Lưu ánh xạ không viết lại lịch sử: công việc đã COUNTED trong kỳ đã đóng giữ nguyên, chỉ các lần chiếu sau dùng ánh xạ mới. M3.1 tách tệp này ra khỏi kpi.tsx, và trước đó nó lọt qua kiểm tra này chỉ vì ở chung tệp với các hộp thoại KPI.",
     };

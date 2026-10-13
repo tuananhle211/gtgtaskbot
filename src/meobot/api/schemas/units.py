@@ -15,7 +15,7 @@ from pydantic import BaseModel, Field
 
 from meobot.application.orders.effort_service import BanStats, EffortGrid
 from meobot.application.units.directory import UnitMemberRow
-from meobot.db.models.org_unit import UnitDuration, UnitPlatform, UnitVideoKind
+from meobot.db.models.org_unit import UnitDesignCode, UnitDuration, UnitPlatform, UnitVideoKind
 from meobot.domain.identity.labels import role_label
 from meobot.domain.orders.permissions import ROLE_LABELS, SCOPE_LABELS, catalog, normalise_matrix
 from meobot.domain.units.labels import (
@@ -70,6 +70,8 @@ class UnitSettingsResponse(BaseModel):
     scope_labels: dict[str, str]
     #: Effort (token) mode; only the OWNER switches it.
     effort_enabled: bool = True
+    #: 0058: design codes ("mã video") are asked for on hand-ins to / by Design.
+    design_codes_enabled: bool = True
     #: 0053: token budget and the performance score's knobs.
     default_daily_tokens: float = 80
     work_weekdays: list[int] = [0, 1, 2, 3, 4]
@@ -92,6 +94,7 @@ class UnitSettingsResponse(BaseModel):
             review_video_by_script_lead=settings.review_video_by_script_lead,
             permissions=normalise_matrix(settings.permissions),
             effort_enabled=settings.effort_enabled,
+            design_codes_enabled=settings.design_codes_enabled,
             default_daily_tokens=settings.default_daily_tokens,
             work_weekdays=list(settings.work_weekdays),
             half_weekdays=list(settings.half_weekdays),
@@ -123,6 +126,18 @@ class UnitEntryResponse(BaseModel):
     settings: UnitSettingsResponse
 
 
+class DesignAccessResponse(BaseModel):
+    """What the Design team's screens are for this caller (0058)."""
+
+    #: In the Design team (and not OWNER/ADMIN): the task table shows the
+    #: Design team's own columns.
+    view: bool = False
+    #: Keeps the catalogue of design codes: the Design Leader, OWNER, ADMIN.
+    manage_codes: bool = False
+    #: May open the birthday board and place birthday orders.
+    birthday: bool = False
+
+
 class UnitMeResponse(BaseModel):
     """What the shell needs to draw the unit switch and the nav."""
 
@@ -140,6 +155,7 @@ class UnitMeResponse(BaseModel):
     #: ORD's effort (token) mode, for every screen that shows tokens. False
     #: only when the OWNER switched it off.
     effort_enabled: bool = True
+    design: DesignAccessResponse = DesignAccessResponse()
 
     @classmethod
     def from_domain(
@@ -149,6 +165,7 @@ class UnitMeResponse(BaseModel):
         *,
         can_admin: list[str],
         can_tag: list[str] | None = None,
+        design: DesignAccessResponse | None = None,
     ) -> UnitMeResponse:
         entries = sorted(entries, key=lambda entry: stream_rank(entry.code))
         return cls(
@@ -166,6 +183,7 @@ class UnitMeResponse(BaseModel):
                 ),
                 True,
             ),
+            design=design or DesignAccessResponse(),
         )
 
 
@@ -297,12 +315,47 @@ class UpdateUnitSettingsRequest(BaseModel):
     permissions: dict[str, dict[str, str]] | None = None
     #: OWNER only (403 ``effort_setting_forbidden``).
     effort_enabled: bool | None = None
+    design_codes_enabled: bool | None = None
     default_daily_tokens: float | None = Field(default=None, ge=0, le=999)
     work_weekdays: list[int] | None = None
     half_weekdays: list[int] | None = None
     perf_weights: PerfWeightsBody | None = None
     #: null = the ban's top performer of the month.
     output_target: int | None = Field(default=None, ge=1, le=10000)
+
+
+class DesignCodeResponse(BaseModel):
+    """One row of the Design team's catalogue of design codes ("mã video")."""
+
+    id: uuid.UUID
+    code: str
+    name: str
+    active: bool
+    sort_order: int
+
+    @classmethod
+    def from_row(cls, row: UnitDesignCode) -> DesignCodeResponse:
+        return cls(
+            id=row.id, code=row.code, name=row.name, active=row.active, sort_order=row.sort_order
+        )
+
+
+class DesignCodeListResponse(BaseModel):
+    codes: list[DesignCodeResponse]
+
+
+class CreateDesignCodeRequest(BaseModel):
+    code: str = Field(min_length=1, max_length=60)
+    name: str = Field(min_length=1, max_length=300)
+    active: bool = True
+    sort_order: int | None = Field(default=None, ge=0, le=100000)
+
+
+class UpdateDesignCodeRequest(BaseModel):
+    code: str | None = Field(default=None, min_length=1, max_length=60)
+    name: str | None = Field(default=None, min_length=1, max_length=300)
+    active: bool | None = None
+    sort_order: int | None = Field(default=None, ge=0, le=100000)
 
 
 class VideoKindResponse(BaseModel):

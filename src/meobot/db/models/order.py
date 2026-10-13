@@ -32,6 +32,7 @@ from __future__ import annotations
 import uuid
 from datetime import date, datetime
 from decimal import Decimal
+from typing import Any
 
 from sqlalchemy import (
     Boolean,
@@ -51,13 +52,15 @@ from sqlalchemy import (
 from sqlalchemy.orm import Mapped, mapped_column
 
 from meobot.core.time import utcnow
-from meobot.db.base import Base, TimestampMixin, UUIDPrimaryKeyMixin, value_enum
+from meobot.db.base import Base, JSONColumn, TimestampMixin, UUIDPrimaryKeyMixin, value_enum
 from meobot.db.models.org_unit import ORG_UNITS, UNIT_DURATIONS, UNIT_PLATFORMS, UNIT_VIDEO_KINDS
 from meobot.db.models.pr import RESTRICT, USERS_TABLE
 from meobot.db.models.pr_work import WORK_TYPES
 from meobot.domain.orders.models import (
+    BirthdayGender,
     OrderApprovalDecision,
     OrderApprovalGate,
+    OrderCategory,
     OrderEventKind,
     OrderNodeStatus,
     OrderNodeType,
@@ -182,6 +185,24 @@ class Order(Base, UUIDPrimaryKeyMixin, TimestampMixin):
     desired_deadline_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True), nullable=True
     )
+    #: 0058: what kind of request this is. ``BIRTHDAY`` = the Design team's
+    #: "Order sinh nhật": no approval before Design, no final review after.
+    category: Mapped[OrderCategory] = mapped_column(
+        value_enum(OrderCategory, name="order_category", length=20),
+        nullable=False,
+        default=OrderCategory.STANDARD,
+        server_default=OrderCategory.STANDARD.value,
+        index=True,
+    )
+    #: 0058: the design codes ("mã video") the order needs, each with a
+    #: quantity - snapshots, see :mod:`meobot.domain.orders.design_codes`.
+    design_items: Mapped[list[dict[str, Any]] | None] = mapped_column(JSONColumn, nullable=True)
+    #: 0058, birthday orders only (the person's name is the title).
+    birthday_branch: Mapped[str | None] = mapped_column(String(120), nullable=True)
+    birthday_gender: Mapped[BirthdayGender | None] = mapped_column(
+        value_enum(BirthdayGender, name="birthday_gender", length=10), nullable=True
+    )
+    birthday_on: Mapped[date | None] = mapped_column(Date, nullable=True)
     #: 0053: how often a node deadline was set past ``desired_deadline_at`` or
     #: the order finished after it ("Quá deadline mong muốn: N lần").
     over_deadline_count: Mapped[int] = mapped_column(
@@ -272,6 +293,11 @@ class OrderNode(Base, UUIDPrimaryKeyMixin, TimestampMixin):
     #: enter the revision tokens. Never blocks the worker.
     revision_tokens_pending: Mapped[bool] = mapped_column(
         Boolean, nullable=False, default=False, server_default=text("false")
+    )
+    #: 0058, the Design node only: the designer handed in with a different
+    #: list of design codes than the order's; it waits for the Design Leader.
+    proposed_design_items: Mapped[list[dict[str, Any]] | None] = mapped_column(
+        JSONColumn, nullable=True
     )
     version: Mapped[int] = mapped_column(
         Integer, nullable=False, default=1, server_default=text("1")

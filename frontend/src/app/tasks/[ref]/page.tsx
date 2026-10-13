@@ -8,9 +8,12 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   ApiError,
   api,
+  type BirthdayInfo,
+  type DesignCodeItem,
   type TaskAction,
   type TaskActionBody,
   type TaskActionInput,
+  type TaskDesignCodes,
   type TaskField,
   type TaskStep,
   type UnifiedTaskDetail,
@@ -26,12 +29,19 @@ import {
   toIsoFromLocal,
   toLocalInput,
 } from "@/lib/deadline";
+import { formatBirthdayFull, genderLabel } from "@/lib/birthday";
 import { deleteTaskConfirmation } from "@/lib/confirmations";
 import { useEffortEnabled } from "@/lib/effort";
 import { unitShortLabel, unitTagClass } from "@/lib/units";
 import { ConfirmButton } from "@/components/confirm";
 import { DeadlineBadge } from "@/components/deadline-badge";
 import { ContentComments } from "@/components/comments";
+import { DesignCodeLines } from "@/components/design-cells";
+import {
+  DesignCodesInput,
+  designCodesValid,
+  toDesignCodePicks,
+} from "@/components/design-codes-picker";
 import { Select, TabStrip } from "@/components/pr";
 import { ErrorBox, Loading, NoticeBox, Pill } from "@/components/states";
 import { ContentTab } from "@/components/pr-content-detail/content";
@@ -64,6 +74,11 @@ import {
  * (draft and versions, AI review, resources, outputs, publishing, comments).
  * Those are the PR module's components, reused as they are, in tabs beside the
  * overview; they talk to `/api/pr/...` with the content id (`task.source.id`).
+ *
+ * An ORD order may carry "mã video" (`design`: the codes the Design ban
+ * produces, and a change waiting for its Leader) and, when it is an "Order
+ * sinh nhật", the person it is for (`birthday`); both are drawn as their own
+ * blocks, and an action that lists the `design_codes` input gets the picker.
  */
 
 type Tone = "neutral" | "warn" | "good" | "bad" | "critical";
@@ -141,9 +156,13 @@ export default function TaskDetailPage() {
     if (isPr) refreshPr();
   };
 
+  const isBirthday = data.category === "BIRTHDAY";
+
   const overview = (
     <div className="space-y-4">
+      {data.birthday ? <BirthdayPanel info={data.birthday} /> : null}
       <FieldsPanel fields={data.fields} unit={task.unit} />
+      {data.design ? <DesignCodesPanel design={data.design} /> : null}
       <SubmissionsPanel detail={data} />
       <TimelinePanel detail={data} />
     </div>
@@ -152,9 +171,15 @@ export default function TaskDetailPage() {
   return (
     <div className="space-y-5">
       <nav aria-label="Vị trí" className="text-xs text-[var(--text-muted)]">
-        <Link href={`/tasks?unit=${task.unit}`} className="hover:underline">
-          Quản lý task
-        </Link>
+        {isBirthday ? (
+          <Link href="/tasks/birthday" className="hover:underline">
+            Order sinh nhật
+          </Link>
+        ) : (
+          <Link href={`/tasks?unit=${task.unit}`} className="hover:underline">
+            Quản lý task
+          </Link>
+        )}
         <span className="mx-1.5">/</span>
         <span className="font-mono">{task.code}</span>
       </nav>
@@ -449,6 +474,79 @@ function FieldsPanel({
   );
 }
 
+/** Who a birthday order is for. Drawn only when the task carries `birthday`. */
+function BirthdayPanel({ info }: { info: BirthdayInfo }) {
+  const rows: Array<[string, string]> = [
+    ["Họ và tên", info.full_name || "–"],
+    ["Chi nhánh", info.branch || "–"],
+    ["Giới tính", genderLabel(info.gender)],
+    ["Ngày sinh", formatBirthdayFull(info.birthday_on)],
+  ];
+  return (
+    <section aria-label="Order sinh nhật" className="panel p-4 text-sm">
+      <h2 className="font-semibold">Order sinh nhật</h2>
+      <dl className="mt-3 grid gap-x-4 gap-y-2 sm:grid-cols-[10rem_minmax(0,1fr)]">
+        {rows.map(([label, value]) => (
+          <React.Fragment key={label}>
+            <dt className="text-[var(--text-muted)]">{label}</dt>
+            <dd className="min-w-0 break-words">{value}</dd>
+          </React.Fragment>
+        ))}
+      </dl>
+    </section>
+  );
+}
+
+/**
+ * "Mã video": the codes the Design ban produces for this order, each with its
+ * quantity. While the designer's changed list waits for the Trưởng phòng
+ * Design, both lists are shown - the one in force and the one proposed.
+ * Nothing is drawn for an order that has neither (no Design step, or not
+ * picked yet).
+ */
+function DesignCodesPanel({ design }: { design: TaskDesignCodes }) {
+  const codes = design.codes ?? [];
+  const proposed = design.proposed_codes ?? null;
+  if (codes.length === 0 && !proposed) return null;
+  return (
+    <section aria-label="Mã video" className="panel p-4 text-sm">
+      <h2 className="font-semibold">Mã video</h2>
+      {proposed ? (
+        <div className="mt-3 grid gap-4 md:grid-cols-2">
+          <div data-testid="design-codes-current">
+            <h3 className="text-xs font-semibold uppercase tracking-wide text-[var(--text-muted)]">
+              Đang áp dụng
+            </h3>
+            <div className="mt-2">
+              {codes.length > 0 ? (
+                <DesignCodeLines items={codes} />
+              ) : (
+                <p className="text-[var(--text-muted)]">Chưa có mã nào.</p>
+              )}
+            </div>
+          </div>
+          <div data-testid="design-codes-proposed">
+            <h3 className="text-xs font-semibold text-[var(--warn)]">
+              Đề xuất đổi mã – chờ Trưởng phòng Design duyệt
+            </h3>
+            <div className="mt-2">
+              {proposed.length > 0 ? (
+                <DesignCodeLines items={proposed} />
+              ) : (
+                <p className="text-[var(--text-muted)]">Bỏ hết mã.</p>
+              )}
+            </div>
+          </div>
+        </div>
+      ) : (
+        <div className="mt-3">
+          <DesignCodeLines items={codes} />
+        </div>
+      )}
+    </section>
+  );
+}
+
 function SubmissionsPanel({ detail }: { detail: UnifiedTaskDetail }) {
   const items = [...detail.submissions].sort((a, b) =>
     b.submitted_at.localeCompare(a.submitted_at),
@@ -564,8 +662,9 @@ const FIELD_CLASS =
  *
  * Every action confirms - it moves the task, which is the rule in
  * `components/confirm.tsx` - and the dialog is also where its inputs are
- * collected: a note (mandatory when `requires_note`), a link, a text, or a
- * person from `assignee_options`. The body is `{key, version, ...inputs}`; the
+ * collected: a note (mandatory when `requires_note`), a link, a text, a
+ * person from `assignee_options`, or the order's "mã video" (`design_codes`:
+ * the picker, started from the action's own list). The body is `{key, version, ...inputs}`; the
  * fresh task comes back and replaces the cached one. A stale version is a 409,
  * shown in place, and the task is reloaded so the next press is current.
  */
@@ -585,10 +684,13 @@ function ActionPanel({
   const [values, setValues] = useState<Record<string, Record<string, string>>>(
     {},
   );
+  // The "mã video" each action's picker holds, once it was touched.
+  const [codes, setCodes] = useState<Record<string, DesignCodeItem[]>>({});
   const run = useMutation({
     mutationFn: (body: TaskActionBody) => api.taskAction(task.id, body),
     onSuccess: (fresh) => {
       setValues({});
+      setCodes({});
       onDone(fresh);
     },
     onError: (error) => {
@@ -631,10 +733,22 @@ function ActionPanel({
     (action.inputs.includes("deadline") &&
       valueOf(action, "deadline").trim() !== "" &&
       toIsoFromLocal(valueOf(action, "deadline")) === null);
+  const wantsCodes = (action: TaskAction) => action.inputs.includes("design_codes");
+  /** The picker's list: what was chosen here, else what the server starts it from. */
+  const codesOf = (action: TaskAction) =>
+    codes[action.key] ?? action.design_codes ?? [];
+  // At least one code when the server says so - and when the order already has
+  // some: a list that was there is changed or kept, never emptied.
+  const codesRequired = (action: TaskAction) =>
+    required(action, "design_codes") || (action.design_codes ?? []).length > 0;
   const missing = (action: TaskAction) =>
     (action.requires_note && !valueOf(action, "note").trim()) ||
     (action.inputs.includes("assignee") && !valueOf(action, "assignee")) ||
-    (action.required_inputs ?? []).some((input) => !valueOf(action, input).trim()) ||
+    (action.required_inputs ?? []).some(
+      (input) => input !== "design_codes" && !valueOf(action, input).trim(),
+    ) ||
+    (wantsCodes(action) &&
+      !designCodesValid(codesOf(action), codesRequired(action))) ||
     invalid(action);
 
   const bodyFor = (action: TaskAction): TaskActionBody => {
@@ -653,6 +767,9 @@ function ActionPanel({
     const deadline = toIsoFromLocal(valueOf(action, "deadline"));
     if (action.inputs.includes("deadline") && deadline)
       body.deadline_at = deadline;
+    // Only for an action that lists the input, and only a list worth sending.
+    if (wantsCodes(action) && codesOf(action).length > 0)
+      body.design_codes = toDesignCodePicks(codesOf(action));
     return body;
   };
 
@@ -780,6 +897,19 @@ function ActionPanel({
             className={`mt-1 ${FIELD_CLASS} min-h-24 py-2`}
           />
         </label>,
+      );
+    }
+    if (wantsCodes(action)) {
+      parts.push(
+        <DesignCodesInput
+          key="design_codes"
+          value={codesOf(action)}
+          onChange={(next) =>
+            setCodes((all) => ({ ...all, [action.key]: next }))
+          }
+          required={codesRequired(action)}
+          hint={action.hint}
+        />,
       );
     }
     if (wantsNote(action)) {

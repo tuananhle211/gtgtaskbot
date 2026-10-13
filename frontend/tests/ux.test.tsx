@@ -394,10 +394,11 @@ describe("the legal pages are reachable from the panel without crowding it", () 
     const destinations = within(primary)
       .getAllByRole("link")
       .map((link) => link.getAttribute("href"));
+    // No "/orders/new": an order is created from the board of its own kind
+    // ("+ Tạo order" on /tasks), so the strip lost that entry on purpose.
     expect(destinations).toEqual([
       "/dashboard",
       "/tasks",
-      "/orders/new",
       "/pr/work",
       "/pr/tasks",
       "/pr/channels",

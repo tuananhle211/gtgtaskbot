@@ -1107,6 +1107,18 @@ export const ACTION_INVENTORY: readonly ActionInventoryEntry[] = [
   { action: "Vô hiệu hoá / kích hoạt lại tài khoản (Quản trị viên)", policy: "dialog" },
   { action: "Xoá hẳn tài khoản thành viên (Chủ sở hữu)", policy: "dialog" },
   { action: "Xoá hẳn task (Chủ sở hữu)", policy: "dialog" },
+  // --- Ban Design: mã video và order sinh nhật
+  { action: "Thêm / sửa / ngừng dùng mã video (Trưởng phòng Design)", policy: "dialog" },
+  {
+    action: "Tạo / chỉnh sửa order sinh nhật",
+    policy: "parameter-modal",
+    reason:
+      "Hộp thoại form trên bảng Order sinh nhật (họ tên, chi nhánh, giới tính, ngày sinh, ảnh minh hoạ, note); nút Tạo order / Chỉnh sửa trong form là bước xác nhận. Bản sửa gửi kèm version nên không ghi đè thay đổi của người khác.",
+  },
+  {
+    action: "Chọn mã video khi nộp bài / duyệt bài (ô chọn trong hộp thoại thao tác task)",
+    policy: "dialog",
+  },
   { action: "Gắn / gỡ thành viên khỏi luồng, gắn tài khoản chưa có luồng", policy: "dialog" },
   { action: "Tạo mã mời / thu hồi mã mời", policy: "dialog" },
   {

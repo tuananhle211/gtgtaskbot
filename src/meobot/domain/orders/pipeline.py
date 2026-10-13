@@ -34,6 +34,7 @@ from meobot.domain.orders.models import (
     NODE_STAGE,
     PRODUCTION_NODES,
     TERMINAL_STAGES,
+    OrderCategory,
     OrderNodeStatus,
     OrderNodeType,
     OrderStage,
@@ -100,11 +101,21 @@ def is_urgent(
     return now - submitted_at > timedelta(days=urgent_days)
 
 
+#: What a birthday order carries in its code where the process letters go.
+BIRTHDAY_CODE_LABEL = "SN"
+
+
 def format_order_code(
-    member_code: str, video_type: OrderVideoType, day: datetime, number: int
+    member_code: str,
+    video_type: OrderVideoType,
+    day: datetime,
+    number: int,
+    *,
+    label: str | None = None,
 ) -> str:
-    """``TUAN-D-261003-01``: who ordered, what kind, which day, which of that day."""
-    return f"{member_code}-{video_type.value}-{day:%y%m%d}-{number:02d}"
+    """``TUAN-D-261003-01``: who ordered, what kind, which day, which of that
+    day. ``label`` replaces the process letters (``TUAN-SN-261003-01``)."""
+    return f"{member_code}-{label or video_type.value}-{day:%y%m%d}-{number:02d}"
 
 
 # --- the actions ----------------------------------------------------------------
@@ -218,6 +229,7 @@ class OrderView:
     stage: OrderStage
     owner_user_id: uuid.UUID
     is_priority: bool
+    category: OrderCategory = OrderCategory.STANDARD
 
 
 @dataclass(frozen=True, slots=True)
@@ -430,10 +442,16 @@ def available_actions(
 
     if may.allows(AdsPermission.PRIORITY):
         add(OrderActionKind.SET_PRIORITY)
-    if may.allows(AdsPermission.CANCEL) or (
-        is_owner
-        and may.on_own_order(AdsPermission.CANCEL)
-        and order.stage in (OrderStage.ORDER_PENDING, OrderStage.ORDER_RETURNED)
+    if (
+        may.allows(AdsPermission.CANCEL)
+        or (
+            is_owner
+            and may.on_own_order(AdsPermission.CANCEL)
+            and order.stage in (OrderStage.ORDER_PENDING, OrderStage.ORDER_RETURNED)
+        )
+        # A birthday order is never "pending": whoever placed it may take it
+        # back for as long as it is not finished.
+        or (is_owner and order.category is OrderCategory.BIRTHDAY)
     ):
         add(OrderActionKind.CANCEL)
     return tuple(actions)
@@ -471,6 +489,7 @@ def assert_allowed(
 __all__ = [
     "ACTION_LABELS",
     "ACTION_STAGES",
+    "BIRTHDAY_CODE_LABEL",
     "NOTE_REQUIRED",
     "ROLE_NODES",
     "NodeView",

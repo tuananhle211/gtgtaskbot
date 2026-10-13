@@ -55,6 +55,7 @@ from meobot.db.models.order import (
 from meobot.db.models.org_unit import (
     OrgUnit,
     OrgUnitMember,
+    UnitDesignCode,
     UnitDuration,
     UnitPlatform,
     UnitVideoKind,
@@ -268,6 +269,7 @@ __all__ = [
     "Task",
     "TelegramChat",
     "TelegramChatAssignment",
+    "UnitDesignCode",
     "UnitDuration",
     "UnitPlatform",
     "UnitVideoKind",

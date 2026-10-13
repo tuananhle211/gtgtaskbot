@@ -61,6 +61,25 @@ class OrderVideoType(StrEnum):
     BD = "BD"
 
 
+class OrderCategory(StrEnum):
+    """What kind of request an order is (0058).
+
+    ``STANDARD`` is the video order described above. ``BIRTHDAY`` ("Order sinh
+    nhật") is the Design team's own: one person's birthday artwork. It is a
+    process ``T`` order that skips both ends of the pipeline - nobody approves
+    it before Design starts, and Design's hand-in finishes it (no final
+    review).
+    """
+
+    STANDARD = "STANDARD"
+    BIRTHDAY = "BIRTHDAY"
+
+
+class BirthdayGender(StrEnum):
+    MALE = "MALE"
+    FEMALE = "FEMALE"
+
+
 class OrderScriptSource(StrEnum):
     """Where the voice script comes from: generated or shot for real."""
 
@@ -148,6 +167,13 @@ class OrderEventKind(StrEnum):
     PLAN_SET = "PLAN_SET"
     #: A node deadline past the orderer's wish, or the order finished after it.
     DEADLINE_EXCEEDED = "DEADLINE_EXCEEDED"
+    #: 0058: the order's design codes ("mã video") were set - picked by the
+    #: script step, or a designer's change approved by the Design Leader.
+    DESIGN_CODES_SET = "DESIGN_CODES_SET"
+    #: 0058: the designer handed in with a different list; the Leader decides.
+    DESIGN_CODES_PROPOSED = "DESIGN_CODES_PROPOSED"
+    #: 0058: a birthday order's details were edited.
+    BIRTHDAY_EDITED = "BIRTHDAY_EDITED"
 
 
 class OrderTokenKind(StrEnum):
@@ -262,8 +288,10 @@ __all__ = [
     "PROCESS_LETTERS",
     "PRODUCTION_NODES",
     "TERMINAL_STAGES",
+    "BirthdayGender",
     "OrderApprovalDecision",
     "OrderApprovalGate",
+    "OrderCategory",
     "OrderEventKind",
     "OrderNodeStatus",
     "OrderNodeType",

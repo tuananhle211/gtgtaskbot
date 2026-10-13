@@ -23,6 +23,7 @@ from meobot.application.units.directory import UnitDirectoryService
 from meobot.core.config import Settings
 from meobot.domain.board.models import BoardPage, BoardQuery, Phase, TaskRow
 from meobot.domain.identity.models import Actor
+from meobot.domain.orders.models import OrderCategory
 from meobot.domain.units.errors import UnitNotFoundError
 from meobot.domain.units.models import UnitCode, UnitMembership, UnitSettings
 
@@ -74,6 +75,9 @@ class TaskBoardService:
         """A video-kind filter is an Ads filter: across both units it leaves
         PR out rather than listing every PR item as if it matched."""
         if query.video_kind_id is not None and len(codes) > 1:
+            return tuple(code for code in codes if code is UnitCode.ADS)
+        if query.category == OrderCategory.BIRTHDAY.value and len(codes) > 1:
+            # The birthday board is ORD's alone.
             return tuple(code for code in codes if code is UnitCode.ADS)
         return codes
 

@@ -35,7 +35,7 @@ SOON = (utcnow() + timedelta(days=2)).isoformat()
 async def defaults(world: World) -> Ads:
     """ORD with the unit's own default settings (no review switched on)."""
     ads = await ads_world(world)
-    ads.unit.settings = {}
+    ads.unit.settings = {"design_codes_enabled": False}  # see test_design_ban.py
     await world.session.flush()
     return ads
 

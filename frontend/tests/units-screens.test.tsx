@@ -252,7 +252,7 @@ describe("the nav follows the person's units", () => {
       const hrefs = within(primary)
         .getAllByRole("link")
         .map((link) => link.getAttribute("href"));
-      expect(hrefs).toEqual(["/dashboard", "/tasks", "/orders/new"]);
+      expect(hrefs).toEqual(["/dashboard", "/tasks"]);
     });
     expect(
       screen.queryByRole("navigation", { name: "Chọn luồng" }),
@@ -295,9 +295,9 @@ describe("the nav follows the person's units", () => {
     expect(document.querySelector("aside")).toHaveAttribute("data-collapsed", "true");
     // Labels stay in the DOM for screen readers; links get a hover title.
     const primary = screen.getByRole("navigation", { name: "Điều hướng chính" });
-    expect(within(primary).getByRole("link", { name: /Quản lý task/ })).toHaveAttribute(
+    expect(within(primary).getByRole("link", { name: /Order tổng/ })).toHaveAttribute(
       "title",
-      "Quản lý task",
+      "Order tổng",
     );
     // Another screen mounts its own Shell: it opens folded too.
     first.unmount();

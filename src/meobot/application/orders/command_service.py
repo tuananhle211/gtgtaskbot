@@ -20,8 +20,9 @@ would otherwise see both inside one statement.
 from __future__ import annotations
 
 import uuid
+from collections.abc import Sequence
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import date, datetime
 from decimal import Decimal
 
 from sqlalchemy import select
@@ -30,6 +31,11 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from meobot.application.audit_service import AuditService
 from meobot.application.board.holders import ads_approvers
 from meobot.application.orders.code_service import OrderCodeService
+from meobot.application.orders.design_code_service import (
+    DesignCodeService,
+    in_design_team,
+    manages_design_codes,
+)
 from meobot.application.orders.notifications import OrderNotificationService
 from meobot.application.orders.scope import OrderScope
 from meobot.application.orders.token_ledger import OrderTokenLedgerService
@@ -48,16 +54,30 @@ from meobot.domain.orders.deadlines import (
     overrun,
     parse_tokens,
 )
+from meobot.domain.orders.design_codes import (
+    DesignItem,
+    DesignPick,
+    describe_items,
+    items_from_json,
+    items_to_json,
+    same_items,
+)
 from meobot.domain.orders.errors import (
+    OrderActionNotAllowedError,
     OrderNotFoundError,
     OrderStaleVersionError,
+    OrderStateError,
     OrderValidationError,
 )
 from meobot.domain.orders.labels import node_type_label
 from meobot.domain.orders.models import (
     ACTIVE_NODE_STATUSES,
+    NODE_PLAN,
+    TERMINAL_STAGES,
+    BirthdayGender,
     OrderApprovalDecision,
     OrderApprovalGate,
+    OrderCategory,
     OrderEventKind,
     OrderNodeStatus,
     OrderNodeType,
@@ -69,6 +89,7 @@ from meobot.domain.orders.models import (
 )
 from meobot.domain.orders.permissions import AdsPermission
 from meobot.domain.orders.pipeline import (
+    BIRTHDAY_CODE_LABEL,
     NodeView,
     OrderActionKind,
     OrderActorContext,
@@ -134,6 +155,20 @@ class OrderEdit:
 
 
 @dataclass(frozen=True, slots=True)
+class BirthdayCommand:
+    """A birthday order ("Order sinh nhật") as the form sends it. On an edit,
+    ``None`` leaves a field as it is."""
+
+    full_name: str | None = None
+    branch: str | None = None
+    gender: str | None = None
+    birthday_on: date | None = None
+    #: "Ảnh minh hoạ": the photo the designer works from.
+    reference_link: str | None = None
+    note: str | None = None
+
+
+@dataclass(frozen=True, slots=True)
 class NodePlan:
     """What a Leader puts on a node (0053): tokens and a deadline. On a node
     that was sent back they are this round's revision tokens and deadline."""
@@ -157,6 +192,7 @@ class _Loaded:
             stage=self.order.stage,
             owner_user_id=self.order.owner_user_id,
             is_priority=self.order.is_priority,
+            category=self.order.category,
         )
 
     def node_views(self) -> tuple[NodeView, ...]:
@@ -208,6 +244,7 @@ class OrderCommandService:
         self._notify = notifications
         self._kpi = kpi
         self._tokens = OrderTokenLedgerService(session)
+        self._design = DesignCodeService(session, directory=directory, audit=audit)
 
     # --- create / resubmit -------------------------------------------------------
 
@@ -303,6 +340,129 @@ class OrderCommandService:
                 expected_version=order.version,
             )
         await self._notify.order_submitted(actor=actor, order=order, unit=settings)
+        return order
+
+    # --- birthday orders (0058) ---------------------------------------------------
+
+    async def create_birthday(
+        self, *, actor: Actor, request_id: uuid.UUID, command: BirthdayCommand
+    ) -> Order:
+        """Place an "Order sinh nhật": one person's birthday artwork, straight
+        to the Design step. Nobody approves it first and Design's hand-in
+        finishes it. Placed by whoever orders in ORD, or by the Design team."""
+        membership = await self._directory.require(actor, UnitCode.ADS)
+        entry = membership.entry(UnitCode.ADS)
+        unit = await self._directory.unit(UnitCode.ADS)
+        settings = UnitSettings.model_validate(unit.settings or {})
+        scope = OrderScope.for_actor(membership, settings, unit_id=unit.id)
+        if actor.user_id is None or not (
+            scope.context.permissions.allows(AdsPermission.ORDER_CREATE)
+            or in_design_team(membership)
+        ):
+            raise OrderActionNotAllowedError(
+                "Bạn chưa có quyền tạo order sinh nhật.",
+                details={"reason": "birthday_forbidden"},
+            )
+        name = _birthday_name(command.full_name)
+        branch = _birthday_branch(command.branch)
+        gender = _birthday_gender(command.gender)
+        if command.birthday_on is None:
+            raise OrderValidationError(
+                "Cần nhập ngày sinh.",
+                details={"reason": "birthday_date_required", "field": "birthday_on"},
+            )
+        note = _blank_to_none(command.note)
+        member_code = None if entry is None else entry.member_code
+        if member_code is None:
+            member_code = await self._assign_member_code(unit.id, actor, tagged=entry is not None)
+        now = utcnow()
+        code = await self._codes.allocate(
+            unit_id=unit.id,
+            member_code=member_code,
+            video_type=OrderVideoType.T,
+            at=now,
+            label=BIRTHDAY_CODE_LABEL,
+        )
+        order = Order(
+            unit_id=unit.id,
+            code=code,
+            title=name,
+            video_type=OrderVideoType.T,
+            category=OrderCategory.BIRTHDAY,
+            order_content=note or f"Thiết kế sinh nhật: {name}",
+            design_link=_blank_to_none(command.reference_link),
+            note=note,
+            owner_user_id=actor.user_id,
+            stage=OrderStage.ORDER_PENDING,
+            submitted_at=now,
+            # No gate before Design: it starts as it is placed.
+            order_approved_at=now,
+            birthday_branch=branch,
+            birthday_gender=gender,
+            birthday_on=command.birthday_on,
+        )
+        self._session.add(order)
+        await self._session.flush()
+        nodes: dict[OrderNodeType, OrderNode] = {}
+        for node_type, status in initial_node_statuses(order.video_type).items():
+            nodes[node_type] = OrderNode(order_id=order.id, node_type=node_type, status=status)
+            self._session.add(nodes[node_type])
+        await self._session.flush()
+        await self._event(order, OrderEventKind.SUBMITTED, actor)
+        await self._audit_order(actor, request_id, AuditAction.ORDER_SUBMITTED, order, before=None)
+        loaded = _Loaded(
+            order=order, nodes=nodes, scope=scope, settings=settings, membership=membership
+        )
+        await self._activate(loaded, nodes[first_node(order.video_type)], actor, now, first=True)
+        self._bump(order)
+        await self._session.flush()
+        return order
+
+    async def edit_birthday(
+        self,
+        *,
+        actor: Actor,
+        request_id: uuid.UUID,
+        order_id: uuid.UUID,
+        expected_version: int,
+        command: BirthdayCommand,
+    ) -> Order:
+        """Correct a birthday order's details: whoever placed it, the Design
+        Leader, the OWNER or an ADMIN, for as long as it is not finished."""
+        loaded = await self._load(actor, order_id, expected_version)
+        order = loaded.order
+        if order.category is not OrderCategory.BIRTHDAY:
+            raise OrderNotFoundError("Không tìm thấy.", details={"reason": "order_not_found"})
+        if order.stage in TERMINAL_STAGES:
+            raise OrderStateError(
+                "Order đã kết thúc, không sửa được nữa.",
+                details={"reason": "order_stage_mismatch", "stage": order.stage.value},
+            )
+        if not (actor.user_id == order.owner_user_id or manages_design_codes(loaded.membership)):
+            raise OrderActionNotAllowedError(
+                "Bạn không có quyền sửa order sinh nhật này.",
+                details={"reason": "birthday_forbidden"},
+            )
+        before = self._snapshot(order)
+        if command.full_name is not None:
+            order.title = _birthday_name(command.full_name)
+        if command.branch is not None:
+            order.birthday_branch = _birthday_branch(command.branch)
+        if command.gender is not None:
+            order.birthday_gender = _birthday_gender(command.gender)
+        if command.birthday_on is not None:
+            order.birthday_on = command.birthday_on
+        if command.reference_link is not None:
+            order.design_link = _blank_to_none(command.reference_link)
+        if command.note is not None:
+            order.note = _blank_to_none(command.note)
+            order.order_content = order.note or f"Thiết kế sinh nhật: {order.title}"
+        self._bump(order)
+        await self._session.flush()
+        await self._event(order, OrderEventKind.BIRTHDAY_EDITED, actor)
+        await self._audit_order(
+            actor, request_id, AuditAction.ORDER_BIRTHDAY_EDITED, order, before=before
+        )
         return order
 
     async def _approver(
@@ -550,7 +710,12 @@ class OrderCommandService:
         link: str | None,
         script_text: str | None,
         note: str | None,
+        design_picks: Sequence[DesignPick] | None = None,
     ) -> Order:
+        """Hand the work in. ``design_picks`` (0058) is the list of design
+        codes: the script step must pick it when the order goes on to Design;
+        the designer may send a different one, which then waits for the
+        Design Leader (see :mod:`meobot.domain.orders.design_codes`)."""
         loaded = await self._load(actor, order_id, expected_version)
         node = self._node(loaded, node_id)
         assert_allowed(
@@ -561,6 +726,7 @@ class OrderCommandService:
             node_id=node.id,
         )
         link, script_text = _blank_to_none(link), _blank_to_none(script_text)
+        picked, proposed = await self._design_hand_in(loaded, node, design_picks)
         if link is None and hands_in_product(loaded.order.video_type, node.node_type):
             # The last node's hand-in is the product the orderer reviews.
             raise OrderValidationError(
@@ -579,6 +745,8 @@ class OrderCommandService:
         node.status = OrderNodeStatus.CHO_DUYET
         node.submitted_at = utcnow()
         node.version += 1
+        if node.node_type is OrderNodeType.THIET_KE:
+            node.proposed_design_items = None if proposed is None else items_to_json(proposed)
         self._bump(loaded.order)
         await self._session.flush()
         await self._event(
@@ -589,6 +757,28 @@ class OrderCommandService:
             submission=submission,
             note=note,
         )
+        if picked is not None:
+            # The script step's list is the order's from here on.
+            loaded.order.design_items = items_to_json(picked)
+            await self._event(
+                loaded.order,
+                OrderEventKind.DESIGN_CODES_SET,
+                actor,
+                node=node,
+                note=f"Mã video: {describe_items(picked)}",
+            )
+        if proposed is not None:
+            current = items_from_json(loaded.order.design_items)
+            await self._event(
+                loaded.order,
+                OrderEventKind.DESIGN_CODES_PROPOSED,
+                actor,
+                node=node,
+                note=(
+                    "Nhân viên yêu cầu thay đổi mã video: "
+                    f"{describe_items(current)} → {describe_items(proposed)}"
+                ),
+            )
         await self._audit_order(
             actor, request_id, AuditAction.ORDER_NODE_SUBMITTED, loaded.order, before=before
         )
@@ -602,9 +792,10 @@ class OrderCommandService:
             self._bump(loaded.order)
             await self._session.flush()
             return loaded.order
-        if not node_needs_review(loaded.settings, node.node_type):
+        if proposed is None and not node_needs_review(loaded.settings, node.node_type):
             # No Leader review for this node (a unit setting): handing in
-            # finishes it and the next node starts straight away.
+            # finishes it and the next node starts straight away. A changed
+            # list of design codes always waits for the Design Leader.
             await self._complete_node(loaded, node, actor, request_id, note=None)
             return loaded.order
         await self._notify.submission_ready(
@@ -625,7 +816,11 @@ class OrderCommandService:
         node_id: uuid.UUID,
         expected_version: int,
         note: str | None = None,
+        design_picks: Sequence[DesignPick] | None = None,
     ) -> Order:
+        """Approve the hand-in. On a Design hand-in that asked for different
+        design codes, the approval makes that list the order's - or the list
+        the Leader sends instead (``design_picks``)."""
         loaded = await self._load(actor, order_id, expected_version)
         node = self._node(loaded, node_id)
         assert_allowed(
@@ -637,6 +832,25 @@ class OrderCommandService:
         )
         order = loaded.order
         before = self._snapshot(order)
+        if node.proposed_design_items is not None:
+            proposed = items_from_json(node.proposed_design_items)
+            current = items_from_json(order.design_items)
+            decided = proposed
+            if design_picks is not None:
+                if not design_picks:
+                    raise _design_codes_required()
+                decided = await self._design.resolve(
+                    order.unit_id, design_picks, keep=(*current, *proposed)
+                )
+            order.design_items = items_to_json(decided)
+            node.proposed_design_items = None
+            await self._event(
+                order,
+                OrderEventKind.DESIGN_CODES_SET,
+                actor,
+                node=node,
+                note=f"Duyệt đổi mã video: {describe_items(decided)}",
+            )
         await self._complete_node(loaded, node, actor, request_id, note=note)
         await self._audit_order(
             actor, request_id, AuditAction.ORDER_NODE_APPROVED, order, before=before
@@ -709,6 +923,13 @@ class OrderCommandService:
         order = loaded.order
         if latest is not None and latest.link:
             order.product_link = latest.link
+        if order.category is OrderCategory.BIRTHDAY:
+            # Nobody reviews a birthday artwork after Design: it is done.
+            order.stage = OrderStage.COMPLETED
+            order.completed_at = utcnow()
+            await self._session.flush()
+            await self._notify.completed(actor=actor, order=order, unit=loaded.settings)
+            return
         order.stage = (
             OrderStage.DUYET_VIDEO_BT
             if video_review_applies(loaded.settings, order.video_type)
@@ -760,6 +981,8 @@ class OrderCommandService:
         before = self._snapshot(loaded.order)
         node.status = OrderNodeStatus.DANG_SUA
         node.revision_count += 1
+        # A requested change of design codes goes back with the hand-in.
+        node.proposed_design_items = None
         node.token_revision = Decimal(node.token_revision or 0) + tokens
         node.revision_tokens_pending = False
         deadline = None if plan.deadline_at is None else _future(plan.deadline_at)
@@ -1137,6 +1360,39 @@ class OrderCommandService:
         return order
 
     # --- shared steps -------------------------------------------------------------------
+
+    async def _design_hand_in(
+        self, loaded: _Loaded, node: OrderNode, picks: Sequence[DesignPick] | None
+    ) -> tuple[tuple[DesignItem, ...] | None, tuple[DesignItem, ...] | None]:
+        """What a hand-in does to the order's design codes: ``(set, proposed)``.
+
+        ``set`` - the script step's list, which becomes the order's at once.
+        ``proposed`` - a designer's list that differs from the order's: a
+        request the Design Leader decides. Both ``None`` when the hand-in
+        leaves the codes alone (another step, a birthday order, a designer
+        who changed nothing, or a unit that switched design codes off)."""
+        order = loaded.order
+        if (
+            not loaded.settings.design_codes_enabled
+            or order.category is not OrderCategory.STANDARD
+            or OrderNodeType.THIET_KE not in NODE_PLAN[order.video_type]
+            or node.node_type not in (OrderNodeType.BIEN_TAP, OrderNodeType.THIET_KE)
+        ):
+            return None, None
+        current = items_from_json(order.design_items)
+        if node.node_type is OrderNodeType.BIEN_TAP:
+            if not picks:
+                raise _design_codes_required()
+            return await self._design.resolve(order.unit_id, picks, keep=current), None
+        if picks is None:
+            if not current:
+                # No script step picked them: the designer does, here.
+                raise _design_codes_required()
+            return None, None
+        if not picks:
+            raise _design_codes_required()
+        wanted = await self._design.resolve(order.unit_id, picks, keep=current)
+        return None, (None if current and same_items(wanted, current) else wanted)
 
     async def _load(self, actor: Actor, order_id: uuid.UUID, expected_version: int) -> _Loaded:
         membership = await self._directory.require(actor, UnitCode.ADS)
@@ -1627,6 +1883,43 @@ def _format_when(at: datetime) -> str:
     return f"{at.astimezone(WORK_TIMEZONE):%H:%M %d/%m/%Y}"
 
 
+def _design_codes_required() -> OrderValidationError:
+    return OrderValidationError(
+        "Cần chọn ít nhất một mã video kèm số lượng.",
+        details={"reason": "design_codes_required", "field": "design_codes"},
+    )
+
+
+def _birthday_name(value: str | None) -> str:
+    cleaned = " ".join((value or "").split())
+    if not cleaned:
+        raise OrderValidationError(
+            "Cần nhập họ và tên.",
+            details={"reason": "birthday_name_missing", "field": "full_name"},
+        )
+    return cleaned[:300]
+
+
+def _birthday_branch(value: str | None) -> str:
+    cleaned = " ".join((value or "").split())
+    if not cleaned:
+        raise OrderValidationError(
+            "Cần nhập chi nhánh.",
+            details={"reason": "birthday_branch_missing", "field": "branch"},
+        )
+    return cleaned[:120]
+
+
+def _birthday_gender(value: str | None) -> BirthdayGender:
+    try:
+        return BirthdayGender((value or "").strip().upper())
+    except ValueError as error:
+        raise OrderValidationError(
+            "Giới tính không hợp lệ.",
+            details={"reason": "birthday_gender_invalid", "field": "gender"},
+        ) from error
+
+
 def _blank_to_none(value: str | None) -> str | None:
     if value is None:
         return None
@@ -1643,4 +1936,4 @@ def _require_note(value: str | None) -> str:
     return note
 
 
-__all__ = ["CreateOrderCommand", "OrderCommandService", "OrderEdit"]
+__all__ = ["BirthdayCommand", "CreateOrderCommand", "OrderCommandService", "OrderEdit"]

@@ -9,6 +9,11 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from meobot.api.schemas.board import (
+    BirthdayResponse,
+    DesignCodeItemResponse,
+    DesignViewResponse,
+)
 from meobot.application.tasks.detail_service import TaskDetail
 
 
@@ -130,14 +135,20 @@ class TaskActionResponse(_Out):
     label: str
     emphasis: Literal["PRIMARY", "SECONDARY", "DANGER"]
     requires_note: bool
-    inputs: list[Literal["note", "link", "text", "assignee", "tokens", "deadline"]]
+    inputs: list[Literal["note", "link", "text", "assignee", "tokens", "deadline", "design_codes"]]
     assignee_options: list[AssigneeOptionResponse]
     #: Inputs that may not be left empty (the last node's product link).
-    required_inputs: list[Literal["note", "link", "text", "assignee", "tokens", "deadline"]] = []
+    required_inputs: list[
+        Literal["note", "link", "text", "assignee", "tokens", "deadline", "design_codes"]
+    ] = []
     #: ORD (0053): ``ESTIMATE`` (the node's plan) or ``REVISION`` (this
     #: round's "Token sửa" / "Deadline sửa"), and the values to start from.
     plan_mode: Literal["ESTIMATE", "REVISION"] | None = None
     defaults: PlanDefaultsResponse | None = None
+    #: ORD (0058): what the design-code picker starts from, and one line of
+    #: explanation to show under it.
+    design_codes: list[DesignCodeItemResponse] | None = None
+    hint: str | None = None
 
 
 class TaskDetailResponse(_Out):
@@ -148,12 +159,21 @@ class TaskDetailResponse(_Out):
     submissions: list[TaskSubmissionResponse]
     timeline: list[TaskTimelineResponse]
     actions: list[TaskActionResponse]
+    #: ORD (0058). Absent on PR tasks.
+    category: str | None = None
+    design: DesignViewResponse | None = None
+    birthday: BirthdayResponse | None = None
     #: "Xoá task" is offered to this viewer (the OWNER only).
     can_delete: bool = False
 
     @classmethod
     def from_domain(cls, detail: TaskDetail) -> TaskDetailResponse:
         return cls.model_validate(detail)
+
+
+class DesignPickBody(BaseModel):
+    code_id: uuid.UUID
+    quantity: int = Field(ge=1, le=999)
 
 
 class TaskActionRequest(BaseModel):
@@ -168,6 +188,8 @@ class TaskActionRequest(BaseModel):
     #: Sửa token/deadline) or, on Trả sửa, the revision tokens and deadline.
     tokens: Decimal | None = Field(default=None, ge=0, le=Decimal("999.99"))
     deadline_at: datetime | None = None
+    #: ORD (0058): the design codes picked on a hand-in or an approval.
+    design_codes: list[DesignPickBody] | None = Field(default=None, max_length=100)
 
 
 __all__ = [

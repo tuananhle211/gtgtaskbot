@@ -45,6 +45,9 @@ from meobot.application.board.sources import (
     AdsBoardSource,
     PrBoardSource,
     ads_kind_label,
+    birthday_view,
+    code_views,
+    design_view,
     display_names,
     format_points,
 )
@@ -71,7 +74,14 @@ from meobot.db.models.pr_production import PrProductionSubmission
 from meobot.db.models.pr_transition import PrContentTransitionEvent
 from meobot.db.models.task import SOURCE_PR_CONTENT, Task
 from meobot.db.models.user import User
-from meobot.domain.board.models import PHASE_LABELS, Phase, TaskRow
+from meobot.domain.board.models import (
+    PHASE_LABELS,
+    BirthdayView,
+    DesignCodeView,
+    DesignView,
+    Phase,
+    TaskRow,
+)
 from meobot.domain.identity.models import Actor, Role
 from meobot.domain.orders.labels import (
     event_label,
@@ -79,7 +89,9 @@ from meobot.domain.orders.labels import (
     video_type_label,
 )
 from meobot.domain.orders.models import (
+    NODE_PLAN,
     OrderApprovalDecision,
+    OrderCategory,
     OrderEventKind,
     OrderNodeStatus,
     OrderNodeType,
@@ -322,6 +334,10 @@ class TaskActionView:
     assignee_options: tuple[PersonRef, ...] = ()
     #: The inputs that may not be left empty (beyond a required note).
     required_inputs: tuple[str, ...] = ()
+    #: ORD (0058): the design codes the picker starts from, and one line to
+    #: show under it.
+    design_codes: tuple[DesignCodeView, ...] | None = None
+    hint: str | None = None
     #: ORD (0053): what the token / deadline inputs mean - the node's plan
     #: (``ESTIMATE``) or this round's revision (``REVISION``) - and their
     #: current values to start from.
@@ -346,6 +362,11 @@ class TaskDetail:
     actions: tuple[TaskActionView, ...] = field(default_factory=tuple)
     #: "Xoá task" is offered: the OWNER only (``DELETE /api/tasks/{ref}``).
     can_delete: bool = False
+    #: ORD (0058): the order's category, its design codes (with a designer's
+    #: pending change) and a birthday order's details.
+    category: str | None = None
+    design: DesignView | None = None
+    birthday: BirthdayView | None = None
 
 
 # --- the service ---------------------------------------------------------------
@@ -445,6 +466,7 @@ class TaskDetailService:
         )
         nodes_by_order = {order.id: list(detail.nodes)}
         links = await source._latest_links(nodes_by_order)
+        node_links = await source.node_links(nodes_by_order)
         names = dict(detail.names)
         approvers = await ads_approvers(self._session, order.unit_id)
         row = source._row(order, list(detail.nodes), names, links, utcnow(), approvers)
@@ -489,6 +511,9 @@ class TaskDetailService:
             submissions=_ads_submissions(detail),
             timeline=_ads_timeline(detail),
             actions=await self._ads_actions(detail, scoped.settings),
+            category=order.category.value,
+            design=design_view(order, list(detail.nodes), names, node_links),
+            birthday=birthday_view(order),
         )
 
     async def _ads_actions(
@@ -519,6 +544,14 @@ class TaskDetailService:
             options: tuple[PersonRef, ...] = ()
             plan_mode: str | None = None
             defaults: PlanDefaults | None = None
+            codes: tuple[DesignCodeView, ...] | None = None
+            hint: str | None = None
+            # 0058: an order that visits Design carries design codes.
+            designs = (
+                settings.design_codes_enabled
+                and order.category is OrderCategory.STANDARD
+                and OrderNodeType.THIET_KE in NODE_PLAN[order.video_type]
+            )
             if node is not None and kind in _PLAN_KINDS:
                 revision = node.revision_count > 0
                 plan_mode = "REVISION" if revision else "ESTIMATE"
@@ -565,6 +598,36 @@ class TaskDetailService:
                     # The last node hands in the product: its link is required.
                     label = f"Nộp sản phẩm · {node_type_label(node.node_type)}"
                     required = ("link",)
+                if designs and node is not None:
+                    current = code_views(order.design_items)
+                    if node.node_type is OrderNodeType.BIEN_TAP:
+                        # The script step tells Design what to make.
+                        inputs = (*inputs, "design_codes")
+                        required = (*required, "design_codes")
+                        codes = current
+                        hint = "Chọn các mã video Design cần làm, kèm số lượng."
+                    elif node.node_type is OrderNodeType.THIET_KE:
+                        inputs = (*inputs, "design_codes")
+                        codes = current
+                        if current:
+                            hint = "Sửa mã video thì bài nộp cần Trưởng phòng Design duyệt."
+                        else:
+                            required = (*required, "design_codes")
+                            hint = (
+                                "Order chưa có mã video: chọn mã và số lượng, "
+                                "Trưởng phòng Design sẽ duyệt."
+                            )
+            elif (
+                kind is OrderActionKind.APPROVE_NODE
+                and node is not None
+                and node.proposed_design_items is not None
+            ):
+                # The designer asked for different codes: the Leader decides
+                # the list, starting from the request.
+                inputs = ("note", "design_codes")
+                required = ("design_codes",)
+                codes = code_views(node.proposed_design_items)
+                hint = "Nhân viên yêu cầu thay đổi mã video. Duyệt là chốt danh sách bên dưới."
             elif kind is OrderActionKind.RETURN_NODE:
                 # "Token sửa" required (0 allowed), "Deadline sửa" optional.
                 inputs = ("note", "tokens", "deadline")
@@ -597,6 +660,8 @@ class TaskDetailService:
                     required_inputs=required,
                     plan_mode=plan_mode if "deadline" in inputs else None,
                     defaults=defaults if "deadline" in inputs else None,
+                    design_codes=codes if "design_codes" in inputs else None,
+                    hint=hint if "design_codes" in inputs else None,
                 )
             )
         return tuple(sorted(views, key=lambda view: _EMPHASIS_ORDER[view.emphasis]))
@@ -963,7 +1028,37 @@ def _ads_people(detail: OrderDetail, approvers: AdsApprovers) -> tuple[TaskPerso
     return tuple(people)
 
 
+GENDER_LABELS = {"MALE": "Nam", "FEMALE": "Nữ"}
+
+
+def _birthday_fields(order: Order) -> tuple[TaskField, ...]:
+    """A birthday order's own form, in the form's order."""
+    gender = None if order.birthday_gender is None else order.birthday_gender.value
+    fields = [
+        TaskField("full_name", "Họ và tên", order.title, "text", "common"),
+        TaskField("branch", "Chi nhánh", order.birthday_branch, "text", "ads"),
+        TaskField("gender", "Giới tính", GENDER_LABELS.get(gender or "", gender), "text", "ads"),
+        TaskField(
+            "birthday_on",
+            "Ngày sinh",
+            None if order.birthday_on is None else order.birthday_on.strftime("%d/%m/%Y"),
+            "text",
+            "ads",
+        ),
+        TaskField("design_link", "Ảnh minh hoạ", order.design_link, "link", "ads"),
+        TaskField("note", "Note yêu cầu", order.note, "longtext", "ads"),
+        TaskField("product_link", "Link thiết kế", order.product_link, "link", "common"),
+    ]
+    if order.cancelled_reason:
+        fields.append(
+            TaskField("cancelled_reason", "Lý do huỷ", order.cancelled_reason, "longtext", "ads")
+        )
+    return tuple(fields)
+
+
 def _ads_fields(order: Order) -> tuple[TaskField, ...]:
+    if order.category is OrderCategory.BIRTHDAY:
+        return _birthday_fields(order)
     source = None
     if order.script_source is not None:
         source = "AI" if order.script_source.value == "AI" else "Quay thực tế"
