@@ -359,10 +359,8 @@ describe("the task table as the Design ban reads it", () => {
       "/tasks/TUAN-BT-261012-01",
     );
     expect(screen.getByTestId("row-deadline")).toBeInTheDocument();
-    expect(screen.getByRole("link", { name: "Mở" })).toHaveAttribute(
-      "href",
-      "/tasks/TUAN-BT-261012-01",
-    );
+    // No "Mở" button: the whole row opens the task.
+    expect(screen.queryByRole("link", { name: "Mở" })).not.toBeInTheDocument();
   });
 
   it("draws the script, the codes with their quantities and the design hand-in", async () => {

@@ -88,7 +88,7 @@ from meobot.domain.orders.models import (
     last_production_node,
 )
 from meobot.domain.orders.permissions import AdsPermission
-from meobot.domain.orders.pipeline import is_urgent
+from meobot.domain.orders.pipeline import NodeView, OrderView, available_actions, is_urgent
 from meobot.domain.pr.content_views import PrContentViewScope
 from meobot.domain.pr.models import PrContentType, PrPriority, PrWorkflowStage
 from meobot.domain.pr.workflow import STAGE_APPROVAL_GATES
@@ -783,6 +783,7 @@ class AdsBoardSource:
                 self._row(order, nodes_by_order.get(order.id, []), names, links, now, approvers),
                 awaiting_me=order.id in awaiting,
                 design=design_view(order, nodes_by_order.get(order.id, []), names, node_links),
+                actions=self.action_kinds(order, nodes_by_order.get(order.id, [])),
             )
             for order in orders
         )
@@ -827,10 +828,38 @@ class AdsBoardSource:
                 latest[order_id] = submission.link
         return latest
 
+    def action_kinds(self, order: Order, nodes: list[OrderNode]) -> tuple[str, ...]:
+        """What the viewer may do on this order right now, as action kinds
+        (``SUBMIT_WORK``, ``APPROVE_NODE``...) - the policy's own answer, so a
+        list can offer the button without opening the task."""
+        view = OrderView(
+            id=order.id,
+            video_type=order.video_type,
+            stage=order.stage,
+            owner_user_id=order.owner_user_id,
+            is_priority=order.is_priority,
+            category=order.category,
+        )
+        node_views = tuple(
+            NodeView(
+                id=node.id,
+                node_type=node.node_type,
+                status=node.status,
+                assignee_user_id=node.assignee_user_id,
+                preassigned_user_id=node.preassigned_user_id,
+                accepted_at=node.accepted_at,
+            )
+            for node in nodes
+        )
+        kinds = [
+            action.kind.value for action in available_actions(view, node_views, self._scope.context)
+        ]
+        return tuple(dict.fromkeys(kinds))
+
     async def node_links(
         self, nodes_by_order: dict[uuid.UUID, list[OrderNode]]
-    ) -> dict[uuid.UUID, str]:
-        """The newest link handed in on each node, by node id."""
+    ) -> dict[uuid.UUID, tuple[str, datetime]]:
+        """The newest link handed in on each node and when, by node id."""
         node_ids = [node.id for nodes in nodes_by_order.values() for node in nodes]
         if not node_ids:
             return {}
@@ -841,10 +870,10 @@ class AdsBoardSource:
                 .order_by(OrderSubmission.created_at.desc(), OrderSubmission.submission_no.desc())
             )
         ).all()
-        latest: dict[uuid.UUID, str] = {}
+        latest: dict[uuid.UUID, tuple[str, datetime]] = {}
         for submission in submissions:
             if submission.node_id not in latest and submission.link:
-                latest[submission.node_id] = submission.link
+                latest[submission.node_id] = (submission.link, ensure_utc(submission.created_at))
         return latest
 
     async def count_by_phase(self, actor: Actor, query: BoardQuery) -> dict[Phase, int]:
@@ -1302,7 +1331,7 @@ def design_view(
     order: Order,
     nodes: list[OrderNode],
     names: dict[uuid.UUID, str],
-    node_links: dict[uuid.UUID, str],
+    node_links: dict[uuid.UUID, tuple[str, datetime]],
 ) -> DesignView:
     """The Design team's reading of one order (0058)."""
     by_type = {node.node_type: node for node in nodes}
@@ -1315,16 +1344,22 @@ def design_view(
         holder = node.assignee_user_id or node.preassigned_user_id
         return None if holder is None else names.get(holder)
 
+    def link_of(node: OrderNode | None) -> str | None:
+        return None if node is None or node.id not in node_links else node_links[node.id][0]
+
     proposed = None if design is None else design.proposed_design_items
     return DesignView(
-        script_link=None if script is None else node_links.get(script.id),
+        script_link=link_of(script),
         script_by=person(script),
         reference_link=order.design_link or order.reference_link,
         note=order.note,
         codes=code_views(order.design_items),
         proposed_codes=None if proposed is None else code_views(proposed),
         designer=person(design),
-        design_link=None if design is None else node_links.get(design.id),
+        design_link=link_of(design),
+        design_submitted_at=(
+            None if design is None or design.id not in node_links else node_links[design.id][1]
+        ),
     )
 
 

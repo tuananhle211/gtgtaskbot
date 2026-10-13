@@ -29,12 +29,22 @@ import {
   DesignContentCell,
   DesignerCell,
 } from "@/components/design-cells";
+import { RowActions } from "@/components/task-actions";
 import {
-  PAGE_SIZE,
+  NO_ROW_NAV,
   Pager,
   RowDeadlineCell,
   RowStatusCell,
+  SortHeader,
+  type SortValueOf,
   StatusBadge,
+  nextSort,
+  pageSizeOf,
+  parseSort,
+  sortApplies,
+  sortRows,
+  sortTime,
+  useRowNavigation,
 } from "@/components/task-table";
 import { STEP_LEGEND, stepColor } from "@/lib/status-colors";
 
@@ -85,6 +95,13 @@ const field =
  * simpler shape: the same first four columns, then "Nội dung", "Tên task" and
  * "Thiết kế" from the row's `design` block in place of the per-step cells and
  * "Kết quả". Which rows they get is the server's scope, not this file's.
+ * Their rows also carry the step's own buttons ("Nhận việc", "Nộp bài",
+ * "Duyệt": `RowActions`), which open the task page's dialog in place.
+ *
+ * On every variant: a click on a row opens its task, the page size is a
+ * choice (`?size=`), and a double click on a column header sorts the rows on
+ * screen by that column (`?sort=`) - this page only, the server keeps paging
+ * in its own order.
  */
 function TaskBoard() {
   const router = useRouter();
@@ -104,6 +121,8 @@ function TaskBoard() {
     (staff && mine) || read("order") === "todo_first" ? "todo_first" : undefined;
   const viewerId = session.data?.user_id ?? null;
   const page = Number(read("page") || "1");
+  const size = pageSizeOf(params.get("size"));
+  const sort = parseSort(params.get("sort"));
   const dense = read("view") === "compact";
   const filters = {
     unit,
@@ -125,8 +144,8 @@ function TaskBoard() {
     urgent: read("urgent") === "true",
     overdue: unit !== "PR" && read("overdue") === "true",
     q: read("q") || undefined,
-    limit: PAGE_SIZE,
-    offset: (page - 1) * PAGE_SIZE,
+    limit: size,
+    offset: (page - 1) * size,
   };
   const board = useQuery({
     queryKey: ["board", "tasks", filters],
@@ -224,6 +243,41 @@ function TaskBoard() {
   const showTokens = effortEnabled(me.data);
   // The Design ban's own table, on ORD only (never PR or the merged view).
   const designView = unit === "ADS" && Boolean(me.data.design?.view);
+  // What each column sorts by (a double click on its header). The step
+  // columns are the row's own cells, so they sort by that step's status.
+  const sortValues: Record<string, SortValueOf<TaskRow>> = {
+    order: (row) => row.code,
+    title: (row) => row.title,
+    status: (row) => row.status_label,
+    deadline: (row) => sortTime(row.deadline_at),
+    ...(designView
+      ? {
+          content: (row: TaskRow) => row.design?.script_by,
+          codes: (row: TaskRow) => row.design?.codes?.[0]?.code,
+          designer: (row: TaskRow) => [
+            row.design?.designer,
+            sortTime(row.design?.design_submitted_at),
+          ],
+        }
+      : {
+          ...Object.fromEntries(
+            cellHeads.map((head) => [
+              `step:${head.key}`,
+              (row: TaskRow) => {
+                const label = row.cells.find((cell) => cell.key === head.key)?.status_label;
+                return label === "—" ? null : label;
+              },
+            ]),
+          ),
+          result: (row: TaskRow) => sortTime(row.delivered_at),
+        }),
+  };
+  const rows = sortRows(board.data?.items ?? [], sort, sortValues);
+  // Keeps the page: sorting rearranges the rows on screen, nothing is refetched.
+  const onSort = (key: string) =>
+    setParams({ sort: nextSort(sort, key), page: read("page") });
+  const refreshBoard = () =>
+    void queryClient.invalidateQueries({ queryKey: ["board"] });
 
   return (
     <div className="space-y-4">
@@ -454,7 +508,12 @@ function TaskBoard() {
               type="button"
               onClick={() => {
                 setSearch("");
-                router.replace(`${pathname}?unit=${unit}`, { scroll: false });
+                // The filters go; how the table is shown (page size, sort) stays.
+                const kept = new URLSearchParams({ unit });
+                for (const key of ["size", "sort"]) {
+                  if (read(key)) kept.set(key, read(key));
+                }
+                router.replace(`${pathname}?${kept.toString()}`, { scroll: false });
               }}
               className={`${field} w-full text-[var(--text-muted)]`}
             >
@@ -480,24 +539,47 @@ function TaskBoard() {
             <table className="table-dense min-w-[78rem]">
               <thead>
                 <tr>
-                  <th scope="col">Order</th>
-                  <th scope="col">Tên · Loại</th>
-                  <th scope="col">Trạng thái · Đang giữ</th>
-                  {unit !== "PR" ? <th scope="col">Deadline</th> : null}
+                  <SortHeader sortKey="order" sort={sort} onSort={onSort}>
+                    Order
+                  </SortHeader>
+                  <SortHeader sortKey="title" sort={sort} onSort={onSort}>
+                    Tên · Loại
+                  </SortHeader>
+                  <SortHeader sortKey="status" sort={sort} onSort={onSort}>
+                    Trạng thái · Đang giữ
+                  </SortHeader>
+                  {unit !== "PR" ? (
+                    <SortHeader sortKey="deadline" sort={sort} onSort={onSort}>
+                      Deadline
+                    </SortHeader>
+                  ) : null}
                   {designView ? (
                     <>
-                      <th scope="col">Nội dung</th>
-                      <th scope="col">Tên task</th>
-                      <th scope="col">Thiết kế</th>
+                      <SortHeader sortKey="content" sort={sort} onSort={onSort}>
+                        Nội dung
+                      </SortHeader>
+                      <SortHeader sortKey="codes" sort={sort} onSort={onSort}>
+                        Tên task
+                      </SortHeader>
+                      <SortHeader sortKey="designer" sort={sort} onSort={onSort}>
+                        Thiết kế
+                      </SortHeader>
                     </>
                   ) : (
                     <>
                       {cellHeads.map((cell) => (
-                        <th key={cell.key} scope="col">
+                        <SortHeader
+                          key={cell.key}
+                          sortKey={`step:${cell.key}`}
+                          sort={sort}
+                          onSort={onSort}
+                        >
                           {cell.label}
-                        </th>
+                        </SortHeader>
                       ))}
-                      <th scope="col">Kết quả</th>
+                      <SortHeader sortKey="result" sort={sort} onSort={onSort}>
+                        Kết quả
+                      </SortHeader>
                     </>
                   )}
                   <th scope="col">
@@ -506,7 +588,7 @@ function TaskBoard() {
                 </tr>
               </thead>
               <tbody>
-                {board.data.items.map((row) => (
+                {rows.map((row) => (
                   <TaskTableRow
                     key={`${row.unit}:${row.id}`}
                     row={row}
@@ -517,11 +599,7 @@ function TaskBoard() {
                     dense={dense}
                     showTokens={showTokens}
                     design={designView}
-                    onChanged={() =>
-                      void queryClient.invalidateQueries({
-                        queryKey: ["board"],
-                      })
-                    }
+                    onChanged={refreshBoard}
                   />
                 ))}
               </tbody>
@@ -531,6 +609,10 @@ function TaskBoard() {
             page={page}
             total={board.data.total}
             shown={board.data.items.length}
+            pageSize={size}
+            // A new page size starts again from page 1 (`setParams` drops `page`).
+            onPageSize={(next) => setParams({ size: next === 10 ? "" : String(next) })}
+            sorted={sortApplies(sort, sortValues)}
             onPage={(next) => setParams({ page: next === 1 ? "" : String(next) })}
           />
         </section>
@@ -630,11 +712,13 @@ function TaskTableRow({
   showTokens: boolean;
   /**
    * The Design ban's view: "Nội dung", "Tên task" and "Thiết kế" in place of
-   * the per-step cells, "Kết quả" and the row's extras.
+   * the per-step cells, "Kết quả" and the row's extras - and the step's own
+   * buttons ("Nhận việc", "Nộp bài", "Duyệt") in the action cell.
    */
   design?: boolean;
   onChanged: () => void;
 }) {
+  const rowNavigation = useRowNavigation();
   const decide = useMutation({
     mutationFn: ({ path, note }: { path: string; note?: string }) =>
       api.orderAction(row.id, path, {
@@ -649,8 +733,12 @@ function TaskTableRow({
   const todo =
     row.awaiting_me ??
     (Boolean(viewerId) && row.current_person_user_id === viewerId);
+  const opens = rowNavigation(row.detail_path);
   return (
-    <tr className={row.is_priority ? "is-priority" : undefined}>
+    <tr
+      onClick={opens.onClick}
+      className={`${opens.className}${row.is_priority ? " is-priority" : ""}`}
+    >
       <td className="whitespace-nowrap">
         <div className="flex items-center gap-1.5">
           {showUnit ? (
@@ -727,8 +815,10 @@ function TaskTableRow({
       ) : (
         <ResultCells row={row} dense={dense} showTokens={showTokens} />
       )}
-      <td>
-        <div className="flex items-center justify-end gap-1.5 whitespace-nowrap">
+      {/* The action cell: a click in here never opens the task. */}
+      <td {...NO_ROW_NAV}>
+        <div className="flex flex-wrap items-center justify-end gap-1.5 whitespace-nowrap">
+          {design ? <RowActions row={row} onChanged={onChanged} /> : null}
           {pending ? (
             <>
               <ConfirmButton
@@ -753,12 +843,6 @@ function TaskTableRow({
               />
             </>
           ) : null}
-          <Link
-            href={row.detail_path}
-            className="inline-flex min-h-9 items-center rounded-lg border border-[var(--border)] px-2.5 text-xs"
-          >
-            Mở
-          </Link>
         </div>
         {decide.isError ? <NoticeBox error={decide.error} /> : null}
       </td>

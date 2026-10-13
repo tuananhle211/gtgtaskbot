@@ -101,6 +101,19 @@ class PerfWeights(BaseModel):
     quality: float = Field(default=0.2, ge=0, le=100)
 
 
+class LibraryLink(BaseModel):
+    """One entry of the Design team's library ("Thư viện"): a named link to
+    something the team works from - a Figma file, the brand guideline, a
+    template folder - with a short icon (an emoji or one or two letters)."""
+
+    model_config = ConfigDict(extra="ignore", frozen=True)
+
+    id: str = Field(min_length=1, max_length=64)
+    name: str = Field(min_length=1, max_length=80)
+    url: str = Field(min_length=1, max_length=2000)
+    icon: str | None = Field(default=None, max_length=8)
+
+
 class UnitSettings(BaseModel):
     """The per-unit knobs, stored as JSON in ``org_units.settings``.
 
@@ -160,6 +173,9 @@ class UnitSettings(BaseModel):
     perf_weights: PerfWeights = Field(default_factory=lambda: PerfWeights())
     #: Nodes a month that score full output; None = the ban's top performer.
     output_target: int | None = Field(default=None, ge=1, le=10000)
+    #: The Design team's library ("Thư viện"), in menu order. Kept by the
+    #: Design Leader through its own route, not the settings form.
+    design_library: tuple[LibraryLink, ...] = ()
 
 
 @dataclass(frozen=True, slots=True)
@@ -221,6 +237,7 @@ class UnitMembership:
 __all__ = [
     "FUNCTION_ROLES",
     "UNIT_SEED_NAMESPACE",
+    "LibraryLink",
     "PerfWeights",
     "UnitCode",
     "UnitMemberRole",

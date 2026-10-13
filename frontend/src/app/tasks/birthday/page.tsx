@@ -3,18 +3,28 @@
 import Link from "next/link";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { Suspense, useState } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { api, type BoardFilters, type TaskRow } from "@/lib/api";
 import { formatBirthday, genderLabel } from "@/lib/birthday";
 import { isUntagged } from "@/lib/units";
 import { BirthdayOrderDialog } from "@/components/birthday-order-form";
 import { DesignerCell, WebLink } from "@/components/design-cells";
 import { Empty, ErrorBox, Loading } from "@/components/states";
+import { RowActions } from "@/components/task-actions";
 import {
-  PAGE_SIZE,
+  NO_ROW_NAV,
   Pager,
   RowDeadlineCell,
   RowStatusCell,
+  SortHeader,
+  type SortValueOf,
+  nextSort,
+  pageSizeOf,
+  parseSort,
+  sortApplies,
+  sortRows,
+  sortTime,
+  useRowNavigation,
 } from "@/components/task-table";
 import { UntaggedState } from "@/components/unit-switch";
 
@@ -38,23 +48,44 @@ const CLOSED_STATUSES = new Set(["COMPLETED", "CANCELLED"]);
  * The same rows as the task table (`/api/board/tasks`), asked for ORD's
  * `BIRTHDAY` category in `birthday` order, and drawn for this one job: who the
  * artwork is for, where it stands, what to work from and what was handed in.
- * A row's code opens the ordinary task page, which is where it is handed out,
- * accepted and handed in. Creating and editing happen here, in a modal.
+ * A click on a row opens the ordinary task page, which is where it is handed
+ * out; taking the step, handing in and approving can be done from the row
+ * (`RowActions`: the task page's own dialog). Creating and editing happen
+ * here, in a modal.
  *
  * Who may open this is the server's word (`design.birthday` on
- * `/api/units/me`); the page asks for nothing until it says yes. The page and
- * the two filters ("Cần làm", the search) live on the URL.
+ * `/api/units/me`); the page asks for nothing until it says yes. The page, its
+ * size, the two filters ("Cần làm", the search) and the sort live on the URL.
+ * The sort (a double click on a column header) rearranges the rows on screen
+ * only: across pages the order stays the server's, nearest birthday first.
  */
+
+/** What each column sorts by. A birthday sorts by its day in the year. */
+const SORT_VALUES: Record<string, SortValueOf<TaskRow>> = {
+  code: (row) => row.code,
+  branch: (row) => row.birthday?.branch,
+  name: (row) => row.birthday?.full_name || row.title,
+  gender: (row) => (row.birthday ? genderLabel(row.birthday.gender) : null),
+  birthday: (row) => row.birthday?.birthday_on?.slice(5, 10),
+  status: (row) => row.status_label,
+  deadline: (row) => sortTime(row.deadline_at),
+  content: (row) => row.design?.note,
+  designer: (row) => [row.design?.designer, sortTime(row.design?.design_submitted_at)],
+};
+
 function BirthdayBoard() {
   const router = useRouter();
   const pathname = usePathname();
   const params = useSearchParams();
+  const queryClient = useQueryClient();
   const me = useQuery({ queryKey: ["units", "me"], queryFn: api.unitsMe });
   // The Shell's own session query (same key): who "me" is, for "Chỉnh sửa".
   const session = useQuery({ queryKey: ["session"], queryFn: api.session, retry: false });
   const read = (key: string) => params.get(key) ?? "";
   const allowed = Boolean(me.data?.design?.birthday);
   const page = Math.max(1, Number(read("page") || "1") || 1);
+  const size = pageSizeOf(params.get("size"));
+  const sort = parseSort(params.get("sort"));
   const awaitingMe = read("awaiting_me") === "true";
   const filters: BoardFilters = {
     unit: "ADS",
@@ -62,8 +93,8 @@ function BirthdayBoard() {
     order: "birthday",
     awaiting_me: awaitingMe,
     q: read("q") || undefined,
-    limit: PAGE_SIZE,
-    offset: (page - 1) * PAGE_SIZE,
+    limit: size,
+    offset: (page - 1) * size,
   };
   const board = useQuery({
     queryKey: ["board", "tasks", filters],
@@ -117,6 +148,12 @@ function BirthdayBoard() {
     !CLOSED_STATUSES.has(row.status) &&
     (managesAll || (Boolean(viewerId) && row.owner_user_id === viewerId));
   const awaiting = counts.data?.awaiting_me;
+  const rows = sortRows(board.data?.items ?? [], sort, SORT_VALUES);
+  // Keeps the page: sorting rearranges the rows on screen, nothing is refetched.
+  const onSort = (key: string) =>
+    setParams({ sort: nextSort(sort, key), page: read("page") });
+  const refreshBoard = () =>
+    void queryClient.invalidateQueries({ queryKey: ["board"] });
   const editingRow = editing
     ? (board.data?.items.find((item) => item.id === editing.id) ?? editing)
     : null;
@@ -196,26 +233,35 @@ function BirthdayBoard() {
             <table className="table-dense min-w-[72rem]">
               <thead>
                 <tr>
-                  <th scope="col">Mã</th>
-                  <th scope="col">Chi nhánh</th>
-                  <th scope="col">Họ và tên</th>
-                  <th scope="col">Giới tính</th>
-                  <th scope="col">Ngày sinh</th>
-                  <th scope="col">Trạng thái · Đang giữ</th>
-                  <th scope="col">Deadline</th>
-                  <th scope="col">Nội dung</th>
-                  <th scope="col">Thiết kế</th>
+                  {(
+                    [
+                      ["code", "Mã"],
+                      ["branch", "Chi nhánh"],
+                      ["name", "Họ và tên"],
+                      ["gender", "Giới tính"],
+                      ["birthday", "Ngày sinh"],
+                      ["status", "Trạng thái · Đang giữ"],
+                      ["deadline", "Deadline"],
+                      ["content", "Nội dung"],
+                      ["designer", "Thiết kế"],
+                    ] as const
+                  ).map(([key, label]) => (
+                    <SortHeader key={key} sortKey={key} sort={sort} onSort={onSort}>
+                      {label}
+                    </SortHeader>
+                  ))}
                   <th scope="col">
                     <span className="sr-only">Thao tác</span>
                   </th>
                 </tr>
               </thead>
               <tbody>
-                {board.data.items.map((row) => (
+                {rows.map((row) => (
                   <BirthdayRow
                     key={row.id}
                     row={row}
                     viewerId={viewerId}
+                    onChanged={refreshBoard}
                     onEdit={mayEdit(row) ? () => setEditing(row) : undefined}
                   />
                 ))}
@@ -227,6 +273,10 @@ function BirthdayBoard() {
             total={board.data.total}
             shown={board.data.items.length}
             noun="order"
+            pageSize={size}
+            // A new page size starts again from page 1 (`setParams` drops `page`).
+            onPageSize={(next) => setParams({ size: next === 10 ? "" : String(next) })}
+            sorted={sortApplies(sort, SORT_VALUES)}
             onPage={(next) => setParams({ page: next === 1 ? "" : String(next) })}
           />
         </section>
@@ -248,13 +298,17 @@ function BirthdayRow({
   row,
   viewerId,
   onEdit,
+  onChanged,
 }: {
   row: TaskRow;
   /** The signed-in person, for "Cần làm" when the API sends no `awaiting_me`. */
   viewerId: string | null;
   /** Set when the viewer may edit this order. */
   onEdit?: () => void;
+  /** An inline action went through (or found the row stale): refetch the board. */
+  onChanged: () => void;
 }) {
+  const opens = useRowNavigation()(row.detail_path);
   const person = row.birthday;
   const reference = row.design?.reference_link ?? null;
   const note = row.design?.note ?? null;
@@ -262,7 +316,10 @@ function BirthdayRow({
   const todo =
     row.awaiting_me ?? (Boolean(viewerId) && row.current_person_user_id === viewerId);
   return (
-    <tr className={row.is_priority ? "is-priority" : undefined}>
+    <tr
+      onClick={opens.onClick}
+      className={`${opens.className}${row.is_priority ? " is-priority" : ""}`}
+    >
       <td className="whitespace-nowrap">
         <div className="flex items-center gap-1.5">
           <Link
@@ -301,8 +358,10 @@ function BirthdayRow({
         {!reference && !note ? <span className="text-[var(--text-muted)]">–</span> : null}
       </td>
       <DesignerCell row={row} />
-      <td>
-        <div className="flex items-center justify-end gap-1.5 whitespace-nowrap">
+      {/* The action cell: a click in here never opens the task. */}
+      <td {...NO_ROW_NAV}>
+        <div className="flex flex-wrap items-center justify-end gap-1.5 whitespace-nowrap">
+          <RowActions row={row} onChanged={onChanged} />
           {onEdit ? (
             <button
               type="button"
@@ -313,12 +372,6 @@ function BirthdayRow({
               Chỉnh sửa
             </button>
           ) : null}
-          <Link
-            href={row.detail_path}
-            className="inline-flex min-h-9 items-center rounded-lg border border-[var(--border)] px-2.5 text-xs"
-          >
-            Mở
-          </Link>
         </div>
       </td>
     </tr>

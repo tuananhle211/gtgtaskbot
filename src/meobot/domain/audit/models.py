@@ -474,6 +474,8 @@ class AuditAction(StrEnum):
     UNIT_DURATION_UPDATED = "unit.duration.updated"
     UNIT_DESIGN_CODE_CREATED = "unit.design_code.created"
     UNIT_DESIGN_CODE_UPDATED = "unit.design_code.updated"
+    #: The Design Leader saved the Design team's library ("Thư viện").
+    UNIT_LIBRARY_UPDATED = "unit.library.updated"
     ORDER_SUBMITTED = "order.submitted"
     ORDER_RESUBMITTED = "order.resubmitted"
     ORDER_APPROVED = "order.approved"

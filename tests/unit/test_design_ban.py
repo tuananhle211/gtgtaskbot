@@ -171,7 +171,8 @@ async def test_02_units_me_says_what_the_design_screens_are_for_each_person(worl
     }
     for user, flags in expected.items():
         world.act_as(user)
-        assert world.client.get("/api/units/me").json()["design"] == flags, user.full_name
+        design = world.client.get("/api/units/me").json()["design"]
+        assert {key: design[key] for key in flags} == flags, user.full_name
 
 
 # --- the script step picks the codes ---------------------------------------------------
@@ -609,3 +610,126 @@ async def test_13_with_design_codes_switched_off_nothing_asks_for_them(world: Wo
     world.act_as(admin)
     on = world.client.patch("/api/units/ADS/settings", json={"design_codes_enabled": True})
     assert on.status_code == 200 and on.json()["design_codes_enabled"] is True
+
+
+async def test_14_a_row_says_what_its_viewer_may_do_and_when_design_handed_in(
+    world: World,
+) -> None:
+    ads, codes = await design_world(world)
+    code = await to_design(world, ads, codes)
+
+    def row_of(user: User) -> dict[str, Any]:
+        return next(item for item in board(world, user)["items"] if item["code"] == code)
+
+    # The designer may hand in from the list; the Leader has nothing to approve yet.
+    mine = row_of(ads.designer)
+    assert "SUBMIT_WORK" in mine["actions"] and "APPROVE_NODE" not in mine["actions"]
+    assert mine["design"]["design_submitted_at"] is None
+    assert "APPROVE_NODE" not in row_of(ads.lead_tk)["actions"]
+    done = do(
+        world,
+        ads.designer,
+        code,
+        "ads:SUBMIT_WORK:",
+        link="https://e/design",
+        design_codes=pick(codes, TKBTS=1),
+    )
+    assert done.status_code == 200, done.json()
+    # A changed list waits for the Leader: the approval is theirs, on the row.
+    waiting = row_of(ads.lead_tk)
+    assert "APPROVE_NODE" in waiting["actions"] and "RETURN_NODE" in waiting["actions"]
+    assert waiting["design"]["design_submitted_at"] is not None
+    assert "SUBMIT_WORK" not in row_of(ads.designer)["actions"]
+    # A birthday row: the Leader hands it out, then the designer accepts and submits.
+    made = birthday(world, ads.orderer).json()
+    rows = board(world, ads.lead_tk, category="BIRTHDAY")["items"]
+    assert "ASSIGN" in next(r for r in rows if r["code"] == made["code"])["actions"]
+    assert (
+        next(
+            r
+            for r in board(world, ads.designer, category="BIRTHDAY")["items"]
+            if r["code"] == made["code"]
+        )["actions"]
+        == []
+    )
+
+
+# --- the Design team's library ---------------------------------------------------------
+
+
+async def test_15_the_design_leader_sets_up_the_library_the_design_team_sees(world: World) -> None:
+    ads, _ = await design_world(world)
+    wanted = [
+        {"name": "  Nhập   môn ", "url": "https://www.figma.com/file/abc", "icon": "N"},
+        {"name": "Brand Guideline", "url": "https://www.figma.com/file/brand", "icon": "🎨"},
+        {"name": "Template media", "url": "http://nas.local/templates"},
+    ]
+    # Staff and the other teams may not set it up.
+    for refused_for in (ads.designer, ads.head, ads.lead_bt):
+        world.act_as(refused_for)
+        refused = world.client.put("/api/units/ADS/library", json={"links": wanted})
+        assert refused.status_code == 403 and error_reason(refused.json()) == "library_forbidden"
+    world.act_as(ads.lead_tk)
+    for links, reason in (
+        ([{"name": " ", "url": "https://a.example"}], "library_name_missing"),
+        ([{"name": "X", "url": "javascript:alert(1)"}], "library_url_invalid"),
+        ([{"name": "X", "url": "figma.com/file"}], "library_url_invalid"),
+        ([{"name": "X", "url": "https://a.example/a b"}], "library_url_invalid"),
+        ([{"name": f"Mục {n}", "url": "https://a.example"} for n in range(31)], "library_too_many"),
+    ):
+        refused = world.client.put("/api/units/ADS/library", json={"links": links})
+        assert refused.status_code == 422, refused.json()
+        assert error_reason(refused.json()) == reason
+    saved = world.client.put("/api/units/ADS/library", json={"links": wanted})
+    assert saved.status_code == 200, saved.json()
+    links = saved.json()["links"]
+    assert [(link["name"], link["url"], link["icon"]) for link in links] == [
+        ("Nhập môn", "https://www.figma.com/file/abc", "N"),
+        ("Brand Guideline", "https://www.figma.com/file/brand", "🎨"),
+        ("Template media", "http://nas.local/templates", None),
+    ]
+    assert len({link["id"] for link in links}) == 3
+
+    # The Design team has it in the menu; the Leader (and the OWNER) may edit.
+    def menu(user: User) -> dict[str, Any]:
+        world.act_as(user)
+        return world.client.get("/api/units/me").json()["design"]
+
+    assert [link["name"] for link in menu(ads.designer)["library"]] == [
+        "Nhập môn",
+        "Brand Guideline",
+        "Template media",
+    ]
+    assert menu(ads.designer)["manage_library"] is False
+    assert menu(ads.lead_tk)["manage_library"] is True
+    assert menu(world.owner)["manage_library"] is True and len(menu(world.owner)["library"]) == 3
+    # Nobody else in ORD - nor outside it - sees the library.
+    for stranger in (ads.orderer, ads.head, ads.writer, ads.outsider):
+        assert menu(stranger)["library"] == [] and menu(stranger)["manage_library"] is False
+    world.act_as(ads.writer)
+    assert world.client.get("/api/units/ADS/library").status_code == 403
+    world.act_as(ads.designer)
+    read = world.client.get("/api/units/ADS/library")
+    assert read.status_code == 200 and read.json()["can_manage"] is False
+    assert len(read.json()["links"]) == 3
+
+    # Saved whole and in order: an entry keeps its id, a dropped one is gone,
+    # and the unit's other settings are untouched.
+    world.act_as(ads.lead_tk)
+    reordered = world.client.put(
+        "/api/units/ADS/library",
+        json={
+            "links": [{**links[2], "name": "Template"}, {"name": "Mới", "url": "https://x.example"}]
+        },
+    )
+    assert reordered.status_code == 200, reordered.json()
+    after = reordered.json()["links"]
+    assert [link["name"] for link in after] == ["Template", "Mới"]
+    assert after[0]["id"] == links[2]["id"] and after[1]["id"] not in {link["id"] for link in links}
+    world.act_as(world.owner)
+    me = world.client.get("/api/units/me").json()
+    ads_entry = next(unit for unit in me["units"] if unit["code"] == "ADS")
+    assert ads_entry["settings"]["design_codes_enabled"] is True
+    # ...and the settings form saving something else keeps the library.
+    assert world.client.patch("/api/units/ADS/settings", json={"urgent_days": 5}).status_code == 200
+    assert [link["name"] for link in menu(ads.designer)["library"]] == ["Template", "Mới"]

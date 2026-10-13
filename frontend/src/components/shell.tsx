@@ -4,7 +4,7 @@ import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { api, type UnitsMe } from "@/lib/api";
+import { api, type DesignLibraryLink, type UnitsMe } from "@/lib/api";
 import { effortEnabled } from "@/lib/effort";
 import { roleLabel } from "@/lib/labels";
 import { unitShortLabel, unitTagClass } from "@/lib/units";
@@ -13,17 +13,36 @@ import { NotificationBell } from "@/components/notifications";
 import { ThemeToggle } from "@/components/theme-toggle";
 import { Avatar } from "@/components/avatar";
 import { Logo, LogoMark } from "@/components/logo";
+import { LibraryIcon, isLibraryUrl } from "@/components/library-icon";
 
 type NavItem = { href: string; label: string; icon: NavIcon };
 
-/** A branch of the nav tree: a heading that folds, and the screens under it. */
-type NavGroup = { label: string; icon: NavIcon; children: NavItem[] };
+/**
+ * A branch of the nav tree: a heading that folds, and what sits under it -
+ * app screens (`children`) and, for "Thư viện", links out of the app
+ * (`external`), which come first.
+ */
+type NavGroup = {
+  label: string;
+  icon: NavIcon;
+  children: NavItem[];
+  /** Links that leave the app: never "the current screen", never in `navLinks`. */
+  external?: DesignLibraryLink[];
+  /**
+   * `section`: a small uppercase heading set apart from the entries above it
+   * ("THƯ VIỆN"), instead of a heading that reads as one more entry.
+   */
+  variant?: "section";
+};
 
 type NavEntry = NavItem | NavGroup;
 
 const isGroup = (entry: NavEntry): entry is NavGroup => "children" in entry;
 
-/** Every screen of the nav, in order, whatever branch it sits in. */
+/**
+ * Every screen of the nav, in order, whatever branch it sits in. App screens
+ * only: a branch's external links are not screens and are left out.
+ */
 export const navLinks = (nav: NavEntry[]): NavItem[] =>
   nav.flatMap((entry) => (isGroup(entry) ? entry.children : [entry]));
 
@@ -33,6 +52,7 @@ type NavIcon =
   | "board"
   | "birthday"
   | "codes"
+  | "library"
   | "content"
   | "work"
   | "task"
@@ -76,6 +96,33 @@ function orderBoards(me: UnitsMe | undefined): NavGroup {
       ...(me?.design?.birthday ? [ORDER_BIRTHDAY_NAV] : []),
       ...(me?.design?.manage_codes ? [DESIGN_CODES_NAV] : []),
     ],
+  };
+}
+
+/** The screen that edits the library, for whoever may (`design.manage_library`). */
+const LIBRARY_MANAGE_NAV: NavItem = {
+  href: "/tasks/library",
+  label: "Quản lý thư viện",
+  icon: "library",
+};
+
+/**
+ * "Thư viện": the Design team's own links (a name, a link, a round icon), kept
+ * by the Design Leader. They open outside the app, in a new tab; only an
+ * `http(s)` link is ever drawn. Whoever may manage the list gets "Quản lý thư
+ * viện" at its end - and the branch itself even while the list is empty.
+ * Nothing for anybody else: the server sends `library: []` outside the team.
+ */
+function libraryBranch(me: UnitsMe | undefined): NavGroup | null {
+  const links = (me?.design?.library ?? []).filter((link) => isLibraryUrl(link.url));
+  const manages = Boolean(me?.design?.manage_library);
+  if (links.length === 0 && !manages) return null;
+  return {
+    label: "Thư viện",
+    icon: "library",
+    variant: "section",
+    external: links,
+    children: manages ? [LIBRARY_MANAGE_NAV] : [],
   };
 }
 
@@ -131,8 +178,8 @@ const ADMIN_NAV: NavItem[] = [
 /** Whether the sidebar is folded; shared by every Shell mount in this tab. */
 let sidebarCollapsed = false;
 
-/** Whether the "Bảng order" branch is folded; shared the same way. */
-let boardsFolded = false;
+/** The branches that are folded ("Bảng order", "Thư viện"), by label; shared the same way. */
+const foldedBranches: Record<string, boolean> = {};
 
 /**
  * The public legal pages. Deliberately *not* in the nav - see the footer below.
@@ -150,7 +197,8 @@ const LEGAL_LINKS = [
  * more, so the PR screens wait until the server says the person is in PR (or
  * sees every stream). The shared screens are always there, so the frame never
  * strands anybody on a blank sidebar. The order boards are one branch
- * ("Bảng order"), whose Design entries follow the `design` flags.
+ * ("Bảng order"), whose Design entries follow the `design` flags; the Design
+ * team's "Thư viện" is another, after everything else.
  *
  * "Quản trị đơn vị" is for whoever administers a unit or may tag members in
  * one (a team lead tags in their own stream there).
@@ -163,12 +211,14 @@ export function navFor(me: UnitsMe | undefined, sessionRole?: string): NavEntry[
     me && (me.can_admin.length > 0 || (me.can_tag ?? []).length > 0),
   );
   const effort = seesOrdEffort(me, sessionRole);
+  const library = libraryBranch(me);
   return [
     DASHBOARD_NAV,
     orderBoards(me),
     ...(effort ? EFFORT_NAV : []),
     ...(pr ? PR_NAV : []),
     ...(admin ? ADMIN_NAV : []),
+    ...(library ? [library] : []),
   ];
 }
 
@@ -211,6 +261,13 @@ function Icon({ name }: { name: NavIcon }) {
       <>
         <path d="M3 12V4h8l10 10-8 8z" />
         <circle cx="7.5" cy="8.5" r="1.2" />
+      </>
+    ),
+    library: (
+      <>
+        <path d="M4 5v14M9 5v14" />
+        <path d="M13.5 6.5l5 12.5" />
+        <path d="M3 19h18" />
       </>
     ),
     content: (
@@ -324,11 +381,13 @@ export function Shell({ children }: { children: React.ReactNode }) {
     enabled: Boolean(session.data) && !mustChangePassword,
   });
 
-  const [folded, setFolded] = useState(boardsFolded);
-  const toggleBoards = () =>
-    setFolded((was) => {
-      boardsFolded = !was;
-      return !was;
+  const [foldedNow, setFoldedNow] = useState<Record<string, boolean>>(() => ({
+    ...foldedBranches,
+  }));
+  const toggleBranch = (label: string) =>
+    setFoldedNow((was) => {
+      foldedBranches[label] = !was[label];
+      return { ...was, [label]: !was[label] };
     });
   const nav = navFor(me.data, session.data?.role);
   const links = navLinks(nav);
@@ -363,6 +422,22 @@ export function Shell({ children }: { children: React.ReactNode }) {
       <span className={`whitespace-nowrap ${collapsed ? "lg:sr-only" : ""}`}>{item.label}</span>
     </Link>
   );
+  // A library entry: out of the app, in a new tab, led by its round chip.
+  const libraryLink = (link: DesignLibraryLink) => (
+    <a
+      key={link.id}
+      href={link.url}
+      target="_blank"
+      rel="noopener noreferrer"
+      title={collapsed ? link.name : undefined}
+      className={`${linkClass(false)} max-w-[16rem] lg:max-w-none`}
+    >
+      <LibraryIcon name={link.name} icon={link.icon} />
+      <span className={`truncate whitespace-nowrap ${collapsed ? "lg:sr-only" : ""}`}>
+        {link.name}
+      </span>
+    </a>
+  );
 
   return (
     <div className="min-h-screen lg:flex">
@@ -377,35 +452,46 @@ export function Shell({ children }: { children: React.ReactNode }) {
         </div>
         <nav
           aria-label="Điều hướng chính"
-          className="flex gap-1 overflow-x-auto px-3 py-2 [scrollbar-width:none] lg:flex-col lg:overflow-visible lg:px-3 lg:py-0"
+          // From `lg` the list scrolls inside the sidebar: with a library of
+          // up to 30 links it can be taller than the screen.
+          className="flex gap-1 overflow-x-auto px-3 py-2 [scrollbar-width:none] lg:min-h-0 lg:flex-1 lg:flex-col lg:overflow-y-auto lg:overflow-x-hidden lg:px-3 lg:py-1"
         >
-          {nav.map((entry) =>
-            isGroup(entry) ? (
-              // A branch. On a phone the strip is one row, so the heading is
-              // dropped and its screens sit in the row like any other; from
-              // `lg` it is a heading that folds, with its screens indented.
-              // With the sidebar folded to icons there is no heading to press,
-              // so the screens always show.
+          {nav.map((entry) => {
+            if (!isGroup(entry)) return navLink(entry);
+            const folded = Boolean(foldedNow[entry.label]);
+            const section = entry.variant === "section";
+            const holdsCurrent = entry.children.some((child) => isActive(child.href));
+            // A branch. On a phone the strip is one row, so the heading is
+            // dropped and what it holds sits in the row like any other entry;
+            // from `lg` it is a heading that folds. With the sidebar folded to
+            // icons there is no heading to press, so its entries always show.
+            return (
               <div
                 key={entry.label}
                 role="group"
                 aria-label={entry.label}
-                className="contents lg:flex lg:flex-col lg:gap-1"
+                className={`contents lg:flex lg:flex-col lg:gap-1 ${
+                  section ? "lg:mt-3 lg:border-t lg:border-[var(--border)] lg:pt-3" : ""
+                }`}
               >
                 <button
                   type="button"
-                  onClick={toggleBoards}
+                  onClick={() => toggleBranch(entry.label)}
                   aria-expanded={!folded}
-                  className={`hidden min-h-11 items-center gap-2.5 rounded-lg px-3 text-left text-sm transition-colors hover:bg-[var(--surface-muted)] hover:text-[var(--text)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--accent)] ${
-                    collapsed ? "" : "lg:flex"
-                  } ${
-                    folded && entry.children.some((child) => isActive(child.href))
+                  className={`hidden items-center rounded-lg px-3 text-left transition-colors hover:bg-[var(--surface-muted)] hover:text-[var(--text)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--accent)] ${
+                    section
+                      ? "min-h-9 gap-1.5 text-[11px] font-semibold uppercase tracking-wider"
+                      : "min-h-11 gap-2.5 text-sm"
+                  } ${collapsed ? "" : "lg:flex"} ${
+                    folded && holdsCurrent
                       ? "font-semibold text-[var(--accent-strong)]"
                       : "text-[var(--text-muted)]"
                   }`}
                 >
-                  <Icon name={entry.icon} />
-                  <span className="flex-1 whitespace-nowrap">{entry.label}</span>
+                  {section ? null : <Icon name={entry.icon} />}
+                  <span className={`whitespace-nowrap ${section ? "" : "flex-1"}`}>
+                    {entry.label}
+                  </span>
                   <svg
                     viewBox="0 0 24 24"
                     width="14"
@@ -425,16 +511,17 @@ export function Shell({ children }: { children: React.ReactNode }) {
                   className={`contents lg:flex-col lg:gap-1 ${
                     collapsed
                       ? "lg:flex"
-                      : `lg:ml-4 lg:border-l lg:border-[var(--border)] lg:pl-2 ${folded ? "lg:hidden" : "lg:flex"}`
+                      : `${
+                          section ? "" : "lg:ml-4 lg:border-l lg:border-[var(--border)] lg:pl-2"
+                        } ${folded ? "lg:hidden" : "lg:flex"}`
                   }`}
                 >
+                  {(entry.external ?? []).map(libraryLink)}
                   {entry.children.map(navLink)}
                 </div>
               </div>
-            ) : (
-              navLink(entry)
-            ),
-          )}
+            );
+          })}
         </nav>
         {session.data ? (
           <div className={`mt-auto hidden border-t border-[var(--border)] px-4 py-4 ${collapsed ? "" : "lg:block"}`}>

@@ -11,7 +11,7 @@ from datetime import date as date_type
 from datetime import datetime
 from decimal import Decimal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 from meobot.application.orders.effort_service import BanStats, EffortGrid
 from meobot.application.units.directory import UnitMemberRow
@@ -126,6 +126,37 @@ class UnitEntryResponse(BaseModel):
     settings: UnitSettingsResponse
 
 
+class LibraryLinkResponse(BaseModel):
+    """One entry of the Design team's library: a named link with a short icon
+    (an emoji or a letter or two; null = the UI draws the name's initials)."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    id: str
+    name: str
+    url: str
+    icon: str | None = None
+
+
+class LibraryResponse(BaseModel):
+    links: list[LibraryLinkResponse]
+    can_manage: bool = False
+
+
+class LibraryLinkBody(BaseModel):
+    #: Kept for an entry that was already there; absent for a new one.
+    id: str | None = Field(default=None, max_length=64)
+    name: str = Field(max_length=200)
+    url: str = Field(max_length=2100)
+    icon: str | None = Field(default=None, max_length=40)
+
+
+class UpdateLibraryRequest(BaseModel):
+    """The whole library, in menu order."""
+
+    links: list[LibraryLinkBody] = Field(max_length=100)
+
+
 class DesignAccessResponse(BaseModel):
     """What the Design team's screens are for this caller (0058)."""
 
@@ -136,6 +167,10 @@ class DesignAccessResponse(BaseModel):
     manage_codes: bool = False
     #: May open the birthday board and place birthday orders.
     birthday: bool = False
+    #: The Design team's library ("Thư viện") for the sidebar: empty for
+    #: anybody outside the Design team. ``manage_library``: may edit it.
+    library: list[LibraryLinkResponse] = []
+    manage_library: bool = False
 
 
 class UnitMeResponse(BaseModel):

@@ -36,6 +36,8 @@ from meobot.api.schemas.units import (
     DurationListResponse,
     DurationResponse,
     EffortGridResponse,
+    LibraryLinkResponse,
+    LibraryResponse,
     PlatformListResponse,
     PlatformResponse,
     RoleOptionResponse,
@@ -50,6 +52,7 @@ from meobot.api.schemas.units import (
     UntaggedUsersResponse,
     UpdateDesignCodeRequest,
     UpdateDurationRequest,
+    UpdateLibraryRequest,
     UpdateMemberRequest,
     UpdatePlatformRequest,
     UpdateUnitSettingsRequest,
@@ -65,6 +68,12 @@ from meobot.application.orders.design_code_service import (
     in_design_team,
     manages_design_codes,
 )
+from meobot.application.orders.design_library_service import (
+    DesignLibraryService,
+    LibraryEntry,
+    manages_library,
+    sees_library,
+)
 from meobot.application.orders.effort_service import EffortService, ban_stats
 from meobot.application.units.admin import ROLES_BY_UNIT, UnitAdminService
 from meobot.application.units.directory import NOT_VISIBLE, UnitDirectoryService
@@ -77,7 +86,7 @@ from meobot.domain.units.labels import (
     unit_role_label,
     unit_short_label,
 )
-from meobot.domain.units.models import UnitCode, UnitMemberRole, UnitSettings
+from meobot.domain.units.models import LibraryLink, UnitCode, UnitMemberRole, UnitSettings
 
 router = APIRouter(prefix="/api/units", tags=["units"])
 
@@ -98,6 +107,17 @@ def get_design_codes(
 
 
 DesignCodesDep = Annotated[DesignCodeService, Depends(get_design_codes)]
+
+
+def get_design_library(
+    session: Annotated[AsyncSession, Depends(get_session)],
+) -> DesignLibraryService:
+    return DesignLibraryService(
+        session, directory=UnitDirectoryService(session), audit=AuditService(session)
+    )
+
+
+LibraryDep = Annotated[DesignLibraryService, Depends(get_design_library)]
 
 
 def _parse_unit(value: str) -> UnitCode:
@@ -188,7 +208,15 @@ async def my_units(
     can_admin = [code.value for code in await admin.admin_units(actor)]
     can_tag = [code.value for code in admin.tag_units(membership, actor)]
     ads = membership.entry(UnitCode.ADS)
+    library: tuple[LibraryLink, ...] = ()
+    if sees_library(membership):
+        try:
+            library = (await directory.settings(UnitCode.ADS)).design_library
+        except UnitNotFoundError:
+            library = ()
     design = DesignAccessResponse(
+        library=[LibraryLinkResponse.model_validate(link) for link in library],
+        manage_library=manages_library(membership),
         view=in_design_team(membership) and not membership.sees_all,
         manage_codes=membership.has(UnitCode.ADS) and manages_design_codes(membership),
         birthday=membership.has(UnitCode.ADS)
@@ -553,6 +581,48 @@ async def update_design_code(
         sort_order=body.sort_order,
     )
     return DesignCodeResponse.from_row(row)
+
+
+# --- the Design team's library ("Thư viện") ----------------------------------------
+
+
+@router.get("/{code}/library", response_model=LibraryResponse)
+async def design_library(
+    code: str, actor: CurrentActorDep, membership: UnitMembershipDep, library: LibraryDep
+) -> LibraryResponse:
+    """The named links in the Design team's menu. The Design team reads it;
+    anybody else in ORD gets 403 ``library_forbidden``."""
+    _design_unit(code)
+    links = await library.links(actor=actor)
+    return LibraryResponse(
+        links=[LibraryLinkResponse.model_validate(link) for link in links],
+        can_manage=manages_library(membership),
+    )
+
+
+@router.put("/{code}/library", response_model=LibraryResponse)
+async def save_design_library(
+    code: str,
+    body: UpdateLibraryRequest,
+    actor: CurrentActorDep,
+    request_id: RequestIdDep,
+    library: LibraryDep,
+) -> LibraryResponse:
+    """Save the whole library, in menu order: the Design Leader, the OWNER or
+    an ADMIN. 422 ``library_name_missing`` / ``library_url_invalid`` (only
+    http(s) links) / ``library_too_many``."""
+    _design_unit(code)
+    links = await library.replace(
+        actor=actor,
+        request_id=request_id,
+        entries=[
+            LibraryEntry(id=item.id, name=item.name, url=item.url, icon=item.icon)
+            for item in body.links
+        ],
+    )
+    return LibraryResponse(
+        links=[LibraryLinkResponse.model_validate(link) for link in links], can_manage=True
+    )
 
 
 # --- platforms ----------------------------------------------------------------

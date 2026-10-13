@@ -71,6 +71,8 @@ class DesignViewResponse(BaseModel):
     proposed_codes: list[DesignCodeItemResponse] | None = None
     designer: str | None = None
     design_link: str | None = None
+    #: When the newest Design link was handed in.
+    design_submitted_at: datetime | None = None
 
     @classmethod
     def from_domain(cls, view: DesignView) -> DesignViewResponse:
@@ -87,6 +89,7 @@ class DesignViewResponse(BaseModel):
             ),
             designer=view.designer,
             design_link=view.design_link,
+            design_submitted_at=view.design_submitted_at,
         )
 
 
@@ -157,6 +160,10 @@ class TaskRowResponse(BaseModel):
     category: str | None = None
     design: DesignViewResponse | None = None
     birthday: BirthdayResponse | None = None
+    #: ORD: the action kinds this viewer has on the row now (``SUBMIT_WORK``,
+    #: ``APPROVE_NODE``, ``ACCEPT``...). The keys to run them come from
+    #: ``GET /api/tasks/{code}``.
+    actions: list[str] = []
 
     @classmethod
     def from_domain(cls, row: TaskRow) -> TaskRowResponse:
@@ -215,6 +222,7 @@ class TaskRowResponse(BaseModel):
             category=row.category,
             design=None if row.design is None else DesignViewResponse.from_domain(row.design),
             birthday=None if row.birthday is None else BirthdayResponse.from_domain(row.birthday),
+            actions=list(row.actions),
         )
 
 

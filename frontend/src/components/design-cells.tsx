@@ -2,6 +2,7 @@
 
 import { Pill } from "@/components/states";
 import type { DesignCodeItem, TaskRow } from "@/lib/api";
+import { formatShortDay, formatWhen } from "@/lib/labels";
 
 /**
  * What the Design ban reads on a task row, drawn from the row's `design`
@@ -91,7 +92,7 @@ export function DesignCodesCell({ row }: { row: TaskRow }) {
   );
 }
 
-/** "Thiết kế": the designer and the design link handed in. */
+/** "Thiết kế": the designer, the design link handed in, and the day it was. */
 export function DesignerCell({ row }: { row: TaskRow }) {
   const design = row.design;
   return (
@@ -104,6 +105,15 @@ export function DesignerCell({ row }: { row: TaskRow }) {
       {design?.design_link ? (
         <span className="mt-0.5 block">
           <WebLink href={design.design_link} label="Link thiết kế" />
+        </span>
+      ) : null}
+      {design?.design_submitted_at ? (
+        <span
+          data-testid="design-submitted"
+          className="date-chip date-chip-done mt-1"
+          title={`Nộp link thiết kế ${formatWhen(design.design_submitted_at)}`}
+        >
+          Nộp {formatShortDay(design.design_submitted_at)}
         </span>
       ) : null}
     </td>

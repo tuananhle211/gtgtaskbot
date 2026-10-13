@@ -139,8 +139,9 @@ class DesignView:
     #: A designer's different list, waiting for the Design Leader.
     proposed_codes: tuple[DesignCodeView, ...] | None = None
     designer: str | None = None
-    #: The newest link the Design step handed in.
+    #: The newest link the Design step handed in, and when.
     design_link: str | None = None
+    design_submitted_at: datetime | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -212,6 +213,10 @@ class TaskRow:
     category: str | None = None
     design: DesignView | None = None
     birthday: BirthdayView | None = None
+    #: ORD: what the viewer may do on the row right now, as action kinds
+    #: (``SUBMIT_WORK``, ``APPROVE_NODE``, ``ACCEPT``...), for a list that
+    #: offers the button itself.
+    actions: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True, slots=True)

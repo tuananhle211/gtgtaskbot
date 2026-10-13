@@ -1119,6 +1119,11 @@ export const ACTION_INVENTORY: readonly ActionInventoryEntry[] = [
     action: "Chọn mã video khi nộp bài / duyệt bài (ô chọn trong hộp thoại thao tác task)",
     policy: "dialog",
   },
+  { action: "Lưu menu Thư viện của ban Design (Trưởng phòng Design)", policy: "dialog" },
+  {
+    action: "Nhận việc / Nộp bài / Duyệt ngay trên dòng của bảng task (ban Design, Order sinh nhật)",
+    policy: "dialog",
+  },
   { action: "Gắn / gỡ thành viên khỏi luồng, gắn tài khoản chưa có luồng", policy: "dialog" },
   { action: "Tạo mã mời / thu hồi mã mời", policy: "dialog" },
   {

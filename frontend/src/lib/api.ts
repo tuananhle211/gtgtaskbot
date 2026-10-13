@@ -3360,12 +3360,46 @@ export interface UnitsMe {
  * - `view`: in the Design ban (not OWNER / ADMIN) - `/tasks` draws the
  *   simplified Design table for ORD;
  * - `manage_codes`: may edit the "mã video" catalogue (Design Leader, OWNER, ADMIN);
- * - `birthday`: may open the birthday board and create birthday orders.
+ * - `birthday`: may open the birthday board and create birthday orders;
+ * - `library`: the Design team's "Thư viện" menu, in menu order (`[]` for
+ *   anybody outside the team);
+ * - `manage_library`: may edit that menu (Design Leader, OWNER, ADMIN).
+ *
+ * The last two are optional: an API that predates the library omits them.
  */
 export interface DesignAccess {
   view: boolean;
   manage_codes: boolean;
   birthday: boolean;
+  library?: DesignLibraryLink[];
+  manage_library?: boolean;
+}
+
+/**
+ * One entry of the Design team's "Thư viện": a name, a link out of the app
+ * (`http://` / `https://` only) and what to draw in its round chip - an emoji
+ * or a letter or two the Leader typed (at most 8 characters), else null and
+ * the name's initials are drawn.
+ */
+export interface DesignLibraryLink {
+  id: Uuid;
+  name: string;
+  url: string;
+  icon?: string | null;
+}
+
+/** `GET` / `PUT /api/units/ADS/library`. */
+export interface DesignLibrary {
+  links: DesignLibraryLink[];
+  can_manage?: boolean;
+}
+
+/** One entry as it is saved: an existing one keeps its `id`, a new one has none. */
+export interface DesignLibraryLinkBody {
+  id?: Uuid;
+  name: string;
+  url: string;
+  icon?: string | null;
 }
 
 /** `GET /api/units/untagged`: active accounts with no stream yet. */
@@ -3555,12 +3589,16 @@ export interface TaskRowDesign {
   designer?: string | null;
   /** The newest link the Design step handed in. */
   design_link?: string | null;
+  /** When that link was handed in (ISO datetime). */
+  design_submitted_at?: string | null;
 }
 
 /** The task page's "Mã video" block. */
 export interface TaskDesignCodes {
   codes?: DesignCodeItem[];
   proposed_codes?: DesignCodeItem[] | null;
+  /** When the newest Design link was handed in (ISO datetime). */
+  design_submitted_at?: string | null;
 }
 
 /** `POST /api/orders/birthday`. The order goes straight to the Design step. */
@@ -3674,6 +3712,14 @@ export interface TaskRow {
   design?: TaskRowDesign | null;
   /** A birthday order's person; the row's `title` is their name. */
   birthday?: BirthdayInfo | null;
+  /**
+   * ORD: the action KINDS the viewer has on this row right now, e.g.
+   * `["SUBMIT_WORK"]`, `["APPROVE_NODE", "RETURN_NODE"]`. Kinds, not keys: to
+   * run one, read the task (`GET /api/tasks/{code}`) and post the entry of its
+   * `actions` whose key is `ads:<KIND>` or starts with `ads:<KIND>:`. PR rows
+   * and older APIs send none.
+   */
+  actions?: string[];
 }
 
 export interface TaskPage {
@@ -4479,6 +4525,16 @@ export const api = {
   /** No delete: a row is retired with `active: false`. */
   updateDesignCode: (id: Uuid, body: DesignCodeBody) =>
     patch<DesignCode>(`/api/units/ADS/design-codes/${id}`, body),
+  /** The Design team's "Thư viện". 403 `library_forbidden` outside the team. */
+  designLibrary: () => get<DesignLibrary>("/api/units/ADS/library"),
+  /**
+   * Saves the WHOLE list in the order sent: an entry left out is deleted. 403
+   * `library_forbidden`; 422 `library_name_missing`, `library_url_invalid`,
+   * `library_too_many` (max 30), with `details.field` (`name` / `url` /
+   * `links`) and `details.index` (the entry's position).
+   */
+  saveDesignLibrary: (links: DesignLibraryLinkBody[]) =>
+    put<DesignLibrary>("/api/units/ADS/library", { links }),
   boardTasks: (filters: BoardFilters = {}) =>
     get<TaskPage>(`/api/board/tasks${query(filters)}`),
   boardDashboard: (filters: BoardFilters = {}) =>
