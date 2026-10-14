@@ -972,3 +972,61 @@ async def test_18_the_birthday_board_is_granted_member_by_member(world: World) -
     )
     assert retagged.status_code in (200, 201), retagged.json()
     assert retagged.json()["birthday_orders"] is False and not has(ads.editor)
+
+
+async def test_19_a_birthday_order_carries_several_reference_links(world: World) -> None:
+    ads, _ = await design_world(world)
+    first, second = "https://drive.example/a.jpg", "\\\\10.10.40.45\\Marketing\\b.jpg"
+    made = birthday(
+        world,
+        ads.designer,
+        reference_link=None,
+        reference_links=[f"  {first} ", "", second, first],
+    )
+    assert made.status_code == 201, made.json()
+    body = made.json()
+    page = task(world, ads.designer, body["code"])
+    # Blanks and repeats are dropped, the order kept; the first is "the" link.
+    assert page["design"]["reference_links"] == [first, second]
+    assert page["design"]["reference_link"] == first
+    shown = [(f["label"], f["value"]) for f in page["fields"] if f["key"].startswith("design_link")]
+    assert shown == [("Ảnh minh hoạ", first), ("Ảnh minh hoạ 2", second)]
+    row = board(world, ads.designer, category="BIRTHDAY")["items"][0]
+    assert row["design"]["reference_links"] == [first, second]
+
+    path = f"/api/orders/{body['id']}/birthday"
+    world.act_as(ads.designer)
+    too_many = world.client.patch(
+        path,
+        json={
+            "version": page["task"]["version"],
+            "reference_links": [f"https://e/{n}" for n in range(21)],
+        },
+    )
+    assert too_many.status_code == 422, too_many.json()
+    assert error_reason(too_many.json()) == "birthday_links_too_many"
+    # An edit that does not mention the links leaves them alone...
+    kept = world.client.patch(
+        path, json={"version": page["task"]["version"], "branch": "CS - Sài Gòn"}
+    )
+    assert kept.status_code == 200, kept.json()
+    assert task(world, ads.designer, body["code"])["design"]["reference_links"] == [first, second]
+    # ...the list replaces them, and an empty one clears them.
+    world.act_as(ads.designer)
+    third = "https://drive.example/c.jpg"
+    replaced = world.client.patch(
+        path, json={"version": kept.json()["version"], "reference_links": [second, third]}
+    )
+    assert replaced.status_code == 200, replaced.json()
+    assert task(world, ads.designer, body["code"])["design"]["reference_links"] == [second, third]
+    world.act_as(ads.designer)
+    cleared = world.client.patch(
+        path, json={"version": replaced.json()["version"], "reference_links": []}
+    )
+    assert cleared.status_code == 200, cleared.json()
+    page = task(world, ads.designer, body["code"])
+    assert page["design"]["reference_links"] == [] and page["design"]["reference_link"] is None
+    # The older single field still works.
+    single = birthday(world, ads.designer, reference_link=first)
+    assert single.status_code == 201
+    assert task(world, ads.designer, single.json()["code"])["design"]["reference_links"] == [first]

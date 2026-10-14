@@ -40,6 +40,27 @@ interface ErrorEnvelope {
   };
 }
 
+/**
+ * One passage of an order's script the AI found against the rules
+ * (`details.violations` of a 422 `script_review_failed`).
+ */
+export interface ScriptViolation {
+  /** The number of the forbidden item in the rules; 0 when unknown. */
+  rule: number;
+  /** The offending passage, exactly as written in the script. */
+  quote: string;
+  reason: string;
+  suggestion: string;
+}
+
+/** The AI's findings carried by an error, or `[]` when it is not that refusal. */
+export function scriptViolations(error: unknown): ScriptViolation[] {
+  if (!(error instanceof ApiError)) return [];
+  if (error.details.reason !== "script_review_failed") return [];
+  const found = error.details.violations;
+  return Array.isArray(found) ? (found as ScriptViolation[]) : [];
+}
+
 export class ApiError extends Error {
   readonly status: number;
   readonly code: string;
@@ -3297,6 +3318,13 @@ export interface UnitSettingsInfo {
    * it (403 `effort_setting_forbidden`). Optional: an older API omits it = on.
    */
   effort_enabled?: boolean;
+  /**
+   * ORD: the AI reads "Khung nhập kịch bản" when an order is sent, against
+   * these rules; a script that breaks one is refused with 422
+   * `script_review_failed` (`details.violations`). Optional: an older API has none.
+   */
+  script_ai_review?: boolean;
+  script_review_rules?: string;
   /** ORD: a member's token budget per working day unless their own is set (80). */
   default_daily_tokens?: number;
   /** ORD: weekdays (Monday = 0) with a full budget, and the half days (Saturday morning). */
@@ -3593,6 +3621,11 @@ export interface TaskRowDesign {
   script_by?: string | null;
   /** The order's own design / reference link (birthday: "Ảnh minh hoạ"). */
   reference_link?: string | null;
+  /**
+   * Every reference link - a birthday order's "Ảnh minh hoạ" may be several;
+   * `reference_link` is the first. Optional: an older API sends only the one.
+   */
+  reference_links?: string[];
   /** The order's "Note yêu cầu". */
   note?: string | null;
   codes?: DesignCodeItem[];
@@ -3620,6 +3653,9 @@ export interface BirthdayOrderBody {
   gender: Gender;
   /** `YYYY-MM-DD`. */
   birthday_on: string;
+  /** "Ảnh minh hoạ": the whole list, in order (at most 20); `[]` clears it. */
+  reference_links?: string[];
+  /** The older single field; `reference_links` is what the form sends. */
   reference_link?: string | null;
   note?: string | null;
 }

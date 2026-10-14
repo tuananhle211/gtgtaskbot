@@ -146,8 +146,10 @@ class DesignView:
     #: The newest link the script step handed in, and who holds that step.
     script_link: str | None = None
     script_by: str | None = None
-    #: The order's own design / reference link (a birthday order's photo).
+    #: The order's own design / reference link - the first one, and all of
+    #: them (a birthday order's "Ảnh minh hoạ" may be several).
     reference_link: str | None = None
+    reference_links: tuple[str, ...] = ()
     note: str | None = None
     codes: tuple[DesignCodeView, ...] = ()
     #: A designer's different list, waiting for the Design Leader.

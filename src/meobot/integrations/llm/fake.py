@@ -283,6 +283,29 @@ class _Threads:
         return ", ".join(parts)
 
 
+#: (forbidden item, phrase) the fake reads an order's script for: the words
+#: the default rules of :mod:`meobot.domain.orders.script_rules` name outright.
+ORDER_SCRIPT_FORBIDDEN: tuple[tuple[int, str], ...] = (
+    (1, "điều trị"),
+    (1, "chữa bệnh"),
+    (1, "đặc trị"),
+    (1, "chuyên trị"),
+    (1, "tiệt trừ"),
+    (2, "cam kết"),
+    (2, "an toàn tuyệt đối"),
+    (2, "đảm bảo"),
+    (2, "số 1"),
+    (2, "hàng đầu"),
+    (3, "Viện 103"),
+    (3, "Viện Bỏng Quốc Gia"),
+    (4, "không đau"),
+    (4, "không nghỉ dưỡng"),
+    (4, "bảo hành trọn đời"),
+    (4, "không chảy máu"),
+    (7, "Harmonic"),
+)
+
+
 @dataclass
 class FakeLLMProvider(StructuredTaskMixin):
     """Keyword-based :class:`~meobot.integrations.llm.base.LLMProvider`.
@@ -689,7 +712,26 @@ class FakeLLMProvider(StructuredTaskMixin):
             return self._review(request.context)
         if request.task == "pr_full_review":
             return self._pr_full_review(request.context)
+        if request.task == "order_script_review":
+            return self._order_script_review(request.context)
         return {}
+
+    @staticmethod
+    def _order_script_review(context: dict[str, Any]) -> dict[str, Any]:
+        """Findings from the forbidden words the default rules name outright.
+        Deterministic: a script with none of them passes."""
+        script = str(context.get("script") or "")
+        violations = [
+            {
+                "rule": rule,
+                "quote": found.group(0),
+                "reason": f'Dùng cụm từ cấm "{term}".',
+                "suggestion": "Viết lại câu, bỏ cụm từ này.",
+            }
+            for rule, term in ORDER_SCRIPT_FORBIDDEN
+            if (found := re.search(rf"(?<!\w){re.escape(term)}(?!\w)", script, re.IGNORECASE))
+        ]
+        return {"violations": violations}
 
     @staticmethod
     def _pr_full_review(context: dict[str, Any]) -> dict[str, Any]:

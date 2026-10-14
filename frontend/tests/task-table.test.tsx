@@ -580,7 +580,7 @@ describe("a click on a row", () => {
     // No role, no tab stop: the row's own links stay the accessible way in.
     expect(line).not.toHaveAttribute("tabindex");
     expect(line).not.toHaveAttribute("role");
-    await userEvent.click(within(line).getByText("Biên kịch › Design"));
+    await userEvent.click(line.querySelector("td")!);
     expect(PUSHED).toEqual(["/tasks/TUAN-BT-261012-01"]);
     await userEvent.click(within(line).getByTestId("design-codes"));
     expect(PUSHED).toHaveLength(2);

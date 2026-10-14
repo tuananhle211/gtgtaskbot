@@ -90,10 +90,6 @@ def _not_empty(column: str) -> str:
     return f"length(trim({column})) > 0"
 
 
-#: The processes that edit without a design node, spelled out for the CHECK.
-DESIGN_LINK_RULE = "video_type NOT IN ('D', 'BD') OR design_link IS NOT NULL"
-
-
 class Order(Base, UUIDPrimaryKeyMixin, TimestampMixin):
     """One video the Ads department ordered."""
 
@@ -101,9 +97,6 @@ class Order(Base, UUIDPrimaryKeyMixin, TimestampMixin):
     __table_args__ = (
         CheckConstraint(_not_empty("code"), name="code_not_empty"),
         CheckConstraint(_not_empty("title"), name="title_not_empty"),
-        # An edit with no design node (process D or BD): the designer's work
-        # must arrive with the order. The SQL twin of ``needs_design_link``.
-        CheckConstraint(DESIGN_LINK_RULE, name="design_link_required_without_design"),
         CheckConstraint("version >= 1", name="version_positive"),
         Index("ix_orders_unit_submitted", "unit_id", "submitted_at"),
         Index("ix_orders_unit_owner_submitted", "unit_id", "owner_user_id", "submitted_at"),
@@ -535,7 +528,6 @@ class OrderTokenLedger(Base, UUIDPrimaryKeyMixin):
 __all__ = [
     "ACTIVE_NODE",
     "DEFAULT_WORK_RULE",
-    "DESIGN_LINK_RULE",
     "ORDERS",
     "ORDER_APPROVALS",
     "ORDER_CODE_COUNTERS",

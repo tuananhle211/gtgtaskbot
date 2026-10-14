@@ -242,21 +242,20 @@ async def test_05_the_database_holds_one_active_node_per_order(database: Databas
         await session.rollback()
 
 
-async def test_06_the_design_link_is_required_for_a_quick_edit(database: Database) -> None:
+async def test_06_a_quick_edit_may_come_without_a_design_link(database: Database) -> None:
     async with database.session() as session:
         unit_id = await _ads_unit_id(session)
-        with pytest.raises(IntegrityError) as caught:
-            await session.execute(
-                text(
-                    "INSERT INTO orders (id, unit_id, code, title, video_type, order_content, "
-                    " owner_user_id, submitted_at, created_at, updated_at) "
-                    "VALUES (:id, :unit, 'TEST-D-261007-01', 'Nhanh', 'D', 'brief', :owner, "
-                    " now(), now(), now())"
-                ),
-                {"id": uuid.uuid4(), "unit": unit_id, "owner": ACTIVE_USER},
-            )
-        # 0044 generalised 0042's check to every edit without a design node.
-        assert "design_link_required_without_design" in str(caught.value)
+        # 0042 required it, 0044 for every edit without a design node; 0060
+        # dropped the check: the link is optional on every order.
+        await session.execute(
+            text(
+                "INSERT INTO orders (id, unit_id, code, title, video_type, order_content, "
+                " owner_user_id, submitted_at, created_at, updated_at) "
+                "VALUES (:id, :unit, 'TEST-D-261007-01', 'Nhanh', 'D', 'brief', :owner, "
+                " now(), now(), now())"
+            ),
+            {"id": uuid.uuid4(), "unit": unit_id, "owner": ACTIVE_USER},
+        )
         await session.rollback()
 
 

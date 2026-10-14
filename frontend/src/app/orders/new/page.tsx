@@ -2,9 +2,9 @@
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useMutation, useQuery } from "@tanstack/react-query";
-import { api, type CreateOrderBody, type OrderInfo } from "@/lib/api";
+import { api, scriptViolations, type CreateOrderBody, type OrderInfo } from "@/lib/api";
 import {
   hasUnit,
   isUntagged,
@@ -296,6 +296,14 @@ function AdsOrderForm({
         : api.createOrder(body),
     onSuccess: (detail) => router.push(`/tasks/${detail.order.code}`),
   });
+  // The AI read the script and found it against the rules: the order was not
+  // sent. Its findings sit under the script field, which is brought into view.
+  const violations = scriptViolations(create.error);
+  const findings = useRef<HTMLDivElement>(null);
+  const refused = violations.length > 0;
+  useEffect(() => {
+    if (refused) findings.current?.scrollIntoView?.({ block: "center" });
+  }, [refused, create.failureCount, create.submittedAt]);
   const nodes = orderedProcess(ticked);
   const code = processCode(nodes);
   const route = [
@@ -315,8 +323,6 @@ function AdsOrderForm({
   const needsKind = activeKinds.length > 0;
   const needsPlatform = activePlatforms.length > 0;
   const needsDuration = activeDurations.length > 0;
-  // Dựng without Design works from a design the orderer already has.
-  const needsDesignLink = nodes.includes("DUNG") && !nodes.includes("THIET_KE");
   const toggleNode = (node: ProcessNode) =>
     !editing &&
     setTicked((current) =>
@@ -359,7 +365,6 @@ function AdsOrderForm({
     (!needsKind || form.video_kind_id) &&
     (!needsPlatform || form.platform_id) &&
     (!needsDuration || form.duration_id) &&
-    (!needsDesignLink || form.design_link.trim()) &&
     body.desired_deadline_at &&
     !deadlinePast;
   const field =
@@ -587,6 +592,39 @@ function AdsOrderForm({
             placeholder="Nội dung order, key mong muốn, kịch bản voice (hoàn chỉnh nếu là kịch bản AI)…"
             className={`${field} min-h-32`}
           />
+          <p className="text-xs text-[var(--text-muted)]">
+            AI duyệt ô này theo bộ quy tắc nội dung khi bạn gửi order; đạt mới chuyển
+            cho trưởng phòng.
+          </p>
+          {refused ? (
+            <div
+              ref={findings}
+              role="alert"
+              data-testid="script-violations"
+              className="rounded-lg border border-[var(--bad)] bg-[var(--surface-muted)] p-3 text-sm"
+            >
+              <p className="font-semibold text-[var(--bad)]">
+                AI duyệt kịch bản: chưa đạt ({violations.length} lỗi). Order chưa
+                được gửi, sửa các chỗ dưới đây rồi gửi lại.
+              </p>
+              <ol className="mt-2 list-decimal space-y-2 pl-5">
+                {violations.map((item, index) => (
+                  <li key={`${index}-${item.quote}`}>
+                    <span className="font-medium">“{item.quote}”</span>
+                    {item.rule > 0 ? (
+                      <span className="text-[var(--text-muted)]"> · mục cấm {item.rule}</span>
+                    ) : null}
+                    {item.reason ? <span className="block">{item.reason}</span> : null}
+                    {item.suggestion ? (
+                      <span className="block text-[var(--text-muted)]">
+                        Gợi ý: {item.suggestion}
+                      </span>
+                    ) : null}
+                  </li>
+                ))}
+              </ol>
+            </div>
+          ) : null}
         </div>
         <div className="grid gap-3 sm:grid-cols-3">
           <label className="block text-sm font-medium">
@@ -598,9 +636,7 @@ function AdsOrderForm({
               className={`mt-1 ${field}`}
             />
             <span className="block text-xs font-normal text-[var(--text-muted)]">
-              {needsDesignLink
-                ? "Bắt buộc khi có Dựng mà không có Design"
-                : "Không bắt buộc"}
+              Không bắt buộc
             </span>
           </label>
           <label className="block text-sm font-medium">
@@ -668,6 +704,11 @@ function AdsOrderForm({
             {editing ? "Gửi lại order" : "Gửi order"}
           </ConfirmButton>
         </div>
+        {create.isPending ? (
+          <p role="status" className="text-right text-xs text-[var(--text-muted)]">
+            AI đang duyệt kịch bản, vui lòng chờ trong giây lát…
+          </p>
+        ) : null}
         {create.isError ? <NoticeBox error={create.error} /> : null}
       </section>
       <aside className="space-y-3">

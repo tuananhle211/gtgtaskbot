@@ -241,12 +241,6 @@ def process_code(nodes: Iterable[OrderNodeType]) -> OrderVideoType | None:
     return OrderVideoType(letters) if letters else None
 
 
-def needs_design_link(code: OrderVideoType) -> bool:
-    """An edit with no design node: the design must arrive with the order."""
-    plan = NODE_PLAN[code]
-    return OrderNodeType.DUNG in plan and OrderNodeType.THIET_KE not in plan
-
-
 #: A node in one of these is "the" active node of its order. At most one per
 #: order - held by a partial unique index, not only by the service.
 ACTIVE_NODE_STATUSES: frozenset[OrderNodeStatus] = frozenset(
@@ -300,7 +294,6 @@ __all__ = [
     "OrderTokenKind",
     "OrderVideoType",
     "last_production_node",
-    "needs_design_link",
     "process_code",
     "production_nodes",
 ]

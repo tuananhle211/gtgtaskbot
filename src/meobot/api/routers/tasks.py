@@ -13,7 +13,13 @@ from typing import Annotated, Any
 from fastapi import APIRouter, Depends, Response, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from meobot.api.deps import CurrentActorDep, RequestIdDep, get_app_settings, get_session
+from meobot.api.deps import (
+    CurrentActorDep,
+    LLMProviderDep,
+    RequestIdDep,
+    get_app_settings,
+    get_session,
+)
 from meobot.api.schemas.tasks import TaskActionRequest, TaskDetailResponse
 from meobot.application.audit_service import AuditService
 from meobot.application.orders.services import build_order_services
@@ -50,9 +56,11 @@ class TaskServices:
 def get_task_services(
     session: Annotated[AsyncSession, Depends(get_session)],
     settings: Annotated[Settings, Depends(get_app_settings)],
+    llm: LLMProviderDep,
 ) -> TaskServices:
     pr = build_pr_services(session, settings)
-    orders = build_order_services(session, settings, pr=pr)
+    # The provider reads an order's script when "Gửi lại order" is pressed here.
+    orders = build_order_services(session, settings, pr=pr, llm=llm)
     detail = TaskDetailService(
         session, settings, directory=UnitDirectoryService(session), pr=pr, orders=orders
     )

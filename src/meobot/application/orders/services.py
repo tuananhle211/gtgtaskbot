@@ -12,10 +12,12 @@ from meobot.application.orders.code_service import OrderCodeService
 from meobot.application.orders.command_service import OrderCommandService
 from meobot.application.orders.notifications import OrderNotificationService
 from meobot.application.orders.query_service import OrderQueryService
+from meobot.application.orders.script_review import OrderScriptReviewer
 from meobot.application.orders.work_recorder import OrderWorkRecorder
 from meobot.application.pr_services import PrServices, build_pr_services
 from meobot.application.units.directory import UnitDirectoryService
 from meobot.core.config import Settings
+from meobot.integrations.llm.base import LLMProvider
 
 
 @dataclass(frozen=True, slots=True)
@@ -32,8 +34,14 @@ class OrderServices:
 
 
 def build_order_services(
-    session: AsyncSession, settings: Settings, *, pr: PrServices | None = None
+    session: AsyncSession,
+    settings: Settings,
+    *,
+    pr: PrServices | None = None,
+    llm: LLMProvider | None = None,
 ) -> OrderServices:
+    """``llm``: the provider that reads an order's script when it is placed
+    (see :mod:`.script_review`); without one no order is checked."""
     pr_services = pr or build_pr_services(session, settings)
     audit = AuditService(session)
     directory = UnitDirectoryService(session)
@@ -48,6 +56,7 @@ def build_order_services(
         codes=codes,
         notifications=notifications,
         kpi=kpi,
+        script_reviewer=None if llm is None else OrderScriptReviewer(llm),
     )
     queries = OrderQueryService(session, settings, directory)
     return OrderServices(

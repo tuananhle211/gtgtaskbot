@@ -69,7 +69,7 @@ from meobot.domain.orders.deadlines import (
     node_deadline_status,
     open_status,
 )
-from meobot.domain.orders.design_codes import items_from_json
+from meobot.domain.orders.design_codes import items_from_json, split_links
 from meobot.domain.orders.labels import (
     node_status_label,
     node_type_label,
@@ -1404,10 +1404,12 @@ def design_view(
         return None if node is None or node.id not in node_links else node_links[node.id][0]
 
     proposed = None if design is None else design.proposed_design_items
+    references = split_links(order.design_link) or split_links(order.reference_link)
     return DesignView(
         script_link=link_of(script),
         script_by=person(script),
-        reference_link=order.design_link or order.reference_link,
+        reference_link=references[0] if references else None,
+        reference_links=references,
         note=order.note,
         codes=code_views(order.design_items),
         proposed_codes=None if proposed is None else code_views(proposed),

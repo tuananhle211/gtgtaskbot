@@ -34,9 +34,23 @@ interface Draft {
   branch: string;
   gender: Gender | "";
   birthday_on: string;
-  reference_link: string;
+  /** "Ảnh minh hoạ": one input per link, always at least one (maybe empty). */
+  reference_links: string[];
   note: string;
 }
+
+/** How many "Ảnh minh hoạ" links one order takes (the server's limit). */
+export const MAX_REFERENCE_LINKS = 20;
+
+/** The row's links: the list, else the single link of an older API. */
+const linksOf = (row: TaskRow | null): string[] => {
+  const links = row?.design?.reference_links?.length
+    ? row.design.reference_links
+    : row?.design?.reference_link
+      ? [row.design.reference_link]
+      : [];
+  return links.length ? [...links] : [""];
+};
 
 const draftOf = (row: TaskRow | null): Draft => ({
   full_name: row?.birthday?.full_name ?? "",
@@ -46,7 +60,7 @@ const draftOf = (row: TaskRow | null): Draft => ({
       ? row.birthday.gender
       : "",
   birthday_on: row?.birthday?.birthday_on?.slice(0, 10) ?? "",
-  reference_link: row?.design?.reference_link ?? "",
+  reference_links: linksOf(row),
   note: row?.design?.note ?? "",
 });
 
@@ -120,6 +134,16 @@ function BirthdayOrderForm({
     queryFn: api.birthdayOptions,
   });
 
+  const setLink = (index: number, value: string) =>
+    set(
+      "reference_links",
+      draft.reference_links.map((link, at) => (at === index ? value : link)),
+    );
+  const removeLink = (index: number) => {
+    const rest = draft.reference_links.filter((_, at) => at !== index);
+    set("reference_links", rest.length ? rest : [""]);
+  };
+
   const missing = REQUIRED.filter(([key]) => draft[key].trim() === "");
   const missingKeys = new Set(missing.map(([key]) => key));
 
@@ -130,7 +154,9 @@ function BirthdayOrderForm({
         branch: draft.branch.trim(),
         gender: draft.gender as Gender,
         birthday_on: draft.birthday_on,
-        reference_link: draft.reference_link.trim() || null,
+        reference_links: draft.reference_links
+          .map((link) => link.trim())
+          .filter(Boolean),
         note: draft.note.trim() || null,
       };
       return row
@@ -265,15 +291,45 @@ function BirthdayOrderForm({
               <label htmlFor={ids.reference_link} className="block text-sm font-medium">
                 Ảnh minh hoạ
               </label>
-              <input
-                id={ids.reference_link}
-                type="url"
-                inputMode="url"
-                placeholder="Gắn link drive vào đây"
-                value={draft.reference_link}
-                onChange={(event) => set("reference_link", event.target.value)}
-                className={`mt-1.5 ${FIELD} border-[var(--border)]`}
-              />
+              <div className="mt-1.5 space-y-2">
+                {draft.reference_links.map((link, index) => (
+                  <div key={index} className="flex items-center gap-2">
+                    <input
+                      id={index === 0 ? ids.reference_link : undefined}
+                      aria-label={index === 0 ? undefined : `Ảnh minh hoạ ${index + 1}`}
+                      type="text"
+                      inputMode="url"
+                      placeholder="Gắn link drive vào đây"
+                      value={link}
+                      onChange={(event) => setLink(index, event.target.value)}
+                      className={`${FIELD} border-[var(--border)]`}
+                    />
+                    {draft.reference_links.length > 1 ? (
+                      <button
+                        type="button"
+                        onClick={() => removeLink(index)}
+                        aria-label={`Xoá link ${index + 1}`}
+                        className="inline-flex min-h-9 shrink-0 items-center rounded-lg border border-[var(--border)] px-2.5 text-xs hover:bg-[var(--surface-muted)]"
+                      >
+                        Xoá
+                      </button>
+                    ) : null}
+                  </div>
+                ))}
+              </div>
+              {draft.reference_links.length < MAX_REFERENCE_LINKS ? (
+                <button
+                  type="button"
+                  onClick={() => set("reference_links", [...draft.reference_links, ""])}
+                  className="mt-2 inline-flex min-h-9 items-center rounded-lg border border-dashed border-[var(--border)] px-2.5 text-xs hover:bg-[var(--surface-muted)]"
+                >
+                  + Thêm link
+                </button>
+              ) : (
+                <p className="mt-2 text-xs text-[var(--text-muted)]">
+                  Tối đa {MAX_REFERENCE_LINKS} link.
+                </p>
+              )}
             </div>
             <div className="sm:col-span-2">
               <label htmlFor={ids.note} className="block text-sm font-medium">

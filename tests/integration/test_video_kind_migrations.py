@@ -206,28 +206,13 @@ async def test_04_an_order_placed_before_0044_is_untouched(database: Database) -
     assert row.video_kind_points is None
 
 
-async def test_05_an_edit_without_a_design_node_needs_the_design_link(
+async def test_05_every_process_may_come_without_a_design_link(
     database: Database,
 ) -> None:
-    for code in ("D", "BD"):
-        async with database.session() as session:
-            with pytest.raises(IntegrityError) as caught:
-                await session.execute(
-                    INSERT_ORDER,
-                    {
-                        "id": uuid.uuid4(),
-                        "code": f"NEW-{code}-261008-01",
-                        "type": code,
-                        "design": None,
-                        "owner": OWNER,
-                        "at": datetime.now(UTC),
-                    },
-                )
-            assert "design_link_required_without_design" in str(caught.value)
-            await session.rollback()
-    # Every other process may come without one.
+    # 0044 required it on an edit without a design node (D, BD); 0060 dropped
+    # that check, so at head no process needs one.
     async with database.session() as session:
-        for number, code in enumerate(("B", "T", "BT", "TD", "BTD"), start=1):
+        for number, code in enumerate(("D", "BD", "B", "T", "BT", "TD", "BTD"), start=1):
             await session.execute(
                 INSERT_ORDER,
                 {

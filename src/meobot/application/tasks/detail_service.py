@@ -83,6 +83,7 @@ from meobot.domain.board.models import (
     TaskRow,
 )
 from meobot.domain.identity.models import Actor, Role
+from meobot.domain.orders.design_codes import split_links
 from meobot.domain.orders.labels import (
     event_label,
     node_type_label,
@@ -1045,7 +1046,17 @@ def _birthday_fields(order: Order) -> tuple[TaskField, ...]:
             "text",
             "ads",
         ),
-        TaskField("design_link", "Ảnh minh hoạ", order.design_link, "link", "ads"),
+    ]
+    # "Ảnh minh hoạ" may be several links: one field each.
+    links = split_links(order.design_link)
+    fields.append(
+        TaskField("design_link", "Ảnh minh hoạ", links[0] if links else None, "link", "ads")
+    )
+    fields.extend(
+        TaskField(f"design_link_{number}", f"Ảnh minh hoạ {number}", link, "link", "ads")
+        for number, link in enumerate(links[1:], start=2)
+    )
+    fields += [
         TaskField("note", "Note yêu cầu", order.note, "longtext", "ads"),
         TaskField("product_link", "Link thiết kế", order.product_link, "link", "common"),
     ]

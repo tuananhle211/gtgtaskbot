@@ -334,7 +334,7 @@ def test_11_assert_allowed_tells_a_wrong_stage_from_a_wrong_person() -> None:
 
 def test_12_every_process_plans_exactly_its_ticked_nodes_in_pipeline_order() -> None:
     from meobot.domain.orders.labels import video_type_label
-    from meobot.domain.orders.models import needs_design_link, process_code, production_nodes
+    from meobot.domain.orders.models import process_code, production_nodes
 
     b, t, d = OrderNodeType.BIEN_TAP, OrderNodeType.THIET_KE, OrderNodeType.DUNG
     expected = {
@@ -365,8 +365,6 @@ def test_12_every_process_plans_exactly_its_ticked_nodes_in_pipeline_order() -> 
                 OrderNodeStatus.CHUA_TOI if node_type in nodes else OrderNodeStatus.BO_QUA
             )
         assert set(statuses) == {b, t, d}
-        # An edit without a design node needs the design with the order.
-        assert needs_design_link(code) is (d in nodes and t not in nodes)
     assert process_code([]) is None
     with pytest.raises(ValueError):
         process_code([OrderNodeType.GAN_LINK])

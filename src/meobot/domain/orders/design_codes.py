@@ -95,13 +95,34 @@ def describe_items(items: Iterable[DesignItem]) -> str:
     return ", ".join(f"{item.code} x{item.quantity}" for item in items) or "(trống)"
 
 
+#: How many "Ảnh minh hoạ" links one birthday order carries.
+MAX_REFERENCE_LINKS = 20
+
+
+def split_links(stored: str | None) -> tuple[str, ...]:
+    """The links kept in one text column, one per line (a birthday order's
+    "Ảnh minh hoạ"). An order with a single link reads as one."""
+    if not stored:
+        return ()
+    return tuple(line.strip() for line in stored.splitlines() if line.strip())
+
+
+def join_links(links: Iterable[str]) -> str | None:
+    """Links as stored: one per line, blanks and repeats dropped, in order."""
+    kept = list(dict.fromkeys(part for link in links for part in split_links(link)))
+    return "\n".join(kept) or None
+
+
 __all__ = [
     "MAX_ITEMS",
     "MAX_QUANTITY",
+    "MAX_REFERENCE_LINKS",
     "DesignItem",
     "DesignPick",
     "describe_items",
     "items_from_json",
     "items_to_json",
+    "join_links",
     "same_items",
+    "split_links",
 ]

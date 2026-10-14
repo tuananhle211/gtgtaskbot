@@ -66,6 +66,9 @@ class DesignViewResponse(BaseModel):
     script_link: str | None = None
     script_by: str | None = None
     reference_link: str | None = None
+    #: Every reference link (a birthday order's "Ảnh minh hoạ" may be several);
+    #: ``reference_link`` is the first.
+    reference_links: list[str] = []
     note: str | None = None
     codes: list[DesignCodeItemResponse] = []
     #: The designer's different list, waiting for the Design Leader.
@@ -81,6 +84,7 @@ class DesignViewResponse(BaseModel):
             script_link=view.script_link,
             script_by=view.script_by,
             reference_link=view.reference_link,
+            reference_links=list(view.reference_links),
             note=view.note,
             codes=[DesignCodeItemResponse.from_domain(item) for item in view.codes],
             proposed_codes=(

@@ -32,6 +32,8 @@ from enum import StrEnum
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from meobot.domain.orders.script_rules import DEFAULT_SCRIPT_RULES, MAX_RULES_LENGTH
+
 
 class UnitCode(StrEnum):
     """The two units. Stored in ``org_units.code``."""
@@ -161,6 +163,12 @@ class UnitSettings(BaseModel):
     #: step picks them when handing in, a designer's change waits for the
     #: Design Leader. Off = hand-ins ask for none and nothing waits on them.
     design_codes_enabled: bool = True
+    #: The AI reads "Khung nhập kịch bản" when an order is placed or sent
+    #: again: a script that breaks ``script_review_rules`` goes straight back
+    #: to the orderer, before any head is asked. Off = no check.
+    script_ai_review: bool = True
+    #: The rules it is read against; only the numbered forbidden items count.
+    script_review_rules: str = Field(default=DEFAULT_SCRIPT_RULES, max_length=MAX_RULES_LENGTH)
     #: 0053: a member's token budget per working day, unless their tag sets
     #: their own (``org_unit_members.daily_tokens``).
     default_daily_tokens: float = Field(default=80, ge=0, le=999)

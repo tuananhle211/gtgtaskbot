@@ -38,6 +38,7 @@ from meobot.application.orders.design_code_service import (
 )
 from meobot.application.orders.notifications import OrderNotificationService
 from meobot.application.orders.scope import OrderScope
+from meobot.application.orders.script_review import OrderScriptReviewer
 from meobot.application.orders.token_ledger import OrderTokenLedgerService
 from meobot.application.orders.work_recorder import OrderWorkRecorder
 from meobot.application.pr_support import lock_row, record_pr_event
@@ -55,12 +56,15 @@ from meobot.domain.orders.deadlines import (
     parse_tokens,
 )
 from meobot.domain.orders.design_codes import (
+    MAX_REFERENCE_LINKS,
     DesignItem,
     DesignPick,
     describe_items,
     items_from_json,
     items_to_json,
+    join_links,
     same_items,
+    split_links,
 )
 from meobot.domain.orders.errors import (
     OrderActionNotAllowedError,
@@ -85,7 +89,6 @@ from meobot.domain.orders.models import (
     OrderStage,
     OrderVideoType,
     last_production_node,
-    needs_design_link,
 )
 from meobot.domain.orders.permissions import AdsPermission
 from meobot.domain.orders.pipeline import (
@@ -163,8 +166,10 @@ class BirthdayCommand:
     branch: str | None = None
     gender: str | None = None
     birthday_on: date | None = None
-    #: "Ảnh minh hoạ": the photo the designer works from.
+    #: "Ảnh minh hoạ": the photos the designer works from. ``reference_links``
+    #: is the whole list; ``reference_link`` the older single field (either).
     reference_link: str | None = None
+    reference_links: Sequence[str] | None = None
     note: str | None = None
 
 
@@ -235,6 +240,7 @@ class OrderCommandService:
         codes: OrderCodeService,
         notifications: OrderNotificationService,
         kpi: OrderWorkRecorder,
+        script_reviewer: OrderScriptReviewer | None = None,
     ) -> None:
         self._session = session
         self._settings = settings
@@ -245,6 +251,8 @@ class OrderCommandService:
         self._kpi = kpi
         self._tokens = OrderTokenLedgerService(session)
         self._design = DesignCodeService(session, directory=directory, audit=audit)
+        #: The AI reading of "Khung nhập kịch bản"; None = nobody to ask.
+        self._script_reviewer = script_reviewer
 
     # --- create / resubmit -------------------------------------------------------
 
@@ -262,9 +270,7 @@ class OrderCommandService:
                 "Bạn chưa có quyền tạo order trong luồng ORD.",
                 details={"reason": "not_an_orderer"},
             )
-        self._validate_fields(
-            command.video_type, command.title, command.order_content, command.design_link
-        )
+        self._validate_fields(command.title, command.order_content)
         desired = _desired_deadline(command.desired_deadline_at, now=utcnow())
         # A head's own order needs no approval - and so no approver.
         own_gate = (entry is None or entry.role is UnitMemberRole.HEAD) and (
@@ -279,6 +285,9 @@ class OrderCommandService:
         kind = await self._video_kind(unit.id, command.video_kind_id, required=True)
         platform = await self._platform(unit.id, command.platform_id, required=True)
         duration = await self._duration(unit.id, command.duration_id, required=True)
+        # Last check, before anything is written: the AI reads the script. A
+        # script that breaks the rules goes back to the orderer here.
+        ai_note = await self._review_script(settings, command.title, command.order_content)
 
         member_code = None if entry is None else entry.member_code
         if member_code is None:
@@ -328,7 +337,7 @@ class OrderCommandService:
                 )
             )
         await self._session.flush()
-        await self._event(order, OrderEventKind.SUBMITTED, actor)
+        await self._event(order, OrderEventKind.SUBMITTED, actor, note=ai_note)
         await self._audit_order(actor, request_id, AuditAction.ORDER_SUBMITTED, order, before=None)
         if own_gate:
             # Placed by a head: approved as it is placed, straight to the
@@ -388,7 +397,7 @@ class OrderCommandService:
             video_type=OrderVideoType.T,
             category=OrderCategory.BIRTHDAY,
             order_content=note or f"Thiết kế sinh nhật: {name}",
-            design_link=_blank_to_none(command.reference_link),
+            design_link=_birthday_links(command),
             note=note,
             owner_user_id=actor.user_id,
             stage=OrderStage.ORDER_PENDING,
@@ -450,8 +459,8 @@ class OrderCommandService:
             order.birthday_gender = _birthday_gender(command.gender)
         if command.birthday_on is not None:
             order.birthday_on = command.birthday_on
-        if command.reference_link is not None:
-            order.design_link = _blank_to_none(command.reference_link)
+        if command.reference_links is not None or command.reference_link is not None:
+            order.design_link = _birthday_links(command)
         if command.note is not None:
             order.note = _blank_to_none(command.note)
             order.order_content = order.note or f"Thiết kế sinh nhật: {order.title}"
@@ -462,6 +471,30 @@ class OrderCommandService:
             actor, request_id, AuditAction.ORDER_BIRTHDAY_EDITED, order, before=before
         )
         return order
+
+    async def _review_script(self, settings: UnitSettings, title: str, script: str) -> str | None:
+        """Have the AI read "Khung nhập kịch bản" against the unit's rules.
+
+        Raises ``script_review_failed`` (422) with every offending passage when
+        the script breaks a rule: the order is not placed and goes back to the
+        orderer. Otherwise returns the line for the order's history - None
+        when the check is switched off or there is nobody to ask."""
+        if self._script_reviewer is None or not settings.script_ai_review:
+            return None
+        verdict = await self._script_reviewer.review(
+            title=title, script=script, rules=settings.script_review_rules
+        )
+        if not verdict.passed:
+            count = len(verdict.violations)
+            raise OrderValidationError(
+                f"AI duyệt kịch bản: chưa đạt ({count} lỗi). Sửa các chỗ được chỉ ra rồi gửi lại.",
+                details={
+                    "reason": "script_review_failed",
+                    "field": "order_content",
+                    "violations": [violation.to_json() for violation in verdict.violations],
+                },
+            )
+        return verdict.history_note()
 
     async def _approver(
         self, unit_id: uuid.UUID, chosen: uuid.UUID | None, orderer: uuid.UUID | None
@@ -505,7 +538,7 @@ class OrderCommandService:
             order.reference_link = _blank_to_none(edit.reference_link)
         if edit.source_link is not None:
             order.source_link = _blank_to_none(edit.source_link)
-        self._validate_fields(order.video_type, order.title, order.order_content, order.design_link)
+        self._validate_fields(order.title, order.order_content)
         if edit.video_kind_id is not None:
             kind = await self._video_kind(order.unit_id, edit.video_kind_id, required=False)
             assert kind is not None
@@ -535,11 +568,13 @@ class OrderCommandService:
             await self._validate_preassigned(order.unit_id, order.video_type, edit.preassigned)
             for node_type, node in loaded.nodes.items():
                 node.preassigned_user_id = edit.preassigned.get(node_type)
+        # Sent again = read again: the script may have changed, or the rules.
+        ai_note = await self._review_script(loaded.settings, order.title, order.order_content)
         order.stage = OrderStage.ORDER_PENDING
         order.returned_reason = None
         self._bump(order)
         await self._session.flush()
-        await self._event(order, OrderEventKind.RESUBMITTED, actor)
+        await self._event(order, OrderEventKind.RESUBMITTED, actor, note=ai_note)
         await self._audit_order(
             actor, request_id, AuditAction.ORDER_RESUBMITTED, order, before=before
         )
@@ -1646,9 +1681,9 @@ class OrderCommandService:
         order.version += 1
 
     @staticmethod
-    def _validate_fields(
-        video_type: OrderVideoType, title: str, content: str, design_link: str | None
-    ) -> None:
+    def _validate_fields(title: str, content: str) -> None:
+        """The two fields every order needs. The design link is optional on
+        every process (0060), the edit-only ones included."""
         if not title.strip():
             raise OrderValidationError(
                 "Cần nhập tên kịch bản.", details={"reason": "title_missing", "field": "title"}
@@ -1657,11 +1692,6 @@ class OrderCommandService:
             raise OrderValidationError(
                 "Cần nhập nội dung order.",
                 details={"reason": "content_missing", "field": "order_content"},
-            )
-        if needs_design_link(video_type) and _blank_to_none(design_link) is None:
-            raise OrderValidationError(
-                "Quy trình có Dựng nhưng không có Design bắt buộc có link thiết kế.",
-                details={"reason": "design_link_required", "field": "design_link"},
             )
 
     async def _video_kind(
@@ -1906,6 +1936,22 @@ def _birthday_branch(value: str | None) -> str:
             details={"reason": "birthday_branch_missing", "field": "branch"},
         )
     return cleaned[:120]
+
+
+def _birthday_links(command: BirthdayCommand) -> str | None:
+    """ "Ảnh minh hoạ" as stored: the links one per line."""
+    links = (
+        command.reference_links
+        if command.reference_links is not None
+        else ([] if command.reference_link is None else [command.reference_link])
+    )
+    stored = join_links(links)
+    if len(split_links(stored)) > MAX_REFERENCE_LINKS:
+        raise OrderValidationError(
+            f"Ảnh minh hoạ tối đa {MAX_REFERENCE_LINKS} link.",
+            details={"reason": "birthday_links_too_many", "field": "reference_links"},
+        )
+    return stored
 
 
 def _birthday_gender(value: str | None) -> BirthdayGender:

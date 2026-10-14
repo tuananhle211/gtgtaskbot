@@ -211,18 +211,18 @@ describe("the create form's Quy trình", () => {
     });
   });
 
-  it("requires the design link only for Dựng without Design", async () => {
+  it("never requires the design link, Dựng without Design included", async () => {
     stubCreateForm({ kinds: [] });
     renderWithQuery(<NewOrderPage />);
     await fillBasics();
-    // Dựng alone: a design must come with the order.
-    expect(screen.getByText("Bắt buộc khi có Dựng mà không có Design")).toBeInTheDocument();
-    expect(submit()).toBeDisabled();
-    // Design in the process: optional.
-    await userEvent.click(screen.getByRole("checkbox", { name: "Design" }));
+    // Dựng alone, no link: the order may still be sent.
+    expect(screen.queryByText(/Bắt buộc khi có Dựng/)).not.toBeInTheDocument();
     expect(screen.getByText("Không bắt buộc")).toBeInTheDocument();
+    expect(screen.getByRole("textbox", { name: /Link thiết kế/ })).toHaveValue("");
     expect(submit()).toBeEnabled();
-    // Biên kịch alone has no Dựng: optional too.
+    // With Design, and with Biên kịch alone: the same.
+    await userEvent.click(screen.getByRole("checkbox", { name: "Design" }));
+    expect(submit()).toBeEnabled();
     await userEvent.click(screen.getByRole("checkbox", { name: "Design" }));
     await userEvent.click(screen.getByRole("checkbox", { name: "Dựng" }));
     await userEvent.click(screen.getByRole("checkbox", { name: "Biên kịch" }));
@@ -309,6 +309,60 @@ describe("the create form's Quy trình", () => {
     await fillBasics();
     expect(screen.queryByLabelText(/Người duyệt order/)).not.toBeInTheDocument();
     expect(screen.getByText(/order của bạn không cần duyệt/)).toBeInTheDocument();
+  });
+
+  it("shows what the AI found in the script when it refuses the order", async () => {
+    stubFetch([
+      { match: "/api/units/me", body: ORDERER },
+      { match: "/api/units/ADS/members", body: MEMBERS },
+      { match: "/api/units/ADS/video-kinds", body: { kinds: [] } },
+      {
+        match: "/api/orders",
+        method: "POST",
+        status: 422,
+        body: {
+          error: {
+            code: "order_validation_error",
+            message: "AI duyệt kịch bản: chưa đạt (2 lỗi). Sửa các chỗ được chỉ ra rồi gửi lại.",
+            details: {
+              reason: "script_review_failed",
+              field: "order_content",
+              violations: [
+                {
+                  rule: 2,
+                  quote: "cam kết",
+                  reason: "Khẳng định tuyệt đối.",
+                  suggestion: "Bỏ từ này.",
+                },
+                { rule: 0, quote: "Harmonic", reason: "", suggestion: "" },
+              ],
+            },
+          },
+        },
+      },
+    ]);
+    renderWithQuery(<NewOrderPage />);
+    await fillBasics();
+    await userEvent.click(screen.getByRole("checkbox", { name: "Design" }));
+    // The form says up front that the AI reads this field.
+    expect(screen.getByText(/AI duyệt ô này theo bộ quy tắc/)).toBeInTheDocument();
+    expect(screen.queryByTestId("script-violations")).not.toBeInTheDocument();
+    await userEvent.click(submit());
+    const dialog = await screen.findByRole("dialog");
+    await userEvent.click(within(dialog).getByRole("button", { name: "Gửi order" }));
+    const panel = await screen.findByTestId("script-violations");
+    expect(panel).toHaveTextContent("chưa đạt (2 lỗi)");
+    const items = within(panel).getAllByRole("listitem");
+    expect(items[0]).toHaveTextContent("“cam kết” · mục cấm 2");
+    expect(items[0]).toHaveTextContent("Khẳng định tuyệt đối.");
+    expect(items[0]).toHaveTextContent("Gợi ý: Bỏ từ này.");
+    // No rule number, no reason: only the quoted passage.
+    expect(items[1]).toHaveTextContent("“Harmonic”");
+    expect(items[1]).not.toHaveTextContent("mục cấm");
+    // The script the orderer typed is still there to fix.
+    expect(screen.getByRole("textbox", { name: "Nội dung order" })).toHaveValue(
+      "Key: da căng bóng",
+    );
   });
 
   it("requires the desired deadline, and refuses one in the past", async () => {

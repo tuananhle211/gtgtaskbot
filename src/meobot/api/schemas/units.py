@@ -72,6 +72,9 @@ class UnitSettingsResponse(BaseModel):
     effort_enabled: bool = True
     #: 0058: design codes ("mã video") are asked for on hand-ins to / by Design.
     design_codes_enabled: bool = True
+    #: The AI reads the order's script when it is placed; the rules it uses.
+    script_ai_review: bool = True
+    script_review_rules: str = ""
     #: 0053: token budget and the performance score's knobs.
     default_daily_tokens: float = 80
     work_weekdays: list[int] = [0, 1, 2, 3, 4]
@@ -95,6 +98,8 @@ class UnitSettingsResponse(BaseModel):
             permissions=normalise_matrix(settings.permissions),
             effort_enabled=settings.effort_enabled,
             design_codes_enabled=settings.design_codes_enabled,
+            script_ai_review=settings.script_ai_review,
+            script_review_rules=settings.script_review_rules,
             default_daily_tokens=settings.default_daily_tokens,
             work_weekdays=list(settings.work_weekdays),
             half_weekdays=list(settings.half_weekdays),
@@ -361,6 +366,8 @@ class UpdateUnitSettingsRequest(BaseModel):
     #: OWNER only (403 ``effort_setting_forbidden``).
     effort_enabled: bool | None = None
     design_codes_enabled: bool | None = None
+    script_ai_review: bool | None = None
+    script_review_rules: str | None = Field(default=None, max_length=8000)
     default_daily_tokens: float | None = Field(default=None, ge=0, le=999)
     work_weekdays: list[int] | None = None
     half_weekdays: list[int] | None = None

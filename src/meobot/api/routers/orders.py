@@ -15,7 +15,13 @@ from typing import Annotated, Any
 from fastapi import APIRouter, Depends, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from meobot.api.deps import CurrentActorDep, RequestIdDep, get_app_settings, get_session
+from meobot.api.deps import (
+    CurrentActorDep,
+    LLMProviderDep,
+    RequestIdDep,
+    get_app_settings,
+    get_session,
+)
 from meobot.api.schemas.orders import (
     ApproveFinalRequest,
     AssignRequest,
@@ -67,8 +73,9 @@ _ACTION_RESPONSES: dict[int | str, dict[str, Any]] = {
 def get_order_services(
     session: Annotated[AsyncSession, Depends(get_session)],
     settings: Annotated[Settings, Depends(get_app_settings)],
+    llm: LLMProviderDep,
 ) -> OrderServices:
-    return build_order_services(session, settings)
+    return build_order_services(session, settings, llm=llm)
 
 
 ServicesDep = Annotated[OrderServices, Depends(get_order_services)]
@@ -220,6 +227,7 @@ async def create_birthday_order(
             gender=body.gender,
             birthday_on=body.birthday_on,
             reference_link=body.reference_link,
+            reference_links=body.reference_links,
             note=body.note,
         ),
     )
@@ -256,6 +264,7 @@ async def update_birthday_order(
             gender=body.gender,
             birthday_on=body.birthday_on,
             reference_link=body.reference_link,
+            reference_links=body.reference_links,
             note=body.note,
         ),
     )

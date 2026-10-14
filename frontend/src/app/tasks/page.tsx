@@ -261,7 +261,8 @@ function TaskBoard() {
   // columns are the row's own cells, so they sort by that step's status.
   const sortValues: Record<string, SortValueOf<TaskRow>> = {
     order: (row) => row.code,
-    title: (row) => row.title,
+    // The Design table has no "Tên · Loại" column, so no sort by it either.
+    ...(designView ? {} : { title: (row: TaskRow) => row.title }),
     // The Design table draws the Design step's status and deadline: it sorts
     // by what is drawn.
     status: (row) => (designView ? designStatusLabel(row) : row.status_label),
@@ -574,9 +575,11 @@ function TaskBoard() {
                   <SortHeader sortKey="order" sort={sort} onSort={onSort}>
                     Order
                   </SortHeader>
-                  <SortHeader sortKey="title" sort={sort} onSort={onSort}>
-                    Tên · Loại
-                  </SortHeader>
+                  {designView ? null : (
+                    <SortHeader sortKey="title" sort={sort} onSort={onSort}>
+                      Tên · Loại
+                    </SortHeader>
+                  )}
                   <SortHeader sortKey="status" sort={sort} onSort={onSort}>
                     Trạng thái · Đang giữ
                   </SortHeader>
@@ -744,7 +747,7 @@ function TaskTableRow({
   showTokens: boolean;
   /**
    * The Design ban's view: "Nội dung", "Tên task" and "Thiết kế" in place of
-   * the per-step cells, "Kết quả" and the row's extras - and the step's own
+   * "Tên · Loại", the per-step cells and "Kết quả" - and the step's own
    * buttons ("Nhận việc", "Nộp bài", "Duyệt") in the action cell.
    */
   design?: boolean;
@@ -801,8 +804,12 @@ function TaskTableRow({
               {formatAgo(row.created_at)}
             </span>
           ) : null}
+          {/* The Design table has no "Tên · Loại" column: its flags sit here. */}
+          {design && row.is_priority ? <Pill tone="warn">Ưu tiên</Pill> : null}
+          {design && row.urgent ? <Pill tone="critical">Gấp</Pill> : null}
         </span>
       </td>
+      {design ? null : (
       <td className="min-w-[12rem] max-w-[24rem]">
         <Link
           href={row.detail_path}
@@ -824,7 +831,7 @@ function TaskTableRow({
           ) : null}
           {row.is_priority ? <Pill tone="warn">Ưu tiên</Pill> : null}
           {row.urgent ? <Pill tone="critical">Gấp</Pill> : null}
-          {!dense && !design
+          {!dense
             ? (row.extras ?? []).map((extra) => (
                 <span
                   key={extra.label}
@@ -836,6 +843,7 @@ function TaskTableRow({
             : null}
         </div>
       </td>
+      )}
       {design ? (
         <DesignStatusCell row={row} dense={dense} />
       ) : (

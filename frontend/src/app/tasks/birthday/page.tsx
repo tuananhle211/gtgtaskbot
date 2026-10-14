@@ -359,7 +359,12 @@ function BirthdayRow({
 }) {
   const opens = useRowNavigation()(row.detail_path);
   const person = row.birthday;
-  const reference = row.design?.reference_link ?? null;
+  // "Ảnh minh hoạ" may be several links; an older API sends only the one.
+  const references = row.design?.reference_links?.length
+    ? row.design.reference_links
+    : row.design?.reference_link
+      ? [row.design.reference_link]
+      : [];
   const note = row.design?.note ?? null;
   // Waiting on the viewer: the server's flag, else "the holder is me".
   const todo =
@@ -398,13 +403,20 @@ function BirthdayRow({
       <DesignStatusCell row={row} />
       <DesignDeadlineCell row={row} />
       <td className="min-w-[11rem] max-w-[18rem] text-xs" data-testid="birthday-content">
-        {reference ? <WebLink href={reference} label="Ảnh minh hoạ" /> : null}
+        {references.map((link, index) => (
+          <span key={`${index}-${link}`} className="block">
+            <WebLink
+              href={link}
+              label={references.length > 1 ? `Ảnh minh hoạ ${index + 1}` : "Ảnh minh hoạ"}
+            />
+          </span>
+        ))}
         {note ? (
           <span className="mt-0.5 block whitespace-pre-wrap leading-snug text-[var(--text-muted)]">
             {note}
           </span>
         ) : null}
-        {!reference && !note ? <span className="text-[var(--text-muted)]">–</span> : null}
+        {!references.length && !note ? <span className="text-[var(--text-muted)]">–</span> : null}
       </td>
       <DesignerCell row={row} />
       {/* The action cell: a click in here never opens the task. */}

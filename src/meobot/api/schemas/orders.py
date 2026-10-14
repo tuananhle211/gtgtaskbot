@@ -5,6 +5,7 @@ from __future__ import annotations
 import uuid
 from datetime import date, datetime
 from decimal import Decimal
+from typing import Annotated
 
 from pydantic import BaseModel, Field
 
@@ -406,6 +407,10 @@ class SubmitWorkRequest(VersionedRequest):
     design_codes: list[DesignPickRequest] | None = Field(default=None, max_length=100)
 
 
+#: One "Ảnh minh hoạ" link (a Drive link, a NAS path...).
+ReferenceLink = Annotated[str, Field(max_length=2000)]
+
+
 class CreateBirthdayOrderRequest(BaseModel):
     """ "Order sinh nhật" (0058): the Design team's birthday artwork."""
 
@@ -414,8 +419,10 @@ class CreateBirthdayOrderRequest(BaseModel):
     #: ``MALE`` / ``FEMALE``.
     gender: str = Field(min_length=1, max_length=10)
     birthday_on: date
-    #: "Ảnh minh hoạ".
+    #: "Ảnh minh hoạ": several links (422 ``birthday_links_too_many`` past 20).
+    #: ``reference_link`` is the older single field; send one or the other.
     reference_link: str | None = Field(default=None, max_length=2000)
+    reference_links: list[ReferenceLink] | None = Field(default=None, max_length=50)
     note: str | None = Field(default=None, max_length=5000)
 
 
@@ -427,6 +434,8 @@ class UpdateBirthdayOrderRequest(VersionedRequest):
     gender: str | None = Field(default=None, max_length=10)
     birthday_on: date | None = None
     reference_link: str | None = Field(default=None, max_length=2000)
+    #: The whole list as it should be; ``[]`` clears it.
+    reference_links: list[ReferenceLink] | None = Field(default=None, max_length=50)
     note: str | None = Field(default=None, max_length=5000)
 
 

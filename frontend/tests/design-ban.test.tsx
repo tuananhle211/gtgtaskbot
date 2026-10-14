@@ -336,12 +336,12 @@ const tasksPage = (me: unknown, rows: TaskRow[] = [ROW]) => {
 };
 
 describe("the task table as the Design ban reads it", () => {
-  it("keeps the first four columns, then Nội dung / Tên task / Thiết kế", async () => {
+  it("keeps Order, status and deadline, then Nội dung / Tên task / Thiết kế", async () => {
     tasksPage(ME_AS("THIET_KE", DESIGNER));
-    await screen.findByText("Banner khai trương");
+    await screen.findByRole("link", { name: "TUAN-BT-261012-01" });
+    // No "Tên · Loại" column on the Design table: neither the title nor the kind.
     expect(headers()).toEqual([
       "Order",
-      "Tên · Loại",
       "Trạng thái · Đang giữ",
       "Deadline",
       "Nội dung",
@@ -349,6 +349,7 @@ describe("the task table as the Design ban reads it", () => {
       "Thiết kế",
       "Thao tác",
     ]);
+    expect(screen.queryByText("Banner khai trương")).not.toBeInTheDocument();
     // The per-step cells, "Kết quả" and the row's extras are gone.
     expect(screen.queryByText("Trả sửa")).not.toBeInTheDocument();
     expect(screen.queryByText("Loại video: Banner")).not.toBeInTheDocument();
@@ -418,7 +419,7 @@ describe("the task table as the Design ban reads it", () => {
 
   it("renders a row from an API that sends no design block", async () => {
     tasksPage(ME_AS("THIET_KE", DESIGNER), [{ ...ROW, design: undefined }]);
-    await screen.findByText("Banner khai trương");
+    await screen.findByRole("link", { name: "TUAN-BT-261012-01" });
     expect(screen.getByTestId("design-content")).toHaveTextContent("–");
     expect(screen.getByTestId("design-codes")).toHaveTextContent("–");
   });
@@ -1041,9 +1042,56 @@ describe("the birthday board", () => {
       branch: "VP - Hà Nội",
       gender: "FEMALE",
       birthday_on: "1998-10-01",
-      reference_link: "https://drive.example.com/anh-my",
+      reference_links: ["https://drive.example.com/anh-my"],
       note: "Tông hồng",
     });
+  });
+
+  it("takes several Ảnh minh hoạ links: add, remove, and blanks are left out", async () => {
+    const stub = birthdayPage(ME_AS("ORDERER", ORDERER), [], [
+      { match: "/api/orders/birthday", method: "POST", body: { id: "o-b9", code: "MY-T-9", version: 1 } },
+    ]);
+    await userEvent.click(await screen.findByRole("button", { name: /Tạo order/ }));
+    const dialog = await screen.findByRole("dialog");
+    await userEvent.type(within(dialog).getByLabelText("Họ và tên"), "Trần Diễm My");
+    await userEvent.type(within(dialog).getByLabelText("Chi nhánh"), "VP - Hà Nội");
+    await userEvent.selectOptions(within(dialog).getByLabelText("Giới tính"), "FEMALE");
+    fireEvent.change(within(dialog).getByLabelText("Ngày sinh"), {
+      target: { value: "1998-10-01" },
+    });
+    // One input to begin with, and nothing to remove.
+    expect(within(dialog).queryByRole("button", { name: /Xoá link/ })).not.toBeInTheDocument();
+    await userEvent.type(within(dialog).getByLabelText("Ảnh minh hoạ"), "https://drive.example.com/1");
+    const add = within(dialog).getByRole("button", { name: "+ Thêm link" });
+    await userEvent.click(add);
+    await userEvent.type(within(dialog).getByLabelText("Ảnh minh hoạ 2"), "https://drive.example.com/2");
+    await userEvent.click(add);
+    await userEvent.type(within(dialog).getByLabelText("Ảnh minh hoạ 3"), "https://drive.example.com/3");
+    await userEvent.click(add); // a fourth, left empty
+    // Remove the second: the third moves up.
+    await userEvent.click(within(dialog).getByRole("button", { name: "Xoá link 2" }));
+    expect(within(dialog).getByLabelText("Ảnh minh hoạ 2")).toHaveValue("https://drive.example.com/3");
+    await userEvent.click(within(dialog).getByRole("button", { name: "Tạo order" }));
+    await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
+    const sent = calls(stub).find((call) => call.method === "POST")!;
+    expect((sent.body as { reference_links: string[] }).reference_links).toEqual([
+      "https://drive.example.com/1",
+      "https://drive.example.com/3",
+    ]);
+  });
+
+  it("lists every Ảnh minh hoạ link of a row, and opens them in the edit form", async () => {
+    const links = ["https://drive.example.com/a", "https://drive.example.com/b"];
+    birthdayPage(ME_AS("ORDERER", ORDERER), [
+      { ...BIRTHDAY_ROW, design: { ...BIRTHDAY_ROW.design, reference_links: links } },
+    ]);
+    const cell = await screen.findByTestId("birthday-content");
+    expect(within(cell).getByRole("link", { name: /Ảnh minh hoạ 1/ })).toHaveAttribute("href", links[0]);
+    expect(within(cell).getByRole("link", { name: /Ảnh minh hoạ 2/ })).toHaveAttribute("href", links[1]);
+    await userEvent.click(screen.getByRole("button", { name: /Chỉnh sửa/ }));
+    const dialog = await screen.findByRole("dialog");
+    expect(within(dialog).getByLabelText("Ảnh minh hoạ")).toHaveValue(links[0]);
+    expect(within(dialog).getByLabelText("Ảnh minh hoạ 2")).toHaveValue(links[1]);
   });
 
   it("edits a row from the same modal, with the row's version", async () => {
@@ -1082,7 +1130,7 @@ describe("the birthday board", () => {
       branch: "CS - Hà Nội 2",
       gender: "FEMALE",
       birthday_on: "1998-10-01",
-      reference_link: "https://drive.example.com/anh-my",
+      reference_links: ["https://drive.example.com/anh-my"],
       note: null,
     });
   });
@@ -1297,7 +1345,7 @@ const designCell = (over: Partial<TaskRow["cells"][number]>) => ({
 describe("the Design ban's own filters", () => {
   it('drops "Pha", "Quy trình", "Loại video" and "Marketing"', async () => {
     const stub = filteredTasksPage(ME_AS("THIET_KE", DESIGNER));
-    await screen.findByText("Banner khai trương");
+    await screen.findByRole("link", { name: "TUAN-BT-261012-01" });
     for (const gone of ["Pha", "Quy trình", "Loại video", "Marketing"]) {
       expect(screen.queryByRole("combobox", { name: gone })).not.toBeInTheDocument();
     }
@@ -1337,7 +1385,7 @@ describe("the Design ban's own filters", () => {
   it('lists the server\'s Design states under "Trạng thái" and sends design_status', async () => {
     SEARCH.value = new URLSearchParams("page=3");
     const stub = filteredTasksPage(ME_AS("THIET_KE", DESIGNER));
-    await screen.findByText("Banner khai trương");
+    await screen.findByRole("link", { name: "TUAN-BT-261012-01" });
     const status = screen.getByRole("combobox", { name: "Trạng thái" });
     expect(optionTexts(status)).toEqual([
       "Tất cả",
@@ -1370,7 +1418,7 @@ describe("the Design ban's own filters", () => {
   it("keeps a status from the URL selected while the list of states is on its way", async () => {
     SEARCH.value = new URLSearchParams("design_status=DANG_SUA");
     const stub = filteredTasksPage(ME_AS("THIET_KE", DESIGNER));
-    await screen.findByText("Banner khai trương");
+    await screen.findByRole("link", { name: "TUAN-BT-261012-01" });
     expect(listRequests(stub)[0].get("design_status")).toBe("DANG_SUA");
     const status = screen.getByRole("combobox", { name: "Trạng thái" });
     expect(status).toHaveValue("DANG_SUA");
@@ -1379,7 +1427,7 @@ describe("the Design ban's own filters", () => {
 
   it('lists only the Design ban under "Người làm" and sends assignee', async () => {
     const stub = filteredTasksPage(ME_AS("THIET_KE", DESIGNER));
-    await screen.findByText("Banner khai trương");
+    await screen.findByRole("link", { name: "TUAN-BT-261012-01" });
     const people = screen.getByRole("combobox", { name: "Người làm" });
     // Designers and their Leader; nobody from another ban, nobody who left.
     await waitFor(() => expect(optionTexts(people)).toEqual(["Tất cả", "Diễm My", "Lan Leader"]));
@@ -1393,7 +1441,7 @@ describe("the Design ban's own filters", () => {
       "step=DUNG&kind=BT&video_kind_id=k-1&owner=u-tuan&phase=REVIEW&design_status=DANG_LAM&from=2026-10-01",
     );
     const stub = filteredTasksPage(ME_AS("THIET_KE", DESIGNER));
-    await screen.findByText("Banner khai trương");
+    await screen.findByRole("link", { name: "TUAN-BT-261012-01" });
     for (const request of listRequests(stub)) {
       for (const removed of ["step", "kind", "video_kind_id", "owner", "phase"]) {
         expect(request.get(removed), removed).toBeNull();
@@ -1499,7 +1547,7 @@ describe("the Design step's status and deadline on the Design table", () => {
     filteredTasksPage(ME_AS("THIET_KE", DESIGNER), [
       { ...AT_DUNG, cells: AT_DUNG.cells.filter((cell) => cell.key !== "THIET_KE") },
     ]);
-    await screen.findByText("Banner khai trương");
+    await screen.findByRole("link", { name: "TUAN-BT-261012-01" });
     expect(screen.queryByTestId("design-status")).not.toBeInTheDocument();
     expect(screen.getByText("Dựng · Đang làm")).toBeInTheDocument();
     expect(screen.getByTestId("row-deadline")).toHaveTextContent("Hạn 25/10 10:00");

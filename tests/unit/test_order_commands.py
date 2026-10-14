@@ -28,9 +28,11 @@ from decimal import Decimal
 from typing import Any
 
 import pytest
-from sqlalchemy import select
+from sqlalchemy import func, select
 
-from meobot.db.models.order import OrderWorkRule
+from meobot.application.orders.script_review import _grounded
+from meobot.core.errors import LLMError
+from meobot.db.models.order import Order, OrderWorkRule
 from meobot.db.models.org_unit import OrgUnit, UnitVideoKind
 from meobot.db.models.pr_work import PrWorkType
 from meobot.db.models.pr_work_result import PrWorkResult
@@ -38,11 +40,12 @@ from meobot.db.models.user import User
 from meobot.db.models.user_notification import UserNotification
 from meobot.domain.identity.models import Role
 from meobot.domain.orders.labels import PROCESS_SEPARATOR as SEP
-from meobot.domain.orders.models import OrderNodeType
+from meobot.domain.orders.models import OrderNodeType, OrderStage
 from meobot.domain.pr.work import PrWorkCategory
 from meobot.domain.pr.work_results import PrWorkResultSource
 from meobot.domain.units.member_code import derive_member_code
 from meobot.domain.units.models import UnitCode, UnitMemberRole, unit_seed_id
+from meobot.integrations.llm.fake import FakeLLMProvider
 from tests.unit.pr_world import World
 from tests.unit.test_units_gating import error_reason, seed_units, tag, untag
 
@@ -229,8 +232,10 @@ async def test_02_create_validates_the_type_the_link_and_the_chosen_people(world
         "order_content": "y",
         "desired_deadline_at": FAR_DEADLINE,
     }
+    # An edit with no design step needs no design link either (0060).
     response = world.client.post("/api/orders", json=base)
-    assert response.status_code == 422 and error_reason(response.json()) == "design_link_required"
+    assert response.status_code == 201, response.json()
+    assert response.json()["order"]["design_link"] is None
     response = world.client.post("/api/orders", json={**base, "video_type": "XL"})
     assert response.status_code == 422 and error_reason(response.json()) == "invalid_video_type"
     # A designer chosen for a quick edit, which has no design node.
@@ -690,13 +695,9 @@ async def test_13_the_process_is_validated(world: World) -> None:
     assert reason(process=["NOPE"]) == (422, "invalid_process")
     assert reason(video_type="TD", process=["DUNG"]) == (422, "process_mismatch")
     assert reason(video_type="XL") == (422, "invalid_video_type")
-    # The design-link rule: an edit with no design node needs it, others do not.
+    # The design link is optional on every process (0060), D and BD included.
     without = {"title": "X", "order_content": "y", "desired_deadline_at": FAR_DEADLINE}
-    for code in ("D", "BD"):
-        response = world.client.post("/api/orders", json={**without, "video_type": code})
-        assert response.status_code == 422, code
-        assert error_reason(response.json()) == "design_link_required"
-    for code in ("B", "T", "BT", "TD", "BTD"):
+    for code in ("D", "BD", "B", "T", "BT", "TD", "BTD"):
         response = world.client.post("/api/orders", json={**without, "video_type": code})
         assert response.status_code == 201, (code, response.json())
 
@@ -1028,3 +1029,107 @@ async def test_17_a_legacy_order_at_the_old_link_step_hides_it_and_still_finishe
     ).one()
     await world.session.refresh(legacy)
     assert legacy.status is OrderNodeStatus.BO_QUA
+
+
+# --- the AI reads the script before anybody approves it -----------------------------------
+
+
+async def test_ai_script_review_sends_a_bad_script_back_to_the_orderer(world: World) -> None:
+    ads = await ads_world(world)
+    world.act_as(ads.orderer)
+    body = {
+        "title": "Kịch bản nâng mũi",
+        "video_type": "BTD",
+        "order_content": "Chúng tôi CAM KẾT đẹp, công nghệ Harmonic, không đau.",
+        "desired_deadline_at": FAR_DEADLINE,
+    }
+    refused = world.client.post("/api/orders", json=body)
+    assert refused.status_code == 422, refused.json()
+    assert error_reason(refused.json()) == "script_review_failed"
+    details = refused.json()["error"]["details"]
+    assert details["field"] == "order_content"
+    # Each offending passage is quoted as it stands in the script, with its rule.
+    assert [(item["rule"], item["quote"]) for item in details["violations"]] == [
+        (2, "CAM KẾT"),
+        (4, "không đau"),
+        (7, "Harmonic"),
+    ]
+    assert all(item["reason"] and item["suggestion"] for item in details["violations"])
+    # Nothing was placed: no order, nothing for the head.
+    assert await world.session.scalar(select(func.count()).select_from(Order)) == 0
+    assert await inbox(world, ads.head) == []
+
+    # Fixed: it goes on to the head, and the history says the AI passed it.
+    placed = world.client.post(
+        "/api/orders", json={**body, "order_content": "Đội ngũ bác sĩ Thẩm mỹ Apexmed tư vấn."}
+    )
+    assert placed.status_code == 201, placed.json()
+    detail = placed.json()
+    assert detail["order"]["stage"] == "ORDER_PENDING"
+    world.act_as(ads.orderer)
+    page = world.client.get(f"/api/tasks/{detail['order']['code']}").json()
+    assert page["timeline"][-1]["note"] == "AI duyệt kịch bản: đạt."
+
+    # Returned by the head and edited into a bad script: sent back again.
+    detail = act(world, ads.head, "/return", detail, note="Thiếu key")
+    world.act_as(ads.orderer)
+    path = f"/api/orders/{detail['order']['id']}/resubmit"
+    again = world.client.post(
+        path, json={"version": detail["order"]["version"], "order_content": "Đặc trị sẹo."}
+    )
+    assert again.status_code == 422 and error_reason(again.json()) == "script_review_failed"
+    order = await world.session.get(Order, uuid.UUID(detail["order"]["id"]))
+    assert order is not None
+    await world.session.refresh(order)
+    assert order.stage is OrderStage.ORDER_RETURNED
+    assert order.order_content == "Đội ngũ bác sĩ Thẩm mỹ Apexmed tư vấn."  # unchanged
+    fine = world.client.post(
+        path, json={"version": detail["order"]["version"], "order_content": "Xử lý sẹo nhẹ nhàng."}
+    )
+    assert fine.status_code == 200, fine.json()
+    assert fine.json()["order"]["stage"] == "ORDER_PENDING"
+
+
+async def test_ai_script_review_never_blocks_when_off_or_when_the_ai_is_down(
+    world: World, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    ads = await ads_world(world)
+    bad = {"order_content": "Cam kết hàng đầu."}
+    # Switched off for the unit: nothing is read.
+    ads.unit.settings = {**(ads.unit.settings or {}), "script_ai_review": False}
+    await world.session.flush()
+    assert create(world, ads, **bad)["order"]["stage"] == "ORDER_PENDING"
+    # On, with rules of the unit's own: an empty rule book checks nothing.
+    ads.unit.settings = {**ads.unit.settings, "script_ai_review": True, "script_review_rules": " "}
+    await world.session.flush()
+    assert create(world, ads, **bad)["order"]["stage"] == "ORDER_PENDING"
+
+    # The provider fails: the order goes on, and the history says so.
+    ads.unit.settings = {
+        key: value for key, value in ads.unit.settings.items() if key != "script_review_rules"
+    }
+    await world.session.flush()
+
+    async def broken(self: Any, request: Any) -> Any:
+        raise LLMError("down")
+
+    monkeypatch.setattr(FakeLLMProvider, "complete_structured", broken)
+    detail = create(world, ads, **bad)
+    assert detail["order"]["stage"] == "ORDER_PENDING"
+    world.act_as(ads.orderer)
+    page = world.client.get(f"/api/tasks/{detail['order']['code']}").json()
+    assert page["timeline"][-1]["note"] == "AI chưa duyệt được kịch bản (AI đang lỗi)."
+
+
+def test_ai_findings_must_quote_the_script_itself() -> None:
+    script = "Dịch vụ  “Hàng   Đầu” khu vực. Không đau."
+    found = [
+        {"rule": 2, "quote": "hàng đầu", "reason": "r", "suggestion": "s"},
+        {"rule": 2, "quote": "HÀNG ĐẦU", "reason": "again", "suggestion": "s"},  # the same one
+        {"rule": 1, "quote": "điều trị", "reason": "not in the script", "suggestion": "s"},
+        {"rule": "x", "quote": "Không đau.", "reason": "r", "suggestion": "s"},
+        {"quote": "", "reason": "empty"},
+        "not a finding",
+    ]
+    kept = _grounded(found, script)
+    assert [(item.rule, item.quote) for item in kept] == [(2, "hàng đầu"), (0, "Không đau.")]

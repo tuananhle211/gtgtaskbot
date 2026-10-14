@@ -1291,6 +1291,37 @@ export function SettingsForm({ code, onDone }: { code: string; onDone: () => voi
           </p>
         ) : null}
       </fieldset>
+      {code === "ADS" && current.script_ai_review !== undefined ? (
+        <fieldset className="sm:col-span-2">
+          <legend className="text-xs text-[var(--text-muted)]">
+            AI duyệt “Khung nhập kịch bản” khi người order gửi order: không đạt thì
+            trả lại ngay cho người order, đạt mới chuyển cho trưởng phòng
+          </legend>
+          <label className="inline-flex min-h-11 items-center gap-2 text-sm">
+            <input
+              type="checkbox"
+              role="switch"
+              checked={Boolean(value("script_ai_review"))}
+              onChange={(event) =>
+                setDraft((all) => ({ ...all, script_ai_review: event.target.checked }))
+              }
+            />
+            AI duyệt kịch bản
+          </label>
+          <label className="mt-1 block text-xs text-[var(--text-muted)]">
+            Bộ quy tắc (chỉ các mục cấm được đánh số mới tính là lỗi)
+            <textarea
+              aria-label="Bộ quy tắc AI duyệt kịch bản"
+              value={value("script_review_rules") ?? ""}
+              maxLength={8000}
+              onChange={(event) =>
+                setDraft((all) => ({ ...all, script_review_rules: event.target.value }))
+              }
+              className={`mt-1 min-h-48 ${field}`}
+            />
+          </label>
+        </fieldset>
+      ) : null}
       <fieldset className="sm:col-span-2">
         <legend className="text-xs text-[var(--text-muted)]">
           Trưởng phòng duyệt bài nộp trước khi chuyển bước (bỏ chọn: nộp xong tự
