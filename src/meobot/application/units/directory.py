@@ -23,10 +23,12 @@ from dataclasses import dataclass
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from meobot.application.org.seats import grants_of, load_grants, load_seats
 from meobot.db.models.org_unit import OrgUnit, OrgUnitMember
 from meobot.db.models.user import User
 from meobot.domain.identity.models import Actor, Role
 from meobot.domain.orders.models import OrderNodeType
+from meobot.domain.org.models import MODULE_ORDER
 from meobot.domain.units.errors import UnitNotFoundError
 from meobot.domain.units.models import (
     FUNCTION_ROLES,
@@ -68,6 +70,10 @@ class UnitDirectoryService:
     def __init__(self, session: AsyncSession) -> None:
         self._session = session
 
+    @property
+    def session(self) -> AsyncSession:
+        return self._session
+
     # --- membership ---------------------------------------------------------
 
     async def membership_for(self, actor: Actor) -> UnitMembership:
@@ -98,8 +104,20 @@ class UnitDirectoryService:
             for member, code in rows
             if member.left_at is None
         )
+        seats = (await load_seats(self._session, [actor.user_id])).get(actor.user_id, ())
+        grants = None
+        if seats:
+            table = await load_grants(
+                self._session, MODULE_ORDER, [seat.department_id for seat in seats]
+            )
+            grants = grants_of(seats, table)
         return UnitMembership(
-            user_id=actor.user_id, entries=entries, is_owner=is_owner, is_admin=is_admin
+            user_id=actor.user_id,
+            entries=entries,
+            is_owner=is_owner,
+            is_admin=is_admin,
+            seats=seats,
+            grants=grants,
         )
 
     async def require(self, actor: Actor, code: UnitCode) -> UnitMembership:
@@ -190,7 +208,7 @@ class UnitDirectoryService:
 
 def manager_fits(boss: OrgUnitMember, member: OrgUnitMember) -> bool:
     """May ``boss`` be ``member``'s own Leader? A staff member of a function
-    reports to a Leader of that function, an orderer to a Trưởng phòng ORD."""
+    reports to a Leader of that function, an orderer to a Trưởng phòng ADS."""
     if boss.user_id == member.user_id or boss.left_at is not None or member.left_at is not None:
         return False
     if boss.unit_id != member.unit_id:

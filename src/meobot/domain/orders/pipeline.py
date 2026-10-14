@@ -47,6 +47,7 @@ from meobot.domain.orders.permissions import (
     AdsRoleKey,
     resolve_matrix,
 )
+from meobot.domain.org.models import FUNCTION_NODES
 from meobot.domain.units.models import UnitMemberRole, UnitMembership, UnitSettings
 
 # --- the pipeline -------------------------------------------------------------
@@ -264,6 +265,22 @@ class OrderActorContext:
                 leads.add(node_type)
         if membership.is_owner:
             permissions = AdsPermissions.full()
+        elif membership.grants is not None:
+            # 0061: what the person's department seats grant - plus the
+            # matrix's Admin column for an ADMIN.
+            permissions = AdsPermissions.from_grants(
+                (grant.permission, grant.scope, FUNCTION_NODES.get(grant.function))
+                for grant in membership.grants
+            )
+            if membership.is_admin:
+                permissions = permissions.union(
+                    AdsPermissions.compute(
+                        resolve_matrix(settings.permissions),
+                        roles=[AdsRoleKey.ADMIN],
+                        function_nodes=frozenset(members),
+                        lead_nodes=frozenset(leads),
+                    )
+                )
         else:
             roles: list[AdsRoleKey] = []
             if entry is not None:
@@ -378,7 +395,9 @@ def available_actions(
         )
 
     may = ctx.permissions
-    if order.stage is OrderStage.ORDER_PENDING and may.allows(AdsPermission.ORDER_APPROVE):
+    # ``OWN`` (0061): the orders that reach the approver - their team's, or
+    # choosing them - which is exactly what their scope lets them load.
+    if order.stage is OrderStage.ORDER_PENDING and may.holds(AdsPermission.ORDER_APPROVE):
         add(OrderActionKind.APPROVE_ORDER)
         add(OrderActionKind.RETURN_ORDER)
     if order.stage is OrderStage.ORDER_RETURNED and is_owner:

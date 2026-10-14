@@ -87,6 +87,13 @@ const nextConfig = {
         source: "/api/invites/:path*",
         destination: `${target}/api/invites/:path*`,
       },
+      // Departments ("Phòng ban"): list + create on the bare collection route,
+      // the rest (catalog, a department, its members and grants) below it.
+      { source: "/api/departments", destination: `${target}/api/departments` },
+      {
+        source: "/api/departments/:path*",
+        destination: `${target}/api/departments/:path*`,
+      },
       // The magic-link landing route. Handled by FastAPI, which sets the cookie
       // and redirects to /pr - a page this app serves.
       { source: "/auth/login", destination: `${target}/auth/login` },

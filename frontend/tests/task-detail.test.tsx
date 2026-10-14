@@ -166,7 +166,7 @@ const ADS: UnifiedTaskDetail = {
   timeline: [
     {
       at: "2026-10-07T04:00:00+00:00",
-      actor_name: "Trưởng phòng ORD",
+      actor_name: "Trưởng phòng ADS",
       label: "Trả sửa Biên tập",
       note: "Hook yếu",
     },

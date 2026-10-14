@@ -6,10 +6,8 @@ from datetime import UTC, datetime, timedelta
 from typing import Any
 
 import pytest
-from sqlalchemy import update
 
 from meobot.db.models.order import Order
-from meobot.db.models.org_unit import OrgUnitMember
 from meobot.domain.board.models import ADS_STAGE_PHASE, PR_STAGE_PHASE, Phase
 from meobot.domain.identity.models import Role
 from meobot.domain.orders.labels import PROCESS_SEPARATOR as SEP
@@ -20,7 +18,7 @@ from meobot.domain.pr.policy import PrCapability
 from meobot.domain.units.models import UnitMemberRole
 from tests.unit.pr_world import World
 from tests.unit.test_order_commands import act, ads_world, create, inbox, node, person, tag
-from tests.unit.test_units_gating import error_reason, seed_units
+from tests.unit.test_units_gating import error_reason, seed_units, untag
 
 pytestmark = pytest.mark.asyncio
 
@@ -322,14 +320,11 @@ async def test_09_every_row_names_one_member_or_says_cho_giao(world: World) -> N
     assert cells["DUNG"]["status_label"] == f"Chờ {ads.lead_dung.full_name} duyệt"
     assert cells["DUNG"]["status"] == "CHO_DUYET"
 
-    # With no head tagged, a pending order is "Chờ giao", not "Trưởng phòng".
-    await world.session.execute(
-        update(OrgUnitMember)
-        .where(OrgUnitMember.user_id == ads.head.id)
-        .values(left_at=datetime.now(UTC))
-    )
-    await world.session.flush()
+    # Its head gone after it was placed, a pending order is "Chờ giao", not
+    # "Trưởng phòng". (Placing one with no head to approve it is refused:
+    # ``approver_required``, 0061.)
     other = create(world, ads, video_type="D", design_link="https://example.com/d2")
+    await untag(world, ads.unit, ads.head)
     world.act_as(world.owner)
     page = tasks(world, unit="ADS")
     orphan = next(item for item in page["items"] if item["code"] == other["order"]["code"])

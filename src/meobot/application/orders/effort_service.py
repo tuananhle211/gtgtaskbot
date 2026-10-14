@@ -546,7 +546,8 @@ def _visible(
     actor: Actor, membership: UnitMembership, members: list[OrgUnitMember]
 ) -> set[uuid.UUID]:
     everyone = {member.user_id for member in members}
-    if membership.sees_all:
+    # Ban Giám đốc sees every report (0061).
+    if membership.sees_all or membership.is_board:
         return everyone
     entry = membership.entry(UnitCode.ADS)
     if entry is not None and entry.role is UnitMemberRole.HEAD:

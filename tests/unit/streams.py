@@ -14,14 +14,22 @@ from collections.abc import Iterable
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from meobot.application.org.departments import (
+    ensure_default_departments,
+    function_department,
+    open_seat,
+)
 from meobot.core.time import utcnow
+from meobot.db.models.department import DepartmentMember
 from meobot.db.models.org_unit import OrgUnit, OrgUnitMember
 from meobot.db.models.user import User
+from meobot.domain.org.models import DepartmentFunction, Position
 from meobot.domain.units.models import UnitCode, UnitMemberRole, unit_seed_id
 
 
 async def ensure_units(session: AsyncSession) -> dict[UnitCode, OrgUnit]:
-    """The two unit rows ``0042`` seeds, created when missing."""
+    """The two unit rows ``0042`` seeds, and the departments ``0061`` seeds,
+    created when missing."""
     units: dict[UnitCode, OrgUnit] = {}
     for code in UnitCode:
         row = await session.get(OrgUnit, unit_seed_id(code))
@@ -30,6 +38,7 @@ async def ensure_units(session: AsyncSession) -> dict[UnitCode, OrgUnit]:
             session.add(row)
         units[code] = row
     await session.flush()
+    await ensure_default_departments(session)
     return units
 
 
@@ -37,7 +46,20 @@ async def tag_pr(session: AsyncSession, users: Iterable[User]) -> None:
     """Give each user an open PR ``MEMBER`` tag (a no-op for one who has it)."""
     units = await ensure_units(session)
     pr = units[UnitCode.PR]
+    team = await function_department(session, DepartmentFunction.PR)
+    assert team is not None
     for user in users:
+        # The seat behind the tag (0061), written without re-deriving the
+        # person's other tags.
+        if await open_seat(session, team.id, user.id) is None:
+            session.add(
+                DepartmentMember(
+                    department_id=team.id,
+                    user_id=user.id,
+                    position=Position.MEMBER,
+                    joined_at=utcnow(),
+                )
+            )
         existing = await session.scalar(
             select(OrgUnitMember).where(
                 OrgUnitMember.unit_id == pr.id, OrgUnitMember.user_id == user.id

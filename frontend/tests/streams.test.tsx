@@ -340,7 +340,7 @@ const ADS_MEMBERS = {
     member(SESSION.user_id, "Le Trưởng Nhóm", { base_role: "TEAM_LEAD", role: "HEAD" }),
   ],
   assignable_roles: [
-    { role: "HEAD", label: "Trưởng phòng ORD" },
+    { role: "HEAD", label: "Trưởng phòng ADS" },
     { role: "BIEN_TAP", label: "Trưởng phòng Biên kịch", is_lead: true },
     { role: "BIEN_TAP", label: "Biên kịch" },
   ],
@@ -447,7 +447,7 @@ describe("tagging follows can_tag", () => {
         within(within(dialog).getByLabelText("Vai trò trong luồng"))
           .getAllByRole("option")
           .map((option) => option.textContent),
-      ).toEqual(["Trưởng phòng ORD", "Trưởng phòng Biên kịch", "Biên kịch"]),
+      ).toEqual(["Trưởng phòng ADS", "Trưởng phòng Biên kịch", "Biên kịch"]),
     );
     await userEvent.selectOptions(within(dialog).getByLabelText("Vai trò trong luồng"), "BIEN_TAP:LEAD");
     expect(dialog).toHaveTextContent("Gắn Người Mới vào Luồng Order (ORD)?");

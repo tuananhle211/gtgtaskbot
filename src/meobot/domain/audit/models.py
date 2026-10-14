@@ -466,6 +466,12 @@ class AuditAction(StrEnum):
     UNIT_MEMBER_UPDATED = "unit.member.updated"
     UNIT_MEMBER_UNTAGGED = "unit.member.untagged"
     UNIT_SETTINGS_UPDATED = "unit.settings.updated"
+    #: 0061: departments, the seats in them and what they grant.
+    DEPARTMENT_CREATED = "department.created"
+    DEPARTMENT_UPDATED = "department.updated"
+    DEPARTMENT_MEMBER_SET = "department.member.set"
+    DEPARTMENT_MEMBER_REMOVED = "department.member.removed"
+    DEPARTMENT_GRANTS_UPDATED = "department.grants.updated"
     UNIT_VIDEO_KIND_CREATED = "unit.video_kind.created"
     UNIT_VIDEO_KIND_UPDATED = "unit.video_kind.updated"
     UNIT_PLATFORM_CREATED = "unit.platform.created"

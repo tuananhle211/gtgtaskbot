@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
@@ -26,6 +27,7 @@ import {
 import { effortEnabled } from "@/lib/effort";
 import { formatAgo } from "@/lib/labels";
 import {
+  canEditMembersIn,
   canTagIn,
   taggableUnits,
   unitName,
@@ -243,9 +245,12 @@ export function DeactivatedPill() {
  * settings and permission matrix. Used by "Quản trị đơn vị" and by the "Luồng
  * Order (ORD)" tab of "Thành viên & Phân quyền".
  *
- * Tag controls are drawn only for a stream in `can_tag` (OWNER / ADMIN, or a
- * team lead tagged in that stream); account status controls only for OWNER /
- * ADMIN. Every write is checked again on the server.
+ * Placing people - add / remove, the role (Leader) picker and "Trưởng quản
+ * lý" - is drawn only for a stream in `can_tag` (the OWNER: people are seated
+ * on "Phòng ban"); the rest of a row (member code, NAS, token/ngày, "Order
+ * sinh nhật") follows `can_edit_members` (OWNER / ADMIN / a team lead; an
+ * older API: `can_tag`). Account status controls only for OWNER / ADMIN.
+ * Every write is checked again on the server.
  */
 export function UnitPanel({
   code,
@@ -273,6 +278,7 @@ export function UnitPanel({
     queryFn: () => api.unitHealth(code),
   });
   const canTag = canTagIn(me.data, code);
+  const canEdit = canEditMembersIn(me.data, code);
   const directory = useQuery({
     queryKey: ["units", "directory"],
     queryFn: api.unitDirectory,
@@ -325,6 +331,19 @@ export function UnitPanel({
         />
       ) : null}
       {canTag ? <UntaggedPanel defaultStream={code} /> : null}
+      {!canTag && me.data ? (
+        <p className="text-xs text-[var(--text-muted)]" data-testid="placement-hint">
+          Gắn người, vai trò và trưởng quản lý ở màn Phòng ban (chủ sở hữu).
+          {viewer.manages ? (
+            <>
+              {" "}
+              <Link href="/admin/departments" className="font-medium text-[var(--accent)]">
+                Mở Phòng ban →
+              </Link>
+            </>
+          ) : null}
+        </p>
+      ) : null}
       <section className="rounded-xl border border-[var(--border)] bg-[var(--surface)]">
         {viewer.manages ? (
           <div className="flex justify-end border-b border-[var(--border)] px-3 py-2">
@@ -365,8 +384,11 @@ export function UnitPanel({
                   units={tagsOf.get(member.user_id) ?? [code]}
                   roles={members.data.assignable_roles}
                   bosses={managerChoices(code, member, members.data.members)}
-                  editable={
+                  placeable={
                     canTag && (viewer.manages || !PROTECTED_ROLES.has(member.base_role))
+                  }
+                  editable={
+                    canEdit && (viewer.manages || !PROTECTED_ROLES.has(member.base_role))
                   }
                   mayUntag={
                     canTag &&
@@ -705,7 +727,7 @@ const DEFAULT_WEIGHTS: PerfWeights = { output: 0.5, on_time: 0.3, quality: 0.2 }
 /**
  * Who may be this member's own Leader ("Trưởng quản lý"), for a ban with
  * several: a staff member of Biên kịch / Design / Dựng picks a Leader of the
- * same ban, an orderer a Trưởng phòng ORD. `null` = the member has none to pick.
+ * same ban, an orderer a Trưởng phòng ADS. `null` = the member has none to pick.
  */
 function managerChoices(
   code: string,
@@ -731,6 +753,7 @@ function MemberRow({
   units,
   roles,
   bosses,
+  placeable,
   editable,
   mayUntag,
   mayChangeStatus,
@@ -746,7 +769,12 @@ function MemberRow({
   roles: Position[];
   /** Who may be picked as the member's own Leader; null = not for this member. */
   bosses: UnitMember[] | null;
-  /** Role, member code and NAS may be changed (a stream in `can_tag`). */
+  /** Role (Leader) and "Trưởng quản lý" may be changed (a stream in `can_tag`). */
+  placeable: boolean;
+  /**
+   * Member code, NAS, token/ngày and "Order sinh nhật" may be changed (a
+   * stream in `can_edit_members`).
+   */
   editable: boolean;
   mayUntag: boolean;
   /** OWNER / ADMIN: "Vô hiệu hoá" / "Kích hoạt lại". */
@@ -800,7 +828,7 @@ function MemberRow({
       </td>
       <td className="px-3 py-2">{member.base_role_label}</td>
       <td className="px-3 py-2">
-        {editable ? (
+        {placeable ? (
           <Select
             value={positionKey(member.role, member.is_lead)}
             onChange={(event) => update.mutate(fromPositionKey(event.target.value))}
@@ -827,7 +855,7 @@ function MemberRow({
           <ManagerPicker
             member={member}
             bosses={bosses}
-            editable={editable}
+            editable={placeable}
             pending={update.isPending}
             onPick={(managerId) => update.mutate({ manager_user_id: managerId })}
           />
@@ -973,7 +1001,7 @@ function ManagerPicker({
 }) {
   const current = member.manager_user_id ?? "";
   const everyone =
-    member.role === "ORDERER" ? "Mọi Trưởng phòng ORD" : "Mọi trưởng ban";
+    member.role === "ORDERER" ? "Mọi Trưởng phòng ADS" : "Mọi trưởng ban";
   const name = bosses.find((boss) => boss.user_id === current)?.full_name;
   if (!editable) {
     return (

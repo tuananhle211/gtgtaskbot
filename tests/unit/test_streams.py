@@ -91,9 +91,16 @@ async def test_03_a_pr_team_lead_tags_and_untags_in_pr_only(world: World) -> Non
     person = await newcomer(world)
     world.act_as(world.lead)
     me = world.client.get("/api/units/me").json()
-    assert me["can_tag"] == ["PR"]
+    # Placing people is the OWNER's since departments (0061); a team lead
+    # still edits the rest of a PR member's row.
+    assert me["can_tag"] == [] and me["can_edit_members"] == ["PR"]
     assert me["can_admin"] == []
+    refused = world.client.post(
+        "/api/units/PR/members", json={"user_id": str(person.id), "role": "MEMBER"}
+    )
+    assert refused.status_code == 403 and _code(refused.json()) == "unit_tag_forbidden"
 
+    world.act_as(world.owner)
     added = world.client.post(
         "/api/units/PR/members", json={"user_id": str(person.id), "role": "MEMBER"}
     )
@@ -107,7 +114,8 @@ async def test_03_a_pr_team_lead_tags_and_untags_in_pr_only(world: World) -> Non
     assert removed.status_code == 200, removed.json()
     assert await _open_tags(world, person) == []
 
-    # Not in ORD: refused there, by name.
+    # The team lead, not in ORD: refused there, by name.
+    world.act_as(world.lead)
     response = world.client.post(
         "/api/units/ADS/members", json={"user_id": str(person.id), "role": "ORDERER"}
     )
@@ -124,11 +132,13 @@ async def test_04_a_team_lead_moves_an_ord_person_into_pr_but_not_out_of_ord(
     units = await seed_units(world)
     person = await newcomer(world)
     await tag(world, units[UnitCode.ADS], person, UnitMemberRole.DUNG)
-    world.act_as(world.lead)
+    # Two departments at once: Dựng and PR Thương Hiệu (0061).
+    world.act_as(world.owner)
     added = world.client.post(
         "/api/units/PR/members", json={"user_id": str(person.id), "role": "MEMBER"}
     )
     assert added.status_code == 201, added.json()
+    world.act_as(world.lead)
     response = world.client.delete(f"/api/units/ADS/members/{person.id}")
     assert response.status_code == 403
     assert _code(response.json()) == "unit_tag_forbidden"
@@ -186,7 +196,14 @@ async def test_07_an_admin_tags_anyone_anywhere_and_sees_all(world: World) -> No
     world.act_as(admin)
     me = world.client.get("/api/units/me").json()
     assert me["can_view_all"] is True
-    assert me["can_tag"] == ["ADS", "PR"] and me["can_admin"] == ["ADS", "PR"]
+    assert me["can_admin"] == ["ADS", "PR"] and me["can_edit_members"] == ["ADS", "PR"]
+    # Placing people is the OWNER's (0061): an ADMIN sees and edits, not places.
+    assert me["can_tag"] == []
+    refused = world.client.post(
+        "/api/units/ADS/members", json={"user_id": str(person.id), "role": "BIEN_TAP"}
+    )
+    assert refused.status_code == 403 and _code(refused.json()) == "unit_tag_forbidden"
+    world.act_as(world.owner)
     tagged = world.client.post(
         "/api/units/ADS/members",
         json={"user_id": str(person.id), "role": "BIEN_TAP", "is_lead": True},
@@ -199,6 +216,7 @@ async def test_07_an_admin_tags_anyone_anywhere_and_sees_all(world: World) -> No
         ).status_code
         == 201
     )
+    world.act_as(admin)
     listed = world.client.get("/api/units/ADS/members").json()
     assert listed["unit_label"] == "Luồng Order (ORD)" and listed["unit_short_label"] == "ORD"
     row = next(item for item in listed["members"] if item["user_id"] == str(person.id))
@@ -473,7 +491,8 @@ async def test_13_pr_and_all_todo_first(world: World) -> None:
     }
     everything = _tasks(world, unit="ALL", order="todo_first", limit=20)
     assert everything["total"] == 4
-    assert pending in expected and 0 < len(expected) < 4
+    # The order waits on the orderer's own head (0061), not on the OWNER.
+    assert pending not in expected and 0 < len(expected) < 4
     head = everything["items"][: len(expected)]
     assert {row["code"] for row in head} == expected
     assert [row["awaiting_me"] for row in everything["items"]] == [True] * len(expected) + [

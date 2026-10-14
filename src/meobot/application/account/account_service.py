@@ -4,7 +4,7 @@ Authority lives here, not in the router:
 
 * **the member list** - the OWNER and the ADMIN see everyone (and, with
   ``include_inactive``, the deactivated accounts too); the ORD head
-  ("Trưởng phòng ORD") sees the ORD members. Anybody else is refused with
+  ("Trưởng phòng ADS") sees the ORD members. Anybody else is refused with
   ``account_members_forbidden``;
 * **a password reset** - the OWNER for anyone but themselves; an ADMIN for
   anyone but themselves and an OWNER;
@@ -37,6 +37,7 @@ from meobot.application.audit_service import AuditService
 from meobot.application.units.directory import manager_fits
 from meobot.application.web_auth_service import WebAuthService
 from meobot.core.time import ensure_utc, utcnow
+from meobot.db.models.department import DepartmentMember
 from meobot.db.models.order import Order, OrderNode
 from meobot.db.models.org_unit import OrgUnit, OrgUnitMember
 from meobot.db.models.user import User
@@ -519,6 +520,17 @@ class AccountService:
         await self._session.execute(
             update(OrgUnitMember)
             .where(OrgUnitMember.manager_user_id == user_id)
+            .values(manager_user_id=None)
+        )
+        # 0061: their seats close too, and nobody reports to them any more.
+        await self._session.execute(
+            update(DepartmentMember)
+            .where(DepartmentMember.user_id == user_id, DepartmentMember.left_at.is_(None))
+            .values(left_at=now, manager_user_id=None)
+        )
+        await self._session.execute(
+            update(DepartmentMember)
+            .where(DepartmentMember.manager_user_id == user_id)
             .values(manager_user_id=None)
         )
         await self._session.execute(delete(UserAvatar).where(UserAvatar.user_id == user_id))

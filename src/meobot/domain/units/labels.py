@@ -23,8 +23,8 @@ UNIT_SHORT_LABELS: dict[UnitCode, str] = {
 
 UNIT_ROLE_LABELS: dict[UnitMemberRole, str] = {
     UnitMemberRole.MEMBER: "Thành viên",
-    UnitMemberRole.ORDERER: "Marketing (người order)",
-    UnitMemberRole.HEAD: "Trưởng phòng ORD",
+    UnitMemberRole.ORDERER: "Nhân viên ADS (người order)",
+    UnitMemberRole.HEAD: "Trưởng phòng ADS",
     UnitMemberRole.BIEN_TAP: "Biên tập",
     UnitMemberRole.THIET_KE: "Thiết kế",
     UnitMemberRole.DUNG: "Dựng",

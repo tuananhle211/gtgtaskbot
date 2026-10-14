@@ -408,8 +408,10 @@ async def test_22_no_team_or_department_table_was_added(world: World) -> None:
     # between two departments, not a hierarchy. The scopes still read no
     # organisational table: that is asserted on the source below.
     tables = set(Base.metadata.tables)
-    for forbidden in ("teams", "team_members", "departments"):
+    for forbidden in ("teams", "team_members"):
         assert forbidden not in tables
+    # 0061 brought the company's departments (``departments``) - the order
+    # flow's org chart. PR's scopes still read none of it: asserted below.
 
     source = (
         __import__("pathlib")
@@ -421,6 +423,8 @@ async def test_22_no_team_or_department_table_was_added(world: World) -> None:
     )
     assert "PrChannelAssignment" not in source
     assert "channel_assignment" not in source
+    for org in ("Department", "DepartmentMember", "department_members", "load_seats"):
+        assert org not in source, org
     _ = uuid.uuid4  # keep the import honest
 
 

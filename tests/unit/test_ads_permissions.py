@@ -2,13 +2,10 @@
 
 from __future__ import annotations
 
-from datetime import UTC, datetime
 from typing import Any
 
 import pytest
-from sqlalchemy import update
 
-from meobot.db.models.org_unit import OrgUnitMember
 from meobot.domain.identity.models import Role
 from meobot.domain.orders.models import OrderNodeType
 from meobot.domain.orders.permissions import (
@@ -24,7 +21,7 @@ from meobot.domain.orders.permissions import (
 from meobot.domain.units.models import UnitMemberRole
 from tests.unit.pr_world import World
 from tests.unit.test_order_commands import act, ads_world, create, node, person
-from tests.unit.test_units_gating import error_reason, tag
+from tests.unit.test_units_gating import error_reason, tag, untag
 
 pytestmark = pytest.mark.asyncio
 
@@ -55,8 +52,8 @@ async def test_01_defaults_fill_in_and_bad_cells_are_refused() -> None:
         {"NOBODY": {"VIEW": "ALL"}},
         {"LEAD": {"FLY": "ALL"}},
         {"LEAD": {"VIEW": "SOMETIMES"}},
-        # Approving an order has no "own function": yes or no only.
-        {"LEAD": {"ORDER_APPROVE": "OWN"}},
+        # Placing an order has no "own" scope: yes or no only.
+        {"LEAD": {"ORDER_CREATE": "OWN"}},
     ):
         with pytest.raises(AdsPermissionMatrixError):
             resolve_matrix(bad)
@@ -92,7 +89,7 @@ async def test_03_by_default_leaders_run_their_own_node_and_the_head_none(
     world: World,
 ) -> None:
     """The production steps are the Leaders' (and the Admin's, the OWNER's);
-    a Trưởng phòng ORD decides the order and the final product only (0057)."""
+    a Trưởng phòng ADS decides the order and the final product only (0057)."""
     ads = await ads_world(world)
     admin = await person(world, "Quản trị Ads", Role.ADMIN)
     await tag(world, ads.unit, admin, UnitMemberRole.ORDERER)
@@ -155,7 +152,7 @@ async def test_04_editing_the_matrix_changes_what_people_may_do(world: World) ->
 
 async def test_05_a_bad_matrix_is_refused_and_only_admins_edit_it(world: World) -> None:
     ads = await ads_world(world)
-    response = set_matrix(world, {"LEAD": {"ORDER_APPROVE": "OWN"}})
+    response = set_matrix(world, {"LEAD": {"ORDER_CREATE": "OWN"}})
     assert response.status_code == 422
     assert response.json()["error"]["details"]["field"] == "permissions"
     world.act_as(ads.lead_tk)
@@ -209,7 +206,7 @@ async def test_06_who_a_review_waits_for_follows_the_matrix(world: World) -> Non
 async def test_07_a_node_nobody_was_chosen_for_goes_to_its_leader(
     world: World,
 ) -> None:
-    """...and to nobody else by default: a Trưởng phòng ORD does not hand out
+    """...and to nobody else by default: a Trưởng phòng ADS does not hand out
     production steps (0057) unless the matrix gives them that."""
     ads = await ads_world(world)
     first = create(world, ads, video_type="D", design_link="https://example.com/d1")
@@ -223,12 +220,7 @@ async def test_07_a_node_nobody_was_chosen_for_goes_to_its_leader(
     assert node(first, "DUNG")["assignee_user_id"] == str(ads.editor.id)
 
     # No Dựng Leader left: it waits unassigned - not the head's to hand out.
-    await world.session.execute(
-        update(OrgUnitMember)
-        .where(OrgUnitMember.user_id == ads.lead_dung.id)
-        .values(left_at=datetime.now(UTC))
-    )
-    await world.session.flush()
+    await untag(world, ads.unit, ads.lead_dung)
     waiting = create(world, ads, video_type="D", design_link="https://example.com/d0")
     waiting = act(world, ads.head, "/approve", waiting)
     assert node(waiting, "DUNG")["status"] == "CHUA_GIAO"

@@ -688,7 +688,7 @@ describe("the Effort entry in the nav", () => {
     expect(screen.getByRole("link", { name: /Order tổng/ })).not.toHaveAttribute("aria-current");
   });
 
-  it("is there for the Trưởng phòng ORD", async () => {
+  it("is there for the Trưởng phòng ADS", async () => {
     stubFetch([
       { match: "/api/auth/session", body: { ...SESSION, role: "EMPLOYEE" } },
       { match: "/api/units/me", body: ME_AS("HEAD") },

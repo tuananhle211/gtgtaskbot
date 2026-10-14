@@ -9,11 +9,13 @@ The rule, from the design (§6.3), narrowed to teams so that one order team
 does not read another's ideas:
 
 * the OWNER and an ADMIN see every order of the unit;
-* a Trưởng phòng ORD sees their **own team's** orders - placed by the
-  orderers who report to them (``org_unit_members.manager_user_id``) or by
-  themselves, the ones they were chosen to approve, and the orders nobody else
-  answers for (an orderer with no head set and no approver chosen);
-* a marketer sees the orders they placed - not their teammates';
+* whoever approves orders with ``OWN`` scope (a Trưởng phòng ADS, the head of
+  any department that orders) sees the orders that reach them (0061): the ones
+  they were chosen to approve, and the ones that default to them - in each of
+  the orderer's approving departments, the head the orderer reports to, else
+  every head there (:meth:`AdsApprovers.default_approvers`);
+* anybody sees the orders of the people who report to them (their team);
+* an orderer sees the orders they placed - not their teammates';
 * a function's Leader sees every order that **has reached** their node - not
   the ones still upstream (an order at Biên kịch is not Design's or Dựng's
   yet), and still the ones that moved on;
@@ -32,6 +34,7 @@ from typing import Any
 from sqlalchemy import Select, and_, exists, false, or_, select
 from sqlalchemy.orm import aliased
 
+from meobot.db.models.department import Department, DepartmentMember, DepartmentPermission
 from meobot.db.models.order import Order, OrderNode
 from meobot.db.models.org_unit import OrgUnitMember
 from meobot.db.models.user import User
@@ -39,6 +42,7 @@ from meobot.domain.orders.errors import OrderNotFoundError
 from meobot.domain.orders.models import OrderCategory, OrderNodeStatus, OrderNodeType
 from meobot.domain.orders.permissions import AdsPermission
 from meobot.domain.orders.pipeline import OrderActorContext
+from meobot.domain.org.models import MODULE_ORDER, Position
 from meobot.domain.units.models import UnitCode, UnitMemberRole, UnitMembership, UnitSettings
 
 NOT_VISIBLE = "Không tìm thấy."
@@ -55,9 +59,8 @@ class OrderScope:
     sees_all: bool
     lead_node_types: frozenset[OrderNodeType]
     context: OrderActorContext
-    #: ``HEAD`` when the viewer is a Trưởng phòng ORD, limited to their own
-    #: team's orders. None for everybody else.
-    team_role: UnitMemberRole | None = None
+    #: 0061: approves orders in ``OWN`` scope - the orders routed to them.
+    approves: bool = False
     #: In the Design team: every birthday order is theirs to see.
     design_team: bool = False
     #: May use the birthday-order board at all (0059). Without it the board
@@ -74,26 +77,17 @@ class OrderScope:
             raise OrderNotFoundError(NOT_VISIBLE, details={"reason": "unit_not_visible"})
         context = OrderActorContext.from_membership(membership, settings)
         entry = membership.entry(UnitCode.ADS)
-        # A head sees their own team's orders only (an orderer just their
-        # own, by the matrix). The OWNER and an ADMIN are above the teams.
-        team_role = (
-            entry.role
-            if entry is not None and not membership.sees_all and entry.role is UnitMemberRole.HEAD
-            else None
-        )
+        may = context.permissions
         return cls(
             unit_id=unit_id,
             user_id=membership.user_id,
-            sees_all=team_role is None and context.permissions.allows(AdsPermission.VIEW),
-            # "Own" visibility: the orders that reach a node they manage. A
-            # head manages nodes of their team's orders only, so none here.
-            lead_node_types=frozenset()
-            if team_role is not None
-            else context.permissions.nodes(AdsPermission.NODE_ASSIGN)
-            | context.permissions.nodes(AdsPermission.NODE_REVIEW)
+            sees_all=may.allows(AdsPermission.VIEW),
+            # "Own" visibility: the orders that reach a node they manage.
+            lead_node_types=may.nodes(AdsPermission.NODE_ASSIGN)
+            | may.nodes(AdsPermission.NODE_REVIEW)
             | context.lead_node_types,
             context=context,
-            team_role=team_role,
+            approves=may.holds(AdsPermission.ORDER_APPROVE),
             design_team=entry is not None and entry.role is UnitMemberRole.THIET_KE,
             birthday_board=membership.sees_all
             or (
@@ -112,16 +106,11 @@ class OrderScope:
         conditions = [Order.owner_user_id == self.user_id]
         if self.design_team:
             conditions.append(Order.category == OrderCategory.BIRTHDAY)
-        if self.team_role is UnitMemberRole.HEAD:
-            owner_head = boss_of(Order.owner_user_id, head=True)
+        # Their team: the people who report to them, in any department.
+        conditions.append(manages(self.user_id, Order.owner_user_id))
+        if self.approves:
             conditions.extend(
-                [
-                    # Their orderers' orders, and the ones they approve.
-                    owner_head == self.user_id,
-                    Order.approver_user_id == self.user_id,
-                    # Nobody else answers for these: every head does.
-                    and_(owner_head.is_(None), Order.approver_user_id.is_(None)),
-                ]
+                [Order.approver_user_id == self.user_id, approval_reaches(self.user_id)]
             )
         if self.lead_node_types:
             conditions.append(
@@ -147,6 +136,96 @@ class OrderScope:
             )
         )
         return statement.where(or_(*conditions))
+
+
+def manages(manager_id: uuid.UUID, member: Any) -> Any:
+    """``member`` reports to ``manager_id`` in some department (0061)."""
+    seat = aliased(DepartmentMember)
+    return exists(
+        select(seat.id).where(
+            seat.user_id == member,
+            seat.manager_user_id == manager_id,
+            seat.left_at.is_(None),
+        )
+    )
+
+
+def _chosen_is_active() -> Any:
+    """The order's chosen approver is still an active account."""
+    chosen = aliased(User)
+    return exists(
+        select(chosen.id).where(chosen.id == Order.approver_user_id, chosen.active.is_(True))
+    )
+
+
+def approval_reaches(user_id: uuid.UUID) -> Any:
+    """SQL twin of :meth:`AdsApprovers.order_approvers` for one person: the
+    order waits on ``user_id`` - chosen for it, or (nobody chosen, or chosen
+    and gone) one of the orderer's default approvers. An orderer with no seat
+    at all is read the old way (their own head, else every approver)."""
+    owner_seat = aliased(DepartmentMember)
+    department = aliased(Department)
+    grant = aliased(DepartmentPermission)
+    my_seat = aliased(DepartmentMember)
+    boss_seat = aliased(DepartmentMember)
+    boss_user = aliased(User)
+    any_seat = aliased(DepartmentMember)
+    valid_boss = exists(
+        select(boss_seat.id)
+        .join(boss_user, boss_user.id == boss_seat.user_id)
+        .where(
+            boss_seat.department_id == owner_seat.department_id,
+            boss_seat.user_id == owner_seat.manager_user_id,
+            boss_seat.position == Position.HEAD,
+            boss_seat.left_at.is_(None),
+            boss_user.active.is_(True),
+        )
+    )
+    i_head_it = exists(
+        select(my_seat.id).where(
+            my_seat.department_id == owner_seat.department_id,
+            my_seat.user_id == user_id,
+            my_seat.position == Position.HEAD,
+            my_seat.left_at.is_(None),
+        )
+    )
+    by_department = exists(
+        select(owner_seat.id)
+        .join(department, department.id == owner_seat.department_id)
+        .join(
+            grant,
+            and_(
+                grant.department_id == owner_seat.department_id,
+                grant.position == Position.HEAD,
+                grant.module == MODULE_ORDER,
+                grant.permission == AdsPermission.ORDER_APPROVE.value,
+                grant.scope != "NONE",
+            ),
+        )
+        .where(
+            owner_seat.user_id == Order.owner_user_id,
+            owner_seat.left_at.is_(None),
+            owner_seat.user_id != user_id,
+            department.active.is_(True),
+            or_(
+                and_(owner_seat.manager_user_id == user_id, valid_boss),
+                and_(~valid_boss, i_head_it),
+            ),
+        )
+    )
+    unseated = ~exists(
+        select(any_seat.id).where(
+            any_seat.user_id == Order.owner_user_id, any_seat.left_at.is_(None)
+        )
+    )
+    old_head = boss_of(Order.owner_user_id, head=True)
+    return and_(
+        or_(Order.approver_user_id.is_(None), ~_chosen_is_active()),
+        or_(
+            by_department,
+            and_(unseated, or_(old_head.is_(None), old_head == user_id)),
+        ),
+    )
 
 
 def boss_of(member: Any, *, head: bool = False) -> Any:
@@ -180,4 +259,4 @@ def boss_of(member: Any, *, head: bool = False) -> Any:
     )
 
 
-__all__ = ["NOT_VISIBLE", "OrderScope", "boss_of"]
+__all__ = ["NOT_VISIBLE", "OrderScope", "approval_reaches", "boss_of", "manages"]

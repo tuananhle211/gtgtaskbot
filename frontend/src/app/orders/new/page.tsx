@@ -120,7 +120,7 @@ export default function NewOrderPage() {
               [
                 "ADS",
                 STREAM_NAMES.ADS,
-                "Order video cho team Media: Biên kịch, Design, Dựng theo quy trình bạn chọn. Trưởng phòng ORD duyệt order, bạn duyệt final.",
+                "Order video cho team Media: Biên kịch, Design, Dựng theo quy trình bạn chọn. Trưởng phòng ADS duyệt order, bạn duyệt final.",
               ],
               [
                 "PR",
@@ -211,36 +211,39 @@ function AdsOrderForm({
   editing,
 }: {
   memberCode: string | null;
-  /** A Trưởng phòng ORD's own order needs no approval: no approver to pick. */
+  /** A Trưởng phòng ADS's own order needs no approval: no approver to pick. */
   isHead?: boolean;
   /** A returned order being fixed: the form starts from it and resubmits. */
   editing?: OrderInfo;
 }) {
   const router = useRouter();
-  // "Người duyệt order": the Trưởng phòng ORD the orderer picks.
-  const session = useQuery({ queryKey: ["session"], queryFn: api.session, retry: false });
-  const roster = useQuery({
-    queryKey: ["units", "ADS", "members"],
-    queryFn: () => api.unitMembers("ADS"),
-    enabled: !isHead,
+  // "Người duyệt order": who approves this person's order, from the server.
+  // `own_gate` = they approve orders themselves (no field); otherwise the
+  // order goes to `default` unless one of `candidates` is picked, and
+  // `required` = nobody by default, so one must be picked. Until it answers
+  // (or if it cannot), the base role stands in: a head picks nobody.
+  const approvers = useQuery({
+    queryKey: ["orders", "approvers"],
+    queryFn: api.orderApprovers,
+    retry: false,
   });
-  const myId = session.data?.user_id ?? null;
-  const heads = (roster.data?.members ?? []).filter(
-    (member) => member.role === "HEAD" && member.active && member.user_id !== myId,
-  );
+  const ownGate = approvers.data?.own_gate ?? isHead;
+  const candidates = (!ownGate && approvers.data?.candidates) || [];
+  const defaults = (!ownGate && approvers.data?.default) || [];
+  const approverRequired = Boolean(approvers.data && !ownGate && approvers.data.required);
   const [pickedApprover, setPickedApprover] = useState<string | null>(null);
-  // Optional. Left on "Tự động", the order goes to the orderer's own head
-  // ("Trưởng quản lý"), else to every head. Fixing an order starts from the
-  // approver it already has.
-  const myHead = (roster.data?.members ?? []).find((member) => member.user_id === myId)
-    ?.manager_user_id;
-  const myHeadName = heads.find((head) => head.user_id === myHead)?.full_name ?? null;
+  // Fixing an order starts from the approver it already has, when they may
+  // still be chosen.
   const editedApprover =
-    editing?.approver_user_id && heads.some((head) => head.user_id === editing.approver_user_id)
+    editing?.approver_user_id &&
+    candidates.some((person) => person.user_id === editing.approver_user_id)
       ? editing.approver_user_id
       : "";
   const approver = pickedApprover ?? editedApprover;
-  const offersApprover = !isHead && heads.length > 0;
+  const offersApprover = !ownGate && (candidates.length > 0 || approverRequired);
+  const defaultNames = defaults.map((person) => person.name).join(", ");
+  const approverName =
+    candidates.find((person) => person.user_id === approver)?.name ?? (defaultNames || null);
   const kinds = useQuery({
     queryKey: ["units", "ADS", "video-kinds"],
     queryFn: () => api.unitVideoKinds("ADS"),
@@ -366,7 +369,8 @@ function AdsOrderForm({
     (!needsPlatform || form.platform_id) &&
     (!needsDuration || form.duration_id) &&
     body.desired_deadline_at &&
-    !deadlinePast;
+    !deadlinePast &&
+    (!approverRequired || approver);
   const field =
     "min-h-11 w-full rounded-lg border border-[var(--border)] bg-[var(--surface)] px-3 text-sm text-[var(--text)]";
 
@@ -536,9 +540,9 @@ function AdsOrderForm({
             </span>
           )}
         </label>
-        {isHead ? (
+        {ownGate ? (
           <p className="rounded-lg bg-[var(--surface-muted)] px-3 py-2 text-xs text-[var(--text-muted)]">
-            Bạn là Trưởng phòng ORD: order của bạn không cần duyệt, gửi là chuyển thẳng tới công
+            Bạn có quyền duyệt order: order của bạn không cần duyệt, gửi là chuyển thẳng tới công
             đoạn đầu.
           </p>
         ) : offersApprover ? (
@@ -547,20 +551,31 @@ function AdsOrderForm({
             <Select
               value={approver}
               onChange={(event) => setPickedApprover(event.target.value)}
+              aria-invalid={(approverRequired && !approver) || undefined}
               className="mt-1 w-full sm:max-w-xs"
             >
-              <option value="">
-                {myHeadName ? `Tự động · ${myHeadName} (trưởng phòng của bạn)` : "Tự động · trưởng phòng của bạn"}
-              </option>
-              {heads.map((head) => (
-                <option key={head.user_id} value={head.user_id}>
-                  {head.full_name}
+              {approverRequired ? (
+                <option value="" disabled>
+                  Chọn người duyệt…
+                </option>
+              ) : defaults.length > 0 ? (
+                <option value="">{`Tự động: ${defaultNames}`}</option>
+              ) : null}
+              {candidates.map((person) => (
+                <option key={person.user_id} value={person.user_id}>
+                  {person.name}
                 </option>
               ))}
             </Select>
-            <span className="block text-xs font-normal text-[var(--text-muted)]">
-              Không bắt buộc · không chọn thì order tự chuyển tới trưởng phòng của bạn
-            </span>
+            {approverRequired ? (
+              <span role="note" className="block text-xs font-normal text-[var(--warn)]">
+                Trưởng phòng của bạn không có quyền duyệt order: chọn người duyệt.
+              </span>
+            ) : (
+              <span className="block text-xs font-normal text-[var(--text-muted)]">
+                Không bắt buộc · không chọn thì order tự chuyển tới trưởng phòng của bạn
+              </span>
+            )}
           </label>
         ) : null}
         <div className="space-y-1">
@@ -685,7 +700,7 @@ function AdsOrderForm({
                 ? {
                   title: `Gửi lại order ${editing.code}?`,
                   description:
-                    "Order đã sửa quay lại cho Trưởng phòng ORD duyệt.",
+                    "Order đã sửa quay lại cho Trưởng phòng ADS duyệt.",
                   confirmLabel: "Gửi lại order",
                 }
                 : {
@@ -718,13 +733,8 @@ function AdsOrderForm({
           </h2>
           <ol className="mt-2 space-y-1">
             <li>ORD lên order</li>
-            {isHead ? null : (
-              <li>
-                {heads.find((head) => head.user_id === approver)?.full_name ??
-                  myHeadName ??
-                  "Trưởng phòng ORD"}{" "}
-                duyệt order
-              </li>
+            {ownGate ? null : (
+              <li>{approverName ?? "Trưởng phòng ADS"} duyệt order</li>
             )}
             {nodes.map((node, index) => (
               <li key={node}>

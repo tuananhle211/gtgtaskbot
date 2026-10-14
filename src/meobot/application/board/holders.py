@@ -27,6 +27,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from meobot.application.audit_service import AuditService
+from meobot.application.org.seats import grants_of, load_grants, load_seats
 from meobot.application.pr_capability_service import PrCapabilityService
 from meobot.application.units.directory import (
     UnitDirectoryService,
@@ -40,6 +41,7 @@ from meobot.domain.identity.models import Actor, Role
 from meobot.domain.orders.models import PRODUCTION_NODES, OrderNodeType, OrderVideoType
 from meobot.domain.orders.permissions import AdsPermission, AdsPermissions
 from meobot.domain.orders.pipeline import ROLE_NODES, OrderActorContext, function_node
+from meobot.domain.org.models import MODULE_ORDER, Position, Seat
 from meobot.domain.pr.grants import ContentScopeKey
 from meobot.domain.pr.policy import APPROVAL_CAPABILITIES, PrCapability, grant_admits
 from meobot.domain.pr.workflow import STAGE_APPROVAL_GATES
@@ -150,6 +152,11 @@ class AdsApprovers:
     #: Member -> the one Leader (an orderer: head) they report to, where that
     #: link still fits (0050). Their hand-ins / orders wait on that person only.
     managers: dict[uuid.UUID, Person] = field(default_factory=dict)
+    #: 0061: everybody's department seats, the departments whose heads approve
+    #: orders, and those heads (several per department: one per branch).
+    seats: dict[uuid.UUID, tuple[Seat, ...]] = field(default_factory=dict)
+    approving_departments: frozenset[uuid.UUID] = frozenset()
+    department_heads: dict[uuid.UUID, People] = field(default_factory=dict)
 
     def lead(self, node_type: OrderNodeType) -> People:
         return self.leads.get(node_type, ())
@@ -166,13 +173,37 @@ class AdsApprovers:
         self, owner_user_id: uuid.UUID | None, chosen: uuid.UUID | None = None
     ) -> People:
         """Who an order waits on: the approver the orderer chose on the form
-        (0056) while they still decide orders, else the orderer's own head,
-        else every head."""
+        (0056) while they still decide orders, else the orderer's own
+        approvers (:meth:`default_approvers`)."""
         if chosen is not None:
             for person in self.head:
                 if person.user_id == chosen:
                     return (person,)
-        return self._managed(owner_user_id, self.head)
+        return self.default_approvers(owner_user_id)
+
+    def default_approvers(self, owner_user_id: uuid.UUID | None) -> People:
+        """Who approves a person's order when they choose nobody (0061): in each
+        of their departments whose heads approve orders, the head they report
+        to - else every head there. Somebody with no seat at all is read the
+        old way: their own head, else every approver. Empty = nobody: the
+        orderer has to pick an approver (``approver_required``)."""
+        if owner_user_id is None:
+            return ()
+        seats = self.seats.get(owner_user_id)
+        if not seats:
+            return self._managed(owner_user_id, self.head)
+        found: list[Person] = []
+        for seat in seats:
+            if seat.department_id not in self.approving_departments:
+                continue
+            heads = self.department_heads.get(seat.department_id, ())
+            boss = next(
+                (person for person in heads if person.user_id == seat.manager_user_id), None
+            )
+            for person in (boss,) if boss is not None else heads:
+                if person.user_id != owner_user_id and person not in found:
+                    found.append(person)
+        return tuple(found)
 
     def reviewers(self, node_type: OrderNodeType, worker: uuid.UUID | None) -> People:
         """Who a hand-in waits on: the worker's own Leader, else every Leader."""
@@ -209,8 +240,14 @@ async def ads_approvers(session: AsyncSession, unit_id: uuid.UUID) -> AdsApprove
     unit = await session.get(OrgUnit, unit_id)
     settings = UnitSettings.model_validate((unit.settings if unit else None) or {})
     rows = await directory.members(unit_id)
+    # 0061: every seat at once, and what every department grants.
+    seats = await load_seats(session)
+    table = await load_grants(
+        session, MODULE_ORDER, {seat.department_id for held in seats.values() for seat in held}
+    )
     people: list[tuple[UnitMemberRow, AdsPermissions]] = []
     for row in rows:
+        held = seats.get(row.user.id, ())
         membership = UnitMembership(
             user_id=row.user.id,
             entries=(
@@ -224,6 +261,8 @@ async def ads_approvers(session: AsyncSession, unit_id: uuid.UUID) -> AdsApprove
             ),
             is_owner=False,
             is_admin=row.user.role is Role.ADMIN,
+            seats=held,
+            grants=grants_of(held, table) if held else None,
         )
         people.append((row, OrderActorContext.from_membership(membership, settings).permissions))
 
@@ -279,10 +318,42 @@ async def ads_approvers(session: AsyncSession, unit_id: uuid.UUID) -> AdsApprove
         boss = None if boss_id is None else by_user.get(boss_id)
         if boss is not None and manager_fits(boss.membership, row.membership):
             managers[row.user.id] = Person(boss.user.id, boss.user.full_name)
+    approving = frozenset(
+        department_id
+        for (department_id, position), cells in table.items()
+        if position == Position.HEAD.value
+        and any(permission == AdsPermission.ORDER_APPROVE.value for permission, _ in cells)
+    )
+    active = {
+        user.id: user
+        for user in (
+            await session.scalars(
+                select(User).where(
+                    User.id.in_(list(seats)), User.active.is_(True), User.deleted_at.is_(None)
+                )
+            )
+        ).all()
+    }
+    department_heads: dict[uuid.UUID, list[Person]] = {}
+    for user_id, held in seats.items():
+        user = active.get(user_id)
+        if user is None:
+            continue
+        for seat in held:
+            if seat.position is Position.HEAD and seat.department_id in approving:
+                department_heads.setdefault(seat.department_id, []).append(
+                    Person(user.id, user.full_name)
+                )
     return AdsApprovers(
+        seats=seats,
+        approving_departments=approving,
+        department_heads={
+            key: tuple(sorted(value, key=lambda person: person.name))
+            for key, value in department_heads.items()
+        },
         managers=managers,
         assigners=assigners,
-        head=pick(lambda may: may.allows(AdsPermission.ORDER_APPROVE), is_head),
+        head=pick(lambda may: may.holds(AdsPermission.ORDER_APPROVE), is_head),
         final=pick(lambda may: may.allows(AdsPermission.FINAL_REVIEW), is_head),
         video=pick(
             lambda may: OrderNodeType.BIEN_TAP in may.nodes(AdsPermission.VIDEO_REVIEW),

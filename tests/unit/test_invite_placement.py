@@ -1,7 +1,7 @@
 """Invites carry where the invitee lands (0051).
 
 A stream lead's code tags its redeemer at once: a Leader of Biên kịch /
-Design / Dựng brings staff of that ban reporting to them, a Trưởng phòng ORD
+Design / Dựng brings staff of that ban reporting to them, a Trưởng phòng ADS
 an orderer reporting to them, a PR team lead a PR member. The OWNER's and an
 ADMIN's codes tag nobody. A ban's Leader may invite even with the system role
 "Nhân viên" - but only employees.

@@ -29,6 +29,7 @@ from meobot.api.schemas.units import (
     CreateDurationRequest,
     CreatePlatformRequest,
     CreateVideoKindRequest,
+    DepartmentSeatResponse,
     DesignAccessResponse,
     DesignCodeListResponse,
     DesignCodeResponse,
@@ -76,6 +77,7 @@ from meobot.application.orders.design_library_service import (
     sees_library,
 )
 from meobot.application.orders.effort_service import EffortService, ban_stats
+from meobot.application.org import departments
 from meobot.application.units.admin import ROLES_BY_UNIT, UnitAdminService
 from meobot.application.units.directory import NOT_VISIBLE, UnitDirectoryService
 from meobot.core.errors import ValidationError
@@ -141,7 +143,7 @@ def _parse_role(value: str) -> UnitMemberRole:
 
 
 def _roles_for(code: UnitCode) -> list[RoleOptionResponse]:
-    """The positions, heads first: Trưởng phòng ORD, then each function's
+    """The positions, heads first: Trưởng phòng ADS, then each function's
     head (Biên kịch, Design, Dựng), then Marketing and the function staff."""
     allowed = [role for role in UnitMemberRole if role in ROLES_BY_UNIT[code]]
     heads = [
@@ -181,6 +183,11 @@ async def my_units(
             from meobot.domain.units.models import UnitSettings
 
             settings = UnitSettings()
+        matrix = (
+            await departments.order_matrix(directory.session, settings.permissions)
+            if code is UnitCode.ADS
+            else None
+        )
         if entry is None:
             # The OWNER or the ADMIN, in a unit they are not tagged into:
             # acts as its head.
@@ -193,6 +200,7 @@ async def my_units(
                     member_code=None,
                     personal_nas_url=None,
                     settings=settings,
+                    matrix=matrix,
                 )
             )
         else:
@@ -204,10 +212,14 @@ async def my_units(
                     member_code=entry.member_code,
                     personal_nas_url=entry.personal_nas_url,
                     settings=settings,
+                    matrix=matrix,
                 )
             )
     can_admin = [code.value for code in await admin.admin_units(actor)]
-    can_tag = [code.value for code in admin.tag_units(membership, actor)]
+    # 0061: placing people (stream, role, own Leader) is the OWNER's alone;
+    # editing the rest of a member's row stays with whoever could tag before.
+    can_edit_members = [code.value for code in admin.tag_units(membership, actor)]
+    can_tag = [code.value for code in UnitCode] if admin.assigns(actor) else []
     library: tuple[LibraryLink, ...] = ()
     if sees_library(membership):
         try:
@@ -222,7 +234,13 @@ async def my_units(
         birthday=has_birthday_orders(membership),
     )
     return UnitMeResponse.from_domain(
-        membership, entries, can_admin=can_admin, can_tag=can_tag, design=design
+        membership,
+        entries,
+        can_admin=can_admin,
+        can_tag=can_tag,
+        can_edit_members=can_edit_members,
+        design=design,
+        seats=[DepartmentSeatResponse.from_domain(seat) for seat in membership.seats],
     )
 
 
@@ -374,10 +392,16 @@ async def update_settings(
     patch = body.model_dump(exclude_unset=True)
     if "btd_link_attacher" in patch and patch["btd_link_attacher"] is not None:
         patch["btd_link_attacher"] = _parse_role(patch["btd_link_attacher"])
+    unit_code = _parse_unit(code)
     settings = await admin.update_settings(
-        actor=actor, request_id=request_id, code=_parse_unit(code), patch=patch
+        actor=actor, request_id=request_id, code=unit_code, patch=patch
     )
-    return UnitSettingsResponse.from_domain(settings)
+    matrix = (
+        await departments.order_matrix(admin.session, settings.permissions)
+        if unit_code is UnitCode.ADS
+        else None
+    )
+    return UnitSettingsResponse.from_domain(settings, matrix)
 
 
 @router.get("/{code}/effort", response_model=EffortGridResponse)

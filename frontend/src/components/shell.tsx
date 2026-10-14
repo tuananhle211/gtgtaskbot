@@ -60,6 +60,7 @@ type NavIcon =
   | "people"
   | "report"
   | "admin"
+  | "department"
   | "effort"
   | "account";
 
@@ -153,7 +154,7 @@ const PR_NAV: NavItem[] = [
 
 /**
  * The ORD token grid (people × days). For whoever hands out ORD work: OWNER /
- * ADMIN, the Trưởng phòng ORD and a function's Leader. Staff see their own
+ * ADMIN, the Trưởng phòng ADS and a function's Leader. Staff see their own
  * effort on /account instead.
  */
 const EFFORT_NAV: NavItem[] = [
@@ -174,6 +175,17 @@ export function seesOrdEffort(me: UnitsMe | undefined, sessionRole?: string): bo
 const ADMIN_NAV: NavItem[] = [
   { href: "/admin/units", label: "Quản trị đơn vị", icon: "admin" },
 ];
+
+/**
+ * "Phòng ban": the departments, their seats and their order-flow grants. The
+ * OWNER edits them; an ADMIN reads them (the server answers 403
+ * `department_forbidden` to anybody else).
+ */
+const DEPARTMENTS_NAV: NavItem = {
+  href: "/admin/departments",
+  label: "Phòng ban",
+  icon: "department",
+};
 
 /** Whether the sidebar is folded; shared by every Shell mount in this tab. */
 let sidebarCollapsed = false;
@@ -201,7 +213,8 @@ const LEGAL_LINKS = [
  * team's "Thư viện" is another, after everything else.
  *
  * "Quản trị đơn vị" is for whoever administers a unit or may tag members in
- * one (a team lead tags in their own stream there).
+ * one (a team lead tags in their own stream there). "Phòng ban" is for the
+ * OWNER and an ADMIN, by their system role.
  */
 export function navFor(me: UnitsMe | undefined, sessionRole?: string): NavEntry[] {
   const seesAll =
@@ -211,6 +224,7 @@ export function navFor(me: UnitsMe | undefined, sessionRole?: string): NavEntry[
     me && (me.can_admin.length > 0 || (me.can_tag ?? []).length > 0),
   );
   const effort = seesOrdEffort(me, sessionRole);
+  const departments = sessionRole === "OWNER" || sessionRole === "ADMIN";
   const library = libraryBranch(me);
   return [
     DASHBOARD_NAV,
@@ -218,6 +232,7 @@ export function navFor(me: UnitsMe | undefined, sessionRole?: string): NavEntry[
     ...(effort ? EFFORT_NAV : []),
     ...(pr ? PR_NAV : []),
     ...(admin ? ADMIN_NAV : []),
+    ...(departments ? [DEPARTMENTS_NAV] : []),
     ...(library ? [library] : []),
   ];
 }
@@ -309,6 +324,14 @@ function Icon({ name }: { name: NavIcon }) {
       <>
         <circle cx="12" cy="8" r="4" />
         <path d="M4 21a8 8 0 0 1 16 0" />
+      </>
+    ),
+    department: (
+      <>
+        <rect x="9" y="2.5" width="6" height="5" rx="1" />
+        <rect x="2.5" y="16.5" width="6" height="5" rx="1" />
+        <rect x="15.5" y="16.5" width="6" height="5" rx="1" />
+        <path d="M12 7.5v4.5M5.5 16.5V12h13v4.5" />
       </>
     ),
     admin: (

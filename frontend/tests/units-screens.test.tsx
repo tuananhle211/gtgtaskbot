@@ -613,9 +613,9 @@ describe("the unit admin page", () => {
             },
           ],
           assignable_roles: [
-            { role: "HEAD", label: "Trưởng phòng ORD" },
+            { role: "HEAD", label: "Trưởng phòng ADS" },
             { role: "BIEN_TAP", label: "Trưởng phòng Biên kịch", is_lead: true },
-            { role: "ORDERER", label: "Marketing (người order)" },
+            { role: "ORDERER", label: "Nhân viên ADS (người order)" },
             { role: "BIEN_TAP", label: "Biên tập" },
           ],
         },

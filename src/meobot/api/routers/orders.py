@@ -24,6 +24,8 @@ from meobot.api.deps import (
 )
 from meobot.api.schemas.orders import (
     ApproveFinalRequest,
+    ApproverPerson,
+    ApproversResponse,
     AssignRequest,
     BirthdayOptionsResponse,
     BirthdayOrderResponse,
@@ -40,6 +42,7 @@ from meobot.api.schemas.orders import (
     UpdateBirthdayOrderRequest,
     VersionedRequest,
 )
+from meobot.application.board.holders import ads_approvers
 from meobot.application.orders.command_service import (
     BirthdayCommand,
     CreateOrderCommand,
@@ -56,6 +59,7 @@ from meobot.domain.orders.models import (
     OrderVideoType,
     process_code,
 )
+from meobot.domain.orders.permissions import AdsPermission
 
 router = APIRouter(prefix="/api/orders", tags=["orders"])
 
@@ -232,6 +236,25 @@ async def create_birthday_order(
         ),
     )
     return BirthdayOrderResponse(id=order.id, code=order.code, version=order.version)
+
+
+@router.get("/approvers", response_model=ApproversResponse)
+async def approvers(actor: CurrentActorDep, services: ServicesDep) -> ApproversResponse:
+    """Who approves the caller's next order, and whom they may choose."""
+    scoped = await services.queries.scoped(actor)
+    routes = await ads_approvers(services.session, scoped.scope.unit_id)
+    own_gate = scoped.scope.context.permissions.holds(AdsPermission.ORDER_APPROVE)
+    default = [] if own_gate else list(routes.default_approvers(actor.user_id))
+    return ApproversResponse(
+        own_gate=own_gate,
+        required=not own_gate and not default,
+        default=[ApproverPerson(user_id=person.user_id, name=person.name) for person in default],
+        candidates=[
+            ApproverPerson(user_id=person.user_id, name=person.name)
+            for person in sorted(routes.head, key=lambda item: item.name)
+            if person.user_id != actor.user_id
+        ],
+    )
 
 
 @router.get("/birthday/options", response_model=BirthdayOptionsResponse)

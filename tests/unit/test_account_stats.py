@@ -472,7 +472,7 @@ async def test_06_member_rows_carry_the_month_asked_for(world: World) -> None:
     assert writer["has_custom_password"] is False and writer["locked"] is False
     assert writer["last_login_at"] is None
     assert writer["stats"]["nodes_done"] == 2 and writer["stats"]["points"] == 2.5
-    assert rows["Trưởng phòng Ads"]["role_label"] == "Trưởng phòng ORD"
+    assert rows["Trưởng phòng Ads"]["role_label"] == "Trưởng phòng ADS"
     assert set(writer["stats"]) == {
         "month",
         "points",

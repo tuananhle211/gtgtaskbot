@@ -22,6 +22,7 @@ from fastapi.routing import APIRoute
 from sqlalchemy import select
 
 from meobot.api.deps import get_current_web_actor
+from meobot.application.org.departments import place, unplace
 from meobot.core.errors import ToolExecutionError
 from meobot.core.time import utcnow
 from meobot.db.models.org_unit import OrgUnit, OrgUnitMember
@@ -51,25 +52,24 @@ async def tag(
     is_lead: bool = False,
     member_code: str | None = None,
 ) -> OrgUnitMember:
-    """An open tag of ``user`` in ``unit`` with this role (reopened if closed)."""
+    """An open tag of ``user`` in ``unit`` with this role: since 0061 a seat in
+    the matching department, the tag derived from it."""
+    await place(world.session, unit.code, user.id, role, is_lead=is_lead)
     row = await world.session.scalar(
         select(OrgUnitMember).where(
             OrgUnitMember.unit_id == unit.id, OrgUnitMember.user_id == user.id
         )
     )
-    if row is None:
-        row = OrgUnitMember(
-            unit_id=unit.id, user_id=user.id, role=role, is_lead=is_lead, member_code=member_code
-        )
-        world.session.add(row)
-    else:
-        row.role, row.is_lead, row.member_code, row.left_at = role, is_lead, member_code, None
+    assert row is not None and row.left_at is None and row.role is role, (role, row)
+    row.member_code = member_code
     await world.session.flush()
     return row
 
 
 async def untag(world: World, unit: OrgUnit, user: User) -> None:
-    """Close ``user``'s tag in ``unit`` (the world tags its member PR)."""
+    """Close ``user``'s tag in ``unit`` (the world tags its member PR): their
+    seats in the stream's departments, and the tag with them."""
+    await unplace(world.session, unit.code, user.id, guard_open_work=False)
     row = await world.session.scalar(
         select(OrgUnitMember).where(
             OrgUnitMember.unit_id == unit.id, OrgUnitMember.user_id == user.id
@@ -190,7 +190,7 @@ async def test_05_the_owner_sees_both_units_and_administers_both(world: World) -
     assert me["can_admin"] == ["ADS", "PR"]
     assert me["can_tag"] == ["ADS", "PR"]
     assert me["units"][0]["role"] == "HEAD"
-    assert me["units"][0]["role_label"] == "Trưởng phòng ORD"
+    assert me["units"][0]["role_label"] == "Trưởng phòng ADS"
     assert world.client.get("/api/pr/dashboard").status_code == 200
     assert world.client.get("/api/units/ADS/members").status_code == 200
 
@@ -218,7 +218,8 @@ async def test_07_an_untagged_admin_sees_and_administers_every_stream(world: Wor
     assert me["is_untagged"] is True
     assert me["can_view_all"] is True
     assert me["can_admin"] == ["ADS", "PR"]
-    assert me["can_tag"] == ["ADS", "PR"]
+    # Placing people is the OWNER's since departments (0061).
+    assert me["can_tag"] == [] and me["can_edit_members"] == ["ADS", "PR"]
     assert world.client.get("/api/pr/dashboard").status_code == 200
     assert world.client.get("/api/board/tasks?unit=ALL").status_code == 200
     assert world.client.get("/api/board/tasks?unit=ADS").status_code == 200
@@ -226,7 +227,7 @@ async def test_07_an_untagged_admin_sees_and_administers_every_stream(world: Wor
         "/api/units/ADS/members",
         json={"user_id": str(world.member.id), "role": "ORDERER"},
     )
-    assert response.status_code == 201, response.json()
+    assert response.status_code == 403, response.json()
     settings = world.client.patch("/api/units/ADS/settings", json={"urgent_days": 5})
     assert settings.status_code == 200, settings.json()
 

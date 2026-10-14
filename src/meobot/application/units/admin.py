@@ -53,6 +53,7 @@ from sqlalchemy import exists, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from meobot.application.audit_service import AuditService
+from meobot.application.org import departments
 from meobot.application.units.directory import (
     ROLE_FOR_NODE,
     UnitDirectoryService,
@@ -103,6 +104,10 @@ class UnitAdminService:
         self._audit = audit
         self._directory = UnitDirectoryService(session)
 
+    @property
+    def session(self) -> AsyncSession:
+        return self._session
+
     # --- authority ----------------------------------------------------------
 
     @staticmethod
@@ -121,6 +126,18 @@ class UnitAdminService:
         if actor.role in (Role.OWNER, Role.ADMIN):
             return True
         return actor.role is Role.TEAM_LEAD and membership.entry(code) is not None
+
+    @staticmethod
+    def assigns(actor: Actor) -> bool:
+        """Who places people in departments - and so in streams, roles and
+        under a Leader: the OWNER alone (0061)."""
+        return actor.role is Role.OWNER
+
+    def _require_assigner(self, actor: Actor, code: UnitCode) -> None:
+        if not self.assigns(actor):
+            raise UnitTagForbiddenError(
+                code, "Chỉ chủ sở hữu mới gắn người vào phòng ban, vai trò và người quản lý."
+            )
 
     @classmethod
     def tag_units(cls, membership: UnitMembership, actor: Actor) -> list[UnitCode]:
@@ -181,6 +198,7 @@ class UnitAdminService:
         personal_nas_url: str | None = None,
     ) -> UnitMemberRow:
         unit = await self._require_tagger(actor, code, user_id)
+        self._require_assigner(actor, code)
         user = await self._session.get(User, user_id)
         if user is None:
             raise UnitValidationError(
@@ -190,32 +208,21 @@ class UnitAdminService:
         self._check_role(code, role)
         normalised_code = self._normalise_member_code(member_code)
 
-        row = await self._directory.member(unit.id, user_id)
-        before: dict[str, Any] | None = None
-        if row is None:
-            row = OrgUnitMember(
-                unit_id=unit.id,
-                user_id=user_id,
-                role=role,
-                is_lead=is_lead and role in FUNCTION_ROLES,
-                member_code=normalised_code,
-                personal_nas_url=personal_nas_url,
-                joined_at=utcnow(),
+        existing = await self._directory.member(unit.id, user_id)
+        if existing is not None and existing.left_at is None:
+            raise UnitValidationError(
+                "Thành viên này đã thuộc ban.",
+                details={"reason": "already_tagged", "unit": code.value},
             )
-            self._session.add(row)
-        else:
-            if row.left_at is None:
-                raise UnitValidationError(
-                    "Thành viên này đã thuộc ban.",
-                    details={"reason": "already_tagged", "unit": code.value},
-                )
-            before = self._snapshot(row)
-            row.role = role
-            row.is_lead = is_lead and role in FUNCTION_ROLES
-            row.member_code = normalised_code
-            row.personal_nas_url = personal_nas_url
-            row.joined_at = utcnow()
-            row.left_at = None
+        before = None if existing is None else self._snapshot(existing)
+        # A seat in the matching department; the tag follows from it (0061).
+        await departments.place(
+            self._session, code, user_id, role, is_lead=is_lead and role in FUNCTION_ROLES
+        )
+        row = await self._directory.member(unit.id, user_id)
+        assert row is not None
+        row.member_code = normalised_code
+        row.personal_nas_url = personal_nas_url
         await self._flush_translating(code, row)
         await self._audit.record_action(
             request_id=request_id,
@@ -255,13 +262,29 @@ class UnitAdminService:
                 "Thành viên không thuộc ban này.", details={"reason": "member_not_tagged"}
             )
         before = self._snapshot(row)
-        if role is not None:
-            self._check_role(code, role)
-            row.role = role
-        if is_lead is not None:
-            row.is_lead = is_lead
-        # Only a function (Biên kịch, Design, Dựng) has a head of its own.
-        row.is_lead = row.is_lead and row.role in FUNCTION_ROLES
+        restructures = (
+            (role is not None and role is not row.role)
+            or (is_lead is not None and is_lead is not row.is_lead)
+            or clear_manager
+            or manager_user_id is not None
+        )
+        if restructures:
+            # Roles and own-Leader links are seats in departments now (0061).
+            self._require_assigner(actor, code)
+        if (role is not None and role is not row.role) or (
+            is_lead is not None and is_lead is not row.is_lead
+        ):
+            target = role or row.role
+            self._check_role(code, target)
+            await departments.place(
+                self._session,
+                code,
+                user_id,
+                target,
+                is_lead=bool(is_lead if is_lead is not None else row.is_lead)
+                and target in FUNCTION_ROLES,
+            )
+            await self._session.refresh(row)
         if clear_member_code:
             row.member_code = None
         elif member_code is not None:
@@ -276,18 +299,21 @@ class UnitAdminService:
             row.daily_tokens = daily_tokens
         if birthday_orders is not None:
             row.birthday_orders = birthday_orders
-        if clear_manager:
-            row.manager_user_id = None
-        elif manager_user_id is not None:
-            boss = await self._directory.member(unit.id, manager_user_id)
-            if boss is None or not manager_fits(boss, row):
-                raise UnitValidationError(
-                    "Trưởng quản lý phải là Trưởng phòng của đúng ban này "
-                    "(người order: Trưởng phòng ORD).",
-                    details={"reason": "unit_manager_invalid"},
+        if clear_manager or manager_user_id is not None:
+            try:
+                await departments.set_unit_manager(
+                    self._session,
+                    code,
+                    user_id,
+                    None if clear_manager else manager_user_id,
+                    row.role,
                 )
-            row.manager_user_id = manager_user_id
-        await self._refit_managers(unit.id, row)
+            except departments.DepartmentValidationError as error:
+                raise UnitValidationError(
+                    "Trưởng quản lý phải là Trưởng phòng của đúng phòng này.",
+                    details={"reason": "unit_manager_invalid"},
+                ) from error
+            await self._session.refresh(row)
         await self._flush_translating(code, row)
         user = await self._session.get_one(User, user_id)
         await self._audit.record_action(
@@ -306,6 +332,7 @@ class UnitAdminService:
         self, *, actor: Actor, request_id: uuid.UUID, code: UnitCode, user_id: uuid.UUID
     ) -> UnitMemberRow:
         unit = await self._require_tagger(actor, code, user_id)
+        self._require_assigner(actor, code)
         row = await self._directory.member(unit.id, user_id)
         if row is None or row.left_at is not None:
             raise UnitNotFoundError(
@@ -321,10 +348,15 @@ class UnitAdminService:
                 details={"reason": "member_has_open_work", "unit": code.value},
             )
         before = self._snapshot(row)
-        row.left_at = utcnow()
+        await departments.unplace(self._session, code, user_id, guard_open_work=False)
+        await self._session.refresh(row)
+        if row.left_at is None:
+            # Still in the stream through a seat elsewhere (e.g. another
+            # department that orders): close it here all the same.
+            row.left_at = utcnow()
+            row.manager_user_id = None
         # A grant belongs to the tag: it does not survive it.
         row.birthday_orders = False
-        await self._refit_managers(unit.id, row)
         await self._session.flush()
         user = await self._session.get_one(User, user_id)
         await self._audit.record_action(
@@ -738,6 +770,24 @@ class UnitAdminService:
                 "Chỉ chủ sở hữu bật/tắt được chế độ tính effort (token).",
                 details={"reason": "effort_setting_forbidden"},
             )
+        if patch.get("permissions") is not None:
+            # 0061: the matrix's role columns are departments' grants now -
+            # the OWNER's to decide; only the Admin column stays here.
+            if actor.role is not Role.OWNER:
+                raise UnitAccessDeniedError(
+                    "Chỉ chủ sở hữu mới phân quyền.",
+                    details={"reason": "permissions_forbidden"},
+                )
+            try:
+                admin_column = await departments.apply_order_matrix(
+                    self._session, patch["permissions"]
+                )
+            except AdsPermissionMatrixError as error:
+                raise UnitValidationError(
+                    "Bảng quyền không hợp lệ.",
+                    details={"reason": "invalid_settings", "field": "permissions"},
+                ) from error
+            patch = {**patch, "permissions": {**current.permissions, **admin_column}}
         try:
             updated = current.model_copy(update=patch)
             updated = UnitSettings.model_validate(updated.model_dump())
@@ -786,7 +836,7 @@ class UnitAdminService:
             return warnings
         if not await self._directory.heads(unit.id):
             warnings.append(
-                ("no_head", "Luồng ORD chưa có Trưởng phòng ORD: không ai duyệt được order.")
+                ("no_head", "Luồng ORD chưa có Trưởng phòng ADS: không ai duyệt được order.")
             )
         for node_type in (OrderNodeType.BIEN_TAP, OrderNodeType.THIET_KE, OrderNodeType.DUNG):
             members = await self._directory.function_members(unit.id, node_type)

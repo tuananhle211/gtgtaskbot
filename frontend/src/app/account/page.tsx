@@ -486,6 +486,7 @@ function AccountSettings({
             </ul>
           )}
         </SettingRow>
+        <DepartmentsRow />
       </SettingsSection>
 
       <SettingsSection id="account-security" title="Bảo mật" description="Mật khẩu đăng nhập TasksBot trên web.">
@@ -511,6 +512,33 @@ function AccountSettings({
         </SettingRow>
       </SettingsSection>
     </div>
+  );
+}
+
+/**
+ * "Phòng ban": the viewer's own seats, from `/api/units/me` `departments`,
+ * e.g. "ADS — Trưởng phòng · PR Thương Hiệu — Nhân viên". Not drawn while it
+ * loads, if it fails, or for an API that does not send the field.
+ */
+function DepartmentsRow() {
+  const units = useQuery({ queryKey: ["units", "me"], queryFn: api.unitsMe, retry: false });
+  const seats = units.data?.departments;
+  if (!seats) return null;
+  return (
+    <SettingRow label="Phòng ban" hint="Do chủ sở hữu gắn ở màn Phòng ban.">
+      {seats.length === 0 ? (
+        <span className="text-[var(--text-muted)]">Chưa thuộc phòng ban nào.</span>
+      ) : (
+        <p data-testid="my-departments">
+          {seats
+            .map(
+              (seat) =>
+                `${seat.name} — ${seat.position_label ?? (seat.position === "HEAD" ? "Trưởng phòng" : "Nhân viên")}`,
+            )
+            .join(" · ")}
+        </p>
+      )}
+    </SettingRow>
   );
 }
 

@@ -1642,13 +1642,15 @@ async def test_33_no_content_or_task_semantics_changed(world: World) -> None:
         assert "PrTask" not in names, name
         # And no team is invented, from channel assignments or otherwise.
         assert "PrChannelAssignment" not in names, name
+        # Nor read from the company's departments (0061, the order flow's).
+        assert "Department" not in names and "DepartmentMember" not in names, name
 
     from meobot.db.base import Base
 
     # ``org_units`` is the PR / Ads unit registry from 0042 - a wall, not a
     # hierarchy - and the quota module still never touches it (see the
     # identifier sweep above).
-    for forbidden in ("teams", "team_members", "departments"):
+    for forbidden in ("teams", "team_members"):
         assert forbidden not in Base.metadata.tables
 
 

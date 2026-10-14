@@ -109,7 +109,7 @@ from meobot.domain.orders.pipeline import (
     video_review_applies,
 )
 from meobot.domain.units.member_code import derive_member_code
-from meobot.domain.units.models import UnitCode, UnitMemberRole, UnitMembership, UnitSettings
+from meobot.domain.units.models import UnitCode, UnitMembership, UnitSettings
 
 
 @dataclass(frozen=True, slots=True)
@@ -132,7 +132,7 @@ class CreateOrderCommand:
     note: str | None = None
     #: 0053: the orderer's wished finish. Required.
     desired_deadline_at: datetime | None = None
-    #: 0056: the Trưởng phòng ORD chosen to approve this order. None = the
+    #: 0056: the Trưởng phòng ADS chosen to approve this order. None = the
     #: orderer's own head, else every head.
     approver_user_id: uuid.UUID | None = None
 
@@ -272,15 +272,23 @@ class OrderCommandService:
             )
         self._validate_fields(command.title, command.order_content)
         desired = _desired_deadline(command.desired_deadline_at, now=utcnow())
-        # A head's own order needs no approval - and so no approver.
-        own_gate = (entry is None or entry.role is UnitMemberRole.HEAD) and (
-            context.permissions.allows(AdsPermission.ORDER_APPROVE)
-        )
+        # Somebody who approves orders needs no approval of their own order -
+        # and so no approver.
+        own_gate = context.permissions.holds(AdsPermission.ORDER_APPROVE)
         approver = (
             None
             if own_gate
             else await self._approver(unit.id, command.approver_user_id, actor.user_id)
         )
+        if not own_gate and approver is None:
+            # Nobody chosen: the orderer's own approvers (0061). None at all -
+            # no head of theirs approves orders - and they must pick one.
+            routes = await ads_approvers(self._session, unit.id)
+            if not routes.default_approvers(actor.user_id):
+                raise OrderValidationError(
+                    "Trưởng phòng của bạn không có quyền duyệt order: hãy chọn người duyệt.",
+                    details={"reason": "approver_required", "field": "approver_user_id"},
+                )
         await self._validate_preassigned(unit.id, command.video_type, command.preassigned)
         kind = await self._video_kind(unit.id, command.video_kind_id, required=True)
         platform = await self._platform(unit.id, command.platform_id, required=True)
@@ -499,14 +507,16 @@ class OrderCommandService:
     async def _approver(
         self, unit_id: uuid.UUID, chosen: uuid.UUID | None, orderer: uuid.UUID | None
     ) -> uuid.UUID | None:
-        """The approver picked on the form: an active Trưởng phòng ORD, not
-        the orderer themselves."""
+        """The approver picked on the form: somebody active who approves
+        orders (0061: any department's head granted it), not the orderer."""
         if chosen is None:
             return None
-        heads = {row.user.id for row in await self._directory.heads(unit_id)}
-        if chosen not in heads or chosen == orderer:
+        approvers = {
+            person.user_id for person in (await ads_approvers(self._session, unit_id)).head
+        }
+        if chosen not in approvers or chosen == orderer:
             raise OrderValidationError(
-                "Người duyệt order phải là một Trưởng phòng ORD đang hoạt động.",
+                "Người duyệt order phải là người đang có quyền duyệt order.",
                 details={"reason": "approver_invalid", "field": "approver_user_id"},
             )
         return chosen

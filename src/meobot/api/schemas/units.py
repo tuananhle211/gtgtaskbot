@@ -18,6 +18,7 @@ from meobot.application.units.directory import UnitMemberRow
 from meobot.db.models.org_unit import UnitDesignCode, UnitDuration, UnitPlatform, UnitVideoKind
 from meobot.domain.identity.labels import role_label
 from meobot.domain.orders.permissions import ROLE_LABELS, SCOPE_LABELS, catalog, normalise_matrix
+from meobot.domain.org.models import POSITION_LABELS, Seat
 from meobot.domain.units.labels import (
     FUNCTION_TAGS,
     function_tag,
@@ -84,7 +85,11 @@ class UnitSettingsResponse(BaseModel):
     output_target: int | None = None
 
     @classmethod
-    def from_domain(cls, settings: UnitSettings) -> UnitSettingsResponse:
+    def from_domain(
+        cls, settings: UnitSettings, matrix: dict[str, dict[str, str]] | None = None
+    ) -> UnitSettingsResponse:
+        """``matrix``: the order flow's permission matrix as read from the
+        departments' grants (0061); without it, the stored one."""
         return cls(
             urgent_days=settings.urgent_days,
             media_nas_url=settings.media_nas_url,
@@ -95,7 +100,7 @@ class UnitSettingsResponse(BaseModel):
             review_thiet_ke=settings.review_thiet_ke,
             review_dung=settings.review_dung,
             review_video_by_script_lead=settings.review_video_by_script_lead,
-            permissions=normalise_matrix(settings.permissions),
+            permissions=matrix if matrix is not None else normalise_matrix(settings.permissions),
             effort_enabled=settings.effort_enabled,
             design_codes_enabled=settings.design_codes_enabled,
             script_ai_review=settings.script_ai_review,
@@ -162,6 +167,30 @@ class UpdateLibraryRequest(BaseModel):
     links: list[LibraryLinkBody] = Field(max_length=100)
 
 
+class DepartmentSeatResponse(BaseModel):
+    """One department the caller sits in (0061)."""
+
+    department_id: uuid.UUID
+    code: str
+    name: str
+    function: str
+    position: str
+    position_label: str
+    manager_user_id: uuid.UUID | None = None
+
+    @classmethod
+    def from_domain(cls, seat: Seat) -> DepartmentSeatResponse:
+        return cls(
+            department_id=seat.department_id,
+            code=seat.code,
+            name=seat.name,
+            function=seat.function.value,
+            position=seat.position.value,
+            position_label=POSITION_LABELS[seat.position],
+            manager_user_id=seat.manager_user_id,
+        )
+
+
 class DesignAccessResponse(BaseModel):
     """What the Design team's screens are for this caller (0058)."""
 
@@ -188,9 +217,15 @@ class UnitMeResponse(BaseModel):
     can_view_all: bool
     #: Units this caller may administer (the OWNER and the ADMIN: every unit).
     can_admin: list[str]
-    #: Streams this caller may tag people into and out of: OWNER/ADMIN every
-    #: stream, a team lead the streams they are tagged in, else none.
+    #: Streams this caller may place people in - role, Leader link, tag and
+    #: untag: the OWNER alone since departments (0061).
     can_tag: list[str] = []
+    #: Streams where this caller may edit the rest of a member's row (member
+    #: code, NAS link, daily tokens, birthday-board grant): OWNER/ADMIN every
+    #: stream, a team lead the streams they are tagged in.
+    can_edit_members: list[str] = []
+    #: 0061: the departments this caller sits in.
+    departments: list[DepartmentSeatResponse] = []
     #: No open tag at all. ``units`` is then empty unless OWNER/ADMIN.
     is_untagged: bool = False
     #: ORD's effort (token) mode, for every screen that shows tokens. False
@@ -206,7 +241,9 @@ class UnitMeResponse(BaseModel):
         *,
         can_admin: list[str],
         can_tag: list[str] | None = None,
+        can_edit_members: list[str] | None = None,
         design: DesignAccessResponse | None = None,
+        seats: list[DepartmentSeatResponse] | None = None,
     ) -> UnitMeResponse:
         entries = sorted(entries, key=lambda entry: stream_rank(entry.code))
         return cls(
@@ -215,6 +252,8 @@ class UnitMeResponse(BaseModel):
             can_view_all=membership.sees_all,
             can_admin=sorted(can_admin, key=stream_rank),
             can_tag=sorted(can_tag or [], key=stream_rank),
+            can_edit_members=sorted(can_edit_members or [], key=stream_rank),
+            departments=seats or [],
             is_untagged=membership.is_untagged,
             effort_enabled=next(
                 (
@@ -529,6 +568,7 @@ def unit_entry(
     member_code: str | None,
     personal_nas_url: str | None,
     settings: UnitSettings,
+    matrix: dict[str, dict[str, str]] | None = None,
 ) -> UnitEntryResponse:
     from meobot.domain.units.models import UnitCode
 
@@ -542,7 +582,7 @@ def unit_entry(
         function_tag=function_tag(UnitCode(code), role),
         member_code=member_code,
         personal_nas_url=personal_nas_url,
-        settings=UnitSettingsResponse.from_domain(settings),
+        settings=UnitSettingsResponse.from_domain(settings, matrix),
     )
 
 

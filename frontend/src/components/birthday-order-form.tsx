@@ -13,7 +13,7 @@ import { NoticeBox } from "@/components/states";
  * board. A modal over the birthday board (`/tasks/birthday`).
  *
  * A birthday order is an ORD order for the Design ban alone: no approval by
- * the Trưởng phòng ORD and no final review - sending the form puts it straight
+ * the Trưởng phòng ADS and no final review - sending the form puts it straight
  * on the Design step, and the designer's hand-in finishes it. So the form asks
  * only who the artwork is for: name, branch, gender, birthday, a picture to
  * work from (a link) and a note.

@@ -609,6 +609,47 @@ describe("the account page", () => {
     expect(patch?.body).toEqual({ full_name: "Tuấn Lê" });
   });
 
+  it("names my departments and my position in each", async () => {
+    stubFetch([
+      { match: "/api/account/members", status: 403, body: FORBIDDEN },
+      { match: "/api/account/me", body: ME },
+      {
+        match: "/api/units/me",
+        body: {
+          units: [],
+          default_unit: null,
+          can_view_all: false,
+          can_admin: [],
+          departments: [
+            {
+              department_id: "d-ads",
+              code: "ADS",
+              name: "ADS",
+              function: "NONE",
+              position: "HEAD",
+              position_label: "Trưởng phòng",
+              manager_user_id: null,
+            },
+            {
+              department_id: "d-pr",
+              code: "PR",
+              name: "PR Thương Hiệu",
+              function: "PR",
+              position: "MEMBER",
+              position_label: "Nhân viên",
+              manager_user_id: null,
+            },
+          ],
+        },
+      },
+    ]);
+    renderWithQuery(<AccountPage />);
+    await userEvent.click(await screen.findByRole("tab", { name: "Thông tin tài khoản" }));
+    const identity = await screen.findByRole("region", { name: "Thông tin tài khoản" });
+    const row = await within(identity).findByRole("group", { name: "Phòng ban" });
+    expect(row).toHaveTextContent("ADS — Trưởng phòng · PR Thương Hiệu — Nhân viên");
+  });
+
   it("draws the month's figures, and asks for another month", async () => {
     const fetchMock = stubFetch([
       {

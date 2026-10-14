@@ -11,6 +11,7 @@ the creator's authority instead of trusting the caller.
 
 from __future__ import annotations
 
+import contextlib
 import uuid
 from collections.abc import Sequence
 from dataclasses import dataclass
@@ -20,7 +21,8 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from meobot.application.audit_service import AuditService
-from meobot.application.units.directory import UnitDirectoryService, manager_fits
+from meobot.application.org import departments
+from meobot.application.units.directory import UnitDirectoryService
 from meobot.core.errors import AuthorizationError, ConflictError, NotFoundError, ValidationError
 from meobot.core.logging import get_logger
 from meobot.core.time import ensure_utc, utcnow
@@ -104,7 +106,7 @@ class InviteService:
         """Where ``actor``'s invitees land, from the actor's own tags.
 
         A Leader of Biên kịch / Design / Dựng brings staff of that ban, a
-        Trưởng phòng ORD an orderer - both reporting to the actor; a PR team
+        Trưởng phòng ADS an orderer - both reporting to the actor; a PR team
         lead a PR member. The OWNER and an ADMIN place nobody: their invitees
         join untagged and are tagged by hand. Several leads: the ORD ban
         first, then the ORD head, then PR.
@@ -401,23 +403,18 @@ class InviteService:
         if it still fits (the inviter may have stopped leading since)."""
         if invite.unit_id is None or invite.unit_role is None:
             return None
-        row = OrgUnitMember(
-            unit_id=invite.unit_id, user_id=user.id, role=invite.unit_role, is_lead=False
-        )
-        self._session.add(row)
-        await self._session.flush()
+        unit = await self._session.get(OrgUnit, invite.unit_id)
+        if unit is None:
+            return None
+        # 0061: a seat in the matching department; the tag follows from it.
+        await departments.place(self._session, unit.code, user.id, invite.unit_role)
         if invite.manager_user_id is not None:
-            boss = await self._directory.member(invite.unit_id, invite.manager_user_id)
-            boss_user = await self._session.get(User, invite.manager_user_id)
-            if (
-                boss is not None
-                and boss_user is not None
-                and boss_user.active
-                and manager_fits(boss, row)
-            ):
-                row.manager_user_id = boss.user_id
-                await self._session.flush()
-        return row
+            # The inviter may no longer head that department: then no link.
+            with contextlib.suppress(departments.DepartmentValidationError):
+                await departments.set_unit_manager(
+                    self._session, unit.code, user.id, invite.manager_user_id, invite.unit_role
+                )
+        return await self._directory.member(invite.unit_id, user.id)
 
     async def _audit_rejection(
         self,

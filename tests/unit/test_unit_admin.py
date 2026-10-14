@@ -36,7 +36,7 @@ async def test_01_the_owner_tags_a_marketer_and_the_code_is_normalised(world: Wo
     assert response.status_code == 201, response.json()
     body = response.json()
     assert body["role"] == "ORDERER"
-    assert body["role_label"] == "Marketing (người order)"
+    assert body["role_label"] == "Nhân viên ADS (người order)"
     assert body["member_code"] == "TUAN"
     assert body["active"] is True
 
@@ -302,12 +302,12 @@ async def test_09_the_ads_positions_include_a_head_for_each_function(world: Worl
         (row["role"], row.get("is_lead", False), row["label"]) for row in listed["assignable_roles"]
     ]
     assert positions[:4] == [
-        ("HEAD", False, "Trưởng phòng ORD"),
+        ("HEAD", False, "Trưởng phòng ADS"),
         ("BIEN_TAP", True, "Trưởng phòng Biên kịch"),
         ("THIET_KE", True, "Trưởng phòng Design"),
         ("DUNG", True, "Trưởng phòng Dựng"),
     ]
-    assert ("ORDERER", False, "Marketing (người order)") in positions
+    assert ("ORDERER", False, "Nhân viên ADS (người order)") in positions
 
     # Tagged as Trưởng phòng Dựng: DUNG + lead, labelled as such.
     response = world.client.post(
@@ -324,7 +324,7 @@ async def test_09_the_ads_positions_include_a_head_for_each_function(world: Worl
     )
     assert moved.status_code == 200, moved.json()
     assert moved.json()["is_lead"] is False
-    assert moved.json()["role_label"] == "Marketing (người order)"
+    assert moved.json()["role_label"] == "Nhân viên ADS (người order)"
 
 
 # --- video kinds ("Loại video") -------------------------------------------------------

@@ -3371,6 +3371,16 @@ export interface UnitsMe {
    * predates it is read as `can_admin` (see `canTagIn`).
    */
   can_tag?: string[];
+  /**
+   * The streams where this person may edit the rest of a member row (member
+   * code, NAS link, token/ngày, "Order sinh nhật"): OWNER / ADMIN / a team
+   * lead. Placing people (add / remove, role, Leader, "Trưởng quản lý") is
+   * `can_tag`, the OWNER's alone. Optional: an older API omits it and
+   * `can_tag` stands in (see `canEditMembersIn`).
+   */
+  can_edit_members?: string[];
+  /** The caller's own seats in the departments ("Phòng ban"). Optional. */
+  departments?: MyDepartmentSeat[];
   /** No active stream tag at all. Optional, like `can_tag`. */
   is_untagged?: boolean;
   /**
@@ -3496,6 +3506,122 @@ export interface DirectoryUser {
   base_role_label: string;
   active: boolean;
   units: string[];
+}
+
+// --- Departments ("Phòng ban") ------------------------------------------------
+
+/** What a department does in the order flow; `NONE` = nothing by itself. */
+export type DepartmentFunction =
+  | "NONE"
+  | "BIEN_TAP"
+  | "THIET_KE"
+  | "DUNG"
+  | "PR"
+  | "BOARD"
+  | "RESOURCES";
+
+/** A seat's position: "Trưởng phòng" or "Nhân viên". */
+export type DepartmentPosition = "HEAD" | "MEMBER";
+
+/** `NONE` / `OWN` / `ALL`, labelled by the catalogue's `scope_labels`. */
+export type DepartmentScope = string;
+
+/** One seat of the caller, in `GET /api/units/me` `departments`. */
+export interface MyDepartmentSeat {
+  department_id: Uuid;
+  code: string;
+  name: string;
+  function?: DepartmentFunction | string;
+  position: DepartmentPosition | string;
+  position_label?: string;
+  manager_user_id?: Uuid | null;
+}
+
+export interface Department {
+  id: Uuid;
+  code: string;
+  name: string;
+  function: DepartmentFunction | string;
+  function_label?: string;
+  active: boolean;
+  sort_order?: number;
+  member_count?: number;
+}
+
+export interface DepartmentList {
+  departments: Department[];
+}
+
+/** `GET /api/departments/catalog`: what a department may grant, and the words. */
+export interface DepartmentCatalog {
+  module?: string;
+  module_label?: string;
+  permissions: Array<{
+    key: string;
+    label: string;
+    /** `["NONE", "OWN", "ALL"]` or `["NONE", "ALL"]`. */
+    scopes: string[];
+    own_meaning?: string | null;
+  }>;
+  positions: Array<{ value: DepartmentPosition | string; label: string }>;
+  functions: Array<{ value: DepartmentFunction | string; label: string }>;
+  scope_labels?: Record<string, string>;
+}
+
+export interface DepartmentBody {
+  code?: string;
+  name?: string;
+  function?: DepartmentFunction | string;
+  active?: boolean;
+  sort_order?: number;
+}
+
+/** One person's seat in a department. */
+export interface DepartmentSeat {
+  user_id: Uuid;
+  full_name: string;
+  active?: boolean;
+  position: DepartmentPosition | string;
+  position_label?: string;
+  manager_user_id?: Uuid | null;
+}
+
+export interface DepartmentSeatList {
+  members: DepartmentSeat[];
+}
+
+/**
+ * `PUT /api/departments/{id}/members`: adds or changes a seat. A field left
+ * out keeps its value; `manager_user_id: null` sent explicitly clears it.
+ */
+export interface DepartmentSeatBody {
+  user_id: Uuid;
+  position?: DepartmentPosition | string;
+  manager_user_id?: Uuid | null;
+}
+
+/** position -> permission -> scope, for the order flow. */
+export type DepartmentGrantCells = Record<string, Record<string, DepartmentScope>>;
+
+export interface DepartmentGrants {
+  module?: string;
+  cells: DepartmentGrantCells;
+}
+
+/** `GET /api/orders/approvers`: who approves the caller's next order. */
+export interface OrderApproverPerson {
+  user_id: Uuid;
+  name: string;
+}
+
+export interface OrderApprovers {
+  /** The caller approves orders themselves: their order needs no approval. */
+  own_gate: boolean;
+  /** Nobody would by default: the caller must pick one of `candidates`. */
+  required: boolean;
+  /** Who it goes to when nobody is chosen. */
+  default: OrderApproverPerson[];
+  candidates: OrderApproverPerson[];
 }
 
 /**
@@ -4016,7 +4142,7 @@ export interface CreateOrderBody {
   preassigned?: Record<string, Uuid>;
   /** ORD: required. ISO-8601 (`new Date(local).toISOString()`). */
   desired_deadline_at?: string | null;
-  /** The Trưởng phòng ORD chosen to approve it (ignored for a head's own order). */
+  /** The Trưởng phòng ADS chosen to approve it (ignored for a head's own order). */
   approver_user_id?: Uuid | null;
 }
 
@@ -4498,6 +4624,42 @@ export const api = {
       `/api/units/${code}/members${query({ include_inactive: includeInactive })}`,
     ),
   unitDirectory: () => get<DirectoryUser[]>("/api/units/directory"),
+
+  // Departments ("Phòng ban"). Read: OWNER / ADMIN (else 403
+  // `department_forbidden`); every write: the OWNER.
+  departments: () => get<DepartmentList>("/api/departments"),
+  departmentCatalog: () => get<DepartmentCatalog>("/api/departments/catalog"),
+  /**
+   * 201. The code is folded to A-Z0-9 (≤ 12) by the server. 422
+   * `department_code_missing` / `department_code_taken` (`details.field`
+   * `code`), `department_name_invalid` (`name`).
+   */
+  createDepartment: (body: DepartmentBody & { code: string; name: string }) =>
+    post<Department>("/api/departments", body),
+  /** No delete: a department is retired with `active: false`. */
+  updateDepartment: (id: Uuid, body: DepartmentBody) =>
+    patch<Department>(`/api/departments/${id}`, body),
+  /** Heads first. */
+  departmentMembers: (id: Uuid) =>
+    get<DepartmentSeatList>(`/api/departments/${id}/members`),
+  /**
+   * Adds or changes a seat. 422 `department_manager_invalid` (`details.field`
+   * `manager_user_id`: an active head of the same department, not oneself).
+   */
+  seatDepartmentMember: (id: Uuid, body: DepartmentSeatBody) =>
+    put<DepartmentSeat>(`/api/departments/${id}/members`, body),
+  /** 204. 422 `member_has_open_work`. */
+  unseatDepartmentMember: (id: Uuid, userId: Uuid) =>
+    del<void>(`/api/departments/${id}/members/${userId}`),
+  departmentGrants: (id: Uuid) =>
+    get<DepartmentGrants>(`/api/departments/${id}/grants`),
+  /**
+   * Cells left out keep their value; answers with every cell after. 422
+   * `department_grant_invalid`.
+   */
+  saveDepartmentGrants: (id: Uuid, cells: DepartmentGrantCells) =>
+    put<DepartmentGrants>(`/api/departments/${id}/grants`, { cells }),
+
   /** Active accounts with no stream tag. OWNER / ADMIN / a tagged TEAM_LEAD. */
   unitsUntagged: () => get<UntaggedUserList>("/api/units/untagged"),
   unitHealth: (code: string) => get<UnitHealth>(`/api/units/${code}/health`),
@@ -4621,6 +4783,12 @@ export const api = {
   birthdayOptions: () => get<BirthdayOptions>("/api/orders/birthday/options"),
   createOrder: (body: CreateOrderBody) =>
     post<OrderDetail>("/api/orders", body),
+  /**
+   * Who approves the caller's next order: none when `own_gate`, else the
+   * `default` route, or - `required` - one the caller must pick from
+   * `candidates` (422 `approver_required` / `approver_invalid`).
+   */
+  orderApprovers: () => get<OrderApprovers>("/api/orders/approvers"),
   order: (ref: string) =>
     get<OrderDetail>(`/api/orders/${encodeURIComponent(ref)}`),
   /** One pipeline action. `path` is the route suffix, e.g. `/approve`. */

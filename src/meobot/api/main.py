@@ -17,6 +17,7 @@ from meobot.api.routers import (
     account,
     board,
     conversations,
+    departments,
     drive,
     health,
     invites,
@@ -101,6 +102,7 @@ _ENVELOPE_PREFIXES = (
     "/api/auth",
     "/api/notifications",
     "/api/units",
+    "/api/departments",
     "/api/orders",
     "/api/board",
     "/api/tasks",
@@ -196,6 +198,7 @@ def _include_web_facing_routers(app: FastAPI) -> None:
     # Units. Not behind any unit gate: ``/me`` is how the shell learns which
     # units the caller has, and the per-unit routes check inside.
     app.include_router(units.router)
+    app.include_router(departments.router)
     # The Ads order engine, behind the Ads unit gate the same way the PR
     # routers sit behind the PR one.
     app.include_router(orders.router, dependencies=[Depends(require_unit(UnitCode.ADS))])

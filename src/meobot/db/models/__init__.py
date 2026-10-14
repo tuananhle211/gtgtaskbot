@@ -15,6 +15,7 @@ from meobot.db.models.conversation import (
 )
 from meobot.db.models.conversation_state import ConversationState
 from meobot.db.models.deferred import DeferredGuestMessage
+from meobot.db.models.department import Department, DepartmentMember, DepartmentPermission
 from meobot.db.models.dispatch import (
     MessageDispatch,
     MessageDispatchDraft,
@@ -168,6 +169,9 @@ __all__ = [
     "DailyAiUsage",
     "DeferredGuestMessage",
     "DeliveryAttempt",
+    "Department",
+    "DepartmentMember",
+    "DepartmentPermission",
     "DriveFolder",
     "GroupMemberResponsePolicy",
     "HrRequest",

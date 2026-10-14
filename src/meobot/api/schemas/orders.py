@@ -346,7 +346,7 @@ class CreateOrderRequest(BaseModel):
     preassigned: dict[str, uuid.UUID] = Field(default_factory=dict)
     #: 0053: the orderer's wished finish. Required (422 ``deadline_required``).
     desired_deadline_at: datetime | None = None
-    #: 0056: the Trưởng phòng ORD chosen to approve it (422 ``approver_invalid``).
+    #: 0056: the Trưởng phòng ADS chosen to approve it (422 ``approver_invalid``).
     #: Ignored for a head's own order, which needs no approval.
     approver_user_id: uuid.UUID | None = None
 
@@ -443,6 +443,27 @@ class BirthdayOrderResponse(BaseModel):
     id: uuid.UUID
     code: str
     version: int
+
+
+class ApproverPerson(BaseModel):
+    user_id: uuid.UUID
+    name: str
+
+
+class ApproversResponse(BaseModel):
+    """Who approves the caller's next order (0061), for the form's "Người
+    duyệt order".
+
+    ``own_gate``: the caller approves orders themselves - no approval, no
+    field. Otherwise ``default`` is who it goes to when nobody is chosen (the
+    head they report to, else every head of their department), and
+    ``required`` says nobody would: the caller must pick from ``candidates``
+    (everybody who may approve orders)."""
+
+    own_gate: bool
+    required: bool
+    default: list[ApproverPerson]
+    candidates: list[ApproverPerson]
 
 
 class BirthdayOptionsResponse(BaseModel):

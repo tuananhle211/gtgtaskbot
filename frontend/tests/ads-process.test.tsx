@@ -245,63 +245,129 @@ describe("the create form's Quy trình", () => {
     expect(codePreview()).toBe("TUAN-?-yymmdd-nn");
   });
 
-  it("lets the orderer pick who approves the order, or leave it to their own head", async () => {
-    const head = (id: string, name: string) => ({
-      ...MEMBERS.members[0],
-      user_id: id,
-      full_name: name,
-      role: "HEAD",
-      role_label: "Trưởng phòng ORD",
-    });
-    const routes = [
-      { match: "/api/units/me", body: ORDERER },
-      {
-        match: "/api/units/ADS/members",
-        body: { ...MEMBERS, members: [head("h-1", "Trưởng A"), head("h-2", "Trưởng B")] },
-      },
-      { match: "/api/units/ADS/video-kinds", body: { kinds: [] } },
-      { match: "/api/orders", method: "POST", body: { order: { code: "TUAN-TD-261008-01" } } },
-    ];
-    const send = async () => {
-      await userEvent.click(submit());
-      await userEvent.click(
-        within(await screen.findByRole("dialog")).getByRole("button", { name: "Gửi order" }),
-      );
-    };
-    const posted = (stub: unknown) =>
-      calls(stub).find((call) => call.method === "POST" && call.url.includes("/api/orders"));
+  // "Người duyệt order" comes from GET /api/orders/approvers: who approves
+  // this person's order by default, whom they may choose, and whether they
+  // must (nobody of theirs may approve orders) or need nobody (they may).
+  const APPROVERS = {
+    own_gate: false,
+    required: false,
+    default: [{ user_id: "h-1", name: "Trưởng A" }],
+    candidates: [
+      { user_id: "h-1", name: "Trưởng A" },
+      { user_id: "h-2", name: "Trưởng B" },
+    ],
+  };
+  const approverRoutes = (approvers: unknown) => [
+    { match: "/api/orders/approvers", body: approvers },
+    { match: "/api/units/me", body: ORDERER },
+    { match: "/api/units/ADS/video-kinds", body: { kinds: [] } },
+    { match: "/api/orders", method: "POST", body: { order: { code: "TUAN-TD-261008-01" } } },
+  ];
+  const sendOrder = async () => {
+    await userEvent.click(submit());
+    await userEvent.click(
+      within(await screen.findByRole("dialog")).getByRole("button", { name: "Gửi order" }),
+    );
+  };
+  const postedOrder = (stub: unknown) =>
+    calls(stub).find((call) => call.method === "POST" && call.url.includes("/api/orders"));
 
+  it("lets the orderer pick who approves the order, or leave it to the default route", async () => {
     // Optional: left on "Tự động", no approver is sent - the server routes it.
-    const first = stubFetch(routes);
+    const first = stubFetch(approverRoutes(APPROVERS));
     const { unmount } = renderWithQuery(<NewOrderPage />);
     await fillBasics();
     await userEvent.click(screen.getByRole("checkbox", { name: "Design" }));
     const picker = await screen.findByLabelText(/Người duyệt order/);
     expect(picker).toHaveValue("");
-    expect(within(picker).getAllByRole("option")[0]).toHaveTextContent("Tự động");
+    expect(within(picker).getAllByRole("option").map((option) => option.textContent)).toEqual([
+      "Tự động: Trưởng A",
+      "Trưởng A",
+      "Trưởng B",
+    ]);
+    // Nothing is read from the stream roster any more.
+    expect(calls(first).some((call) => call.url.includes("/api/units/ADS/members"))).toBe(false);
     expect(submit()).toBeEnabled();
-    await send();
-    await waitFor(() => expect(posted(first)).toBeDefined());
-    expect(posted(first)?.body).not.toHaveProperty("approver_user_id");
+    await sendOrder();
+    await waitFor(() => expect(postedOrder(first)).toBeDefined());
+    expect(postedOrder(first)?.body).not.toHaveProperty("approver_user_id");
     unmount();
 
-    // Picked: that head is sent.
-    const second = stubFetch(routes);
+    // Picked: that person is sent.
+    const second = stubFetch(approverRoutes(APPROVERS));
     renderWithQuery(<NewOrderPage />);
     await fillBasics();
     await userEvent.click(screen.getByRole("checkbox", { name: "Design" }));
     await userEvent.selectOptions(await screen.findByLabelText(/Người duyệt order/), "h-2");
-    await send();
+    await sendOrder();
     await waitFor(() =>
-      expect(posted(second)?.body).toMatchObject({ approver_user_id: "h-2" }),
+      expect(postedOrder(second)?.body).toMatchObject({ approver_user_id: "h-2" }),
     );
   });
 
-  it("asks a Trưởng phòng ORD for no approver: their order needs no approval", async () => {
+  it("names every default approver in the Tự động option", async () => {
+    stubFetch(
+      approverRoutes({
+        ...APPROVERS,
+        default: [
+          { user_id: "h-1", name: "Trưởng A" },
+          { user_id: "h-2", name: "Trưởng B" },
+        ],
+      }),
+    );
+    renderWithQuery(<NewOrderPage />);
+    const picker = await screen.findByLabelText(/Người duyệt order/);
+    expect(within(picker).getAllByRole("option")[0]).toHaveTextContent(
+      "Tự động: Trưởng A, Trưởng B",
+    );
+  });
+
+  it("makes the orderer choose when nobody of theirs may approve orders", async () => {
+    const stub = stubFetch(
+      approverRoutes({ ...APPROVERS, required: true, default: [] }),
+    );
+    renderWithQuery(<NewOrderPage />);
+    await fillBasics();
+    const picker = await screen.findByLabelText(/Người duyệt order/);
+    // No "Tự động": a placeholder, then the candidates.
+    const options = within(picker).getAllByRole("option");
+    expect(options.map((option) => option.textContent)).toEqual([
+      "Chọn người duyệt…",
+      "Trưởng A",
+      "Trưởng B",
+    ]);
+    expect(screen.queryByText(/Tự động/)).not.toBeInTheDocument();
+    expect(
+      screen.getByText("Trưởng phòng của bạn không có quyền duyệt order: chọn người duyệt."),
+    ).toBeInTheDocument();
+    // Everything else is filled in: only the approver holds the submit back.
+    expect(submit()).toBeDisabled();
+    await userEvent.selectOptions(picker, "h-1");
+    expect(submit()).toBeEnabled();
+    await sendOrder();
+    await waitFor(() =>
+      expect(postedOrder(stub)?.body).toMatchObject({ approver_user_id: "h-1" }),
+    );
+  });
+
+  it("asks nobody who approves orders themselves for an approver", async () => {
+    stubFetch(
+      approverRoutes({ own_gate: true, required: false, default: [], candidates: [] }),
+    );
+    renderWithQuery(<NewOrderPage />);
+    await fillBasics();
+    await waitFor(() =>
+      expect(screen.getByText(/order của bạn không cần duyệt/)).toBeInTheDocument(),
+    );
+    expect(screen.queryByLabelText(/Người duyệt order/)).not.toBeInTheDocument();
+    expect(submit()).toBeEnabled();
+  });
+
+  it("asks a Trưởng phòng ADS for no approver while the route has not answered", async () => {
     stubFetch([
       {
         match: "/api/units/me",
-        body: { ...ORDERER, units: [{ ...ADS_ENTRY, role: "HEAD", role_label: "Trưởng phòng ORD" }] },
+        body: { ...ORDERER, units: [{ ...ADS_ENTRY, role: "HEAD", role_label: "Trưởng phòng ADS" }] },
       },
       { match: "/api/units/ADS/video-kinds", body: { kinds: [] } },
     ]);

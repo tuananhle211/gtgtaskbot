@@ -78,7 +78,8 @@ PERMISSION_LABELS: Mapping[AdsPermission, str] = MappingProxyType(
 #: What ``OWN`` means for each permission; absent = the cell is yes/no only.
 OWN_MEANING: Mapping[AdsPermission, str] = MappingProxyType(
     {
-        AdsPermission.VIEW: "Order của mình, của ban mình hoặc được giao",
+        AdsPermission.VIEW: "Order của mình, của nhóm mình, tới bước của phòng mình hoặc được giao",
+        AdsPermission.ORDER_APPROVE: "Order của nhóm mình hoặc chọn mình duyệt",
         AdsPermission.NODE_ASSIGN: "Công đoạn của ban mình",
         AdsPermission.NODE_REVIEW: "Công đoạn của ban mình",
         AdsPermission.VIDEO_REVIEW: "Khi ban mình là Biên tập",
@@ -88,11 +89,11 @@ OWN_MEANING: Mapping[AdsPermission, str] = MappingProxyType(
 
 ROLE_LABELS: Mapping[AdsRoleKey, str] = MappingProxyType(
     {
-        AdsRoleKey.HEAD: "Trưởng phòng ORD",
+        AdsRoleKey.HEAD: "Trưởng phòng ADS",
         AdsRoleKey.ADMIN: "Admin",
         AdsRoleKey.LEAD: "Trưởng phòng ban (Biên kịch / Design / Dựng)",
         AdsRoleKey.STAFF: "Nhân viên ban",
-        AdsRoleKey.ORDERER: "Marketing",
+        AdsRoleKey.ORDERER: "Nhân viên ADS (người order)",
     }
 )
 
@@ -103,13 +104,13 @@ SCOPE_LABELS: Mapping[AdsScope, str] = MappingProxyType(
 _ALL = AdsScope.ALL
 _OWN = AdsScope.OWN
 
-#: What the production side decides, and a Trưởng phòng ORD does not (0057):
+#: What the production side decides, and a Trưởng phòng ADS does not (0057):
 #: handing a step out, reviewing a hand-in, and the script lead's video review.
 PRODUCTION_PERMISSIONS: frozenset[AdsPermission] = frozenset(
     {AdsPermission.NODE_ASSIGN, AdsPermission.NODE_REVIEW, AdsPermission.VIDEO_REVIEW}
 )
 
-#: A Trưởng phòng ORD decides their own gate - the order - and the final
+#: A Trưởng phòng ADS decides their own gate - the order - and the final
 #: product, and may prioritise or cancel; the production steps (Biên kịch,
 #: Design, Dựng) are their Leaders' to hand out and review. An Admin runs
 #: everything; a Leader runs their function; staff do the work they are
@@ -194,6 +195,21 @@ def normalise_matrix(stored: Mapping[str, Mapping[str, str]] | None) -> dict[str
 
 _ALL_NODES = frozenset(OrderNodeType)
 
+#: The permissions whose ``OWN`` reaches the granting department's production
+#: step, and those whose ``OWN`` reaches the person's own / team's orders.
+#: ``VIEW`` is both.
+NODE_SCOPED: frozenset[AdsPermission] = frozenset(
+    {
+        AdsPermission.VIEW,
+        AdsPermission.NODE_ASSIGN,
+        AdsPermission.NODE_REVIEW,
+        AdsPermission.VIDEO_REVIEW,
+    }
+)
+ORDER_SCOPED: frozenset[AdsPermission] = frozenset(
+    {AdsPermission.VIEW, AdsPermission.ORDER_APPROVE, AdsPermission.CANCEL}
+)
+
 
 @dataclass(frozen=True, slots=True)
 class AdsPermissions:
@@ -220,6 +236,50 @@ class AdsPermissions:
 
     def on_own_order(self, permission: AdsPermission) -> bool:
         return permission in self.everywhere or permission in self.own_orders
+
+    def holds(self, permission: AdsPermission) -> bool:
+        """Granted at all, in any scope."""
+        return (
+            permission in self.everywhere
+            or permission in self.own_orders
+            or bool(self.own_nodes.get(permission))
+        )
+
+    def union(self, other: AdsPermissions) -> AdsPermissions:
+        nodes = {key: set(value) for key, value in self.own_nodes.items()}
+        for key, value in other.own_nodes.items():
+            nodes.setdefault(key, set()).update(value)
+        return AdsPermissions(
+            everywhere=self.everywhere | other.everywhere,
+            own_nodes={key: frozenset(value) for key, value in nodes.items()},
+            own_orders=self.own_orders | other.own_orders,
+        )
+
+    @classmethod
+    def from_grants(cls, grants: Iterable[tuple[str, str, OrderNodeType | None]]) -> AdsPermissions:
+        """From department grants (0061): ``(permission, scope, step)`` where
+        ``step`` is the granting department's production step, if any.
+        Unknown permissions and scopes are ignored."""
+        everywhere: set[AdsPermission] = set()
+        own_nodes: dict[AdsPermission, set[OrderNodeType]] = {}
+        own_orders: set[AdsPermission] = set()
+        for key, scope_key, step in grants:
+            try:
+                permission, scope = AdsPermission(key), AdsScope(scope_key)
+            except ValueError:
+                continue
+            if scope is AdsScope.ALL:
+                everywhere.add(permission)
+            elif scope is AdsScope.OWN:
+                if permission in ORDER_SCOPED:
+                    own_orders.add(permission)
+                if permission in NODE_SCOPED and step is not None:
+                    own_nodes.setdefault(permission, set()).add(step)
+        return cls(
+            everywhere=frozenset(everywhere),
+            own_nodes={key: frozenset(value) for key, value in own_nodes.items()},
+            own_orders=frozenset(own_orders),
+        )
 
     @classmethod
     def full(cls) -> AdsPermissions:

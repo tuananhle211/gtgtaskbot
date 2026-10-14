@@ -33,6 +33,7 @@ from enum import StrEnum
 from pydantic import BaseModel, ConfigDict, Field
 
 from meobot.domain.orders.script_rules import DEFAULT_SCRIPT_RULES, MAX_RULES_LENGTH
+from meobot.domain.org.models import DepartmentFunction, Grant, Seat
 
 
 class UnitCode(StrEnum):
@@ -215,6 +216,16 @@ class UnitMembership:
     is_owner: bool = False
     #: ``Role.ADMIN``: sees every unit; the matrix's Admin column inside Ads.
     is_admin: bool = False
+    #: 0061: the departments this person sits in, and what those seats grant.
+    #: ``grants`` is None for somebody with no seat at all, whose standing is
+    #: then read from their stream tags alone (the role matrix, as before).
+    seats: tuple[Seat, ...] = ()
+    grants: tuple[Grant, ...] | None = None
+
+    @property
+    def is_board(self) -> bool:
+        """Sits in Ban Giám đốc: sees every report and dashboard."""
+        return any(seat.function is DepartmentFunction.BOARD for seat in self.seats)
 
     @property
     def sees_all(self) -> bool:

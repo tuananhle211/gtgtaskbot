@@ -184,7 +184,7 @@ describe("effort (tokens) switched off", () => {
     expect(effortEnabled(ME_AS("HEAD", false) as never)).toBe(false);
   });
 
-  it("drops the Effort entry from the nav, even for the Trưởng phòng ORD", async () => {
+  it("drops the Effort entry from the nav, even for the Trưởng phòng ADS", async () => {
     stubFetch([
       { match: "/api/auth/session", body: { ...SESSION, role: "OWNER" } },
       { match: "/api/units/me", body: ADMIN_ME(false) },
@@ -438,7 +438,7 @@ const SELF = {
   base_role: "OWNER",
   base_role_label: "Chủ sở hữu",
   role: "HEAD",
-  role_label: "Trưởng phòng ORD",
+  role_label: "Trưởng phòng ADS",
   function_tag: null,
   member_code: "TOI",
 };

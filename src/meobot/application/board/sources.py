@@ -38,7 +38,7 @@ from meobot.application.board.holders import (
     pr_reviewers,
     waiting_for,
 )
-from meobot.application.orders.scope import OrderScope, boss_of
+from meobot.application.orders.scope import OrderScope, approval_reaches, boss_of
 from meobot.application.pr_content_query import ContentQuery
 from meobot.application.pr_query_service import PrQueryService
 from meobot.core.config import Settings
@@ -655,13 +655,16 @@ class AdsBoardSource:
         """What waits on this person: a gate they decide, a node they hold or lead."""
         may = self._scope.context.permissions
         conditions: list[ColumnElement[bool]] = []
-        if may.allows(AdsPermission.ORDER_APPROVE):
+        if may.holds(AdsPermission.ORDER_APPROVE):
             # The approver the orderer chose (0056), else the orderer's own
-            # head, else every head.
-            chosen = _chosen_approver()
-            boss = func.coalesce(chosen, boss_of(Order.owner_user_id, head=True))
+            # approvers (0061: the head they report to, else every head of
+            # their department).
             conditions.append(
-                (Order.stage == OrderStage.ORDER_PENDING) & or_(boss.is_(None), boss == user_id)
+                (Order.stage == OrderStage.ORDER_PENDING)
+                & or_(
+                    and_(Order.approver_user_id == user_id, _chosen_approver().is_not(None)),
+                    approval_reaches(user_id),
+                )
             )
         # The final review waits on the orderer only; a stand-in may decide it
         # but it is not "theirs".
@@ -1318,19 +1321,11 @@ def _overdue(now: datetime) -> ColumnElement[bool]:
 
 def _chosen_approver() -> Any:
     """SQL twin of ``AdsApprovers.order_approvers``'s first rule: the order's
-    chosen approver while they are still an active head of the unit, else NULL."""
-    head = aliased(OrgUnitMember)
-    head_user = aliased(User)
+    chosen approver while they are still an active account, else NULL."""
+    chosen = aliased(User)
     return (
-        select(head.user_id)
-        .join(head_user, head_user.id == head.user_id)
-        .where(
-            head.unit_id == Order.unit_id,
-            head.user_id == Order.approver_user_id,
-            head.role == UnitMemberRole.HEAD,
-            head.left_at.is_(None),
-            head_user.active.is_(True),
-        )
+        select(chosen.id)
+        .where(chosen.id == Order.approver_user_id, chosen.active.is_(True))
         .limit(1)
         .scalar_subquery()
     )

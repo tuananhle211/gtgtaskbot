@@ -79,6 +79,17 @@ export function canTagIn(me: UnitsMe | undefined, code: string): boolean {
   return (me.can_tag ?? me.can_admin).includes(code);
 }
 
+/**
+ * Whether this person may edit the rest of a member row in a stream (member
+ * code, NAS link, token/ngày, "Order sinh nhật"). An API that does not send
+ * `can_edit_members` yet is read as `canTagIn`.
+ */
+export function canEditMembersIn(me: UnitsMe | undefined, code: string): boolean {
+  if (!me) return false;
+  if (me.can_edit_members) return me.can_edit_members.includes(code);
+  return canTagIn(me, code);
+}
+
 /** The streams this person may tag in (see `canTagIn`). */
 export function taggableUnits(me: UnitsMe | undefined): string[] {
   if (!me) return [];
