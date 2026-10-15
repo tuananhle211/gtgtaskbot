@@ -1,7 +1,9 @@
 # Plan: Module Quản lý tài nguyên
 
-**Trạng thái: CHỜ DUYỆT (15/10/2026).** Chưa viết code. Nguồn: "Apexmed – Yêu cầu mục Quản lý
-tài nguyên trên phần mềm MKT" (Phòng Tài nguyên, bản 1.0).
+**Trạng thái: ĐỢT 1 ĐÃ CODE (15/10/2026), chờ nghiệm thu.** Nguồn: "Apexmed – Yêu cầu mục Quản lý
+tài nguyên trên phần mềm MKT" (Phòng Tài nguyên, bản 1.0). Đã làm xong đầu việc 1–7 (migration
+`0065`, API `/api/resources`, màn Tài nguyên trên web, trạng thái nhân sự, báo cáo, xuất/nhập
+Excel); còn đầu việc 8 (kiểm thử với file thật, họp duyệt giao diện, lên production) và đợt 2.
 
 **Nền đã có sẵn trong app:**
 - phòng ban và bảng quyền (Phòng Tài nguyên `TN`, Ban Giám đốc `BGD`);

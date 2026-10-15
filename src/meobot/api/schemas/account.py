@@ -14,6 +14,7 @@ from meobot.application.account.account_service import MemberView
 from meobot.application.account.stats_service import MemberStats
 from meobot.db.models.user import User
 from meobot.domain.identity.labels import RoleInput, role_label
+from meobot.domain.resources.models import EMPLOYMENT_STATUS_LABELS, EmploymentStatus
 from meobot.domain.units.labels import (
     function_tag,
     unit_label,
@@ -70,6 +71,15 @@ class MemberCodeRequest(BaseModel):
     """``null`` or blank clears the code; anything else is folded to A-Z0-9."""
 
     member_code: str | None = Field(default=None, max_length=40)
+
+
+class EmploymentStatusRequest(BaseModel):
+    employment_status: EmploymentStatus
+
+
+class EmploymentStatusResponse(BaseModel):
+    employment_status: str
+    employment_status_label: str
 
 
 class MemberCodeResponse(BaseModel):
@@ -266,6 +276,9 @@ class MemberRowResponse(BaseModel):
     is_lead: bool = False
     #: Additive (0063): the person's member code, in a stream or not.
     member_code: str | None = None
+    #: Additive (0065): the person's employment status ("trạng thái nhân sự").
+    employment_status: str = EmploymentStatus.WORKING.value
+    employment_status_label: str = EMPLOYMENT_STATUS_LABELS[EmploymentStatus.WORKING]
 
     @classmethod
     def from_view(cls, view: MemberView) -> MemberRowResponse:
@@ -279,6 +292,8 @@ class MemberRowResponse(BaseModel):
         return cls(
             role=view.user.role.value,
             member_code=view.user.member_code,
+            employment_status=view.user.employment_status.value,
+            employment_status_label=EMPLOYMENT_STATUS_LABELS[view.user.employment_status],
             active=bool(view.user.active),
             unit_tags=tags,
             function_tag=None if function is None else function.function_tag,

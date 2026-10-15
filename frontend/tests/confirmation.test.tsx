@@ -994,6 +994,10 @@ describe("173. the confirmation policy has a maintainable regression strategy", 
         "Form đổi mật khẩu của chính mình (hộp thoại trên trang Tài khoản, hoặc thẻ duy nhất khi bắt buộc đổi); nút Đổi mật khẩu trong form là bước xác nhận (policy parameter-modal, xem ACTION_INVENTORY). Phải nhập đúng mật khẩu hiện tại và chỉ đổi tài khoản của chính người đang đăng nhập.",
       "components/birthday-order-form.tsx":
         "Hộp thoại form Order sinh nhật trên /tasks/birthday (họ tên, chi nhánh, giới tính, ngày sinh, ảnh minh hoạ, note); nút Tạo order / Chỉnh sửa trong form chính là bước xác nhận (policy parameter-modal, xem ACTION_INVENTORY). Tạo một order mới cho ban Design, hoặc sửa thông tin của một order đang mở kèm version (409 nếu người khác vừa đổi) - không chuyển bước, không đổi người đang giữ.",
+      "components/resource-form.tsx":
+        "Hộp thoại form Thêm / Sửa tài nguyên (mục Tài nguyên, 0065): nút Thêm tài nguyên / Lưu thay đổi trong form chính là bước xác nhận (policy parameter-modal). Tạo một tài nguyên mới hoặc sửa các trường mô tả; không đổi người giữ, không đổi trạng thái (hai thao tác đó có hộp thoại riêng ghi lịch sử).",
+      "components/resource-dialogs.tsx":
+        "Ba hộp thoại form trên hồ sơ tài nguyên (Đổi người được bàn giao, Cập nhật trạng thái, Đánh dấu đã rà soát): nút gửi trong mỗi form là bước xác nhận (policy parameter-modal) vì form thu lý do / trạng thái / ghi chú bắt buộc. Mỗi lần gửi ghi thêm một dòng lịch sử chỉ-thêm, không ghi đè gì.",
       "app/pr/work/mapping.tsx":
         "Form ba lựa chọn (cột mốc, loại nội dung, loại công việc); nút lưu trong form chính là bước xác nhận — xem ACTION_INVENTORY, policy parameter-modal. Lưu ánh xạ không viết lại lịch sử: công việc đã COUNTED trong kỳ đã đóng giữ nguyên, chỉ các lần chiếu sau dùng ánh xạ mới. M3.1 tách tệp này ra khỏi kpi.tsx, và trước đó nó lọt qua kiểm tra này chỉ vì ở chung tệp với các hộp thoại KPI.",
     };

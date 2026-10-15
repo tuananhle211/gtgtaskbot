@@ -122,7 +122,15 @@ export default function DepartmentsPage() {
               owner={owner}
             />
             <Members key={`members:${selected.id}`} department={selected} catalog={catalog.data} owner={owner} />
-            <Grants key={`grants:${selected.id}`} department={selected} catalog={catalog.data} owner={owner} />
+            {modulesOf(catalog.data).map((module) => (
+              <Grants
+                key={`grants:${selected.id}:${module.module}`}
+                department={selected}
+                catalog={catalog.data}
+                module={module}
+                owner={owner}
+              />
+            ))}
           </div>
         ) : null}
       </div>
@@ -749,33 +757,58 @@ function SeatRow({
   );
 }
 
+/** One module a department grants permissions in: the order flow, Tài nguyên (0065)... */
+type GrantModule = {
+  module: string;
+  module_label: string;
+  permissions: DepartmentCatalog["permissions"];
+};
+
+/** The modules of the catalogue - an older API lists only the order flow's. */
+function modulesOf(catalog: DepartmentCatalog | undefined): GrantModule[] {
+  if (!catalog) return [];
+  if (catalog.modules && catalog.modules.length > 0) return catalog.modules;
+  return [
+    {
+      module: catalog.module ?? "ORDER",
+      module_label: catalog.module_label ?? "Luồng order",
+      permissions: catalog.permissions,
+    },
+  ];
+}
+
 /**
- * "Quyền trong luồng order": permission × position, one scope per cell, among
- * the scopes that permission allows. "Lưu quyền" sends only the cells changed.
+ * "Quyền trong luồng order" / "Quyền trong quản lý tài nguyên": permission ×
+ * position, one scope per cell, among the scopes that permission allows.
+ * "Lưu quyền" sends only the cells changed, for this module.
  */
 function Grants({
   department,
   catalog,
+  module,
   owner,
 }: {
   department: Department;
   catalog: DepartmentCatalog | undefined;
+  module: GrantModule;
   owner: boolean;
 }) {
   const refresh = useRefreshDepartments();
+  const isOrder = module.module === "ORDER";
   const grants = useQuery({
-    queryKey: ["departments", department.id, "grants"],
-    queryFn: () => api.departmentGrants(department.id),
+    queryKey: ["departments", department.id, "grants", module.module],
+    queryFn: () => api.departmentGrants(department.id, isOrder ? undefined : module.module),
   });
   const [draft, setDraft] = useState<DepartmentGrantCells>({});
   const save = useMutation({
-    mutationFn: () => api.saveDepartmentGrants(department.id, draft),
+    mutationFn: () =>
+      api.saveDepartmentGrants(department.id, draft, isOrder ? undefined : module.module),
     onSuccess: () => {
       setDraft({});
       refresh();
     },
   });
-  const title = `Quyền trong ${catalog?.module_label?.toLowerCase() ?? "luồng order"}`;
+  const title = `Quyền trong ${module.module_label.toLowerCase()}`;
   if (!catalog) return null;
   const labels = catalog.scope_labels ?? {};
   const saved = grants.data?.cells ?? {};
@@ -799,23 +832,25 @@ function Grants({
         : "bg-[var(--surface-muted)] text-[var(--text-muted)]";
   return (
     <section
-      aria-label="Quyền trong luồng order"
+      aria-label={title}
       className="rounded-xl border border-[var(--border)] bg-[var(--surface)] p-4"
     >
       <div className="flex flex-wrap items-end justify-between gap-2">
         <div>
           <h2 className="text-sm font-semibold">{title}</h2>
           <p className="mt-0.5 text-xs text-[var(--text-muted)]">
-            Mỗi chức vụ của {department.name} được làm gì với order. Một người ở nhiều phòng được
-            cộng quyền của các phòng đó. Chủ sở hữu luôn có mọi quyền.
+            {isOrder
+              ? `Mỗi chức vụ của ${department.name} được làm gì với order. Một người ở nhiều phòng được cộng quyền của các phòng đó. Chủ sở hữu luôn có mọi quyền.`
+              : `Mỗi chức vụ của ${department.name} được làm gì trong mục Tài nguyên. Phòng Tài nguyên quản lý toàn bộ; Ban Giám đốc xem toàn bộ; phòng khác xem tài nguyên của mình.`}
           </p>
         </div>
         {owner ? (
           <ConfirmButton
             spec={{
               title: `Lưu quyền của ${department.name}?`,
-              description:
-                "Áp dụng ngay cho mọi order: ai trong phòng được tạo, duyệt, giao việc, huỷ, xem.",
+              description: isOrder
+                ? "Áp dụng ngay cho mọi order: ai trong phòng được tạo, duyệt, giao việc, huỷ, xem."
+                : "Áp dụng ngay cho mục Tài nguyên: ai trong phòng được xem, sửa, nhập Excel, cài đặt, xem báo cáo.",
               confirmLabel: "Lưu quyền",
               count: changed > 1 ? changed : undefined,
             }}
@@ -848,7 +883,7 @@ function Grants({
               </tr>
             </thead>
             <tbody>
-              {catalog.permissions.map((permission) => (
+              {module.permissions.map((permission) => (
                 <tr key={permission.key}>
                   <th scope="row" className="text-left font-medium">
                     {permission.label}

@@ -143,6 +143,14 @@ from meobot.db.models.pr_work_recurring import (
 from meobot.db.models.pr_work_result import PrWorkResult
 from meobot.db.models.quota import DailyAiUsage, QuotaRequest, UserQuotaOverride
 from meobot.db.models.reminder import Reminder, ReminderOccurrence
+from meobot.db.models.resource import (
+    Resource,
+    ResourceChange,
+    ResourceCodeCounter,
+    ResourceHandover,
+    ResourceOption,
+    ResourceStatusHistory,
+)
 from meobot.db.models.script import Script, ScriptVersion
 from meobot.db.models.script_approval import ScriptApproval
 from meobot.db.models.script_review import ScriptReview
@@ -264,6 +272,12 @@ __all__ = [
     "QuotaRequest",
     "Reminder",
     "ReminderOccurrence",
+    "Resource",
+    "ResourceChange",
+    "ResourceCodeCounter",
+    "ResourceHandover",
+    "ResourceOption",
+    "ResourceStatusHistory",
     "Script",
     "ScriptApproval",
     "ScriptReview",

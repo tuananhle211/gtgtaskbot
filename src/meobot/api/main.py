@@ -32,6 +32,7 @@ from meobot.api.routers import (
     pr_work_maintenance,
     pr_work_quota,
     pr_work_recurring,
+    resources,
     script_types,
     scripts,
     sheet_profiles,
@@ -105,6 +106,7 @@ _ENVELOPE_PREFIXES = (
     "/api/units",
     "/api/departments",
     "/api/ai",
+    "/api/resources",
     "/api/orders",
     "/api/board",
     "/api/tasks",
@@ -202,6 +204,9 @@ def _include_web_facing_routers(app: FastAPI) -> None:
     app.include_router(units.router)
     app.include_router(departments.router)
     app.include_router(ai.router)
+    # Resources ("Quản lý tài nguyên", 0065). Not behind a unit gate: who
+    # sees what is the departments' grants, checked inside the service.
+    app.include_router(resources.router)
     # The Ads order engine, behind the Ads unit gate the same way the PR
     # routers sit behind the PR one.
     app.include_router(orders.router, dependencies=[Depends(require_unit(UnitCode.ADS))])

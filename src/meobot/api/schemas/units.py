@@ -13,6 +13,7 @@ from decimal import Decimal
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from meobot.api.schemas.resources import ResourceAccessResponse
 from meobot.application.orders.effort_service import BanStats, EffortGrid
 from meobot.application.units.directory import UnitMemberRow
 from meobot.db.models.org_unit import UnitDesignCode, UnitDuration, UnitPlatform, UnitVideoKind
@@ -235,6 +236,9 @@ class UnitMeResponse(BaseModel):
     #: only when the OWNER switched it off.
     effort_enabled: bool = True
     design: DesignAccessResponse = DesignAccessResponse()
+    #: 0065: what this caller may do in the resources module (the nav's
+    #: "Tài nguyên" branch follows it).
+    resources: ResourceAccessResponse = ResourceAccessResponse()
 
     @classmethod
     def from_domain(
@@ -247,6 +251,7 @@ class UnitMeResponse(BaseModel):
         can_edit_members: list[str] | None = None,
         design: DesignAccessResponse | None = None,
         seats: list[DepartmentSeatResponse] | None = None,
+        resources: ResourceAccessResponse | None = None,
     ) -> UnitMeResponse:
         entries = sorted(entries, key=lambda entry: stream_rank(entry.code))
         return cls(
@@ -267,6 +272,7 @@ class UnitMeResponse(BaseModel):
                 True,
             ),
             design=design or DesignAccessResponse(),
+            resources=resources or ResourceAccessResponse(),
         )
 
 

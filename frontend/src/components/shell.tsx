@@ -9,6 +9,7 @@ import { effortEnabled } from "@/lib/effort";
 import { adminTabsFor } from "@/components/admin-tabs";
 import { roleLabel } from "@/lib/labels";
 import { unitShortLabel, unitTagClass } from "@/lib/units";
+import { resourceScreens } from "@/lib/resources";
 import { ErrorBox, Loading } from "@/components/states";
 import { NotificationBell } from "@/components/notifications";
 import { ThemeToggle } from "@/components/theme-toggle";
@@ -63,6 +64,7 @@ type NavIcon =
   | "admin"
   | "department"
   | "effort"
+  | "resource"
   | "account";
 
 /** The screen every unit shares besides the order boards. */
@@ -125,6 +127,25 @@ function libraryBranch(me: UnitsMe | undefined): NavGroup | null {
     variant: "section",
     external: links,
     children: manages ? [LIBRARY_MANAGE_NAV] : [],
+  };
+}
+
+/**
+ * "Tài nguyên" (0065): the resources module's screens, one branch, for
+ * whoever the departments grant something there (`resources` on
+ * `/api/units/me`). Nothing for anybody else: the branch does not exist.
+ */
+function resourcesBranch(me: UnitsMe | undefined): NavGroup | null {
+  const screens = resourceScreens(me);
+  if (screens.length === 0) return null;
+  return {
+    label: "Tài nguyên",
+    icon: "resource",
+    children: screens.map((screen) => ({
+      href: screen.href,
+      label: screen.label,
+      icon: "resource" as const,
+    })),
   };
 }
 
@@ -218,10 +239,12 @@ export function navFor(me: UnitsMe | undefined, sessionRole?: string): NavEntry[
     sessionRole === "ADMIN";
   const effort = seesOrdEffort(me, sessionRole);
   const library = libraryBranch(me);
+  const resources = resourcesBranch(me);
   return [
     DASHBOARD_NAV,
     orderBoards(me),
     ...(effort ? EFFORT_NAV : []),
+    ...(resources ? [resources] : []),
     ...(pr ? PR_NAV : []),
     ...(admin ? [ADMIN_NAV] : []),
     ...(library ? [library] : []),
@@ -315,6 +338,13 @@ function Icon({ name }: { name: NavIcon }) {
       <>
         <circle cx="12" cy="8" r="4" />
         <path d="M4 21a8 8 0 0 1 16 0" />
+      </>
+    ),
+    resource: (
+      <>
+        <rect x="3" y="4" width="18" height="6" rx="1.5" />
+        <rect x="3" y="14" width="18" height="6" rx="1.5" />
+        <path d="M7 7h.01M7 17h.01" />
       </>
     ),
     department: (

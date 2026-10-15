@@ -9,7 +9,7 @@ from __future__ import annotations
 import uuid
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, Response, status
+from fastapi import APIRouter, Depends, Query, Response, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from meobot.api.deps import CurrentActorDep, RequestIdDep, get_session
@@ -27,6 +27,7 @@ from meobot.api.schemas.departments import (
 )
 from meobot.application.audit_service import AuditService
 from meobot.application.org.departments import DepartmentService
+from meobot.domain.org.models import MODULE_ORDER
 
 router = APIRouter(prefix="/api/departments", tags=["departments"])
 
@@ -142,9 +143,16 @@ async def unseat(
 
 @router.get("/{department_id}/grants", response_model=GrantsResponse)
 async def grants(
-    department_id: uuid.UUID, actor: CurrentActorDep, service: ServiceDep
+    department_id: uuid.UUID,
+    actor: CurrentActorDep,
+    service: ServiceDep,
+    module: str = Query(default=MODULE_ORDER, max_length=20),
 ) -> GrantsResponse:
-    return GrantsResponse(cells=await service.grants(actor=actor, department_id=department_id))
+    """One module's cells (``ORDER`` unless ``module`` says ``RESOURCES``)."""
+    return GrantsResponse(
+        module=module,
+        cells=await service.grants(actor=actor, department_id=department_id, module=module),
+    )
 
 
 @router.put("/{department_id}/grants", response_model=GrantsResponse)
@@ -158,6 +166,10 @@ async def set_grants(
     """What the department's heads and members may do in the order flow.
     Cells left out keep their value; ``NONE`` takes a permission away."""
     cells = await service.set_grants(
-        actor=actor, request_id=request_id, department_id=department_id, cells=body.cells
+        actor=actor,
+        request_id=request_id,
+        department_id=department_id,
+        cells=body.cells,
+        module=body.module,
     )
-    return GrantsResponse(cells=cells)
+    return GrantsResponse(module=body.module, cells=cells)

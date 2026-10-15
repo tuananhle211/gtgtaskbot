@@ -3432,6 +3432,8 @@ export interface UnitsMe {
   effort_enabled?: boolean;
   /** What this person may do around the Design ban. Optional: an older API omits it. */
   design?: DesignAccess | null;
+  /** What this person may do in "Tài nguyên" (0065). Optional: an older API omits it. */
+  resources?: ResourcesAccess | null;
 }
 
 /**
@@ -3657,6 +3659,12 @@ export interface DepartmentCatalog {
     /** `["NONE", "OWN", "ALL"]` or `["NONE", "ALL"]`. */
     scopes: string[];
     own_meaning?: string | null;
+  }>;
+  /** Every module a department grants in (0065): the order flow, then Tài nguyên. Optional. */
+  modules?: Array<{
+    module: string;
+    module_label: string;
+    permissions: DepartmentCatalog["permissions"];
   }>;
   positions: Array<{ value: DepartmentPosition | string; label: string }>;
   functions: Array<{ value: DepartmentFunction | string; label: string }>;
@@ -4559,6 +4567,9 @@ export interface MemberRow {
   is_lead?: boolean;
   /** The person's member code (0063), in a stream or not. Optional: older APIs omit it. */
   member_code?: string | null;
+  /** "Trạng thái nhân sự" (0065): WORKING / PROBATION / ON_LEAVE / LEFT. Optional. */
+  employment_status?: string;
+  employment_status_label?: string;
   last_login_at: string | null;
   has_custom_password: boolean;
   /** On a temporary password sent by a reset. Optional: older APIs omit it. */
@@ -4781,14 +4792,18 @@ export const api = {
   /** 204. 422 `member_has_open_work`. */
   unseatDepartmentMember: (id: Uuid, userId: Uuid) =>
     del<void>(`/api/departments/${id}/members/${userId}`),
-  departmentGrants: (id: Uuid) =>
-    get<DepartmentGrants>(`/api/departments/${id}/grants`),
+  /** One module's cells: the order flow unless `module` says (`RESOURCES`, 0065). */
+  departmentGrants: (id: Uuid, module?: string) =>
+    get<DepartmentGrants>(`/api/departments/${id}/grants${query({ module })}`),
   /**
    * Cells left out keep their value; answers with every cell after. 422
-   * `department_grant_invalid`.
+   * `department_grant_invalid`. `module` names the module (the order flow unless said).
    */
-  saveDepartmentGrants: (id: Uuid, cells: DepartmentGrantCells) =>
-    put<DepartmentGrants>(`/api/departments/${id}/grants`, { cells }),
+  saveDepartmentGrants: (id: Uuid, cells: DepartmentGrantCells, module?: string) =>
+    put<DepartmentGrants>(
+      `/api/departments/${id}/grants`,
+      module ? { module, cells } : { cells },
+    ),
 
   /** Active accounts with no stream tag. OWNER / ADMIN / a tagged TEAM_LEAD. */
   unitsUntagged: () => get<UntaggedUserList>("/api/units/untagged"),
@@ -6221,6 +6236,73 @@ export const api = {
   memberResponsibilities: (id: Uuid) =>
     get<MemberResponsibilities>(`/api/pr/members/${id}/responsibilities`),
   roles: () => get<RolesResponse>("/api/pr/roles"),
+
+  // --- Resources ("Quản lý tài nguyên", 0065). What the caller may do is the
+  // departments' RESOURCES grants; a resource outside their share is a 404,
+  // a write they may not make a 403 `resource_forbidden`.
+  resourcesAccess: () => get<ResourcesAccess>("/api/resources/access"),
+  /** The pick-lists, departments and fixed vocabularies the forms need. */
+  resourceOptions: (includeInactive = false) =>
+    get<ResourceOptions>(`/api/resources/options${query({ include_inactive: includeInactive })}`),
+  /** 201. Settings holders only (403 `resource_forbidden`); a STATUS needs `status_group`. */
+  createResourceOption: (body: { kind: string; name: string; status_group?: string | null }) =>
+    post<ResourceOption>("/api/resources/options", body),
+  /** Rename, reorder, retire (`active: false`) - never deleted. */
+  updateResourceOption: (
+    id: Uuid,
+    body: { name?: string; active?: boolean; sort_order?: number; status_group?: string | null },
+  ) => patch<ResourceOption>(`/api/resources/options/${id}`, body),
+  reorderResourceOptions: (kind: string, ids: Uuid[]) =>
+    put<ResourceOption[]>("/api/resources/options/order", { kind, ids }),
+  resourceSettings: () => get<ResourceSettings>("/api/resources/settings"),
+  updateResourceSettings: (body: ResourceSettings) =>
+    put<ResourceSettings>("/api/resources/settings", body),
+  /** Active accounts with their departments and employment status. */
+  resourcePeople: (q?: string) =>
+    get<{ people: ResourcePerson[] }>(`/api/resources/people${query({ q })}`),
+  /** "Tra cứu theo nhân viên": REPORT holders, and everybody for themselves. */
+  resourcePerson: (userId: Uuid) =>
+    get<ResourcePersonLookup>(`/api/resources/people/${userId}`),
+  resources: (filters: ResourceFilters = {}) =>
+    get<ResourceList>(`/api/resources${query(filters)}`),
+  /** The listing as .xlsx: the same filters, the caller's scope, ids as text. */
+  resourceExportUrl: (filters: ResourceFilters = {}) =>
+    `/api/resources/export.xlsx${query(filters)}`,
+  /**
+   * 201. 422 `resource_id_taken` (`details.field` `external_id`),
+   * `resource_option_invalid` / `resource_holder_invalid` /
+   * `resource_department_invalid` / `resource_link_invalid` name their field.
+   */
+  createResource: (body: ResourceBody) => post<ResourceDetail>("/api/resources", body),
+  resource: (id: Uuid) => get<ResourceDetail>(`/api/resources/${id}`),
+  /** The fields sent (`null` clears). Not the holder nor the status: they have their own calls. */
+  updateResource: (id: Uuid, body: Partial<ResourceBody>) =>
+    patch<ResourceDetail>(`/api/resources/${id}`, body),
+  /** "Đổi người được bàn giao": `holder_user_id: null` = back at the Phòng Tài nguyên. */
+  changeResourceHolder: (
+    id: Uuid,
+    body: { holder_user_id: Uuid | null; reason: string; note?: string | null; handover_id?: Uuid | null },
+  ) => post<ResourceDetail>(`/api/resources/${id}/holder`, body),
+  updateResourceStatus: (id: Uuid, body: { status_id: Uuid; note?: string | null }) =>
+    post<ResourceDetail>(`/api/resources/${id}/status`, body),
+  /** "Đánh dấu đã rà soát": a history line, the status unchanged. */
+  reviewResource: (id: Uuid, body: { note?: string | null } = {}) =>
+    post<ResourceDetail>(`/api/resources/${id}/review`, body),
+  resourceSummary: (month?: string) =>
+    get<ResourceSummary>(`/api/resources/reports/summary${query({ month })}`),
+  resourceWarnings: () => get<ResourceWarnings>("/api/resources/reports/warnings"),
+  /** Step 1 of the Excel import: writes nothing, reports every row's errors. */
+  resourceImportPreview: (body: { filename?: string; data: string }) =>
+    post<ResourceImportPreview>("/api/resources/import/preview", body),
+  /** Step 2: writes everything, only when no row has an error (422 `import_has_errors`). */
+  resourceImportCommit: (body: { filename?: string; data: string }) =>
+    post<ResourceImportPreview>("/api/resources/import/commit", body),
+  /** "Trạng thái nhân sự" of an account: OWNER / ADMIN / HR_STATUS holders. */
+  setEmploymentStatus: (userId: Uuid, employmentStatus: string) =>
+    put<{ employment_status: string; employment_status_label: string }>(
+      `/api/account/members/${userId}/employment-status`,
+      { employment_status: employmentStatus },
+    ),
 };
 
 // --- Thành viên & Phân quyền, phase 1 --------------------------------------
@@ -6363,4 +6445,260 @@ function query(params: object): string {
   }
   const rendered = search.toString();
   return rendered ? `?${rendered}` : "";
+}
+
+// --- Resources ("Quản lý tài nguyên", 0065) -------------------------------------
+// Mirrors src/meobot/api/schemas/resources.py.
+
+/** The `resources` block of `GET /api/units/me`, and `GET /api/resources/access`. */
+export interface ResourcesAccess {
+  /** May open the module at all (sees something). */
+  view: boolean;
+  /** Sees every resource (Phòng Tài nguyên, Ban Giám đốc, OWNER, ADMIN). */
+  view_all: boolean;
+  edit: boolean;
+  import_excel: boolean;
+  settings: boolean;
+  report: boolean;
+  /** May set a person's employment status. */
+  hr: boolean;
+}
+
+/** One entry of a pick-list (type, role, status, origin, two-factor, handover). */
+export interface ResourceOption {
+  id: Uuid;
+  kind: string;
+  code: string;
+  name: string;
+  /** STATUS entries: NORMAL / ATTENTION / LOST / CLOSED. */
+  status_group?: string | null;
+  status_group_label?: string | null;
+  sort_order: number;
+  active: boolean;
+}
+
+export interface ResourceOptionKind {
+  kind: string;
+  label: string;
+  options: ResourceOption[];
+}
+
+export interface ResourceDepartment {
+  id: Uuid;
+  code: string;
+  name: string;
+  function?: string;
+  function_label?: string;
+}
+
+export interface ResourceChoice {
+  value: string;
+  label: string;
+}
+
+/** `GET /api/resources/options`. */
+export interface ResourceOptions {
+  kinds: ResourceOptionKind[];
+  departments: ResourceDepartment[];
+  handover_reasons: ResourceChoice[];
+  employment_statuses: ResourceChoice[];
+  status_groups: ResourceChoice[];
+  alert_kinds: ResourceChoice[];
+  review_days: number;
+  can_manage: boolean;
+}
+
+export interface ResourceSettings {
+  review_days: number;
+}
+
+export interface ResourcePerson {
+  user_id: Uuid;
+  full_name: string;
+  active: boolean;
+  employment_status: string;
+  employment_status_label: string;
+  departments: ResourceDepartment[];
+}
+
+export interface ResourceAlert {
+  kind: string;
+  label: string;
+  /** `bad` paints the row red; `warn` amber. */
+  level: string;
+}
+
+export interface ResourceRow {
+  id: Uuid;
+  code: string;
+  type: ResourceOption;
+  external_id: string;
+  name: string;
+  link: string | null;
+  department: ResourceDepartment;
+  holder: ResourcePerson | null;
+  role: ResourceOption | null;
+  email: string | null;
+  phone: string | null;
+  two_factor: ResourceOption | null;
+  two_factor_holder: ResourcePerson | null;
+  origin: ResourceOption | null;
+  started_on: string | null;
+  purpose: string | null;
+  handover: ResourceOption;
+  status: ResourceOption;
+  reviewed_at: string | null;
+  note: string | null;
+  alerts: ResourceAlert[];
+  /** Red row. */
+  flagged: boolean;
+  /** The note or the purpose reads like a password. */
+  secret_warning: boolean;
+  created_at: string;
+  updated_at: string;
+  detail_path: string;
+}
+
+export interface ResourceList {
+  items: ResourceRow[];
+  total: number;
+  limit: number;
+  offset: number;
+  review_days: number;
+}
+
+export interface ResourceFilters {
+  department_id?: string;
+  type_id?: string;
+  /** A user id, or "none" for the resources held by nobody. */
+  holder?: string;
+  status_id?: string;
+  handover_id?: string;
+  employment_status?: string;
+  q?: string;
+  alerts?: boolean;
+  mine?: boolean;
+  sort?: string;
+  desc?: boolean;
+  limit?: number;
+  offset?: number;
+}
+
+export interface ResourceHandover {
+  id: Uuid;
+  at: string;
+  from_person: ResourcePerson | null;
+  to_person: ResourcePerson | null;
+  reason: string;
+  reason_label: string;
+  note: string | null;
+  actor: ResourcePerson | null;
+}
+
+export interface ResourceStatusLine {
+  id: Uuid;
+  at: string;
+  from_status: ResourceOption | null;
+  to_status: ResourceOption;
+  review_only: boolean;
+  note: string | null;
+  actor: ResourcePerson | null;
+}
+
+export interface ResourceChange {
+  id: Uuid;
+  at: string;
+  field: string;
+  field_label: string;
+  old_value: string | null;
+  new_value: string | null;
+  actor: ResourcePerson | null;
+}
+
+export interface ResourceDetail {
+  resource: ResourceRow;
+  handovers: ResourceHandover[];
+  statuses: ResourceStatusLine[];
+  changes: ResourceChange[];
+  can_edit: boolean;
+}
+
+/** The form's fields (`POST` needs the first four). */
+export interface ResourceBody {
+  department_id: Uuid;
+  type_id: Uuid;
+  external_id: string;
+  name: string;
+  link?: string | null;
+  holder_user_id?: Uuid | null;
+  role_id?: Uuid | null;
+  email?: string | null;
+  phone?: string | null;
+  two_factor_id?: Uuid | null;
+  two_factor_holder_user_id?: Uuid | null;
+  origin_id?: Uuid | null;
+  started_on?: string | null;
+  purpose?: string | null;
+  handover_id?: Uuid | null;
+  status_id?: Uuid | null;
+  note?: string | null;
+}
+
+export interface ResourcePersonLookup {
+  person: ResourcePerson;
+  total: number;
+  by_type: Array<{ type: ResourceOption; count: number }>;
+  holding: ResourceRow[];
+  held_before: ResourceRow[];
+}
+
+export interface ResourceSummary {
+  month: string;
+  types: ResourceOption[];
+  departments: Array<{
+    department: ResourceDepartment;
+    /** type id -> count */
+    by_type: Record<string, number>;
+    total: number;
+    handed_over: number;
+    handover_rate: number;
+  }>;
+  total: number;
+  handed_over: number;
+  handover_rate: number;
+  by_status: Array<{ status: ResourceOption; count: number }>;
+  by_group: Array<{ group: string; label: string; count: number }>;
+}
+
+export interface ResourceWarnings {
+  items: ResourceRow[];
+  counts: Array<{ kind: string; label: string; count: number }>;
+  review_days: number;
+}
+
+export interface ResourceImportRow {
+  sheet: string;
+  row_no: number;
+  department: ResourceDepartment | null;
+  code: string | null;
+  raw: Record<string, string>;
+  months: Array<{ month: string; status: string }>;
+  errors: string[];
+  warnings: string[];
+  ok: boolean;
+}
+
+export interface ResourceImportPreview {
+  sheets: Array<{
+    name: string;
+    department: ResourceDepartment | null;
+    rows: number;
+    errors: number;
+    skipped: boolean;
+    unknown_headers: string[];
+  }>;
+  rows: ResourceImportRow[];
+  ok_count: number;
+  error_count: number;
+  written: boolean;
 }

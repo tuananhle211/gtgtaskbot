@@ -481,6 +481,19 @@ class AuditAction(StrEnum):
     AI_CONNECTION_DELETED = "ai.connection.deleted"
     AI_CONNECTION_TESTED = "ai.connection.tested"
     AI_ROUTES_UPDATED = "ai.routes.updated"
+
+    # Resources ("Quản lý tài nguyên", 0065).
+    RESOURCE_CREATED = "resource.created"
+    RESOURCE_UPDATED = "resource.updated"
+    RESOURCE_HOLDER_CHANGED = "resource.holder.changed"
+    RESOURCE_STATUS_UPDATED = "resource.status.updated"
+    RESOURCE_REVIEWED = "resource.reviewed"
+    RESOURCE_OPTION_CREATED = "resource.option.created"
+    RESOURCE_OPTION_UPDATED = "resource.option.updated"
+    RESOURCE_SETTINGS_UPDATED = "resource.settings.updated"
+    RESOURCE_IMPORTED = "resource.imported"
+    USER_EMPLOYMENT_STATUS_UPDATED = "user.employment_status.updated"
+
     UNIT_VIDEO_KIND_CREATED = "unit.video_kind.created"
     UNIT_VIDEO_KIND_UPDATED = "unit.video_kind.updated"
     UNIT_PLATFORM_CREATED = "unit.platform.created"

@@ -37,6 +37,8 @@ from meobot.api.schemas.account import (
     AvatarUploadRequest,
     ChangePasswordRequest,
     ChangeRoleRequest,
+    EmploymentStatusRequest,
+    EmploymentStatusResponse,
     MemberCodeRequest,
     MemberCodeResponse,
     MemberListResponse,
@@ -47,8 +49,13 @@ from meobot.api.schemas.account import (
 from meobot.api.schemas.pr import ErrorEnvelope
 from meobot.application.account.stats_service import resolve_month
 from meobot.application.audit_service import AuditService
+from meobot.application.resources.access import resource_access
+from meobot.application.resources.employment import (
+    set_employment_status as set_employment_status_of,
+)
 from meobot.application.user_service import UserService
 from meobot.domain.account.errors import PasswordRejectedError
+from meobot.domain.resources.models import EMPLOYMENT_STATUS_LABELS
 
 router = APIRouter(prefix="/api/account", tags=["account"])
 
@@ -375,6 +382,44 @@ async def set_member_code(
         actor=actor, request_id=request_id, user_id=user_id, member_code=body.member_code
     )
     return MemberCodeResponse(member_code=code)
+
+
+@router.put(
+    "/members/{user_id}/employment-status",
+    response_model=EmploymentStatusResponse,
+    responses={
+        403: {
+            "model": ErrorEnvelope,
+            "description": "employment_status_forbidden - OWNER/ADMIN or HR_STATUS in Tài nguyên.",
+        },
+        404: {"model": ErrorEnvelope, "description": "account_not_found."},
+    },
+)
+async def set_employment_status(
+    user_id: uuid.UUID,
+    body: EmploymentStatusRequest,
+    actor: CurrentActorDep,
+    membership: UnitMembershipDep,
+    session: SessionDep,
+    request_id: RequestIdDep,
+) -> EmploymentStatusResponse:
+    """*Trạng thái nhân sự* (0065): Đang làm / Thử việc / Tạm nghỉ / Đã nghỉ
+    việc. The OWNER, an ADMIN, and whoever a department grants the resources
+    module's ``HR_STATUS`` (the Phòng Tài nguyên's head by default)."""
+    access = await resource_access(session, membership)
+    user = await set_employment_status_of(
+        session,
+        AuditService(session),
+        actor=actor,
+        access=access,
+        request_id=request_id,
+        user_id=user_id,
+        status=body.employment_status,
+    )
+    return EmploymentStatusResponse(
+        employment_status=user.employment_status.value,
+        employment_status_label=EMPLOYMENT_STATUS_LABELS[user.employment_status],
+    )
 
 
 @router.post(

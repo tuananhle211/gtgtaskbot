@@ -966,6 +966,60 @@ function MemberCodeField({
   );
 }
 
+/**
+ * "Nhân sự" (0065): the person's employment status - Đang làm / Thử việc /
+ * Tạm nghỉ / Đã nghỉ việc. OWNER / ADMIN and whoever holds the resources
+ * module's HR_STATUS (the Phòng Tài nguyên's head); the server refuses the
+ * rest (403 `employment_status_forbidden`). A leaver's resources turn red at once.
+ */
+const EMPLOYMENT_STATUSES: ReadonlyArray<[string, string]> = [
+  ["WORKING", "Đang làm"],
+  ["PROBATION", "Thử việc"],
+  ["ON_LEAVE", "Tạm nghỉ"],
+  ["LEFT", "Đã nghỉ việc"],
+];
+
+function EmploymentStatusField({
+  row,
+  onSaved,
+}: {
+  row: MemberRow;
+  onSaved: (label: string) => void;
+}) {
+  const save = useMutation({
+    mutationFn: (status: string) => api.setEmploymentStatus(row.user_id, status),
+    onSuccess: (result) => onSaved(result.employment_status_label),
+  });
+  return (
+    <div className="flex flex-col gap-1">
+      <Select
+        aria-label={`Trạng thái nhân sự của ${row.full_name}`}
+        value={row.employment_status ?? "WORKING"}
+        disabled={save.isPending}
+        onChange={(event) => save.mutate(event.target.value)}
+        className="min-h-9 text-xs"
+      >
+        {EMPLOYMENT_STATUSES.map(([value, label]) => (
+          <option key={value} value={value}>
+            {label}
+          </option>
+        ))}
+      </Select>
+      {save.isError ? (
+        <span role="alert" className="text-xs text-[var(--bad)]">
+          {save.error instanceof Error ? save.error.message : "Không lưu được."}
+        </span>
+      ) : null}
+    </div>
+  );
+}
+
+function EmploymentStatusPill({ row }: { row: MemberRow }) {
+  const status = row.employment_status ?? "WORKING";
+  const tone = status === "LEFT" ? "st-red" : status === "WORKING" ? "st-green" : "st-amber";
+  return <span className={`st ${tone}`}>{row.employment_status_label ?? "Đang làm"}</span>;
+}
+
 function Members({
   me,
   month,
@@ -1000,6 +1054,9 @@ function Members({
   // Who sees the reset control. A convenience only: the server checks every
   // reset again (ADMIN may not reset an OWNER, for one).
   const mayReset = me.role === "OWNER" || me.role === "ADMIN";
+  // 0065: the employment status is editable by OWNER / ADMIN and the HR_STATUS holders.
+  const unitsMe = useQuery({ queryKey: ["units", "me"], queryFn: api.unitsMe });
+  const mayHr = mayReset || Boolean(unitsMe.data?.resources?.hr);
   const viewer = { role: me.role, userId: me.user_id };
   // Off = ORD does not count tokens: no "Effort" column.
   const effortOn = useEffortEnabled();
@@ -1101,6 +1158,7 @@ function Members({
                   <th>Thành viên</th>
                   <th>Luồng</th>
                   <th>Mã thành viên</th>
+                  <th>Nhân sự</th>
                   <th
                     className={th}
                     aria-sort={sort === "desc" ? "descending" : sort === "asc" ? "ascending" : "none"}
@@ -1135,7 +1193,7 @@ function Members({
                 {rows.length === 0 ? (
                   <tr>
                     <td
-                      colSpan={(mayReset ? 19 : 18) - (effortOn ? 0 : 1)}
+                      colSpan={(mayReset ? 20 : 19) - (effortOn ? 0 : 1)}
                       className="text-[var(--text-muted)]"
                     >
                       Không có thành viên nào trong bộ lọc này.
@@ -1189,6 +1247,20 @@ function Members({
                           />
                         ) : (
                           <span className="font-mono text-xs">{row.member_code || "–"}</span>
+                        )}
+                      </td>
+                      <td>
+                        {mayHr ? (
+                          <EmploymentStatusField
+                            key={`${row.user_id}:${row.employment_status ?? ""}`}
+                            row={row}
+                            onSaved={(label) => {
+                              setNotice(`Đã đặt trạng thái nhân sự của ${row.full_name}: ${label}.`);
+                              refreshMembers();
+                            }}
+                          />
+                        ) : (
+                          <EmploymentStatusPill row={row} />
                         )}
                       </td>
                       <td className="text-right font-semibold tabular-nums">{formatPoints(row.stats.points)}</td>

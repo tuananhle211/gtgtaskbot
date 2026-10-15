@@ -103,6 +103,13 @@ const nextConfig = {
       // "Kết nối AI" (0064): the OWNER's AI connections and their routes.
       { source: "/api/ai", destination: `${target}/api/ai` },
       { source: "/api/ai/:path*", destination: `${target}/api/ai/:path*` },
+      // Resources ("Quản lý tài nguyên", 0065): the list is the bare
+      // collection route, like /api/orders; the rest sits under it.
+      { source: "/api/resources", destination: `${target}/api/resources` },
+      {
+        source: "/api/resources/:path*",
+        destination: `${target}/api/resources/:path*`,
+      },
       // The magic-link landing route. Handled by FastAPI, which sets the cookie
       // and redirects to /pr - a page this app serves.
       { source: "/auth/login", destination: `${target}/auth/login` },

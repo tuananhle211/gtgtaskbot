@@ -24,6 +24,8 @@ from meobot.application.drive_folder_service import DriveFolderService
 from meobot.application.health_service import HealthService
 from meobot.application.invite_service import InviteService
 from meobot.application.pr_services import PrServices, build_pr_services
+from meobot.application.resources.access import ResourceAccess, resource_access
+from meobot.application.resources.service import ResourceService
 from meobot.application.script_review_service import ScriptReviewService
 from meobot.application.script_service import ScriptService
 from meobot.application.script_sync_service import ScriptSyncService
@@ -536,3 +538,26 @@ AvatarServiceDep = Annotated[AvatarService, Depends(get_avatar_service)]
 UnitDirectoryDep = Annotated[UnitDirectoryService, Depends(get_unit_directory)]
 #: The caller's unit tags. Resolved once per request and cached on it.
 UnitMembershipDep = Annotated[UnitMembership, Depends(get_unit_membership)]
+
+
+# --- resources ("Quản lý tài nguyên", 0065) -----------------------------------------
+
+
+def get_resource_service(
+    session: Annotated[AsyncSession, Depends(get_session)],
+) -> ResourceService:
+    return ResourceService(session, AuditService(session))
+
+
+ResourceServiceDep = Annotated[ResourceService, Depends(get_resource_service)]
+
+
+async def get_resource_access(
+    session: Annotated[AsyncSession, Depends(get_session)],
+    membership: Annotated[UnitMembership, Depends(get_unit_membership)],
+) -> ResourceAccess:
+    """What the caller may do in the resources module, from their seats."""
+    return await resource_access(session, membership)
+
+
+ResourceAccessDep = Annotated[ResourceAccess, Depends(get_resource_access)]

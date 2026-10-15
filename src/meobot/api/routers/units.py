@@ -23,6 +23,7 @@ from meobot.api.deps import (
     UnitMembershipDep,
     get_session,
 )
+from meobot.api.schemas.resources import ResourceAccessResponse
 from meobot.api.schemas.units import (
     BanStatsResponse,
     CreateDesignCodeRequest,
@@ -78,6 +79,7 @@ from meobot.application.orders.design_library_service import (
 )
 from meobot.application.orders.effort_service import EffortService, ban_stats
 from meobot.application.org import departments
+from meobot.application.resources.access import resource_access
 from meobot.application.units.admin import ROLES_BY_UNIT, UnitAdminService
 from meobot.application.units.directory import NOT_VISIBLE, UnitDirectoryService
 from meobot.core.errors import ValidationError
@@ -242,6 +244,9 @@ async def my_units(
         can_edit_members=can_edit_members,
         design=design,
         seats=[DepartmentSeatResponse.from_domain(seat) for seat in membership.seats],
+        resources=ResourceAccessResponse.from_access(
+            await resource_access(directory.session, membership)
+        ),
     )
 
 

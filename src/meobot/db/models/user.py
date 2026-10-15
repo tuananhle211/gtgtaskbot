@@ -22,6 +22,7 @@ from sqlalchemy.orm import Mapped, mapped_column
 from meobot.db.base import Base, TimestampMixin, UUIDPrimaryKeyMixin, value_enum
 from meobot.domain.access.models import UserStatus
 from meobot.domain.identity.models import Role
+from meobot.domain.resources.models import EmploymentStatus
 
 
 class User(UUIDPrimaryKeyMixin, TimestampMixin, Base):
@@ -116,6 +117,15 @@ class User(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     #: ``TUAN-D-261014-01``), edited by the OWNER / ADMIN only and copied onto
     #: every open stream tag (``org_unit_members.member_code``).
     member_code: Mapped[str | None] = mapped_column(String(20), nullable=True)
+    #: 0065: the person's standing with the company ("trạng thái nhân sự":
+    #: Đang làm / Thử việc / Tạm nghỉ / Đã nghỉ việc), updated on the
+    #: members screen; the resources module paints what a leaver holds red.
+    employment_status: Mapped[EmploymentStatus] = mapped_column(
+        value_enum(EmploymentStatus, name="employment_status", length=20),
+        nullable=False,
+        default=EmploymentStatus.WORKING,
+        server_default=EmploymentStatus.WORKING.value,
+    )
     password_hash: Mapped[str | None] = mapped_column(String(255), nullable=True)
     password_changed_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True), nullable=True

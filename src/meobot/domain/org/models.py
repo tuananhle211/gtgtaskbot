@@ -46,7 +46,8 @@ class Position(StrEnum):
     MEMBER = "MEMBER"
 
 
-#: The module whose permissions departments grant today: the order flow.
+#: The modules whose permissions departments grant: the order flow, and
+#: (0065) the resources module - see :mod:`meobot.domain.org.modules`.
 MODULE_ORDER = "ORDER"
 
 FUNCTION_LABELS: MappingProxyType[DepartmentFunction, str] = MappingProxyType(
