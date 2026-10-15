@@ -30,7 +30,7 @@ from typing import Any
 import pytest
 from sqlalchemy import func, select
 
-from meobot.application.orders.script_review import _grounded
+from meobot.application.orders.script_review import PASSED_SCRIPTS, _grounded
 from meobot.core.errors import LLMError
 from meobot.db.models.order import Order, OrderWorkRule
 from meobot.db.models.org_unit import OrgUnit, UnitVideoKind
@@ -1119,6 +1119,84 @@ async def test_ai_script_review_never_blocks_when_off_or_when_the_ai_is_down(
     world.act_as(ads.orderer)
     page = world.client.get(f"/api/tasks/{detail['order']['code']}").json()
     assert page["timeline"][-1]["note"] == "AI chưa duyệt được kịch bản (AI đang lỗi)."
+
+
+async def test_ai_script_check_runs_before_sending_and_its_pass_is_reused(
+    world: World, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """ "AI duyệt kịch bản" on the form: the AI reads the script before the
+    order is sent; sending the very same text takes that pass (one verdict,
+    not a second one that might differ), an edited text is read again."""
+    PASSED_SCRIPTS.clear()
+    ads = await ads_world(world)
+    asked: list[str] = []
+    original = FakeLLMProvider.complete_structured
+
+    async def counting(self: Any, request: Any) -> Any:
+        asked.append(request.task)
+        return await original(self, request)
+
+    monkeypatch.setattr(FakeLLMProvider, "complete_structured", counting)
+    world.act_as(ads.orderer)
+    title = "Kịch bản nâng mũi"
+    bad = world.client.post(
+        "/api/orders/script-check",
+        json={"title": title, "order_content": "Chúng tôi CAM KẾT đẹp, không đau."},
+    )
+    assert bad.status_code == 200, bad.json()
+    assert bad.json()["enabled"] is True and bad.json()["reviewed"] is True
+    assert bad.json()["passed"] is False
+    assert [item["rule"] for item in bad.json()["violations"]] == [2, 4]
+    assert "chưa đạt (2 lỗi)" in bad.json()["message"]
+
+    good_text = "Đội ngũ bác sĩ Thẩm mỹ Apexmed tư vấn."
+    good = world.client.post(
+        "/api/orders/script-check", json={"title": title, "order_content": good_text}
+    )
+    assert good.json()["passed"] is True and good.json()["violations"] == []
+    assert len(asked) == 2
+    # Sent as checked: the pass is taken, the AI is not asked again.
+    detail = create(world, ads, title=title, order_content=good_text)
+    assert len(asked) == 2
+    world.act_as(ads.orderer)
+    page = world.client.get(f"/api/tasks/{detail['order']['code']}").json()
+    assert page["timeline"][-1]["note"] == "AI duyệt kịch bản: đạt."
+    # Edited after the check: read again when sent.
+    create(world, ads, title=title, order_content=good_text + " Lịch hẹn linh hoạt.")
+    assert len(asked) == 3
+
+
+async def test_ai_script_check_when_off_down_or_not_an_orderer(
+    world: World, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    PASSED_SCRIPTS.clear()
+    ads = await ads_world(world)
+    world.act_as(ads.orderer)
+    check = {"title": "Video", "order_content": "Cam kết hàng đầu."}
+    # Somebody who may not place an order may not ask either.
+    world.act_as(ads.designer)
+    refused = world.client.post("/api/orders/script-check", json=check)
+    assert refused.status_code == 422 and error_reason(refused.json()) == "not_an_orderer"
+    world.act_as(ads.orderer)
+    blank = world.client.post("/api/orders/script-check", json={**check, "order_content": "  "})
+    assert blank.status_code == 422 and error_reason(blank.json()) == "content_missing"
+    # Switched off: nothing to wait for.
+    ads.unit.settings = {**(ads.unit.settings or {}), "script_ai_review": False}
+    await world.session.flush()
+    off = world.client.post("/api/orders/script-check", json=check).json()
+    assert off["enabled"] is False and off["passed"] is True
+    # The AI is down: not reviewed - the form lets the order go, as sending does.
+    ads.unit.settings = {**ads.unit.settings, "script_ai_review": True}
+    await world.session.flush()
+
+    async def broken(self: Any, request: Any) -> Any:
+        raise LLMError("down")
+
+    monkeypatch.setattr(FakeLLMProvider, "complete_structured", broken)
+    down = world.client.post("/api/orders/script-check", json=check).json()
+    assert down["enabled"] is True and down["reviewed"] is False and down["passed"] is False
+    assert down["problem"] == "AI đang lỗi"
+    assert "Bạn vẫn gửi được" in down["message"]
 
 
 def test_ai_findings_must_quote_the_script_itself() -> None:

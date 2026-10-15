@@ -410,8 +410,9 @@ describe("the create form's Quy trình", () => {
     renderWithQuery(<NewOrderPage />);
     await fillBasics();
     await userEvent.click(screen.getByRole("checkbox", { name: "Design" }));
-    // The form says up front that the AI reads this field.
-    expect(screen.getByText(/AI duyệt ô này theo bộ quy tắc/)).toBeInTheDocument();
+    // The unit's check is off here: no button, the order goes as it is (the
+    // server still reads the script when it is sent).
+    expect(screen.queryByRole("button", { name: "AI duyệt kịch bản" })).not.toBeInTheDocument();
     expect(screen.queryByTestId("script-violations")).not.toBeInTheDocument();
     await userEvent.click(submit());
     const dialog = await screen.findByRole("dialog");
@@ -549,6 +550,92 @@ describe("the create form's Quy trình", () => {
     await waitFor(() =>
       expect(screen.queryByRole("combobox", { name: /Loại video/ })).not.toBeInTheDocument(),
     );
+  });
+});
+
+describe("the AI script check before sending", () => {
+  const AI_ON = {
+    ...ORDERER,
+    units: [{ ...ADS_ENTRY, settings: { ...ADS_SETTINGS, script_ai_review: true } }],
+  };
+  const answer = (over: Record<string, unknown> = {}) => ({
+    enabled: true,
+    reviewed: true,
+    passed: true,
+    violations: [],
+    problem: null,
+    message: "AI duyệt kịch bản: đạt. Bạn có thể gửi order.",
+    ...over,
+  });
+  const REFUSED = answer({
+    passed: false,
+    violations: [
+      { rule: 2, quote: "cam kết", reason: "Khẳng định tuyệt đối.", suggestion: "Bỏ từ này." },
+    ],
+    message: "AI duyệt kịch bản: chưa đạt (1 lỗi).",
+  });
+  type Calls = { calls: Array<{ url: string; method: string; body: unknown }> };
+  /** The server, answering "AI duyệt kịch bản" with `checked`. */
+  const stubAi = (checked: unknown) =>
+    stubFetch([
+      { match: "/api/units/me", body: AI_ON },
+      { match: "/api/units/ADS/members", body: MEMBERS },
+      { match: "/api/units/ADS/video-kinds", body: { kinds: [] } },
+      { match: "/api/orders/script-check", method: "POST", body: checked },
+      { match: "/api/orders", method: "POST", body: { order: { code: "TUAN-D-261015-01" } } },
+    ]) as unknown as Calls;
+  const checkButton = () => screen.getByRole("button", { name: "AI duyệt kịch bản" });
+
+  it("cannot send until the AI passed the script as it stands now", async () => {
+    const first = stubAi(REFUSED);
+    renderWithQuery(<NewOrderPage />);
+    await fillBasics();
+    expect(submit()).toBeDisabled();
+    expect(screen.getByTestId("needs-script-check")).toBeInTheDocument();
+    // Refused: what the AI found sits under the script, still no sending.
+    await userEvent.click(checkButton());
+    const panel = await screen.findByTestId("script-violations");
+    expect(panel).toHaveTextContent("“cam kết” · mục cấm 2");
+    expect(submit()).toBeDisabled();
+    expect(first.calls.find((call) => call.url.includes("/script-check"))?.body).toEqual({
+      title: "Video serum",
+      order_content: "Key: da căng bóng",
+    });
+    // Fixed and checked again: passed, the order may go.
+    const script = screen.getByRole("textbox", { name: "Nội dung order" });
+    await userEvent.clear(script);
+    await userEvent.type(script, "Key: da căng bóng, đội ngũ bác sĩ Apexmed");
+    expect(screen.getByText(/bấm duyệt lại/)).toBeInTheDocument();
+    const second = stubAi(answer());
+    await userEvent.click(checkButton());
+    expect(await screen.findByTestId("script-check")).toHaveTextContent(
+      "đạt. Bạn có thể gửi order",
+    );
+    expect(screen.queryByTestId("script-violations")).not.toBeInTheDocument();
+    expect(submit()).toBeEnabled();
+    expect(second.calls.find((call) => call.url.includes("/script-check"))?.body).toEqual({
+      title: "Video serum",
+      order_content: "Key: da căng bóng, đội ngũ bác sĩ Apexmed",
+    });
+    // An edit after the pass locks sending again.
+    await userEvent.type(script, " cam kết");
+    expect(submit()).toBeDisabled();
+  });
+
+  it("lets the order go when the AI could not answer, saying so", async () => {
+    stubAi(
+      answer({
+        reviewed: false,
+        passed: false,
+        problem: "AI đang lỗi",
+        message: "AI chưa duyệt được (AI đang lỗi). Bạn vẫn gửi được order.",
+      }),
+    );
+    renderWithQuery(<NewOrderPage />);
+    await fillBasics();
+    await userEvent.click(checkButton());
+    expect(await screen.findByTestId("script-check")).toHaveTextContent("Bạn vẫn gửi được order");
+    expect(submit()).toBeEnabled();
   });
 });
 

@@ -124,6 +124,15 @@ def _clear_settings_cache() -> None:
     get_settings.cache_clear()
 
 
+@pytest.fixture(autouse=True)
+def _forget_passed_scripts() -> None:
+    """The order form's "AI duyệt kịch bản" passes live in the process: none
+    may carry over from one test to the next."""
+    from meobot.application.orders.script_review import PASSED_SCRIPTS
+
+    PASSED_SCRIPTS.clear()
+
+
 @pytest.fixture
 def settings() -> Settings:
     """Settings built from the pinned test environment."""

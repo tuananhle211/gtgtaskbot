@@ -39,7 +39,12 @@ from meobot.application.orders.design_code_service import (
 )
 from meobot.application.orders.notifications import OrderNotificationService
 from meobot.application.orders.scope import OrderScope
-from meobot.application.orders.script_review import OrderScriptReviewer
+from meobot.application.orders.script_review import (
+    PASSED_SCRIPTS,
+    OrderScriptReviewer,
+    PassedScripts,
+    ScriptVerdict,
+)
 from meobot.application.orders.token_ledger import OrderTokenLedgerService
 from meobot.application.orders.work_recorder import OrderWorkRecorder
 from meobot.application.pr_support import lock_row, record_pr_event
@@ -243,6 +248,7 @@ class OrderCommandService:
         notifications: OrderNotificationService,
         kpi: OrderWorkRecorder,
         script_reviewer: OrderScriptReviewer | None = None,
+        passed_scripts: PassedScripts = PASSED_SCRIPTS,
     ) -> None:
         self._session = session
         self._settings = settings
@@ -255,6 +261,7 @@ class OrderCommandService:
         self._design = DesignCodeService(session, directory=directory, audit=audit)
         #: The AI reading of "Khung nhập kịch bản"; None = nobody to ask.
         self._script_reviewer = script_reviewer
+        self._passed_scripts = passed_scripts
 
     # --- create / resubmit -------------------------------------------------------
 
@@ -482,8 +489,44 @@ class OrderCommandService:
         )
         return order
 
+    async def check_script(self, *, actor: Actor, title: str, script: str) -> ScriptVerdict | None:
+        """ "AI duyệt kịch bản" on the order form, before anything is sent.
+
+        For whoever may place an order. None when the check is switched off
+        (or there is no AI): the order may simply be sent. A pass is
+        remembered, so sending the same title and script does not ask again.
+        """
+        membership = await self._directory.require(actor, UnitCode.ADS)
+        unit = await self._directory.unit(UnitCode.ADS)
+        settings = UnitSettings.model_validate(unit.settings or {})
+        context = OrderActorContext.from_membership(membership, settings)
+        if actor.user_id is None or not context.permissions.allows(AdsPermission.ORDER_CREATE):
+            raise OrderValidationError(
+                "Bạn chưa có quyền tạo order trong luồng ORD.",
+                details={"reason": "not_an_orderer"},
+            )
+        if not script.strip():
+            raise OrderValidationError(
+                "Cần nhập nội dung order.",
+                details={"reason": "content_missing", "field": "order_content"},
+            )
+        if self._script_reviewer is None or not settings.script_ai_review:
+            return None
+        return await self._ask_ai(settings, title, script)
+
+    async def _ask_ai(self, settings: UnitSettings, title: str, script: str) -> ScriptVerdict:
+        rules = settings.script_review_rules
+        if self._passed_scripts.passed(title, script, rules):
+            return ScriptVerdict(reviewed=True)
+        assert self._script_reviewer is not None
+        verdict = await self._script_reviewer.review(title=title, script=script, rules=rules)
+        if verdict.reviewed and verdict.passed:
+            self._passed_scripts.remember(title, script, rules)
+        return verdict
+
     async def _review_script(self, settings: UnitSettings, title: str, script: str) -> str | None:
-        """Have the AI read "Khung nhập kịch bản" against the unit's rules.
+        """Have the AI read "Khung nhập kịch bản" against the unit's rules -
+        or take the pass "AI duyệt kịch bản" got for the very same text.
 
         Raises ``script_review_failed`` (422) with every offending passage when
         the script breaks a rule: the order is not placed and goes back to the
@@ -491,9 +534,7 @@ class OrderCommandService:
         when the check is switched off or there is nobody to ask."""
         if self._script_reviewer is None or not settings.script_ai_review:
             return None
-        verdict = await self._script_reviewer.review(
-            title=title, script=script, rules=settings.script_review_rules
-        )
+        verdict = await self._ask_ai(settings, title, script)
         if not verdict.passed:
             count = len(verdict.violations)
             raise OrderValidationError(

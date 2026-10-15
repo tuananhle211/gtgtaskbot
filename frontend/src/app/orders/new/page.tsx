@@ -4,7 +4,13 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
 import { useMutation, useQuery } from "@tanstack/react-query";
-import { api, scriptViolations, type CreateOrderBody, type OrderInfo } from "@/lib/api";
+import {
+  api,
+  scriptViolations,
+  type CreateOrderBody,
+  type OrderInfo,
+  type ScriptCheck,
+} from "@/lib/api";
 import {
   hasUnit,
   isUntagged,
@@ -94,6 +100,7 @@ export default function NewOrderPage() {
           key={`${order.id}:${order.version}`}
           memberCode={unitEntry(me.data, "ADS")?.member_code ?? null}
           isHead={unitEntry(me.data, "ADS")?.role === "HEAD"}
+          aiReview={unitEntry(me.data, "ADS")?.settings?.script_ai_review === true}
           editing={order}
         />
       </div>
@@ -163,6 +170,7 @@ export default function NewOrderPage() {
         <AdsOrderForm
           memberCode={unitEntry(me.data, "ADS")?.member_code ?? null}
           isHead={unitEntry(me.data, "ADS")?.role === "HEAD"}
+          aiReview={unitEntry(me.data, "ADS")?.settings?.script_ai_review === true}
         />
       ) : (
         <PrCreateSection onCreated={() => router.push("/tasks?unit=PR")} />
@@ -208,11 +216,17 @@ function PrCreateSection({ onCreated }: { onCreated: () => void }) {
 function AdsOrderForm({
   memberCode,
   isHead = false,
+  aiReview = false,
   editing,
 }: {
   memberCode: string | null;
   /** A Trưởng phòng ADS's own order needs no approval: no approver to pick. */
   isHead?: boolean;
+  /**
+   * ORD's "AI duyệt kịch bản" is on: the script must be checked with the
+   * button (and pass, or the AI be unable to answer) before the order goes.
+   */
+  aiReview?: boolean;
   /** A returned order being fixed: the form starts from it and resubmits. */
   editing?: OrderInfo;
 }) {
@@ -299,14 +313,32 @@ function AdsOrderForm({
         : api.createOrder(body),
     onSuccess: (detail) => router.push(`/tasks/${detail.order.code}`),
   });
-  // The AI read the script and found it against the rules: the order was not
-  // sent. Its findings sit under the script field, which is brought into view.
-  const violations = scriptViolations(create.error);
+  // "AI duyệt kịch bản": the answer for the text it read. Any edit of the
+  // title or the script makes it stale - the button has to be pressed again.
+  const checkedText = JSON.stringify([form.title.trim(), form.order_content.trim()]);
+  const [checked, setChecked] = useState<{ text: string; result: ScriptCheck } | null>(null);
+  const check = useMutation({
+    // The text is passed along so the answer is pinned to what was read.
+    mutationFn: (text: string) =>
+      api.checkOrderScript({ title: form.title, order_content: form.order_content }).then(
+        (result) => ({ text, result }),
+      ),
+    onSuccess: setChecked,
+  });
+  const current = checked && checked.text === checkedText ? checked.result : null;
+  // Passed, switched off, or the AI could not answer (the history will say so).
+  const mayGo = !aiReview || Boolean(current && (current.passed || !current.reviewed));
+  // The AI read the script and found it against the rules - with the button,
+  // or when the order was sent. Its findings sit under the script field,
+  // which is brought into view.
+  const violations = current && !current.passed && current.reviewed
+    ? current.violations
+    : scriptViolations(create.error);
   const findings = useRef<HTMLDivElement>(null);
   const refused = violations.length > 0;
   useEffect(() => {
     if (refused) findings.current?.scrollIntoView?.({ block: "center" });
-  }, [refused, create.failureCount, create.submittedAt]);
+  }, [refused, create.failureCount, create.submittedAt, check.submittedAt]);
   const nodes = orderedProcess(ticked);
   const code = processCode(nodes);
   const route = [
@@ -370,7 +402,8 @@ function AdsOrderForm({
     (!needsDuration || form.duration_id) &&
     body.desired_deadline_at &&
     !deadlinePast &&
-    (!approverRequired || approver);
+    (!approverRequired || approver) &&
+    mayGo;
   const field =
     "min-h-11 w-full rounded-lg border border-[var(--border)] bg-[var(--surface)] px-3 text-sm text-[var(--text)]";
 
@@ -607,10 +640,40 @@ function AdsOrderForm({
             placeholder="Nội dung order, key mong muốn, kịch bản voice (hoàn chỉnh nếu là kịch bản AI)…"
             className={`${field} min-h-32`}
           />
-          <p className="text-xs text-[var(--text-muted)]">
-            AI duyệt ô này theo bộ quy tắc nội dung khi bạn gửi order; đạt mới chuyển
-            cho trưởng phòng.
-          </p>
+          {aiReview ? (
+            <div className="flex flex-wrap items-center gap-2">
+              <button
+                type="button"
+                onClick={() => check.mutate(checkedText)}
+                disabled={!form.order_content.trim() || check.isPending}
+                className="min-h-10 rounded-lg border border-[var(--accent)] px-3 text-sm font-medium text-[var(--accent)] disabled:opacity-50"
+              >
+                {check.isPending ? "AI đang duyệt…" : "AI duyệt kịch bản"}
+              </button>
+              {current ? (
+                <span
+                  role="status"
+                  data-testid="script-check"
+                  className={`text-sm ${
+                    current.passed
+                      ? "text-[var(--good)]"
+                      : current.reviewed
+                        ? "text-[var(--bad)]"
+                        : "text-[var(--warn)]"
+                  }`}
+                >
+                  {current.message}
+                </span>
+              ) : (
+                <span className="text-xs text-[var(--text-muted)]">
+                  {checked
+                    ? "Nội dung đã sửa sau lần duyệt trước: bấm duyệt lại."
+                    : "Bấm để AI duyệt kịch bản theo bộ quy tắc nội dung; đạt mới gửi được order."}
+                </span>
+              )}
+            </div>
+          ) : null}
+          {check.isError ? <NoticeBox error={check.error} /> : null}
           {refused ? (
             <div
               ref={findings}
@@ -620,7 +683,7 @@ function AdsOrderForm({
             >
               <p className="font-semibold text-[var(--bad)]">
                 AI duyệt kịch bản: chưa đạt ({violations.length} lỗi). Order chưa
-                được gửi, sửa các chỗ dưới đây rồi gửi lại.
+                được gửi, sửa các chỗ dưới đây rồi duyệt lại.
               </p>
               <ol className="mt-2 list-decimal space-y-2 pl-5">
                 {violations.map((item, index) => (
@@ -719,6 +782,11 @@ function AdsOrderForm({
             {editing ? "Gửi lại order" : "Gửi order"}
           </ConfirmButton>
         </div>
+        {aiReview && !mayGo ? (
+          <p data-testid="needs-script-check" className="text-right text-xs text-[var(--warn)]">
+            Bấm “AI duyệt kịch bản” ở ô kịch bản: đạt mới gửi được order.
+          </p>
+        ) : null}
         {create.isPending ? (
           <p role="status" className="text-right text-xs text-[var(--text-muted)]">
             AI đang duyệt kịch bản, vui lòng chờ trong giây lát…

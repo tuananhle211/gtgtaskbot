@@ -53,6 +53,20 @@ export interface ScriptViolation {
   suggestion: string;
 }
 
+/**
+ * The answer of "AI duyệt kịch bản". `enabled` false: the check is off, send
+ * as it is. `reviewed` false: the AI could not answer (`problem`) - the order
+ * may still be sent. Else `passed`, with `violations` when it did not.
+ */
+export interface ScriptCheck {
+  enabled: boolean;
+  reviewed: boolean;
+  passed: boolean;
+  violations: ScriptViolation[];
+  problem: string | null;
+  message: string;
+}
+
 /** The AI's findings carried by an error, or `[]` when it is not that refusal. */
 export function scriptViolations(error: unknown): ScriptViolation[] {
   if (!(error instanceof ApiError)) return [];
@@ -4869,6 +4883,13 @@ export const api = {
   birthdayOptions: () => get<BirthdayOptions>("/api/orders/birthday/options"),
   createOrder: (body: CreateOrderBody) =>
     post<OrderDetail>("/api/orders", body),
+  /**
+   * "AI duyệt kịch bản" before sending. A pass is remembered by the server
+   * for this exact title + script, so sending them does not ask the AI again.
+   * 422 `not_an_orderer` / `content_missing`.
+   */
+  checkOrderScript: (body: { title: string; order_content: string }) =>
+    post<ScriptCheck>("/api/orders/script-check", body),
   /**
    * Who approves the caller's next order: none when `own_gate`, else the
    * `default` route, or - `required` - one the caller must pick from

@@ -5,7 +5,7 @@ from __future__ import annotations
 import uuid
 from datetime import date, datetime
 from decimal import Decimal
-from typing import Annotated
+from typing import Annotated, Any
 
 from pydantic import BaseModel, Field
 
@@ -323,6 +323,27 @@ class OrderDetailResponse(BaseModel):
 
 
 # --- requests --------------------------------------------------------------------
+
+
+class ScriptCheckRequest(BaseModel):
+    """ "AI duyệt kịch bản" on the order form: what the AI reads."""
+
+    title: str = Field(default="", max_length=300)
+    order_content: str = Field(min_length=1)
+
+
+class ScriptCheckResponse(BaseModel):
+    """``enabled`` false: the check is off - send the order as it is.
+    ``reviewed`` false: the AI could not answer (``problem``); the order may
+    still be sent, its history says so. Else ``passed`` with ``violations``."""
+
+    enabled: bool
+    reviewed: bool
+    passed: bool
+    violations: list[dict[str, Any]] = []
+    problem: str | None = None
+    #: One line for the form.
+    message: str
 
 
 class CreateOrderRequest(BaseModel):

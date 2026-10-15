@@ -25,9 +25,13 @@ prompt says so.
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import json
 import re
+import time
 import unicodedata
+from collections import OrderedDict
+from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Any
 
@@ -127,6 +131,60 @@ class ScriptVerdict:
         return "AI duyệt kịch bản: đạt."
 
 
+class PassedScripts:
+    """The scripts the AI passed lately, by exactly what it read.
+
+    "AI duyệt kịch bản" on the order form asks the AI before the order is
+    sent; a pass is remembered here so that sending the very same title,
+    script and rules does not ask again - one verdict, not two that might
+    differ. Only passes are kept, for ``ttl_seconds``; a miss (another
+    process, a restart, an edit) just means the AI is asked at send time.
+    """
+
+    def __init__(
+        self,
+        *,
+        ttl_seconds: float = 6 * 3600,
+        max_entries: int = 2000,
+        clock: Callable[[], float] = time.monotonic,
+    ) -> None:
+        self._ttl = ttl_seconds
+        self._max = max_entries
+        self._clock = clock
+        self._passed: OrderedDict[str, float] = OrderedDict()
+
+    @staticmethod
+    def key(title: str, script: str, rules: str) -> str:
+        read = json.dumps(
+            [title.strip(), script.strip()[:MAX_SCRIPT_CHARS], rules.strip()], ensure_ascii=False
+        )
+        return hashlib.sha256(read.encode("utf-8")).hexdigest()
+
+    def remember(self, title: str, script: str, rules: str) -> None:
+        key = self.key(title, script, rules)
+        self._passed[key] = self._clock()
+        self._passed.move_to_end(key)
+        while len(self._passed) > self._max:
+            self._passed.popitem(last=False)
+
+    def passed(self, title: str, script: str, rules: str) -> bool:
+        key = self.key(title, script, rules)
+        at = self._passed.get(key)
+        if at is None:
+            return False
+        if self._clock() - at > self._ttl:
+            del self._passed[key]
+            return False
+        return True
+
+    def clear(self) -> None:
+        self._passed.clear()
+
+
+#: The API process's memory of passed scripts (one worker: see docker-compose).
+PASSED_SCRIPTS = PassedScripts()
+
+
 class OrderScriptReviewer:
     def __init__(self, llm: LLMProvider, *, timeout_seconds: float = TIMEOUT_SECONDS) -> None:
         self._llm = llm
@@ -206,10 +264,12 @@ def _grounded(found: list[Any], script: str) -> tuple[ScriptViolation, ...]:
 
 
 __all__ = [
+    "PASSED_SCRIPTS",
     "RESPONSE_SCHEMA",
     "SYSTEM_PROMPT",
     "TASK",
     "OrderScriptReviewer",
+    "PassedScripts",
     "ScriptVerdict",
     "ScriptViolation",
 ]

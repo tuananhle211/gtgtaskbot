@@ -38,6 +38,8 @@ from meobot.api.schemas.orders import (
     PriorityRequest,
     ResubmitOrderRequest,
     ReturnNodeRequest,
+    ScriptCheckRequest,
+    ScriptCheckResponse,
     SubmitWorkRequest,
     UpdateBirthdayOrderRequest,
     VersionedRequest,
@@ -167,6 +169,53 @@ def _preassigned(value: dict[str, uuid.UUID] | None) -> dict[OrderNodeType, uuid
 
 async def _detail(services: OrderServices, actor: Any, order_id: uuid.UUID) -> OrderDetailResponse:
     return OrderDetailResponse.from_domain(await services.queries.detail(actor, str(order_id)))
+
+
+@router.post("/script-check", response_model=ScriptCheckResponse)
+async def check_script(
+    body: ScriptCheckRequest, actor: CurrentActorDep, services: ServicesDep
+) -> ScriptCheckResponse:
+    """ "AI duyệt kịch bản" before sending: the same reading the order gets
+    when it is sent (a pass is remembered for the same title and script).
+    403-like 422 ``not_an_orderer`` for somebody who may not order."""
+    verdict = await services.commands.check_script(
+        actor=actor, title=body.title, script=body.order_content
+    )
+    if verdict is None:
+        return ScriptCheckResponse(
+            enabled=False,
+            reviewed=False,
+            passed=True,
+            message="AI duyệt kịch bản đang tắt: bạn gửi order được ngay.",
+        )
+    if not verdict.reviewed:
+        return ScriptCheckResponse(
+            enabled=True,
+            reviewed=False,
+            passed=False,
+            problem=verdict.problem,
+            message=(
+                f"AI chưa duyệt được ({verdict.problem or 'lỗi kết nối'}). Bạn vẫn gửi được"
+                " order, Trưởng phòng sẽ duyệt kỹ kịch bản."
+            ),
+        )
+    if verdict.passed:
+        return ScriptCheckResponse(
+            enabled=True,
+            reviewed=True,
+            passed=True,
+            message="AI duyệt kịch bản: đạt. Bạn có thể gửi order.",
+        )
+    return ScriptCheckResponse(
+        enabled=True,
+        reviewed=True,
+        passed=False,
+        violations=[violation.to_json() for violation in verdict.violations],
+        message=(
+            f"AI duyệt kịch bản: chưa đạt ({len(verdict.violations)} lỗi). Sửa các chỗ được"
+            " chỉ ra rồi duyệt lại."
+        ),
+    )
 
 
 @router.post(
