@@ -91,8 +91,19 @@ export function usePrRoster() {
     };
     return { ...roster.data, members, counts };
   }, [roster.data, stream.data]);
+  // Everybody with an account but no open PR tag: who "Thêm thành viên" may bring in.
+  const outsiders = useMemo(() => {
+    if (!roster.data || !stream.data) return [];
+    const inPr = new Set(stream.data.members.map((member) => member.user_id));
+    return roster.data.members.filter(
+      (row) => !inPr.has(row.user_id) && row.status !== "revoked",
+    );
+  }, [roster.data, stream.data]);
   return {
     data,
+    outsiders,
+    /** Who holds an open PR tag, once known. */
+    prIds: stream.data ? new Set(stream.data.members.map((member) => member.user_id)) : null,
     isPending: roster.isPending || stream.isPending,
     error: roster.error ?? stream.error,
     refetch: () => {
@@ -161,7 +172,12 @@ export function MembersTab({
       </section>
 
       {adding && data.may_add ? (
-        <AddMemberForm roster={data} onDone={() => setAdding(false)} />
+        <AddMemberForm
+          roster={data}
+          outsiders={roster.outsiders}
+          mayTagPr={teams.admins.includes("PR")}
+          onDone={() => setAdding(false)}
+        />
       ) : null}
 
       <section className="grid gap-2 sm:grid-cols-3">
@@ -252,27 +268,114 @@ function useInvalidateMembership() {
  * The form is the confirmation - see `ACTION_INVENTORY`. Its button names the
  * role it will assign, so the last thing read before pressing is the decision.
  */
-function AddMemberForm({ roster, onDone }: { roster: MemberList; onDone: () => void }) {
+function AddMemberForm({
+  roster,
+  outsiders,
+  mayTagPr,
+  onDone,
+}: {
+  roster: MemberList;
+  /** Accounts that exist but hold no PR tag. */
+  outsiders: Member[];
+  /** The viewer may put people into the PR stream (`can_tag` PR: the OWNER). */
+  mayTagPr: boolean;
+  onDone: () => void;
+}) {
   const invalidate = useInvalidateMembership();
+  const queryClient = useQueryClient();
+  // "Thành viên đã có" brings an account from outside the PR stream in;
+  // "Tài khoản mới" registers a Telegram id. Only who may tag PR gets the first.
+  const [mode, setMode] = useState<"existing" | "new">(mayTagPr ? "existing" : "new");
+  const [existingId, setExistingId] = useState("");
   const [telegramId, setTelegramId] = useState("");
   const [fullName, setFullName] = useState("");
   const [role, setRole] = useState(roster.assignable_roles[0]?.role ?? "EMPLOYEE");
+  const done = () => {
+    setExistingId("");
+    setTelegramId("");
+    setFullName("");
+    invalidate();
+    void queryClient.invalidateQueries({ queryKey: ["units"] });
+    onDone();
+  };
   const add = useMutation({
-    mutationFn: () =>
-      api.addMember({
+    mutationFn: async () => {
+      const created = await api.addMember({
         telegram_user_id: Number(telegramId),
         role,
         full_name: fullName.trim() || undefined,
-      }),
-    onSuccess: () => {
-      setTelegramId("");
-      setFullName("");
-      invalidate();
-      onDone();
+      });
+      // A new account has no stream: put it into PR so it shows on this roster.
+      if (mayTagPr) {
+        await api.tagUnitMember("PR", { user_id: created.user_id, role: "MEMBER" });
+      }
+      return created;
     },
+    onSuccess: done,
+  });
+  const bringIn = useMutation({
+    mutationFn: () => api.tagUnitMember("PR", { user_id: existingId, role: "MEMBER" }),
+    onSuccess: done,
   });
   const roleLabel = roster.assignable_roles.find((option) => option.role === role)?.label ?? role;
   const idIsValid = /^\d+$/.test(telegramId.trim()) && Number(telegramId) > 0;
+  const picked = outsiders.find((row) => row.user_id === existingId);
+
+  if (mode === "existing") {
+    return (
+      <form
+        data-testid="add-member-form"
+        onSubmit={(event) => {
+          event.preventDefault();
+          bringIn.mutate();
+        }}
+        className="space-y-3 rounded-lg border border-[var(--border)] bg-[var(--surface)] p-4"
+      >
+        <h2 className="text-sm font-semibold">Thêm thành viên</h2>
+        <AddModeSwitch mode={mode} onMode={setMode} />
+        <label className="block text-sm">
+          Thành viên ngoài luồng PR
+          <Select
+            required
+            value={existingId}
+            onChange={(event) => setExistingId(event.target.value)}
+            className="mt-1 w-full rounded border border-[var(--border)] bg-transparent px-2 py-1.5"
+          >
+            <option value="">— chọn —</option>
+            {outsiders.map((row) => (
+              <option key={row.user_id} value={row.user_id}>
+                {row.full_name} ({row.role_label}
+                {row.status !== "active" ? ` · ${row.status_label}` : ""})
+              </option>
+            ))}
+          </Select>
+        </label>
+        {outsiders.length === 0 ? (
+          <p className="text-xs text-[var(--text-muted)]">
+            Mọi tài khoản đều đã ở luồng PR. Người chưa có tài khoản: chọn “Tài khoản mới”.
+          </p>
+        ) : (
+          <p className="text-xs text-[var(--text-muted)]">
+            Người được thêm vào phòng PR Thương Hiệu với chức vụ Nhân viên; vai trò hệ thống và các
+            luồng khác của họ giữ nguyên.
+          </p>
+        )}
+        {bringIn.isError ? <ErrorBox error={bringIn.error} /> : null}
+        <div className="flex flex-wrap gap-2">
+          <PrimaryButton type="submit" disabled={bringIn.isPending || !picked}>
+            {bringIn.isPending
+              ? "Đang thêm…"
+              : picked
+                ? `Thêm ${picked.full_name} vào luồng PR`
+                : "Thêm vào luồng PR"}
+          </PrimaryButton>
+          <SecondaryButton type="button" onClick={onDone}>
+            Thôi
+          </SecondaryButton>
+        </div>
+      </form>
+    );
+  }
 
   return (
     <form
@@ -284,6 +387,7 @@ function AddMemberForm({ roster, onDone }: { roster: MemberList; onDone: () => v
       className="space-y-3 rounded-lg border border-[var(--border)] bg-[var(--surface)] p-4"
     >
       <h2 className="text-sm font-semibold">Thêm thành viên</h2>
+      {mayTagPr ? <AddModeSwitch mode={mode} onMode={setMode} /> : null}
       <div className="grid gap-3 sm:grid-cols-3">
         <label className="text-sm">
           Telegram ID
@@ -335,6 +439,36 @@ function AddMemberForm({ roster, onDone }: { roster: MemberList; onDone: () => v
         </SecondaryButton>
       </div>
     </form>
+  );
+}
+
+/** "Thành viên đã có" / "Tài khoản mới" at the top of the add form. */
+function AddModeSwitch({
+  mode,
+  onMode,
+}: {
+  mode: "existing" | "new";
+  onMode: (mode: "existing" | "new") => void;
+}) {
+  return (
+    <div role="radiogroup" aria-label="Cách thêm" className="flex flex-wrap gap-4 text-sm">
+      {(
+        [
+          ["existing", "Thành viên đã có (ngoài luồng PR)"],
+          ["new", "Tài khoản mới (Telegram ID)"],
+        ] as const
+      ).map(([value, label]) => (
+        <label key={value} className="inline-flex min-h-9 items-center gap-2">
+          <input
+            type="radio"
+            name="add-mode"
+            checked={mode === value}
+            onChange={() => onMode(value)}
+          />
+          {label}
+        </label>
+      ))}
+    </div>
   );
 }
 

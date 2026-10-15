@@ -70,6 +70,11 @@ const ROSTER = {
 };
 
 const routes = (grants: unknown[] = []) => [
+  // Everybody offered is in the PR stream.
+  {
+    match: "/api/units/PR/members",
+    body: { unit: "PR", members: PEOPLE.map((person) => ({ user_id: person.user_id })) },
+  },
   { match: "/api/pr/members", body: ROSTER },
   { match: "/api/pr/people", body: PEOPLE },
   { match: "/api/pr/channels", body: CHANNELS },
@@ -116,6 +121,38 @@ async function openForm(grants: unknown[] = []) {
 /** The body of the last request to a route, as the page sent it. */
 const lastBody = <T,>(fetchMock: { calls: Array<{ url: string; body: never }> }, path: string): T =>
   fetchMock.calls.filter((call) => call.url.includes(path)).at(-1)!.body as T;
+
+describe("0. only the PR stream's people", () => {
+  it("offers only PR people and keeps a non-PR grant apart, still revocable", async () => {
+    const OUTSIDER = "99999999-9999-4999-8999-999999999999";
+    stubFetch([
+      {
+        match: "/api/units/PR/members",
+        body: { unit: "PR", members: [{ user_id: HAO }] },
+      },
+      { match: "/api/pr/members", body: ROSTER },
+      {
+        match: "/api/pr/people",
+        body: [...PEOPLE, { user_id: OUTSIDER, full_name: "Người ORD", role: "EMPLOYEE" }],
+      },
+      { match: "/api/pr/channels", body: CHANNELS },
+      {
+        match: "/api/pr/capabilities",
+        method: "GET",
+        body: [{ ...GRANT, id: "g-out", user_id: OUTSIDER }],
+      },
+    ]);
+    NAV.arriveAt("/pr/permissions?tab=grants");
+    renderWithQuery(<PermissionsPage />);
+    const outside = await screen.findByTestId("outside-grants");
+    expect(outside).toHaveTextContent("Người ngoài luồng PR vẫn còn quyền (1)");
+    expect(within(outside).getByRole("button", { name: "Thu hồi" })).toBeInTheDocument();
+    expect(screen.queryAllByTestId("grant-row")).toHaveLength(0);
+    const picker = screen.getByLabelText("Người");
+    expect(within(picker).queryByText(/Người ORD/)).not.toBeInTheDocument();
+    expect(within(picker).getByText(/Hảo/)).toBeInTheDocument();
+  });
+});
 
 describe("1. the grant form carries a scope", () => {
   it("sends several classifications and several channels in one grant", async () => {

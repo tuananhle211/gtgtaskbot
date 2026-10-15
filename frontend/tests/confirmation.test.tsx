@@ -708,6 +708,10 @@ describe("172. permissions and integrations", () => {
       { match: "/api/pr/channels", body: [] },
       { match: "/api/pr/people", body: [PRODUCER] },
       {
+        match: "/api/units/PR/members",
+        body: { unit: "PR", members: [{ user_id: PRODUCER.user_id }] },
+      },
+      {
         match: "/api/pr/members",
         body: {
           members: [],

@@ -668,6 +668,52 @@ describe("9. only the PR stream's people", () => {
     expect(await screen.findByText("Chưa có ai được gắn vào luồng PR.")).toBeInTheDocument();
   });
 
+  it("brings an account from outside PR into the stream", async () => {
+    const fetchMock = await open(roster(), [
+      ...extra(TAGS),
+      { match: "/api/units/PR/members", method: "POST", status: 201, body: {} },
+    ]);
+    fireEvent.click(screen.getByText("Thêm thành viên"));
+    const form = within(screen.getByTestId("add-member-form"));
+    // Accounts that exist but hold no PR tag; a revoked one is not offered.
+    await waitFor(() =>
+      expect(form.getByRole("radio", { name: /Thành viên đã có/ })).toBeChecked(),
+    );
+    const picker = form.getByLabelText("Thành viên ngoài luồng PR");
+    expect(within(picker).getAllByRole("option").map((option) => option.textContent)).toEqual([
+      "— chọn —",
+      "Hảo (Nhân viên)",
+    ]);
+    fireEvent.change(picker, { target: { value: HAO } });
+    fireEvent.submit(form.getByRole("button", { name: "Thêm Hảo vào luồng PR" }));
+    await waitFor(() =>
+      expect(lastCall(fetchMock, "/api/units/PR/members").body).toEqual({
+        user_id: HAO,
+        role: "MEMBER",
+      }),
+    );
+  });
+
+  it("puts a brand-new account into PR too, so it shows on this roster", async () => {
+    const NEW = "88888888-8888-4888-8888-888888888888";
+    const fetchMock = await open(roster(), [
+      ...extra(TAGS),
+      { match: "/api/pr/members", method: "POST", status: 201, body: member({ user_id: NEW }) },
+      { match: "/api/units/PR/members", method: "POST", status: 201, body: {} },
+    ]);
+    fireEvent.click(screen.getByText("Thêm thành viên"));
+    const form = within(screen.getByTestId("add-member-form"));
+    fireEvent.click(await form.findByRole("radio", { name: /Tài khoản mới/ }));
+    fireEvent.change(form.getByLabelText("Telegram ID"), { target: { value: "700009" } });
+    fireEvent.submit(form.getByRole("button", { name: /Thêm với vai trò/ }));
+    await waitFor(() =>
+      expect(lastCall(fetchMock, "/api/units/PR/members").body).toEqual({
+        user_id: NEW,
+        role: "MEMBER",
+      }),
+    );
+  });
+
   it("sends an old ?team=ads link on to Quản trị › Thành viên luồng", async () => {
     NAV.arriveAt("/pr/permissions?team=ads");
     await open(roster(), extra(TAGS));

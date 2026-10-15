@@ -88,6 +88,13 @@ function channelScopeText(scope: GrantScope, names: Map<string, string>): string
 export function GrantsTab() {
   const queryClient = useQueryClient();
   const people = useQuery({ queryKey: ["people"], queryFn: api.people });
+  // Only the PR stream's people are offered and listed (0048: a stream is a tag).
+  const stream = useQuery({
+    queryKey: ["units", "PR", "members"],
+    queryFn: () => api.unitMembers("PR"),
+  });
+  const inPr = new Set((stream.data?.members ?? []).map((member) => member.user_id));
+  const prPeople = (people.data ?? []).filter((person) => inPr.has(person.user_id));
   const channels = useQuery({
     queryKey: ["channels"],
     queryFn: () => api.listChannels(),
@@ -179,6 +186,11 @@ export function GrantsTab() {
     onSuccess: invalidate,
   });
 
+  // Grants of somebody no longer in PR are kept apart - still revocable.
+  const known = stream.isSuccess;
+  const prGrants = (grants.data ?? []).filter((row) => !known || inPr.has(row.user_id));
+  const outsideGrants = known ? (grants.data ?? []).filter((row) => !inPr.has(row.user_id)) : [];
+
   return (
     <div className="space-y-4">
       <section className="rounded-lg border border-[var(--border)] bg-[var(--surface)] p-4">
@@ -189,7 +201,7 @@ export function GrantsTab() {
           <Empty message="Hiện chưa có ai được cấp quyền duyệt ở bất kỳ bước nào." />
         ) : null}
         <ul className="space-y-3 text-sm">
-          {grants.data?.map((row: CapabilityGrant) => (
+          {prGrants.map((row: CapabilityGrant) => (
             <li
               key={row.id}
               data-testid="grant-row"
@@ -234,6 +246,38 @@ export function GrantsTab() {
             </li>
           ))}
         </ul>
+        {outsideGrants.length > 0 ? (
+          <details className="mt-3 text-sm" data-testid="outside-grants">
+            <summary className="cursor-pointer text-[var(--text-muted)]">
+              Người ngoài luồng PR vẫn còn quyền ({outsideGrants.length}) — nên thu hồi
+            </summary>
+            <ul className="mt-2 space-y-2">
+              {outsideGrants.map((row: CapabilityGrant) => (
+                <li
+                  key={row.id}
+                  className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-[var(--border)] p-2"
+                >
+                  <span>
+                    {names.get(row.user_id) ?? row.user_id} ·{" "}
+                    {capabilityLabel(row.capability)}
+                  </span>
+                  <ConfirmButton
+                    spec={revokeCapabilityConfirmation(
+                      row.capability,
+                      names.get(row.user_id) ?? null,
+                    )}
+                    tone="secondary"
+                    pending={revoke.isPending}
+                    error={revoke.error}
+                    onConfirm={() => revoke.mutate({ grant_id: row.id })}
+                  >
+                    Thu hồi
+                  </ConfirmButton>
+                </li>
+              ))}
+            </ul>
+          </details>
+        ) : null}
         {revoke.isError ? <ErrorBox error={revoke.error} /> : null}
       </section>
 
@@ -255,7 +299,7 @@ export function GrantsTab() {
               className="mt-1 w-full rounded border border-[var(--border)] bg-transparent px-2 py-1.5"
             >
               <option value="">— chọn —</option>
-              {(people.data ?? []).map((person) => (
+              {prPeople.map((person) => (
                 <option key={person.user_id} value={person.user_id}>
                   {person.full_name} ({roleLabel(person.role)})
                 </option>
