@@ -342,6 +342,10 @@ class ScriptCheckResponse(BaseModel):
     passed: bool
     violations: list[dict[str, Any]] = []
     problem: str | None = None
+    #: When refused: the whole script corrected, in its own format, to copy.
+    revised_script: str | None = None
+    #: Changes beyond the listed errors (e.g. the standard footer added).
+    note: str | None = None
     #: One line for the form.
     message: str
 

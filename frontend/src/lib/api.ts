@@ -47,6 +47,8 @@ interface ErrorEnvelope {
 export interface ScriptViolation {
   /** The number of the forbidden item in the rules; 0 when unknown. */
   rule: number;
+  /** Its short name ("Claim quá đà"); optional, "" when the AI gave none. */
+  rule_name?: string;
   /** The offending passage, exactly as written in the script. */
   quote: string;
   reason: string;
@@ -64,6 +66,9 @@ export interface ScriptCheck {
   passed: boolean;
   violations: ScriptViolation[];
   problem: string | null;
+  /** When refused: the whole script corrected, to copy. Optional: older APIs. */
+  revised_script?: string | null;
+  note?: string | null;
   message: string;
 }
 
@@ -73,6 +78,27 @@ export function scriptViolations(error: unknown): ScriptViolation[] {
   if (error.details.reason !== "script_review_failed") return [];
   const found = error.details.violations;
   return Array.isArray(found) ? (found as ScriptViolation[]) : [];
+}
+
+/** What the AI said about a refused script: its findings and its corrected version. */
+export interface ScriptReview {
+  violations: ScriptViolation[];
+  /** The whole script corrected, in its own format; null when the AI gave none. */
+  revised_script: string | null;
+  /** Changes beyond the listed errors (e.g. the standard footer added). */
+  note: string | null;
+}
+
+/** The refusal carried by a 422 `script_review_failed`, or null. */
+export function scriptReviewOf(error: unknown): ScriptReview | null {
+  const violations = scriptViolations(error);
+  if (violations.length === 0 || !(error instanceof ApiError)) return null;
+  const text = (value: unknown) => (typeof value === "string" && value.trim() ? value : null);
+  return {
+    violations,
+    revised_script: text(error.details.revised_script),
+    note: text(error.details.note),
+  };
 }
 
 export class ApiError extends Error {
@@ -3339,6 +3365,8 @@ export interface UnitSettingsInfo {
    */
   script_ai_review?: boolean;
   script_review_rules?: string;
+  /** ORD: hashtags + standard footer the AI adds to its corrected script. */
+  script_footer?: string;
   /** ORD: a member's token budget per working day unless their own is set (80). */
   default_daily_tokens?: number;
   /** ORD: weekdays (Monday = 0) with a full budget, and the half days (Saturday morning). */

@@ -13,7 +13,7 @@ from meobot.application.units.admin import UnitAdminService
 from meobot.application.units.directory import UnitDirectoryService
 from meobot.db.models.user import User
 from meobot.domain.identity.models import Role
-from meobot.domain.orders.script_rules import DEFAULT_SCRIPT_RULES
+from meobot.domain.orders.script_rules import DEFAULT_SCRIPT_FOOTER, DEFAULT_SCRIPT_RULES
 from meobot.domain.units.errors import UnitValidationError
 from meobot.domain.units.models import UnitCode, UnitMemberRole
 from tests.unit.pr_world import World
@@ -202,6 +202,7 @@ async def test_07_settings_are_validated_and_defaulted(world: World) -> None:
         # The AI reads the order's script when it is placed, against these rules.
         "script_ai_review": True,
         "script_review_rules": DEFAULT_SCRIPT_RULES,
+        "script_footer": DEFAULT_SCRIPT_FOOTER,
         # 0053: the token budget and the performance score's knobs.
         "default_daily_tokens": 80.0,
         "work_weekdays": [0, 1, 2, 3, 4],

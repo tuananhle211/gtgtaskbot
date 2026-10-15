@@ -519,7 +519,9 @@ class OrderCommandService:
         if self._passed_scripts.passed(title, script, rules):
             return ScriptVerdict(reviewed=True)
         assert self._script_reviewer is not None
-        verdict = await self._script_reviewer.review(title=title, script=script, rules=rules)
+        verdict = await self._script_reviewer.review(
+            title=title, script=script, rules=rules, footer=settings.script_footer
+        )
         if verdict.reviewed and verdict.passed:
             self._passed_scripts.remember(title, script, rules)
         return verdict
@@ -543,6 +545,8 @@ class OrderCommandService:
                     "reason": "script_review_failed",
                     "field": "order_content",
                     "violations": [violation.to_json() for violation in verdict.violations],
+                    "revised_script": verdict.revised_script,
+                    "note": verdict.note,
                 },
             )
         return verdict.history_note()

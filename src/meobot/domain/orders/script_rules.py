@@ -32,4 +32,19 @@ thực hiện thủ thuật
 #: The rules text an administrator may store.
 MAX_RULES_LENGTH = 8000
 
-__all__ = ["DEFAULT_SCRIPT_RULES", "MAX_RULES_LENGTH"]
+#: The hashtags and the standard footer a post ends with. Not a rule (a
+#: script without them is not refused): the AI adds them to the corrected
+#: version it suggests when the script lacks them.
+DEFAULT_SCRIPT_FOOTER = """\
+#Apexmed #EkipBacSiTien
+
+-----------❖❖❖---------
+🏠 PHÒNG KHÁM THẨM MỸ APEXMED
+📍 Cơ sở 1: 50 Hoàng Ngân, P. Thanh Xuân, TP. Hà Nội
+📍 Cơ sở 2: 189 Hoàng Cầu, P. Đống Đa, TP. Hà Nội
+☎️ Hotline: 0766.1515.66
+"""
+
+MAX_FOOTER_LENGTH = 2000
+
+__all__ = ["DEFAULT_SCRIPT_FOOTER", "DEFAULT_SCRIPT_RULES", "MAX_FOOTER_LENGTH", "MAX_RULES_LENGTH"]

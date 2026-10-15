@@ -567,11 +567,20 @@ describe("the AI script check before sending", () => {
     message: "AI duyệt kịch bản: đạt. Bạn có thể gửi order.",
     ...over,
   });
+  const REVISED = "💥 Video serum\n◾️ Da căng bóng\n\n#Apexmed #EkipBacSiTien";
   const REFUSED = answer({
     passed: false,
     violations: [
-      { rule: 2, quote: "cam kết", reason: "Khẳng định tuyệt đối.", suggestion: "Bỏ từ này." },
+      {
+        rule: 2,
+        rule_name: "Khẳng định tuyệt đối",
+        quote: "cam kết",
+        reason: "Khẳng định tuyệt đối.",
+        suggestion: "Bỏ từ này.",
+      },
     ],
+    revised_script: REVISED,
+    note: "Đã bổ sung hashtag và chân trang chuẩn.",
     message: "AI duyệt kịch bản: chưa đạt (1 lỗi).",
   });
   type Calls = { calls: Array<{ url: string; method: string; body: unknown }> };
@@ -592,9 +601,28 @@ describe("the AI script check before sending", () => {
     await fillBasics();
     expect(submit()).toBeDisabled();
     expect(screen.getByTestId("needs-script-check")).toBeInTheDocument();
-    // Refused: what the AI found sits under the script, still no sending.
+    // Refused: a window opens with the errors and a corrected version.
     await userEvent.click(checkButton());
-    const panel = await screen.findByTestId("script-violations");
+    const dialog = await screen.findByRole("dialog", { name: "KHÔNG ĐẠT - có 1 lỗi" });
+    const errors = within(dialog).getByTestId("script-review-errors");
+    expect(errors).toHaveTextContent("Lỗi 1:");
+    expect(errors).toHaveTextContent("• Câu/cụm vi phạm: “cam kết”");
+    expect(errors).toHaveTextContent(
+      "• Vi phạm: Mục 2 - Khẳng định tuyệt đối (Khẳng định tuyệt đối.)",
+    );
+    expect(errors).toHaveTextContent("• Gợi ý sửa: Bỏ từ này.");
+    expect(within(dialog).getByTestId("script-review-note")).toHaveTextContent(
+      "(Đã bổ sung hashtag và chân trang chuẩn.)",
+    );
+    expect(within(dialog).getByTestId("script-review-revised").textContent).toBe(REVISED);
+    await userEvent.click(within(dialog).getByRole("button", { name: "Quay lại sửa" }));
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+    // The findings stay under the script, and the window opens again from there.
+    const panel = screen.getByTestId("script-violations");
+    await userEvent.click(within(panel).getByRole("button", { name: "Xem lỗi & bản sửa gợi ý" }));
+    const again = screen.getByRole("dialog");
+    await userEvent.click(within(again).getByRole("button", { name: "Quay lại sửa" }));
+    await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
     expect(panel).toHaveTextContent("“cam kết” · mục cấm 2");
     expect(submit()).toBeDisabled();
     expect(first.calls.find((call) => call.url.includes("/script-check"))?.body).toEqual({
@@ -605,6 +633,8 @@ describe("the AI script check before sending", () => {
     const script = screen.getByRole("textbox", { name: "Nội dung order" });
     await userEvent.clear(script);
     await userEvent.type(script, "Key: da căng bóng, đội ngũ bác sĩ Apexmed");
+    // Typing passed through the refused text again: the window stayed shut.
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
     expect(screen.getByText(/bấm duyệt lại/)).toBeInTheDocument();
     const second = stubAi(answer());
     await userEvent.click(checkButton());
@@ -619,6 +649,20 @@ describe("the AI script check before sending", () => {
     });
     // An edit after the pass locks sending again.
     await userEvent.type(script, " cam kết");
+    expect(submit()).toBeDisabled();
+  });
+
+  it("puts the corrected version into the script field, to be checked again", async () => {
+    stubAi(REFUSED);
+    renderWithQuery(<NewOrderPage />);
+    await fillBasics();
+    await userEvent.click(checkButton());
+    const dialog = await screen.findByRole("dialog");
+    await userEvent.click(within(dialog).getByRole("button", { name: "Dùng bản sửa" }));
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+    expect(screen.getByRole("textbox", { name: "Nội dung order" })).toHaveValue(REVISED);
+    // A new text: it has to be checked again before it may go.
+    expect(screen.getByText(/bấm duyệt lại/)).toBeInTheDocument();
     expect(submit()).toBeDisabled();
   });
 

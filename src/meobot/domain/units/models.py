@@ -32,7 +32,12 @@ from enum import StrEnum
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from meobot.domain.orders.script_rules import DEFAULT_SCRIPT_RULES, MAX_RULES_LENGTH
+from meobot.domain.orders.script_rules import (
+    DEFAULT_SCRIPT_FOOTER,
+    DEFAULT_SCRIPT_RULES,
+    MAX_FOOTER_LENGTH,
+    MAX_RULES_LENGTH,
+)
 from meobot.domain.org.models import DepartmentFunction, Grant, Seat
 
 
@@ -170,6 +175,9 @@ class UnitSettings(BaseModel):
     script_ai_review: bool = True
     #: The rules it is read against; only the numbered forbidden items count.
     script_review_rules: str = Field(default=DEFAULT_SCRIPT_RULES, max_length=MAX_RULES_LENGTH)
+    #: Hashtags + standard footer the AI adds to its corrected version of a
+    #: refused script when it lacks them. Not a rule.
+    script_footer: str = Field(default=DEFAULT_SCRIPT_FOOTER, max_length=MAX_FOOTER_LENGTH)
     #: 0053: a member's token budget per working day, unless their tag sets
     #: their own (``org_unit_members.daily_tokens``).
     default_daily_tokens: float = Field(default=80, ge=0, le=999)

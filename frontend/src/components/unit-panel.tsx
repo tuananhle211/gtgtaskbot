@@ -1278,6 +1278,20 @@ export function SettingsForm({ code, onDone }: { code: string; onDone: () => voi
               className={`mt-1 min-h-48 ${field}`}
             />
           </label>
+          {current.script_footer !== undefined ? (
+            <label className="mt-1 block text-xs text-[var(--text-muted)]">
+              Hashtag & chân trang chuẩn (AI thêm vào bản sửa gợi ý khi bài thiếu; không tính là lỗi)
+              <textarea
+                aria-label="Hashtag và chân trang chuẩn"
+                value={value("script_footer") ?? ""}
+                maxLength={2000}
+                onChange={(event) =>
+                  setDraft((all) => ({ ...all, script_footer: event.target.value }))
+                }
+                className={`mt-1 min-h-32 ${field}`}
+              />
+            </label>
+          ) : null}
         </fieldset>
       ) : null}
       <fieldset className="sm:col-span-2">

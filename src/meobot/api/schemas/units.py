@@ -76,6 +76,8 @@ class UnitSettingsResponse(BaseModel):
     #: The AI reads the order's script when it is placed; the rules it uses.
     script_ai_review: bool = True
     script_review_rules: str = ""
+    #: Hashtags + standard footer added to the AI's corrected script.
+    script_footer: str = ""
     #: 0053: token budget and the performance score's knobs.
     default_daily_tokens: float = 80
     work_weekdays: list[int] = [0, 1, 2, 3, 4]
@@ -105,6 +107,7 @@ class UnitSettingsResponse(BaseModel):
             design_codes_enabled=settings.design_codes_enabled,
             script_ai_review=settings.script_ai_review,
             script_review_rules=settings.script_review_rules,
+            script_footer=settings.script_footer,
             default_daily_tokens=settings.default_daily_tokens,
             work_weekdays=list(settings.work_weekdays),
             half_weekdays=list(settings.half_weekdays),
@@ -398,6 +401,7 @@ class UpdateUnitSettingsRequest(BaseModel):
     design_codes_enabled: bool | None = None
     script_ai_review: bool | None = None
     script_review_rules: str | None = Field(default=None, max_length=8000)
+    script_footer: str | None = Field(default=None, max_length=2000)
     default_daily_tokens: float | None = Field(default=None, ge=0, le=999)
     work_weekdays: list[int] | None = None
     half_weekdays: list[int] | None = None

@@ -39,8 +39,8 @@ export function Modal({
   description?: React.ReactNode;
   /** A request is in flight: Escape, the scrim and the close button do nothing. */
   busy?: boolean;
-  /** `md` = 448px, `lg` = 576px. */
-  size?: "md" | "lg";
+  /** `md` = 448px, `lg` = 576px, `xl` = 768px. */
+  size?: "md" | "lg" | "xl";
   children: React.ReactNode;
 }) {
   const titleId = useId();
@@ -111,7 +111,7 @@ export function Modal({
         aria-describedby={description ? descriptionId : undefined}
         onKeyDown={handleKeyDown}
         className={`modal-panel flex max-h-[92vh] w-full flex-col overflow-hidden rounded-t-2xl border border-[var(--border)] bg-[var(--surface)] shadow-2xl outline-none md:max-h-[88vh] md:rounded-2xl ${
-          size === "lg" ? "md:max-w-xl" : "md:max-w-md"
+          size === "xl" ? "md:max-w-3xl" : size === "lg" ? "md:max-w-xl" : "md:max-w-md"
         }`}
       >
         <header className="flex items-start gap-3 px-5 pb-1 pt-5 md:px-6 md:pt-6">

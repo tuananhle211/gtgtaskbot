@@ -1055,6 +1055,17 @@ async def test_ai_script_review_sends_a_bad_script_back_to_the_orderer(world: Wo
         (7, "Harmonic"),
     ]
     assert all(item["reason"] and item["suggestion"] for item in details["violations"])
+    assert [item["rule_name"] for item in details["violations"]] == [
+        "Khẳng định tuyệt đối",
+        "Claim quá đà",
+        "Từ khóa riêng công ty",
+    ]
+    # A corrected version to copy: the offending words gone, the standard
+    # hashtags and footer added, and a note saying so.
+    revised = details["revised_script"]
+    assert "CAM KẾT" not in revised and "Harmonic" not in revised
+    assert revised.endswith("☎️ Hotline: 0766.1515.66")
+    assert details["note"] == "Đã bổ sung hashtag và chân trang chuẩn."
     # Nothing was placed: no order, nothing for the head.
     assert await world.session.scalar(select(func.count()).select_from(Order)) == 0
     assert await inbox(world, ads.head) == []
@@ -1148,12 +1159,15 @@ async def test_ai_script_check_runs_before_sending_and_its_pass_is_reused(
     assert bad.json()["passed"] is False
     assert [item["rule"] for item in bad.json()["violations"]] == [2, 4]
     assert "chưa đạt (2 lỗi)" in bad.json()["message"]
+    assert bad.json()["revised_script"].startswith("Chúng tôi đẹp,")
+    assert "#Apexmed" in bad.json()["revised_script"]
 
     good_text = "Đội ngũ bác sĩ Thẩm mỹ Apexmed tư vấn."
     good = world.client.post(
         "/api/orders/script-check", json={"title": title, "order_content": good_text}
     )
     assert good.json()["passed"] is True and good.json()["violations"] == []
+    assert good.json()["revised_script"] is None
     assert len(asked) == 2
     # Sent as checked: the pass is taken, the AI is not asked again.
     detail = create(world, ads, title=title, order_content=good_text)

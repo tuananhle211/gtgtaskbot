@@ -211,6 +211,8 @@ async def check_script(
         reviewed=True,
         passed=False,
         violations=[violation.to_json() for violation in verdict.violations],
+        revised_script=verdict.revised_script,
+        note=verdict.note,
         message=(
             f"AI duyệt kịch bản: chưa đạt ({len(verdict.violations)} lỗi). Sửa các chỗ được"
             " chỉ ra rồi duyệt lại."

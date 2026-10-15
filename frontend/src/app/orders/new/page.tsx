@@ -6,11 +6,13 @@ import { useEffect, useRef, useState } from "react";
 import { useMutation, useQuery } from "@tanstack/react-query";
 import {
   api,
-  scriptViolations,
+  scriptReviewOf,
   type CreateOrderBody,
   type OrderInfo,
   type ScriptCheck,
+  type ScriptReview,
 } from "@/lib/api";
+import { ScriptReviewDialog } from "@/components/script-review-dialog";
 import {
   hasUnit,
   isUntagged,
@@ -312,6 +314,9 @@ function AdsOrderForm({
         })
         : api.createOrder(body),
     onSuccess: (detail) => router.push(`/tasks/${detail.order.code}`),
+    onError: (error) => {
+      if (scriptReviewOf(error)) setRefusedAt(Date.now());
+    },
   });
   // "AI duyệt kịch bản": the answer for the text it read. Any edit of the
   // title or the script makes it stale - the button has to be pressed again.
@@ -323,22 +328,37 @@ function AdsOrderForm({
       api.checkOrderScript({ title: form.title, order_content: form.order_content }).then(
         (result) => ({ text, result }),
       ),
-    onSuccess: setChecked,
+    onSuccess: (answer) => {
+      setChecked(answer);
+      if (answer.result.reviewed && !answer.result.passed) setRefusedAt(Date.now());
+    },
   });
   const current = checked && checked.text === checkedText ? checked.result : null;
   // Passed, switched off, or the AI could not answer (the history will say so).
   const mayGo = !aiReview || Boolean(current && (current.passed || !current.reviewed));
   // The AI read the script and found it against the rules - with the button,
   // or when the order was sent. Its findings sit under the script field,
-  // which is brought into view.
-  const violations = current && !current.passed && current.reviewed
-    ? current.violations
-    : scriptViolations(create.error);
+  // which is brought into view, and open in a window with a corrected version.
+  const review: ScriptReview | null =
+    current && current.reviewed && !current.passed
+      ? {
+          violations: current.violations,
+          revised_script: current.revised_script ?? null,
+          note: current.note ?? null,
+        }
+      : scriptReviewOf(create.error);
+  const violations = review?.violations ?? [];
   const findings = useRef<HTMLDivElement>(null);
   const refused = violations.length > 0;
+  const [showReview, setShowReview] = useState(false);
+  // A fresh refusal - from the button or from sending - opens the window and
+  // brings the findings into view; typing back an old text does not.
+  const [refusedAt, setRefusedAt] = useState(0);
   useEffect(() => {
-    if (refused) findings.current?.scrollIntoView?.({ block: "center" });
-  }, [refused, create.failureCount, create.submittedAt, check.submittedAt]);
+    if (refusedAt === 0) return;
+    findings.current?.scrollIntoView?.({ block: "center" });
+    setShowReview(true);
+  }, [refusedAt]);
   const nodes = orderedProcess(ticked);
   const code = processCode(nodes);
   const route = [
@@ -681,10 +701,19 @@ function AdsOrderForm({
               data-testid="script-violations"
               className="rounded-lg border border-[var(--bad)] bg-[var(--surface-muted)] p-3 text-sm"
             >
-              <p className="font-semibold text-[var(--bad)]">
-                AI duyệt kịch bản: chưa đạt ({violations.length} lỗi). Order chưa
-                được gửi, sửa các chỗ dưới đây rồi duyệt lại.
-              </p>
+              <div className="flex flex-wrap items-start justify-between gap-2">
+                <p className="font-semibold text-[var(--bad)]">
+                  AI duyệt kịch bản: chưa đạt ({violations.length} lỗi). Order chưa
+                  được gửi, sửa các chỗ dưới đây rồi duyệt lại.
+                </p>
+                <button
+                  type="button"
+                  onClick={() => setShowReview(true)}
+                  className="min-h-9 shrink-0 rounded-lg border border-[var(--bad)] px-3 text-xs font-medium text-[var(--bad)]"
+                >
+                  Xem lỗi & bản sửa gợi ý
+                </button>
+              </div>
               <ol className="mt-2 list-decimal space-y-2 pl-5">
                 {violations.map((item, index) => (
                   <li key={`${index}-${item.quote}`}>
@@ -702,6 +731,14 @@ function AdsOrderForm({
                 ))}
               </ol>
             </div>
+          ) : null}
+          {review ? (
+            <ScriptReviewDialog
+              open={showReview}
+              onClose={() => setShowReview(false)}
+              review={review}
+              onUse={(script) => setForm((was) => ({ ...was, order_content: script }))}
+            />
           ) : null}
         </div>
         <div className="grid gap-3 sm:grid-cols-3">

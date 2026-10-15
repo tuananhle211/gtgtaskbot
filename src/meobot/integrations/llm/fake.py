@@ -285,6 +285,15 @@ class _Threads:
 
 #: (forbidden item, phrase) the fake reads an order's script for: the words
 #: the default rules of :mod:`meobot.domain.orders.script_rules` name outright.
+#: The default rules' short names, by forbidden item.
+ORDER_SCRIPT_RULE_NAMES: dict[int, str] = {
+    1: "Từ y tế",
+    2: "Khẳng định tuyệt đối",
+    3: "Danh nghĩa cơ sở y tế khác",
+    4: "Claim quá đà",
+    7: "Từ khóa riêng công ty",
+}
+
 ORDER_SCRIPT_FORBIDDEN: tuple[tuple[int, str], ...] = (
     (1, "điều trị"),
     (1, "chữa bệnh"),
@@ -719,19 +728,38 @@ class FakeLLMProvider(StructuredTaskMixin):
     @staticmethod
     def _order_script_review(context: dict[str, Any]) -> dict[str, Any]:
         """Findings from the forbidden words the default rules name outright.
-        Deterministic: a script with none of them passes."""
+        Deterministic: a script with none of them passes. When it does not,
+        the corrected version drops those words and ends with the standard
+        footer (``context["footer"]``) when the script lacks it."""
         script = str(context.get("script") or "")
+        found = [
+            (rule, term, match.group(0))
+            for rule, term in ORDER_SCRIPT_FORBIDDEN
+            if (match := re.search(rf"(?<!\w){re.escape(term)}(?!\w)", script, re.IGNORECASE))
+        ]
         violations = [
             {
                 "rule": rule,
-                "quote": found.group(0),
+                "rule_name": ORDER_SCRIPT_RULE_NAMES.get(rule, ""),
+                "quote": quote,
                 "reason": f'Dùng cụm từ cấm "{term}".',
                 "suggestion": "Viết lại câu, bỏ cụm từ này.",
             }
-            for rule, term in ORDER_SCRIPT_FORBIDDEN
-            if (found := re.search(rf"(?<!\w){re.escape(term)}(?!\w)", script, re.IGNORECASE))
+            for rule, term, quote in found
         ]
-        return {"violations": violations}
+        if not violations:
+            return {"violations": [], "revised_script": "", "note": ""}
+        revised = script
+        for _rule, term, _quote in found:
+            revised = re.sub(
+                rf"\s*(?<!\w){re.escape(term)}(?!\w)", "", revised, flags=re.IGNORECASE
+            )
+        footer = str(context.get("footer") or "").strip()
+        note = ""
+        if footer and footer not in revised:
+            revised = f"{revised.rstrip()}\n\n{footer}"
+            note = "Đã bổ sung hashtag và chân trang chuẩn."
+        return {"violations": violations, "revised_script": revised, "note": note}
 
     @staticmethod
     def _pr_full_review(context: dict[str, Any]) -> dict[str, Any]:

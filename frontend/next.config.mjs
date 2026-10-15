@@ -28,6 +28,12 @@ const nextConfig = {
   // Traced, self-contained server output for the Docker runner stage. Harmless
   // for `next dev`, which ignores it.
   output: "standalone",
+  experimental: {
+    // The proxy to the API gives up after 30 s by default. "AI duyệt kịch
+    // bản" (and sending an order, which may ask the AI) can take longer on a
+    // slow model; the API's own budget is 85 s, Cloudflare's 100 s.
+    proxyTimeout: 120_000,
+  },
   // No `output: "export"`. A static export cannot proxy, and without the proxy
   // the cookie story above falls apart.
   async rewrites() {
