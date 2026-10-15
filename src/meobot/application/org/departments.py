@@ -212,6 +212,14 @@ async def sync_stream_tags(
     units = {
         code: await session.get(OrgUnit, unit_seed_id(code)) for code in (UnitCode.ADS, UnitCode.PR)
     }
+    # 0063: an open tag carries its person's member code.
+    member_codes = {
+        user_id: code
+        for user_id, code in (
+            await session.execute(select(User.id, User.member_code).where(User.id.in_(wanted)))
+        ).all()
+        if code
+    }
     now = utcnow()
     for user_id in wanted:
         held = seats.get(user_id, ())
@@ -254,6 +262,8 @@ async def sync_stream_tags(
             row.role = target.role
             row.is_lead = target.is_lead
             row.manager_user_id = target.manager_user_id
+            if user_id in member_codes:
+                row.member_code = member_codes[user_id]
     await session.flush()
 
 

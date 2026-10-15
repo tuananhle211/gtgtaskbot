@@ -14,6 +14,7 @@ from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from typing import TypeVar
 
+from meobot.application.ai.routing import build_ai_provider
 from meobot.core.config import Settings, get_settings
 from meobot.core.context import get_request_id
 from meobot.core.logging import get_logger
@@ -23,7 +24,6 @@ from meobot.integrations.google.drive import DriveClient
 from meobot.integrations.google.factory import build_drive_client, build_sheets_client
 from meobot.integrations.google.sheets import SheetsClient
 from meobot.integrations.llm.base import LLMProvider
-from meobot.integrations.llm.factory import build_llm_provider
 from meobot.integrations.telegram.notifier import Notifier, build_notifier
 
 logger = get_logger(__name__)
@@ -102,7 +102,7 @@ def run_async[T](operation: Callable[[TaskContext], Awaitable[T]]) -> T:
             database=database,
             sheets=sheets,
             drive=drive,
-            llm=build_llm_provider(settings),
+            llm=build_ai_provider(settings, database),
             notifier=notifier,
         )
         try:

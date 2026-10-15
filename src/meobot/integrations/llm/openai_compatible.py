@@ -815,6 +815,9 @@ class OpenAICompatibleProvider(StructuredTaskMixin):
             "model": self._model,
             "messages": messages,
             self._capabilities.max_tokens_parameter: max_output_tokens,
+            # Said, not assumed: OpenAI defaults to one JSON answer, but some
+            # gateways (9router) stream Server-Sent Events unless told not to.
+            "stream": False,
         }
         if self._capabilities.supports_temperature:
             body["temperature"] = temperature
@@ -884,6 +887,9 @@ class OpenAICompatibleProvider(StructuredTaskMixin):
         """
         status = response.status_code
         if status == httpx.codes.OK:
+            if "text/event-stream" in response.headers.get("content-type", ""):
+                # A gateway that streamed anyway: fold the chunks into one answer.
+                return _join_stream(response.text)
             payload = response.json()
             return payload if isinstance(payload, dict) else {}
 
@@ -1034,6 +1040,54 @@ def _extract_usage(payload: dict[str, Any]) -> dict[str, int]:
         return {}
     keys = ("prompt_tokens", "completion_tokens", "total_tokens")
     return {key: int(usage[key]) for key in keys if isinstance(usage.get(key), int)}
+
+
+def _join_stream(text: str) -> dict[str, Any]:
+    """A ``chat.completion`` built from a streamed answer (``data: {chunk}``
+    lines): the deltas' content concatenated, the last finish reason, the
+    usage when a chunk reports it. Unparsable lines are skipped."""
+    content: list[str] = []
+    finish: str | None = None
+    usage: dict[str, Any] | None = None
+    model: str | None = None
+    for line in text.splitlines():
+        line = line.strip()
+        if not line.startswith("data:"):
+            continue
+        data = line[len("data:") :].strip()
+        if not data or data == "[DONE]":
+            continue
+        try:
+            chunk = json.loads(data)
+        except json.JSONDecodeError:
+            continue
+        if not isinstance(chunk, dict):
+            continue
+        model = chunk.get("model") or model
+        if isinstance(chunk.get("usage"), dict):
+            usage = chunk["usage"]
+        for choice in chunk.get("choices") or []:
+            if not isinstance(choice, dict):
+                continue
+            delta = choice.get("delta") or choice.get("message") or {}
+            piece = delta.get("content") if isinstance(delta, dict) else None
+            if isinstance(piece, str):
+                content.append(piece)
+            finish = choice.get("finish_reason") or finish
+    joined: dict[str, Any] = {
+        "object": "chat.completion",
+        "model": model,
+        "choices": [
+            {
+                "index": 0,
+                "message": {"role": "assistant", "content": "".join(content)},
+                "finish_reason": finish,
+            }
+        ],
+    }
+    if usage is not None:
+        joined["usage"] = usage
+    return joined
 
 
 def _error_fields(response: httpx.Response) -> tuple[str | None, str | None, str]:

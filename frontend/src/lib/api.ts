@@ -3399,8 +3399,8 @@ export interface UnitsMe {
  *   simplified Design table for ORD;
  * - `manage_codes`: may edit the "mã video" catalogue (Design Leader, OWNER, ADMIN);
  * - `birthday`: may open the birthday board and create birthday orders - the
- *   Design ban, OWNER / ADMIN, and an ORD member granted it (`birthday_orders`
- *   on their roster row);
+ *   OWNER / ADMIN and whoever holds the order flow's `BIRTHDAY` permission
+ *   (granted per department on `/admin/departments`; Thiết Kế by default);
  * - `library`: the Design team's "Thư viện" menu, in menu order (`[]` for
  *   anybody outside the team);
  * - `manage_library`: may edit that menu (Design Leader, OWNER, ADMIN).
@@ -3478,16 +3478,6 @@ export interface UnitMember {
   manager_user_id?: Uuid | null;
   /** ORD: own token budget per working day; null = the unit's `default_daily_tokens`. */
   daily_tokens?: number | null;
-  /**
-   * ORD: this member was granted the "Order sinh nhật" board (on their ORD
-   * tag). Optional: older APIs, and the PR roster, omit it.
-   */
-  birthday_orders?: boolean;
-  /**
-   * ORD: the member has that board without the grant - the Design ban does by
-   * default. Optional, like `birthday_orders`.
-   */
-  birthday_orders_default?: boolean;
 }
 
 export interface UnitMemberList {
@@ -3535,6 +3525,69 @@ export interface MyDepartmentSeat {
   position: DepartmentPosition | string;
   position_label?: string;
   manager_user_id?: Uuid | null;
+}
+
+// --- "Kết nối AI" (0064) ----------------------------------------------------
+
+export interface AiConnection {
+  id: Uuid;
+  name: string;
+  /** OPENAI / GEMINI / DEEPSEEK / OPENAI_COMPATIBLE (9router and the like). */
+  kind: string;
+  kind_label: string;
+  /** As stored; null = the kind's own endpoint (`endpoint` says which). */
+  base_url: string | null;
+  endpoint: string;
+  model: string;
+  /** "••••abcd": never the key. */
+  api_key_hint: string;
+  active: boolean;
+  last_tested_at: string | null;
+  last_test_ok: boolean | null;
+  last_test_message: string | null;
+}
+
+export interface AiConnectionBody {
+  name: string;
+  kind: string;
+  model: string;
+  api_key: string;
+  base_url: string | null;
+}
+
+export interface AiKind {
+  kind: string;
+  label: string;
+  /** Null: the address is required (9router / any OpenAI-compatible gateway). */
+  base_url: string | null;
+  model_hint: string;
+  key_hint: string;
+}
+
+export interface AiRoute {
+  purpose: string;
+  label: string;
+  /** In the order they are tried; [] = this purpose uses the default chain. */
+  connection_ids: Uuid[];
+}
+
+export interface AiOverview {
+  connections: AiConnection[];
+  routes: AiRoute[];
+  kinds: AiKind[];
+  max_chain: number;
+  /** False: the server has no encryption key, keys cannot be stored. */
+  secret_ready: boolean;
+  /** What answers when no connection does (`LLM_*` on the server). */
+  env_provider: string;
+  env_model: string | null;
+}
+
+export interface AiTestResult {
+  ok: boolean;
+  message: string;
+  latency_ms: number;
+  connection: AiConnection;
 }
 
 export interface Department {
@@ -4462,6 +4515,8 @@ export interface MemberRow {
   /** The ORD function tag ("BT" / "TK" / "D") and whether they lead it. */
   function_tag?: string | null;
   is_lead?: boolean;
+  /** The person's member code (0063), in a stream or not. Optional: older APIs omit it. */
+  member_code?: string | null;
   last_login_at: string | null;
   has_custom_password: boolean;
   /** On a temporary password sent by a reset. Optional: older APIs omit it. */
@@ -4607,6 +4662,15 @@ export const api = {
   resetMemberPassword: (userId: Uuid) =>
     post<void>(`/api/account/members/${userId}/reset-password`),
   /**
+   * Anybody's member code ("mã thành viên", 0063): OWNER / ADMIN only (403
+   * `member_code_forbidden`). Folded to A-Z0-9, at most 12; blank / null
+   * clears it. Written on the account and every open stream tag.
+   */
+  setMemberCode: (userId: Uuid, memberCode: string | null) =>
+    put<{ member_code: string | null }>(`/api/account/members/${userId}/member-code`, {
+      member_code: memberCode,
+    }),
+  /**
    * The browser has already cropped and resized the picture (256x256); `data`
    * is its base64 **without** the `data:` prefix. 422 `avatar_too_large` over
    * 300 KB, `avatar_invalid_image` when the bytes are not the declared type.
@@ -4624,6 +4688,30 @@ export const api = {
       `/api/units/${code}/members${query({ include_inactive: includeInactive })}`,
     ),
   unitDirectory: () => get<DirectoryUser[]>("/api/units/directory"),
+
+  // "Kết nối AI" (0064): the OWNER's alone (403 `ai_forbidden`). Keys go in,
+  // never out - a connection carries `api_key_hint` ("••••abcd") only.
+  aiOverview: () => get<AiOverview>("/api/ai"),
+  /**
+   * 201. 422 `ai_name_missing` / `ai_model_missing` / `ai_key_missing` /
+   * `ai_key_invalid` / `ai_base_url_required` / `ai_base_url_invalid`
+   * (`details.field`), `ai_secret_not_configured` (no encryption key on the server).
+   */
+  createAiConnection: (body: AiConnectionBody & { name: string; kind: string; model: string; api_key: string }) =>
+    post<AiConnection>("/api/ai/connections", body),
+  /** A blank `api_key` keeps the stored one; `base_url: null` = the kind's own endpoint. */
+  updateAiConnection: (id: Uuid, body: Partial<AiConnectionBody> & { active?: boolean }) =>
+    patch<AiConnection>(`/api/ai/connections/${id}`, body),
+  /** 204. Also taken out of every route. */
+  deleteAiConnection: (id: Uuid) => del<void>(`/api/ai/connections/${id}`),
+  /** One tiny request through the real client. A failure is `ok: false` + why, not an error. */
+  testAiConnection: (id: Uuid) => post<AiTestResult>(`/api/ai/connections/${id}/test`),
+  /**
+   * Purpose -> connection ids in order (first = main, then fallbacks); [] =
+   * that purpose uses the default chain. 422 `ai_route_duplicate` /
+   * `ai_route_too_long` / `ai_route_unknown_connection`.
+   */
+  setAiRoutes: (routes: Record<string, Uuid[]>) => put<AiOverview>("/api/ai/routes", { routes }),
 
   // Departments ("Phòng ban"). Read: OWNER / ADMIN (else 403
   // `department_forbidden`); every write: the OWNER.
@@ -4685,8 +4773,6 @@ export const api = {
       manager_user_id?: Uuid | null;
       /** ORD: own tokens per working day; null = back to the unit default. */
       daily_tokens?: number | null;
-      /** ORD: grant / withdraw the "Order sinh nhật" board. */
-      birthday_orders?: boolean;
     },
   ) => patch<UnitMember>(`/api/units/${code}/members/${userId}`, body),
   untagUnitMember: (code: string, userId: Uuid) =>

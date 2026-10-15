@@ -581,3 +581,55 @@ def test_capabilities_recognise_the_message_when_param_is_missing() -> None:
     )
     assert label is not None
     assert caps.max_tokens_parameter == MAX_COMPLETION_TOKENS
+
+
+# --- Gateways that stream unless told not to (9router) ------------------------
+async def test_every_request_says_it_wants_one_answer_not_a_stream() -> None:
+    """9router answers ``text/event-stream`` when ``stream`` is left out."""
+    sent: list[dict[str, Any]] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        sent.append(json.loads(request.content))
+        return chat_response('{"ok": true}')
+
+    client = provider(handler)
+    await client.complete_structured(
+        StructuredRequest(task="t", system_prompt="s", user_prompt="u", json_schema={})
+    )
+    await client.generate_chat_reply(ChatRequest(message="Hello"))
+    assert sent and all(body["stream"] is False for body in sent)
+
+
+async def test_a_streamed_answer_is_folded_into_one() -> None:
+    """A gateway that streams anyway: the chunks are joined, not refused."""
+    chunks = [
+        {"model": MODEL, "choices": [{"index": 0, "delta": {"role": "assistant"}}]},
+        {"model": MODEL, "choices": [{"index": 0, "delta": {"content": '{"ok": '}}]},
+        {"model": MODEL, "choices": [{"index": 0, "delta": {"content": "true}"}}]},
+        {
+            "model": MODEL,
+            "choices": [{"index": 0, "delta": {}, "finish_reason": "stop"}],
+            "usage": {"prompt_tokens": 3, "completion_tokens": 2, "total_tokens": 5},
+        },
+    ]
+    stream = "".join(f"data: {json.dumps(chunk)}\n\n" for chunk in chunks) + "data: [DONE]\n\n"
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, text=stream, headers={"content-type": "text/event-stream"})
+
+    client = provider(handler)
+    answer = await client.complete_structured(
+        StructuredRequest(
+            task="t",
+            system_prompt="s",
+            user_prompt="u",
+            json_schema={
+                "type": "object",
+                "properties": {"ok": {"type": "boolean"}},
+                "required": ["ok"],
+            },
+        )
+    )
+    assert answer.payload == {"ok": True}
+    reply = await client.generate_chat_reply(ChatRequest(message="Hello"))
+    assert reply.text == '{"ok": true}'

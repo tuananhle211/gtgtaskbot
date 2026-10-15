@@ -111,6 +111,16 @@ class AccountStatusForbiddenError(AuthorizationError):
         super().__init__(message, details={"reason": self.code})
 
 
+class MemberCodeForbiddenError(AuthorizationError):
+    """Changing somebody's member code ("mã thành viên"): the OWNER and the
+    ADMIN only. 403."""
+
+    code = "member_code_forbidden"
+
+    def __init__(self, message: str = "Chỉ quản trị viên mới sửa được mã thành viên.") -> None:
+        super().__init__(message, details={"reason": self.code})
+
+
 class MemberDeleteForbiddenError(AuthorizationError):
     """Deleting an account for good: the OWNER only, never oneself or another
     OWNER. 403."""
@@ -183,6 +193,7 @@ __all__ = [
     "AvatarRejectedError",
     "LoginFailedError",
     "LoginLockedError",
+    "MemberCodeForbiddenError",
     "MemberDeleteForbiddenError",
     "PasswordChangeRequiredError",
     "PasswordRejectedError",

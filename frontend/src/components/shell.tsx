@@ -6,6 +6,7 @@ import { useEffect, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { api, type DesignLibraryLink, type UnitsMe } from "@/lib/api";
 import { effortEnabled } from "@/lib/effort";
+import { adminTabsFor } from "@/components/admin-tabs";
 import { roleLabel } from "@/lib/labels";
 import { unitShortLabel, unitTagClass } from "@/lib/units";
 import { ErrorBox, Loading } from "@/components/states";
@@ -148,7 +149,7 @@ const PR_NAV: NavItem[] = [
   { href: "/pr/work", label: "Công việc", icon: "work" },
   { href: "/pr/tasks", label: "Giao việc", icon: "task" },
   { href: "/pr/channels", label: "Kênh", icon: "channel" },
-  { href: "/pr/permissions", label: "Thành viên & Phân quyền", icon: "people" },
+  { href: "/pr/permissions", label: "Thành viên & Phân quyền (PR)", icon: "people" },
   { href: "/pr/reports", label: "Báo cáo", icon: "report" },
 ];
 
@@ -172,20 +173,12 @@ export function seesOrdEffort(me: UnitsMe | undefined, sessionRole?: string): bo
   return Boolean(ads && (ads.role === "HEAD" || ads.is_lead));
 }
 
-const ADMIN_NAV: NavItem[] = [
-  { href: "/admin/units", label: "Quản trị đơn vị", icon: "admin" },
-];
-
 /**
- * "Phòng ban": the departments, their seats and their order-flow grants. The
- * OWNER edits them; an ADMIN reads them (the server answers 403
- * `department_forbidden` to anybody else).
+ * "Quản trị": one entry for Phòng ban, Thành viên luồng and Thiết lập ORD
+ * (`components/admin-tabs.tsx`); `/admin` goes on to the first one this
+ * person may open, and the entry stays lit on all three.
  */
-const DEPARTMENTS_NAV: NavItem = {
-  href: "/admin/departments",
-  label: "Phòng ban",
-  icon: "department",
-};
+const ADMIN_NAV: NavItem = { href: "/admin", label: "Quản trị", icon: "admin" };
 
 /** Whether the sidebar is folded; shared by every Shell mount in this tab. */
 let sidebarCollapsed = false;
@@ -212,27 +205,25 @@ const LEGAL_LINKS = [
  * ("Bảng order"), whose Design entries follow the `design` flags; the Design
  * team's "Thư viện" is another, after everything else.
  *
- * "Quản trị đơn vị" is for whoever administers a unit or may tag members in
- * one (a team lead tags in their own stream there). "Phòng ban" is for the
- * OWNER and an ADMIN, by their system role.
+ * "Quản trị" is for whoever administers a unit or may tag members in one,
+ * and for the OWNER and an ADMIN by their system role (its "Phòng ban" tab).
  */
 export function navFor(me: UnitsMe | undefined, sessionRole?: string): NavEntry[] {
   const seesAll =
     Boolean(me?.can_view_all) || sessionRole === "OWNER" || sessionRole === "ADMIN";
   const pr = Boolean(me) && (seesAll || me!.units.some((unit) => unit.code === "PR"));
-  const admin = Boolean(
-    me && (me.can_admin.length > 0 || (me.can_tag ?? []).length > 0),
-  );
+  const admin =
+    adminTabsFor(me, sessionRole).length > 0 ||
+    sessionRole === "OWNER" ||
+    sessionRole === "ADMIN";
   const effort = seesOrdEffort(me, sessionRole);
-  const departments = sessionRole === "OWNER" || sessionRole === "ADMIN";
   const library = libraryBranch(me);
   return [
     DASHBOARD_NAV,
     orderBoards(me),
     ...(effort ? EFFORT_NAV : []),
     ...(pr ? PR_NAV : []),
-    ...(admin ? ADMIN_NAV : []),
-    ...(departments ? [DEPARTMENTS_NAV] : []),
+    ...(admin ? [ADMIN_NAV] : []),
     ...(library ? [library] : []),
   ];
 }
@@ -442,7 +433,13 @@ export function Shell({ children }: { children: React.ReactNode }) {
       className={linkClass(isActive(item.href))}
     >
       <Icon name={item.icon} />
-      <span className={`whitespace-nowrap ${collapsed ? "lg:sr-only" : ""}`}>{item.label}</span>
+      {/* One line in the phone strip; from `lg` a long label ("Thành viên &
+          Phân quyền (PR)") wraps inside the sidebar instead of running out of it. */}
+      <span
+        className={`min-w-0 whitespace-nowrap ${collapsed ? "lg:sr-only" : "lg:whitespace-normal lg:py-1.5 lg:leading-snug"}`}
+      >
+        {item.label}
+      </span>
     </Link>
   );
   // A library entry: out of the app, in a new tab, led by its round chip.

@@ -913,6 +913,59 @@ function PasswordStatus({ row }: { row: MemberRow }) {
   );
 }
 
+/**
+ * "Mã thành viên" (0063): the person's code, in a stream or not - the prefix
+ * of their order codes. OWNER / ADMIN only (the server refuses anybody else:
+ * 403 `member_code_forbidden`); the server folds what is typed (A-Z0-9, at
+ * most 12) and a blank clears it.
+ */
+function MemberCodeField({
+  row,
+  onSaved,
+}: {
+  row: MemberRow;
+  onSaved: (code: string | null) => void;
+}) {
+  const [value, setValue] = useState(row.member_code ?? "");
+  const save = useMutation({
+    mutationFn: () => api.setMemberCode(row.user_id, value.trim() || null),
+    onSuccess: (result) => {
+      setValue(result.member_code ?? "");
+      onSaved(result.member_code);
+    },
+  });
+  const changed = value.trim() !== (row.member_code ?? "");
+  return (
+    <div className="flex items-center gap-1.5">
+      <input
+        aria-label={`Mã thành viên của ${row.full_name}`}
+        value={value}
+        maxLength={40}
+        placeholder="Chưa có"
+        onChange={(event) => setValue(event.target.value)}
+        onKeyDown={(event) => {
+          if (event.key === "Enter" && changed && !save.isPending) save.mutate();
+        }}
+        className="min-h-9 w-24 rounded-md border border-[var(--border)] bg-[var(--surface)] px-2 font-mono text-xs uppercase"
+      />
+      <button
+        type="button"
+        aria-label={`Lưu mã thành viên của ${row.full_name}`}
+        disabled={!changed || save.isPending}
+        onClick={() => save.mutate()}
+        className="min-h-9 rounded-md border border-[var(--border)] px-2 text-xs font-medium disabled:opacity-40"
+      >
+        Lưu
+      </button>
+      {save.isError ? (
+        <span role="alert" className="text-xs text-[var(--bad)]">
+          {save.error instanceof Error ? save.error.message : "Không lưu được."}
+        </span>
+      ) : null}
+    </div>
+  );
+}
+
 function Members({
   me,
   month,
@@ -1047,6 +1100,7 @@ function Members({
                 <tr>
                   <th>Thành viên</th>
                   <th>Luồng</th>
+                  <th>Mã thành viên</th>
                   <th
                     className={th}
                     aria-sort={sort === "desc" ? "descending" : sort === "asc" ? "ascending" : "none"}
@@ -1081,7 +1135,7 @@ function Members({
                 {rows.length === 0 ? (
                   <tr>
                     <td
-                      colSpan={(mayReset ? 18 : 17) - (effortOn ? 0 : 1)}
+                      colSpan={(mayReset ? 19 : 18) - (effortOn ? 0 : 1)}
                       className="text-[var(--text-muted)]"
                     >
                       Không có thành viên nào trong bộ lọc này.
@@ -1117,6 +1171,24 @@ function Members({
                           <UnitTags units={row.units} functionTag={row.function_tag} isLead={row.is_lead} />
                         ) : (
                           <span className="text-xs text-[var(--text-muted)]">Chưa có luồng</span>
+                        )}
+                      </td>
+                      <td>
+                        {mayReset ? (
+                          <MemberCodeField
+                            key={`${row.user_id}:${row.member_code ?? ""}`}
+                            row={row}
+                            onSaved={(code) => {
+                              setNotice(
+                                code
+                                  ? `Đã đặt mã thành viên ${code} cho ${row.full_name}.`
+                                  : `Đã xoá mã thành viên của ${row.full_name}.`,
+                              );
+                              refreshMembers();
+                            }}
+                          />
+                        ) : (
+                          <span className="font-mono text-xs">{row.member_code || "–"}</span>
                         )}
                       </td>
                       <td className="text-right font-semibold tabular-nums">{formatPoints(row.stats.points)}</td>

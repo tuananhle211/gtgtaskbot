@@ -150,9 +150,13 @@ DEFAULT_ORDER_GRANTS: MappingProxyType[
                             "NODE_ASSIGN": "OWN",
                             "NODE_REVIEW": "OWN",
                             "VIDEO_REVIEW": "OWN",
+                            # 0062: the birthday board is Thiết Kế's.
+                            **({"BIRTHDAY": "ALL"} if code == "TK" else {}),
                         }
                     ),
-                    Position.MEMBER: MappingProxyType({"VIEW": "OWN"}),
+                    Position.MEMBER: MappingProxyType(
+                        {"VIEW": "OWN", **({"BIRTHDAY": "ALL"} if code == "TK" else {})}
+                    ),
                 }
             )
             for code in ("BT", "TK", "D")

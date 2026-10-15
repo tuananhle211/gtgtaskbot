@@ -15,6 +15,7 @@ from meobot.api.middleware import RequestContextMiddleware
 from meobot.api.routers import (
     access,
     account,
+    ai,
     board,
     conversations,
     departments,
@@ -42,6 +43,7 @@ from meobot.api.routers import (
 )
 from meobot.api.schemas.common import ErrorResponse
 from meobot.api.schemas.pr import ErrorBody, ErrorEnvelope
+from meobot.application.ai.routing import build_ai_provider
 from meobot.application.health_service import HealthService
 from meobot.core.config import Settings, get_settings
 from meobot.core.context import get_request_id
@@ -60,7 +62,6 @@ from meobot.domain.account.errors import LoginLockedError
 from meobot.domain.pr.errors import PrImmutableFieldError
 from meobot.domain.units.models import UnitCode
 from meobot.integrations.google.factory import build_drive_client, build_sheets_client
-from meobot.integrations.llm.factory import build_llm_provider
 from meobot.tools.registry import build_default_registry
 
 logger = get_logger(__name__)
@@ -103,6 +104,7 @@ _ENVELOPE_PREFIXES = (
     "/api/notifications",
     "/api/units",
     "/api/departments",
+    "/api/ai",
     "/api/orders",
     "/api/board",
     "/api/tasks",
@@ -199,6 +201,7 @@ def _include_web_facing_routers(app: FastAPI) -> None:
     # units the caller has, and the per-unit routes check inside.
     app.include_router(units.router)
     app.include_router(departments.router)
+    app.include_router(ai.router)
     # The Ads order engine, behind the Ads unit gate the same way the PR
     # routers sit behind the PR one.
     app.include_router(orders.router, dependencies=[Depends(require_unit(UnitCode.ADS))])
@@ -250,7 +253,8 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     health_service = HealthService(database, settings)
     sheets_client = build_sheets_client(settings)
     drive_client = build_drive_client(settings)
-    llm_provider = build_llm_provider(settings)
+    # 0064: "Kết nối AI" routes on top of the LLM_* provider.
+    llm_provider = build_ai_provider(settings, database)
 
     app.state.database = database
     app.state.health_service = health_service

@@ -1,16 +1,12 @@
 "use client";
 
-import { Suspense } from "react";
+import { Suspense, useEffect } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
-import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { api } from "@/lib/api";
 import { Loading } from "@/components/states";
 import { TabStrip } from "@/components/pr";
 import { GrantsTab } from "./grants";
-import { MembersTab } from "./members";
+import { MembersTab, usePrRoster } from "./members";
 import { RolesTab } from "./roles";
-import { PermissionMatrix, SettingsForm, UnitPanel } from "@/components/unit-panel";
-import { STREAM_NAMES } from "@/lib/units";
 
 /**
  * *Thành viên & Phân quyền.* Three tabs, three concepts, kept apart on purpose:
@@ -24,6 +20,10 @@ import { STREAM_NAMES } from "@/lib/units";
  * `?tab=members|roles|grants` in the URL, like every other view in the admin,
  * so the back button moves between tabs and a link can point at one. An
  * unknown value lands on the roster rather than on nothing.
+ *
+ * PR only: the ORD roster, its settings and every department's permissions
+ * live under "Quản trị" (`/admin/*`). An old `?team=ads` link lands on
+ * "Quản trị › Thành viên luồng".
  *
  * No authorization happens in this file or its tabs. The roster carries the
  * server's `may_*` flags for what to draw; every write is a route that calls
@@ -41,36 +41,28 @@ export default function PermissionsPage() {
 }
 
 type Tab = "members" | "roles" | "grants";
-type Team = "pr" | "ads";
 
 function PermissionsWorkspace() {
   const router = useRouter();
   const pathname = usePathname();
   const params = useSearchParams();
-  const queryClient = useQueryClient();
   const requested = params.get("tab");
-  const units = useQuery({ queryKey: ["units", "me"], queryFn: api.unitsMe });
-  // The ORD side: for whoever may see ORD (OWNER / ADMIN, an ORD member).
-  const seesAds = Boolean(units.data?.units.some((unit) => unit.code === "ADS"));
-  // `?tab=ads` was the ORD team's own tab before it moved under "Thành viên".
-  const legacyAds = requested === "ads";
+  // `?team=ads` / `?tab=ads`: the ORD side that moved to "Quản trị".
+  const legacyAds = params.get("team") === "ads" || requested === "ads";
   const tab: Tab = requested === "roles" ? "roles" : requested === "grants" ? "grants" : "members";
-  const team: Team = seesAds && (params.get("team") === "ads" || legacyAds) ? "ads" : "pr";
 
-  // The count on the first tab. Cheap: the roster is the tab's own query and
-  // React Query shares the cache, so the strip and the tab make one request.
-  const roster = useQuery({ queryKey: ["members"], queryFn: api.listMembers });
+  useEffect(() => {
+    if (legacyAds) router.replace("/admin/units");
+  }, [legacyAds, router]);
 
-  const go = (next: { tab?: Tab; team?: Team; add?: string }) => {
+  // The count on the first tab: the PR stream's active people. Cheap: the
+  // tab's own queries, shared through the React Query cache.
+  const roster = usePrRoster();
+
+  const go = (next: { tab: Tab }) => {
     const search = new URLSearchParams(params.toString());
-    const nextTab = next.tab ?? tab;
-    if (nextTab === "members") search.delete("tab");
-    else search.set("tab", nextTab);
-    const nextTeam = next.team ?? team;
-    if (nextTeam === "ads" && nextTab !== "roles") search.set("team", "ads");
-    else search.delete("team");
-    if (next.add) search.set("add", next.add);
-    else search.delete("add");
+    if (next.tab === "members") search.delete("tab");
+    else search.set("tab", next.tab);
     const rendered = search.toString();
     router.replace(rendered ? `${pathname}?${rendered}` : pathname);
   };
@@ -78,7 +70,7 @@ function PermissionsWorkspace() {
   return (
     <div className="space-y-4">
       <TabStrip
-        label="Thành viên & Phân quyền"
+        label="Thành viên & Phân quyền (PR)"
         active={tab}
         onSelect={(next) => go({ tab: next as Tab })}
         tabs={[
@@ -91,56 +83,10 @@ function PermissionsWorkspace() {
           { key: "grants", label: "Quyền duyệt cấp thêm" },
         ]}
       />
-      {tab !== "roles" && seesAds ? (
-        <TeamTabs active={team} onSelect={(next) => go({ team: next })} />
-      ) : null}
-      {tab === "members" && team === "pr" ? (
-        <MembersTab
-          onAddToAds={seesAds ? (userId) => go({ team: "ads", add: userId }) : undefined}
-        />
-      ) : null}
-      {tab === "members" && team === "ads" ? (
-        <UnitPanel code="ADS" preselect={params.get("add") ?? undefined} settings={false} />
-      ) : null}
+      {tab === "members" ? <MembersTab /> : null}
       {tab === "roles" ? <RolesTab /> : null}
-      {tab === "grants" && team === "pr" ? <GrantsTab /> : null}
-      {tab === "grants" && team === "ads" ? (
-        <div className="space-y-4">
-          <PermissionMatrix
-            code="ADS"
-            onDone={() => void queryClient.invalidateQueries({ queryKey: ["units"] })}
-          />
-          <SettingsForm
-            code="ADS"
-            onDone={() => void queryClient.invalidateQueries({ queryKey: ["units"] })}
-          />
-        </div>
-      ) : null}
+      {tab === "grants" ? <GrantsTab /> : null}
     </div>
   );
 }
 
-/** Luồng PR / Luồng Order (ORD) under "Thành viên" and "Quyền duyệt cấp thêm". */
-function TeamTabs({ active, onSelect }: { active: Team; onSelect: (team: Team) => void }) {
-  const teams: Array<{ key: Team; unit: string; label: string }> = [
-    { key: "pr", unit: "PR", label: STREAM_NAMES.PR },
-    { key: "ads", unit: "ADS", label: STREAM_NAMES.ADS },
-  ];
-  return (
-    <div role="tablist" aria-label="Chọn luồng" className="unit-switch">
-      {teams.map((team) => (
-        <button
-          key={team.key}
-          type="button"
-          role="tab"
-          data-unit={team.unit}
-          aria-selected={active === team.key}
-          aria-current={active === team.key ? "true" : undefined}
-          onClick={() => onSelect(team.key)}
-        >
-          {team.label}
-        </button>
-      ))}
-    </div>
-  );
-}

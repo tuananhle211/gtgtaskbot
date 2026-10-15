@@ -61,11 +61,12 @@ class OrderScope:
     context: OrderActorContext
     #: 0061: approves orders in ``OWN`` scope - the orders routed to them.
     approves: bool = False
-    #: In the Design team: every birthday order is theirs to see.
-    design_team: bool = False
-    #: May use the birthday-order board at all (0059). Without it the board
-    #: lists nothing - an order somebody placed before losing the grant is
-    #: still theirs to open by its link.
+    #: 0062: ``BIRTHDAY`` granted ``ALL`` (Thiết Kế by default): every
+    #: birthday order is theirs to see.
+    birthday_all: bool = False
+    #: May use the birthday-order board at all (``BIRTHDAY`` in any scope, or
+    #: seeing every order). Without it the board lists nothing - an order
+    #: somebody placed before losing the grant is still theirs to open by link.
     birthday_board: bool = True
 
     @classmethod
@@ -76,7 +77,6 @@ class OrderScope:
         if not membership.has(UnitCode.ADS):
             raise OrderNotFoundError(NOT_VISIBLE, details={"reason": "unit_not_visible"})
         context = OrderActorContext.from_membership(membership, settings)
-        entry = membership.entry(UnitCode.ADS)
         may = context.permissions
         return cls(
             unit_id=unit_id,
@@ -88,12 +88,8 @@ class OrderScope:
             | context.lead_node_types,
             context=context,
             approves=may.holds(AdsPermission.ORDER_APPROVE),
-            design_team=entry is not None and entry.role is UnitMemberRole.THIET_KE,
-            birthday_board=membership.sees_all
-            or (
-                entry is not None
-                and (entry.role is UnitMemberRole.THIET_KE or entry.birthday_orders)
-            ),
+            birthday_all=may.allows(AdsPermission.BIRTHDAY),
+            birthday_board=may.holds(AdsPermission.BIRTHDAY) or may.allows(AdsPermission.VIEW),
         )
 
     def apply(self, statement: Select) -> Select:  # type: ignore[type-arg]
@@ -104,7 +100,7 @@ class OrderScope:
         if self.user_id is None:
             return statement.where(false())
         conditions = [Order.owner_user_id == self.user_id]
-        if self.design_team:
+        if self.birthday_all:
             conditions.append(Order.category == OrderCategory.BIRTHDAY)
         # Their team: the people who report to them, in any department.
         conditions.append(manages(self.user_id, Order.owner_user_id))

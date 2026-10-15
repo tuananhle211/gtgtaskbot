@@ -227,7 +227,7 @@ function EffortGridScreen() {
       <p className="text-xs text-[var(--text-muted)]">
         Token bị trừ vào ngày công đoạn được duyệt (token sửa: ngày bản sửa
         được duyệt). Quỹ token/ngày của từng người do quản trị luồng đặt ở
-        Quản trị đơn vị.
+        Quản trị › Thành viên luồng.
       </p>
     </div>
   );

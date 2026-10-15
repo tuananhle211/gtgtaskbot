@@ -28,6 +28,7 @@ from decimal import Decimal
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from meobot.application.account.member_code import write_member_code
 from meobot.application.audit_service import AuditService
 from meobot.application.board.holders import ads_approvers
 from meobot.application.orders.code_service import OrderCodeService
@@ -47,6 +48,7 @@ from meobot.core.config import Settings
 from meobot.core.time import ensure_utc, utcnow
 from meobot.db.models.order import Order, OrderApproval, OrderEvent, OrderNode, OrderSubmission
 from meobot.db.models.org_unit import OrgUnitMember, UnitDuration, UnitPlatform, UnitVideoKind
+from meobot.db.models.user import User
 from meobot.domain.audit.models import AuditAction
 from meobot.domain.identity.models import Actor
 from meobot.domain.orders.deadlines import (
@@ -367,13 +369,13 @@ class OrderCommandService:
         """Place an "Order sinh nhật": one person's birthday artwork, straight
         to the Design step. Nobody approves it first and Design's hand-in
         finishes it. Placed by the Design team, or by a member granted the
-        birthday-order board (:func:`has_birthday_orders`)."""
+        birthday-order board (``BIRTHDAY``, :func:`has_birthday_orders`)."""
         membership = await self._directory.require(actor, UnitCode.ADS)
         entry = membership.entry(UnitCode.ADS)
         unit = await self._directory.unit(UnitCode.ADS)
         settings = UnitSettings.model_validate(unit.settings or {})
         scope = OrderScope.for_actor(membership, settings, unit_id=unit.id)
-        if actor.user_id is None or not has_birthday_orders(membership):
+        if actor.user_id is None or not has_birthday_orders(membership, settings):
             raise OrderActionNotAllowedError(
                 "Bạn chưa có quyền tạo order sinh nhật.",
                 details={"reason": "birthday_forbidden"},
@@ -1803,6 +1805,11 @@ class OrderCommandService:
         order carries the same prefix. The owner acting without a tag has no
         row to write to, and gets the same deterministic code each time.
         """
+        person = None if actor.user_id is None else await self._session.get(User, actor.user_id)
+        if person is not None and person.member_code:
+            # 0063: the person's own code, given on the admin screens.
+            await write_member_code(self._session, person, person.member_code)
+            return person.member_code
         base = derive_member_code(actor.full_name)
         taken = set(
             await self._session.scalars(
@@ -1818,11 +1825,9 @@ class OrderCommandService:
         while code in taken:
             code = f"{base[: 12 - len(str(suffix))]}{suffix}"
             suffix += 1
-        if tagged and actor.user_id is not None:
-            row = await self._directory.member(unit_id, actor.user_id)
-            if row is not None:
-                row.member_code = code
-                await self._session.flush()
+        if tagged and person is not None:
+            # Kept, so tomorrow's order carries the same prefix.
+            await write_member_code(self._session, person, code)
         return code
 
     async def _validate_preassigned(

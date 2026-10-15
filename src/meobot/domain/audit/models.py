@@ -460,6 +460,8 @@ class AuditAction(StrEnum):
     #: Profile picture (0047). Type, size and version only - never the image.
     USER_AVATAR_UPDATED = "user.avatar.updated"
     USER_AVATAR_REMOVED = "user.avatar.removed"
+    #: The person's member code (0063): before / after, by the OWNER / ADMIN.
+    USER_MEMBER_CODE_UPDATED = "user.member_code.updated"
 
     # Units (PR / Ads) and the Ads order engine.
     UNIT_MEMBER_TAGGED = "unit.member.tagged"
@@ -472,6 +474,13 @@ class AuditAction(StrEnum):
     DEPARTMENT_MEMBER_SET = "department.member.set"
     DEPARTMENT_MEMBER_REMOVED = "department.member.removed"
     DEPARTMENT_GRANTS_UPDATED = "department.grants.updated"
+    #: "Kết nối AI" (0064). Snapshots carry the key's last four characters,
+    #: never the key; a test records whether it answered.
+    AI_CONNECTION_CREATED = "ai.connection.created"
+    AI_CONNECTION_UPDATED = "ai.connection.updated"
+    AI_CONNECTION_DELETED = "ai.connection.deleted"
+    AI_CONNECTION_TESTED = "ai.connection.tested"
+    AI_ROUTES_UPDATED = "ai.routes.updated"
     UNIT_VIDEO_KIND_CREATED = "unit.video_kind.created"
     UNIT_VIDEO_KIND_UPDATED = "unit.video_kind.updated"
     UNIT_PLATFORM_CREATED = "unit.platform.created"

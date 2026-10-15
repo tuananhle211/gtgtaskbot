@@ -466,7 +466,7 @@ const ME = {
   can_admin: [],
 };
 
-describe("the Phòng ban nav entry", () => {
+describe("the Quản trị nav entry (Phòng ban is its first tab)", () => {
   const hrefs = () =>
     within(screen.getByRole("navigation", { name: "Điều hướng chính" }))
       .getAllByRole("link")
@@ -492,13 +492,13 @@ describe("the Phòng ban nav entry", () => {
     renderWithQuery(<Shell>{null}</Shell>);
     await waitFor(() => expect(hrefs()).toContain("/tasks"));
     await waitFor(() =>
-      expect(hrefs().includes("/admin/departments")).toBe(shown),
+      expect(hrefs().includes("/admin")).toBe(shown),
     );
+    // One entry for the three admin screens: no separate Phòng ban link.
+    expect(hrefs().includes("/admin/departments")).toBe(false);
+    expect(hrefs().includes("/admin/units")).toBe(false);
     if (shown) {
-      expect(screen.getByRole("link", { name: /Phòng ban/ })).toHaveAttribute(
-        "href",
-        "/admin/departments",
-      );
+      expect(screen.getByRole("link", { name: /Quản trị/ })).toHaveAttribute("href", "/admin");
     }
   });
 });
@@ -538,8 +538,6 @@ const ORD_MEMBERS = {
       left_at: null,
       active: true,
       manager_user_id: "u-a",
-      birthday_orders: false,
-      birthday_orders_default: false,
     },
   ],
   assignable_roles: [
@@ -562,11 +560,10 @@ function stubPanel(session: unknown, me: Partial<UnitsMe>) {
 describe("the stream member panel: placing people vs editing a row", () => {
   it("lets an ADMIN edit a row but not place people, pointing at Phòng ban", async () => {
     stubPanel(ADMIN, { can_view_all: true, can_admin: ["ADS"], can_tag: [], can_edit_members: ["ADS"] });
-    renderWithQuery(<UnitPanel code="ADS" settings={false} />);
+    renderWithQuery(<UnitPanel code="ADS" />);
     // The rest of the row is editable.
     expect(await screen.findByRole("textbox", { name: "Mã thành viên của Quỳnh Như" })).toBeInTheDocument();
     expect(screen.getByRole("textbox", { name: "Kho cá nhân của Quỳnh Như" })).toBeInTheDocument();
-    expect(screen.getByRole("checkbox", { name: "Order sinh nhật của Quỳnh Như" })).toBeEnabled();
     // Placing people is not.
     expect(screen.queryByRole("combobox", { name: "Vai trò của Quỳnh Như" })).not.toBeInTheDocument();
     expect(
@@ -588,7 +585,7 @@ describe("the stream member panel: placing people vs editing a row", () => {
       { ...OWNER, user_id: "u-owner" },
       { can_view_all: true, can_admin: ["ADS"], can_tag: ["ADS"], can_edit_members: ["ADS"] },
     );
-    renderWithQuery(<UnitPanel code="ADS" settings={false} />);
+    renderWithQuery(<UnitPanel code="ADS" />);
     expect(await screen.findByRole("combobox", { name: "Vai trò của Quỳnh Như" })).toBeInTheDocument();
     expect(screen.getByRole("combobox", { name: "Trưởng quản lý của Quỳnh Như" })).toHaveValue("u-a");
     expect(screen.getByRole("textbox", { name: "Mã thành viên của Quỳnh Như" })).toBeInTheDocument();
@@ -599,8 +596,11 @@ describe("the stream member panel: placing people vs editing a row", () => {
 
   it("leaves a team lead with the row edits, and the hint without a link", async () => {
     stubPanel(SESSION, { can_admin: [], can_tag: [], can_edit_members: ["ADS"] });
-    renderWithQuery(<UnitPanel code="ADS" settings={false} />);
-    expect(await screen.findByRole("textbox", { name: "Mã thành viên của Quỳnh Như" })).toBeInTheDocument();
+    renderWithQuery(<UnitPanel code="ADS" />);
+    expect(await screen.findByRole("textbox", { name: "Kho cá nhân của Quỳnh Như" })).toBeInTheDocument();
+    // The member code is the admins' (0063): shown, not editable.
+    expect(screen.queryByRole("textbox", { name: "Mã thành viên của Quỳnh Như" })).not.toBeInTheDocument();
+    expect(screen.getByText("NHU")).toBeInTheDocument();
     expect(screen.queryByRole("combobox", { name: "Vai trò của Quỳnh Như" })).not.toBeInTheDocument();
     const hint = screen.getByTestId("placement-hint");
     expect(within(hint).queryByRole("link")).not.toBeInTheDocument();
@@ -608,11 +608,11 @@ describe("the stream member panel: placing people vs editing a row", () => {
 
   it("shows a reader with neither right a plain roster", async () => {
     stubPanel(SESSION, { can_admin: [], can_tag: [], can_edit_members: [] });
-    renderWithQuery(<UnitPanel code="ADS" settings={false} />);
+    renderWithQuery(<UnitPanel code="ADS" />);
     expect(await screen.findByText("Quỳnh Như")).toBeInTheDocument();
     expect(screen.queryAllByRole("textbox")).toHaveLength(0);
     expect(screen.queryAllByRole("combobox")).toHaveLength(0);
-    expect(screen.getByText("Order sinh nhật: –")).toBeInTheDocument();
+    expect(screen.queryByText(/Order sinh nhật/)).not.toBeInTheDocument();
   });
 
   it("reads an API without can_edit_members as can_tag", () => {

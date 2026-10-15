@@ -37,6 +37,8 @@ from meobot.api.schemas.account import (
     AvatarUploadRequest,
     ChangePasswordRequest,
     ChangeRoleRequest,
+    MemberCodeRequest,
+    MemberCodeResponse,
     MemberListResponse,
     MemberRowResponse,
     MemberStatsResponse,
@@ -349,6 +351,30 @@ async def delete_member(
     "<tên> (đã xoá)". Refused while they hold open work."""
     await accounts.delete_member(actor=actor, request_id=request_id, user_id=user_id)
     return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+
+@router.put(
+    "/members/{user_id}/member-code",
+    response_model=MemberCodeResponse,
+    responses={
+        403: {"model": ErrorEnvelope, "description": "member_code_forbidden - OWNER/ADMIN only."},
+        404: {"model": ErrorEnvelope, "description": "account_not_found."},
+    },
+)
+async def set_member_code(
+    user_id: uuid.UUID,
+    body: MemberCodeRequest,
+    actor: CurrentActorDep,
+    accounts: AccountServiceDep,
+    request_id: RequestIdDep,
+) -> MemberCodeResponse:
+    """*Mã thành viên* of any account (0063), in a stream or not. OWNER and
+    ADMIN. Folded to A-Z0-9 (at most 12), blank clears it; written on the
+    account and on every open stream tag."""
+    code = await accounts.set_member_code(
+        actor=actor, request_id=request_id, user_id=user_id, member_code=body.member_code
+    )
+    return MemberCodeResponse(member_code=code)
 
 
 @router.post(

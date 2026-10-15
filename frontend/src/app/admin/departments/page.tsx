@@ -14,6 +14,7 @@ import {
 } from "@/lib/api";
 import { errorMessage } from "@/lib/labels";
 import { ConfirmButton } from "@/components/confirm";
+import { AdminTabs } from "@/components/admin-tabs";
 import { PageHeader, Select } from "@/components/pr";
 import { ErrorBox, Loading, NoticeBox, Pill } from "@/components/states";
 
@@ -50,6 +51,7 @@ export default function DepartmentsPage() {
 
   return (
     <div className="space-y-4">
+      <AdminTabs active="departments" />
       <PageHeader
         title="Phòng ban"
         subtitle="Ai thuộc phòng nào, là Trưởng phòng hay Nhân viên, báo cáo cho ai, và mỗi chức vụ được làm gì trong luồng order."

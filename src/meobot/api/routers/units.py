@@ -231,7 +231,8 @@ async def my_units(
         manage_library=manages_library(membership),
         view=in_design_team(membership) and not membership.sees_all,
         manage_codes=membership.has(UnitCode.ADS) and manages_design_codes(membership),
-        birthday=has_birthday_orders(membership),
+        birthday=membership.has(UnitCode.ADS)
+        and has_birthday_orders(membership, await directory.settings(UnitCode.ADS)),
     )
     return UnitMeResponse.from_domain(
         membership,
@@ -361,7 +362,6 @@ async def update_member(
         clear_manager="manager_user_id" in fields and body.manager_user_id is None,
         daily_tokens=body.daily_tokens,
         clear_daily_tokens="daily_tokens" in fields and body.daily_tokens is None,
-        birthday_orders=body.birthday_orders,
     )
     return UnitMemberResponse.from_row(row)
 

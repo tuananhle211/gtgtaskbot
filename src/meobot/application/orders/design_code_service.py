@@ -32,7 +32,9 @@ from meobot.domain.orders.errors import (
     OrderNotFoundError,
     OrderValidationError,
 )
-from meobot.domain.units.models import UnitCode, UnitMemberRole, UnitMembership
+from meobot.domain.orders.permissions import AdsPermission
+from meobot.domain.orders.pipeline import OrderActorContext
+from meobot.domain.units.models import UnitCode, UnitMemberRole, UnitMembership, UnitSettings
 
 
 def manages_design_codes(membership: UnitMembership) -> bool:
@@ -48,16 +50,15 @@ def in_design_team(membership: UnitMembership) -> bool:
     return entry is not None and entry.role is UnitMemberRole.THIET_KE
 
 
-def has_birthday_orders(membership: UnitMembership) -> bool:
-    """Who the birthday-order board is for (0059): the Design team - it is
-    theirs - the OWNER and an ADMIN, and any other ORD member granted it on
-    their tag (``org_unit_members.birthday_orders``)."""
+def has_birthday_orders(membership: UnitMembership, settings: UnitSettings) -> bool:
+    """Who the birthday-order board is for (0062): whoever holds the order
+    flow's ``BIRTHDAY`` permission - granted per department and position like
+    every other one (Thiết Kế by default), the OWNER and an ADMIN - and whoever
+    sees every order (Ban Giám đốc)."""
     if not membership.has(UnitCode.ADS):
         return False
-    if membership.sees_all or in_design_team(membership):
-        return True
-    entry = membership.entry(UnitCode.ADS)
-    return entry is not None and entry.birthday_orders
+    may = OrderActorContext.from_membership(membership, settings).permissions
+    return may.holds(AdsPermission.BIRTHDAY) or may.allows(AdsPermission.VIEW)
 
 
 class DesignCodeService:

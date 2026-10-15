@@ -31,6 +31,7 @@ from sqlalchemy import delete, func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from meobot.application.account.avatar_service import avatar_urls
+from meobot.application.account.member_code import write_member_code
 from meobot.application.account.password_reset_service import PasswordResetService
 from meobot.application.account.stats_service import AccountStatsService, MemberStats, Month
 from meobot.application.audit_service import AuditService
@@ -49,6 +50,7 @@ from meobot.domain.account.errors import (
     AccountNotFoundError,
     AccountStatusForbiddenError,
     AccountValidationError,
+    MemberCodeForbiddenError,
     MemberDeleteForbiddenError,
     PasswordResetForbiddenError,
     PasswordResetUndeliverableError,
@@ -58,6 +60,7 @@ from meobot.domain.identity.labels import role_label
 from meobot.domain.identity.models import Actor, Role
 from meobot.domain.orders.models import ACTIVE_NODE_STATUSES, TERMINAL_STAGES
 from meobot.domain.units.labels import unit_role_label
+from meobot.domain.units.member_code import normalise_member_code
 from meobot.domain.units.models import FUNCTION_ROLES, UnitCode, UnitMemberRole, UnitMembership
 
 FULL_NAME_MIN = 2
@@ -472,6 +475,45 @@ class AccountService:
             },
         )
         return target
+
+    async def set_member_code(
+        self,
+        *,
+        actor: Actor,
+        request_id: uuid.UUID,
+        user_id: uuid.UUID,
+        member_code: str | None,
+    ) -> str | None:
+        """*Mã thành viên* of any account, in a stream or not (0063). The
+        OWNER and the ADMIN only. Folded like every code (A-Z0-9, at most 12;
+        blank clears it) and written on the account and every open tag.
+        Returns the code as stored.
+
+        Raises:
+            MemberCodeForbiddenError: not OWNER/ADMIN.
+            AccountNotFoundError: no such account, or a deleted one.
+        """
+        if actor.role not in (Role.OWNER, Role.ADMIN):
+            raise MemberCodeForbiddenError()
+        target = await self._session.get(User, user_id)
+        if target is None or target.deleted_at is not None:
+            raise AccountNotFoundError()
+        code = normalise_member_code(member_code)
+        before = target.member_code
+        if code == before:
+            return code
+        await write_member_code(self._session, target, code)
+        await self._audit.record_action(
+            request_id=request_id,
+            actor=actor,
+            action=AuditAction.USER_MEMBER_CODE_UPDATED.value,
+            result=AuditResult.SUCCESS,
+            entity_type="user",
+            entity_id=str(target.id),
+            before_data={"member_code": before},
+            after_data={"member_code": code},
+        )
+        return code
 
     async def delete_member(
         self, *, actor: Actor, request_id: uuid.UUID, user_id: uuid.UUID

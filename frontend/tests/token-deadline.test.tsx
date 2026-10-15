@@ -17,6 +17,7 @@ import EffortPage from "@/app/tasks/effort/page";
 import DashboardPage from "@/app/dashboard/page";
 import { Shell } from "@/components/shell";
 import { UnitPanel } from "@/components/unit-panel";
+import OrdSettingsPage from "@/app/admin/settings/page";
 import type { EffortGrid, TaskRow, UnifiedTaskDetail } from "@/lib/api";
 import {
   assigneeLoadLabel,
@@ -765,13 +766,14 @@ describe("the ORD token budget settings", () => {
     await userEvent.click(screen.getByRole("button", { name: "Lưu" }));
     await waitFor(() => {
       const patch = calls(stub).find((call) => call.method === "PATCH" && call.url.includes("/members/"));
-      expect(patch?.body).toEqual({ member_code: "NHU", personal_nas_url: null, daily_tokens: 4 });
+      // The member code was not touched: not sent (0063: changing it is the admins').
+      expect(patch?.body).toEqual({ personal_nas_url: null, daily_tokens: 4 });
     });
   });
 
   it("saves the default budget, the weights and the output benchmark", async () => {
     const stub = stubPanel();
-    renderWithQuery(<UnitPanel code="ADS" />);
+    renderWithQuery(<OrdSettingsPage />);
     const budget = await screen.findByRole("spinbutton", { name: /Token\/ngày mặc định/ });
     expect(budget).toHaveValue(6);
     await userEvent.clear(budget);

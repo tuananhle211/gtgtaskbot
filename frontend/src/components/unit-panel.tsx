@@ -14,9 +14,6 @@ import { formatTokens, parseTokens } from "@/lib/deadline";
 import { ConfirmButton } from "@/components/confirm";
 import { Select } from "@/components/pr";
 import { ErrorBox, Loading, NoticeBox, Pill } from "@/components/states";
-import { DurationManager } from "@/components/durations";
-import { PlatformManager } from "@/components/platforms";
-import { VideoKindsManager } from "@/components/video-kinds";
 import {
   deactivateAccountConfirmation,
   deleteAccountConfirmation,
@@ -241,27 +238,24 @@ export function DeactivatedPill() {
 /**
  * One unit's team: its members with every stream tag they hold, the picker
  * that adds anybody - a member of the other stream included, who then carries
- * both tags - the accounts that have no stream yet and, for ORD, the unit's
- * settings and permission matrix. Used by "Quản trị đơn vị" and by the "Luồng
- * Order (ORD)" tab of "Thành viên & Phân quyền".
+ * both tags - and the accounts that have no stream yet. Used by "Quản trị ›
+ * Thành viên luồng" (`/admin/units`); the ORD settings are "Quản trị › Thiết
+ * lập ORD" (`/admin/settings`).
  *
  * Placing people - add / remove, the role (Leader) picker and "Trưởng quản
  * lý" - is drawn only for a stream in `can_tag` (the OWNER: people are seated
- * on "Phòng ban"); the rest of a row (member code, NAS, token/ngày, "Order
- * sinh nhật") follows `can_edit_members` (OWNER / ADMIN / a team lead; an
+ * on "Phòng ban"); the rest of a row (member code, NAS, token/ngày) follows
+ * `can_edit_members` (OWNER / ADMIN / a team lead; an
  * older API: `can_tag`). Account status controls only for OWNER / ADMIN.
  * Every write is checked again on the server.
  */
 export function UnitPanel({
   code,
   preselect,
-  settings = true,
 }: {
   code: string;
   /** A user id to put in the "add member" picker, e.g. from a PR member card. */
   preselect?: string;
-  /** Show the unit's settings and permission matrix (ORD). */
-  settings?: boolean;
 }) {
   const queryClient = useQueryClient();
   const viewer = useViewer();
@@ -291,7 +285,6 @@ export function UnitPanel({
   if (members.isPending) return <Loading label="Đang tải thành viên…" />;
   if (members.isError)
     return <ErrorBox error={members.error} onRetry={() => members.refetch()} />;
-  const administers = Boolean(me.data?.can_admin.includes(code));
   // ORD with effort switched off: no "Token/ngày" column at all.
   const showTokens = code === "ADS" && effortEnabled(me.data);
   const accountActive = (member: UnitMember) => member.account_active ?? member.active;
@@ -405,6 +398,7 @@ export function UnitPanel({
                     role: member.base_role,
                   })}
                   accountActive={accountActive(member)}
+                  editsCode={viewer.manages}
                   showTokens={showTokens}
                   defaultTokens={
                     me.data?.units.find((unit) => unit.code === code)?.settings
@@ -422,15 +416,6 @@ export function UnitPanel({
           </p>
         ) : null}
       </section>
-      {code === "ADS" && settings && administers ? (
-        <SettingsForm code={code} onDone={refresh} />
-      ) : null}
-      {code === "ADS" && settings && administers ? <VideoKindsManager code={code} /> : null}
-      {code === "ADS" && settings && administers ? <PlatformManager code={code} /> : null}
-      {code === "ADS" && settings && administers ? <DurationManager code={code} /> : null}
-      {code === "ADS" && settings && administers ? (
-        <PermissionMatrix code={code} onDone={refresh} />
-      ) : null}
     </div>
   );
 }
@@ -755,6 +740,7 @@ function MemberRow({
   bosses,
   placeable,
   editable,
+  editsCode,
   mayUntag,
   mayChangeStatus,
   mayDelete,
@@ -771,11 +757,14 @@ function MemberRow({
   bosses: UnitMember[] | null;
   /** Role (Leader) and "Trưởng quản lý" may be changed (a stream in `can_tag`). */
   placeable: boolean;
-  /**
-   * Member code, NAS, token/ngày and "Order sinh nhật" may be changed (a
-   * stream in `can_edit_members`).
-   */
+  /** NAS and token/ngày may be changed (a stream in `can_edit_members`). */
   editable: boolean;
+  /**
+   * The member code may be changed: OWNER / ADMIN only (0063: it is the
+   * person's, the same in every stream; the server answers 403
+   * `member_code_forbidden` to anybody else changing it).
+   */
+  editsCode: boolean;
   mayUntag: boolean;
   /** OWNER / ADMIN: "Vô hiệu hoá" / "Kích hoạt lại". */
   mayChangeStatus: boolean;
@@ -806,10 +795,8 @@ function MemberRow({
     mutationFn: () => api.untagUnitMember(code, member.user_id),
     onSuccess: onDone,
   });
-  const dirty =
-    memberCode !== (member.member_code ?? "") ||
-    nas !== (member.personal_nas_url ?? "") ||
-    tokensChanged;
+  const codeChanged = editsCode && memberCode !== (member.member_code ?? "");
+  const dirty = codeChanged || nas !== (member.personal_nas_url ?? "") || tokensChanged;
   return (
     <tr
       data-inactive={accountActive ? undefined : "true"}
@@ -860,17 +847,9 @@ function MemberRow({
             onPick={(managerId) => update.mutate({ manager_user_id: managerId })}
           />
         ) : null}
-        {code === "ADS" ? (
-          <BirthdayOrdersSwitch
-            member={member}
-            editable={editable}
-            pending={update.isPending}
-            onChange={(granted) => update.mutate({ birthday_orders: granted })}
-          />
-        ) : null}
       </td>
       <td className="px-3 py-2">
-        {code === "ADS" && editable ? (
+        {editsCode ? (
           <input
             type="text"
             value={memberCode}
@@ -925,12 +904,12 @@ function MemberRow({
       ) : null}
       <td className="px-3 py-2">
         <div className="flex flex-wrap justify-end gap-1.5">
-          {editable && dirty ? (
+          {(editable || editsCode) && dirty ? (
             <button
               type="button"
               onClick={() =>
                 update.mutate({
-                  member_code: memberCode || null,
+                  ...(codeChanged ? { member_code: memberCode || null } : {}),
                   personal_nas_url: nas || null,
                   // Empty = back to the unit's default.
                   ...(tokensChanged ? { daily_tokens: parseTokens(tokens) } : {}),
@@ -1027,55 +1006,6 @@ function ManagerPicker({
           </option>
         ))}
       </Select>
-    </label>
-  );
-}
-
-/**
- * "Order sinh nhật": whether this ORD member has the birthday-order board
- * (the nav entry and `/tasks/birthday`). The Design ban has it by default -
- * ticked and locked, with a word on why. For anybody else it is a grant on
- * their ORD tag, saved the moment it is ticked, like the role and "Trưởng
- * quản lý" beside it (the row's `update`; its refresh re-reads every
- * `["units"]` query, `/api/units/me` included, so the editor's own sidebar
- * follows when they changed themselves).
- *
- * Nothing is drawn for a roster that does not carry the fields (an older API).
- */
-function BirthdayOrdersSwitch({
-  member,
-  editable,
-  pending,
-  onChange,
-}: {
-  member: UnitMember;
-  editable: boolean;
-  pending: boolean;
-  onChange: (granted: boolean) => void;
-}) {
-  if (member.birthday_orders === undefined && member.birthday_orders_default === undefined)
-    return null;
-  const byDefault = Boolean(member.birthday_orders_default);
-  const has = byDefault || Boolean(member.birthday_orders);
-  if (!editable) {
-    return (
-      <span className="mt-1.5 block text-xs text-[var(--text-muted)]">
-        Order sinh nhật: {has ? "Có" : "–"}
-        {byDefault ? " (Ban Design: mặc định)" : ""}
-      </span>
-    );
-  }
-  return (
-    <label className="mt-1.5 flex items-center gap-1.5 text-xs text-[var(--text-muted)]">
-      <input
-        type="checkbox"
-        checked={has}
-        disabled={byDefault || pending}
-        onChange={(event) => onChange(event.target.checked)}
-        aria-label={`Order sinh nhật của ${member.full_name}`}
-      />
-      Order sinh nhật
-      {byDefault ? <span>· Ban Design: mặc định</span> : null}
     </label>
   );
 }
@@ -1402,40 +1332,31 @@ export function SettingsForm({ code, onDone }: { code: string; onDone: () => voi
 }
 
 /**
- * The ORD permission matrix: one row per permission, one column per role.
- * The OWNER is not a column - they hold everything. "Trong ban mình" means
- * the person's own function (a Leader's nodes), or the orderer's own orders.
+ * "Quyền của Quản trị viên": the ORD permissions an ADMIN account holds, one
+ * row per permission. Since 0061 every other column of the old ORD matrix is
+ * a department's grants (edited on "Phòng ban"); only the Admin column stays
+ * in the stream's settings. The OWNER edits it (the server refuses anybody
+ * else: 403 `permissions_forbidden`), an ADMIN reads it. The OWNER holds
+ * everything and is no column.
  */
-export function PermissionMatrix({
-  code,
-  onDone,
-}: {
-  code: string;
-  onDone: () => void;
-}) {
+export function AdminPermissions({ code, onDone }: { code: string; onDone: () => void }) {
+  const viewer = useViewer();
   const me = useQuery({ queryKey: ["units", "me"], queryFn: api.unitsMe });
   const current = me.data?.units.find((unit) => unit.code === code)?.settings;
-  const [draft, setDraft] = useState<Record<string, Record<string, string>> | null>(
-    null,
-  );
+  const [draft, setDraft] = useState<Record<string, string> | null>(null);
   const save = useMutation({
+    // Only the Admin column: the server writes nothing else from it.
     mutationFn: () =>
-      api.updateUnitSettings(code, { permissions: draft ?? undefined }),
+      api.updateUnitSettings(code, { permissions: { ADMIN: draft ?? {} } }),
     onSuccess: () => {
       setDraft(null);
       onDone();
     },
   });
-  if (!current?.permissions || !current.permission_catalog || !current.permission_roles) {
-    return null;
-  }
-  const matrix = draft ?? current.permissions;
+  if (!current?.permissions || !current.permission_catalog) return null;
+  const owner = viewer.role === "OWNER";
+  const column = draft ?? current.permissions.ADMIN ?? {};
   const labels = current.scope_labels ?? {};
-  const setCell = (role: string, permission: string, scope: string) =>
-    setDraft({
-      ...matrix,
-      [role]: { ...matrix[role], [permission]: scope },
-    });
   const tone = (scope: string) =>
     scope === "ALL"
       ? "bg-[var(--good-soft)] text-[var(--good)]"
@@ -1444,65 +1365,65 @@ export function PermissionMatrix({
         : "bg-[var(--surface-muted)] text-[var(--text-muted)]";
   return (
     <section
-      aria-label="Phân quyền luồng ORD"
+      aria-label="Quyền của Quản trị viên"
       className="rounded-xl border border-[var(--border)] bg-[var(--surface)] p-4"
     >
       <div className="flex flex-wrap items-end justify-between gap-2">
         <div>
-          <h2 className="text-sm font-semibold">Phân quyền luồng ORD</h2>
+          <h2 className="text-sm font-semibold">Quyền của Quản trị viên</h2>
           <p className="mt-0.5 text-xs text-[var(--text-muted)]">
-            Quyền theo vai trò. Chủ sở hữu luôn có mọi quyền. Một người có nhiều
-            vai trò (ví dụ Admin kiêm Trưởng phòng Dựng) được cộng quyền của các vai trò đó.
+            Quyền trong luồng order của tài khoản Quản trị viên. Quyền của các phòng
+            ban (Trưởng phòng, Nhân viên) chỉnh ở{" "}
+            <Link href="/admin/departments" className="font-medium text-[var(--accent)]">
+              Phòng ban
+            </Link>
+            . Chủ sở hữu luôn có mọi quyền.
           </p>
         </div>
-        <ConfirmButton
-          spec={{
-            title: "Lưu bảng phân quyền?",
-            description:
-              "Áp dụng ngay cho mọi order của luồng: ai được duyệt, giao việc, huỷ, xem.",
-            confirmLabel: "Lưu",
-          }}
-          onConfirm={() => save.mutate()}
-          pending={save.isPending}
-          error={save.error}
-          disabled={draft === null}
-          tone="primary"
-        >
-          Lưu phân quyền
-        </ConfirmButton>
+        {owner ? (
+          <ConfirmButton
+            spec={{
+              title: "Lưu quyền của Quản trị viên?",
+              description:
+                "Áp dụng ngay cho mọi order của luồng: Quản trị viên được duyệt, giao việc, huỷ, xem gì.",
+              confirmLabel: "Lưu",
+            }}
+            onConfirm={() => save.mutate()}
+            pending={save.isPending}
+            error={save.error}
+            disabled={draft === null}
+            tone="primary"
+          >
+            Lưu quyền
+          </ConfirmButton>
+        ) : null}
       </div>
+      {owner ? null : (
+        <p className="mt-2 text-xs text-[var(--text-muted)]">Chỉ chủ sở hữu chỉnh được.</p>
+      )}
       <div className="mt-3 overflow-x-auto">
         <table className="table-dense">
           <thead>
             <tr>
               <th scope="col">Quyền</th>
-              {current.permission_roles.map((role) => (
-                <th key={role.key} scope="col">
-                  {role.label}
-                </th>
-              ))}
+              <th scope="col">Quản trị viên</th>
             </tr>
           </thead>
           <tbody>
-            {current.permission_catalog.map((permission) => (
-              <tr key={permission.key}>
-                <th scope="row" className="text-left font-medium">
-                  {permission.label}
-                  {permission.own_meaning ? (
-                    <span className="block text-[11px] font-normal text-[var(--text-muted)]">
-                      Trong ban mình: {permission.own_meaning}
-                    </span>
-                  ) : null}
-                </th>
-                {current.permission_roles!.map((role) => {
-                  const scope = matrix[role.key]?.[permission.key] ?? "NONE";
-                  return (
-                    <td key={role.key}>
+            {current.permission_catalog.map((permission) => {
+              const scope = column[permission.key] ?? "NONE";
+              return (
+                <tr key={permission.key}>
+                  <th scope="row" className="text-left font-medium">
+                    {permission.label}
+                  </th>
+                  <td>
+                    {owner ? (
                       <select
-                        aria-label={`${permission.label} · ${role.label}`}
+                        aria-label={`${permission.label} · Quản trị viên`}
                         value={scope}
                         onChange={(event) =>
-                          setCell(role.key, permission.key, event.target.value)
+                          setDraft({ ...column, [permission.key]: event.target.value })
                         }
                         className={`min-h-9 rounded-md border border-[var(--border)] px-2 text-xs font-medium ${tone(scope)}`}
                       >
@@ -1512,11 +1433,15 @@ export function PermissionMatrix({
                           </option>
                         ))}
                       </select>
-                    </td>
-                  );
-                })}
-              </tr>
-            ))}
+                    ) : (
+                      <span className={`rounded-md px-2 py-1 text-xs font-medium ${tone(scope)}`}>
+                        {labels[scope] ?? scope}
+                      </span>
+                    )}
+                  </td>
+                </tr>
+              );
+            })}
           </tbody>
         </table>
       </div>

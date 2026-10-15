@@ -24,6 +24,16 @@ def fold_ascii(text: str) -> str:
     return "".join(char for char in decomposed if not unicodedata.combining(char))
 
 
+def normalise_member_code(value: str | None) -> str | None:
+    """Whatever was typed, made fit for an order code (``TUAN-D-…``): no
+    accents, letters and digits only, upper case, at most 12. Never a refusal;
+    blank means none."""
+    if value is None:
+        return None
+    code = re.sub(r"[^A-Za-z0-9]", "", fold_ascii(value)).upper()[:12]
+    return code or None
+
+
 def derive_member_code(full_name: str) -> str:
     """``"Tuấn Anh Lê"`` → ``"TUAN"``; ``"Hà"`` → ``"HA"``; ``"A"`` → ``"ATV"``.
 
@@ -42,4 +52,4 @@ def derive_member_code(full_name: str) -> str:
     return code[:_MAX_LENGTH]
 
 
-__all__ = ["derive_member_code", "fold_ascii"]
+__all__ = ["derive_member_code", "fold_ascii", "normalise_member_code"]

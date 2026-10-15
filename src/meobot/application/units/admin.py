@@ -44,7 +44,6 @@ Every write is audited with before/after data.
 
 from __future__ import annotations
 
-import re
 import uuid
 from decimal import Decimal
 from typing import Any
@@ -52,6 +51,7 @@ from typing import Any
 from sqlalchemy import exists, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from meobot.application.account.member_code import write_member_code
 from meobot.application.audit_service import AuditService
 from meobot.application.org import departments
 from meobot.application.units.directory import (
@@ -82,7 +82,7 @@ from meobot.domain.units.errors import (
     UnitValidationError,
 )
 from meobot.domain.units.labels import LEAD_ROLE_LABELS
-from meobot.domain.units.member_code import fold_ascii
+from meobot.domain.units.member_code import normalise_member_code
 from meobot.domain.units.models import (
     FUNCTION_ROLES,
     UnitCode,
@@ -221,7 +221,9 @@ class UnitAdminService:
         )
         row = await self._directory.member(unit.id, user_id)
         assert row is not None
-        row.member_code = normalised_code
+        if normalised_code is not None:
+            await write_member_code(self._session, user, normalised_code)
+            await self._session.refresh(row)
         row.personal_nas_url = personal_nas_url
         await self._flush_translating(code, row)
         await self._audit.record_action(
@@ -253,7 +255,6 @@ class UnitAdminService:
         clear_manager: bool = False,
         daily_tokens: Decimal | None = None,
         clear_daily_tokens: bool = False,
-        birthday_orders: bool | None = None,
     ) -> UnitMemberRow:
         unit = await self._require_tagger(actor, code, user_id)
         row = await self._directory.member(unit.id, user_id)
@@ -285,10 +286,19 @@ class UnitAdminService:
                 and target in FUNCTION_ROLES,
             )
             await self._session.refresh(row)
-        if clear_member_code:
-            row.member_code = None
-        elif member_code is not None:
-            row.member_code = self._normalise_member_code(member_code)
+        if clear_member_code or member_code is not None:
+            wanted = None if clear_member_code else self._normalise_member_code(member_code)
+            if wanted != row.member_code:
+                # 0063: the person's code, everywhere - the OWNER's and the ADMIN's.
+                if actor.role not in (Role.OWNER, Role.ADMIN):
+                    raise UnitAccessDeniedError(
+                        "Chỉ quản trị viên mới sửa được mã thành viên.",
+                        details={"reason": "member_code_forbidden"},
+                    )
+                person = await self._session.get(User, user_id)
+                assert person is not None
+                await write_member_code(self._session, person, wanted)
+                await self._session.refresh(row)
         if clear_personal_nas_url:
             row.personal_nas_url = None
         elif personal_nas_url is not None:
@@ -297,8 +307,6 @@ class UnitAdminService:
             row.daily_tokens = None
         elif daily_tokens is not None:
             row.daily_tokens = daily_tokens
-        if birthday_orders is not None:
-            row.birthday_orders = birthday_orders
         if clear_manager or manager_user_id is not None:
             try:
                 await departments.set_unit_manager(
@@ -936,13 +944,8 @@ class UnitAdminService:
 
     @staticmethod
     def _normalise_member_code(value: str | None) -> str | None:
-        """Whatever was typed, made fit for an order code (``TUAN-D-…``):
-        no accents, letters and digits only, upper case, at most 12. Never a
-        refusal - rules for member codes come later; blank means none."""
-        if value is None:
-            return None
-        code = re.sub(r"[^A-Za-z0-9]", "", fold_ascii(value)).upper()[:12]
-        return code or None
+        """See ``domain.units.member_code.normalise_member_code``."""
+        return normalise_member_code(value)
 
     async def _flush_translating(self, code: UnitCode, row: OrgUnitMember) -> None:
         """Flush the tag. Two members may share a member code for now (0052

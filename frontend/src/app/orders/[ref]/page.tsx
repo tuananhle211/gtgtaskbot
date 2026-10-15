@@ -181,7 +181,7 @@ export default function OrderDetailPage() {
               {[
                 ["Link thiết kế", order.design_link],
                 ["Link tham khảo", order.reference_link],
-                ["Link source", order.source_link],
+                ["Link nguồn", order.source_link],
                 ["Link sản phẩm", order.product_link],
               ].map(([label, link]) => (
                 <LinkRow key={label as string} label={label as string} link={link as string | null} />
@@ -317,9 +317,8 @@ function Step({
 }) {
   return (
     <li
-      className={`flex min-w-[9rem] flex-1 flex-col gap-1 rounded-lg border p-2.5 ${
-        current ? "border-2 border-[var(--text)]" : "border-[var(--border)]"
-      } ${tone === "good" && !current ? "bg-[var(--good-soft)]/40" : ""} ${skipped ? "opacity-50" : ""}`}
+      className={`flex min-w-[9rem] flex-1 flex-col gap-1 rounded-lg border p-2.5 ${current ? "border-2 border-[var(--text)]" : "border-[var(--border)]"
+        } ${tone === "good" && !current ? "bg-[var(--good-soft)]/40" : ""} ${skipped ? "opacity-50" : ""}`}
     >
       <span className="text-[11px] font-semibold uppercase tracking-wide text-[var(--text-muted)]">{label}</span>
       <span className="truncate text-sm font-medium">{person}</span>

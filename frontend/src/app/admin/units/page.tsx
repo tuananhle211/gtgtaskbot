@@ -3,16 +3,18 @@
 import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { api } from "@/lib/api";
+import { AdminTabs } from "@/components/admin-tabs";
 import { PageHeader } from "@/components/pr";
 import { ErrorBox, Loading } from "@/components/states";
 import { UnitPanel } from "@/components/unit-panel";
 import { taggableUnits, unitName, byStreamOrder } from "@/lib/units";
 
 /**
- * Tags, roles and settings per stream. Who may administer or tag in which
- * stream is the server's decision: this page offers the streams
- * `/api/units/me` lists under `can_admin` or `can_tag` (a team lead tags in
- * their own stream here), and every write is refused there if it should be.
+ * "Quản trị › Thành viên luồng": each stream's roster. Who may administer or
+ * tag in which stream is the server's decision: this page offers the streams
+ * `/api/units/me` lists under `can_admin` or `can_tag`, and every write is
+ * refused there if it should be. Seating people and permissions are "Phòng
+ * ban"; the ORD settings are "Thiết lập ORD".
  */
 export default function UnitsAdminPage() {
   const me = useQuery({ queryKey: ["units", "me"], queryFn: api.unitsMe });
@@ -28,7 +30,8 @@ export default function UnitsAdminPage() {
   if (units.length === 0) {
     return (
       <div className="space-y-4">
-        <PageHeader title="Quản trị đơn vị" />
+        <AdminTabs active="units" />
+        <PageHeader title="Thành viên luồng" />
         <p className="text-sm text-[var(--text-muted)]">
           Bạn không quản trị luồng nào.
         </p>
@@ -38,9 +41,10 @@ export default function UnitsAdminPage() {
   const code = chosen && units.includes(chosen) ? chosen : units[0];
   return (
     <div className="space-y-4">
+      <AdminTabs active="units" />
       <PageHeader
-        title="Quản trị đơn vị"
-        subtitle="Gắn luồng cho thành viên quyết định họ thấy task nào và có mặt trong chuỗi sản xuất của luồng nào. Tài khoản mới chưa thuộc luồng nào cho đến khi được gắn."
+        title="Thành viên luồng"
+        subtitle="Ai đang trong luồng PR / luồng Order (ORD), mã thành viên, kho cá nhân, token/ngày và trạng thái tài khoản. Phòng ban và chức vụ quyết định họ thuộc luồng nào."
       />
       {units.length > 1 ? (
         <div

@@ -17,6 +17,7 @@ from aiogram.dispatcher.event.bases import UNHANDLED
 from aiogram.types import BotCommand, BotCommandScopeChat, ErrorEvent
 from sqlalchemy import select
 
+from meobot.application.ai.routing import build_ai_provider
 from meobot.application.conversation_service import ConversationService
 from meobot.application.health_service import HealthService
 from meobot.bot.commands import telegram_commands
@@ -56,7 +57,6 @@ from meobot.db.session import Database
 from meobot.domain.identity.models import Role
 from meobot.domain.policy.engine import PolicyEngine
 from meobot.integrations.google.factory import build_drive_client, build_sheets_client
-from meobot.integrations.llm.factory import build_llm_provider
 from meobot.tools.registry import build_default_registry
 
 logger = get_logger(__name__)
@@ -73,7 +73,7 @@ def build_dispatcher(settings: Settings, database: Database) -> Dispatcher:
     aiogram refuses to attach a router to a second Dispatcher.
     """
     health_service = HealthService(database, settings)
-    llm = build_llm_provider(settings)
+    llm = build_ai_provider(settings, database)
     sheets_client = build_sheets_client(settings)
     drive_client = build_drive_client(settings)
     registry = build_default_registry(

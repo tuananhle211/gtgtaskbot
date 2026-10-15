@@ -90,7 +90,7 @@ export function ErrorBox({ error, onRetry }: { error: unknown; onRetry?: () => v
         <p className="mt-1 text-[var(--text-muted)]">
           Quyền được cấp trong{" "}
           <Link className="underline" href="/pr/permissions?tab=grants">
-            Thành viên & Phân quyền
+            Thành viên & Phân quyền (PR)
           </Link>
           .
         </p>

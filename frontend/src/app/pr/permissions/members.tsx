@@ -29,7 +29,10 @@ import {
 } from "@/lib/confirmations";
 
 /**
- * *Thành viên.* Everyone with an account, in every state, as cards.
+ * *Thành viên.* The people tagged in the PR stream, in every state, as cards.
+ * The roster route lists every account; the tab keeps those with an open PR
+ * tag (`/api/units/PR/members`, readable by PR members, the OWNER and the
+ * ADMIN) - somebody seated elsewhere, or nowhere, is not the PR team's.
  *
  * What the tab draws is decided by the server's `may_*` flags on the roster
  * and by each row's `status`, and nothing else - a control that would be
@@ -61,15 +64,52 @@ function useTeams() {
   return { admins, tagsOf, known: directory.isSuccess };
 }
 
+/** The account roster's status counts, as the server words them. */
+type RosterCounts = MemberList["counts"];
+
+/**
+ * The roster narrowed to the PR stream: its rows and their counts. Waits for
+ * both lists; `error` is whichever failed.
+ */
+export function usePrRoster() {
+  const roster = useQuery({ queryKey: ["members"], queryFn: api.listMembers });
+  const stream = useQuery({
+    queryKey: ["units", "PR", "members"],
+    queryFn: () => api.unitMembers("PR"),
+  });
+  const data = useMemo(() => {
+    if (!roster.data || !stream.data) return undefined;
+    const inPr = new Set(stream.data.members.map((member) => member.user_id));
+    const members = roster.data.members.filter((row) => inPr.has(row.user_id));
+    const counts: RosterCounts = {
+      ...roster.data.counts,
+      total: members.length,
+      active: members.filter((row) => row.status === "active").length,
+      suspended: members.filter((row) => row.status === "suspended").length,
+      revoked: members.filter((row) => row.status === "revoked").length,
+      pending: members.filter((row) => row.status === "pending").length,
+    };
+    return { ...roster.data, members, counts };
+  }, [roster.data, stream.data]);
+  return {
+    data,
+    isPending: roster.isPending || stream.isPending,
+    error: roster.error ?? stream.error,
+    refetch: () => {
+      void roster.refetch();
+      void stream.refetch();
+    },
+  };
+}
+
 export function MembersTab({
   onAddToAds,
 }: {
   /** Open the "Luồng Order (ORD)" tab with this person in its add-member picker. */
   onAddToAds?: (userId: string) => void;
 } = {}) {
-  const roster = useQuery({ queryKey: ["members"], queryFn: api.listMembers });
+  const roster = usePrRoster();
   const teams = useTeams();
-  const [teamFilter, setTeamFilter] = useState("");
   const [search, setSearch] = useState("");
   const [roleFilter, setRoleFilter] = useState("");
   const [statusFilter, setStatusFilter] = useState("");
@@ -79,10 +119,6 @@ export function MembersTab({
     const rows = roster.data?.members ?? [];
     const needle = search.trim().toLowerCase();
     return rows.filter((row) => {
-      if (teamFilter) {
-        const units = teams.tagsOf.get(row.user_id) ?? [];
-        if (teamFilter === "BOTH" ? units.length < 2 : !units.includes(teamFilter)) return false;
-      }
       if (roleFilter && row.role !== roleFilter) return false;
       if (statusFilter && row.status !== statusFilter) return false;
       if (!needle) return true;
@@ -92,10 +128,10 @@ export function MembersTab({
         String(row.telegram_user_id ?? "").includes(needle)
       );
     });
-  }, [roster.data, search, roleFilter, statusFilter, teamFilter, teams.tagsOf]);
+  }, [roster.data, search, roleFilter, statusFilter]);
 
-  if (roster.isPending) return <Loading label="Đang tải thành viên…" />;
-  if (roster.isError) return <ErrorBox error={roster.error} onRetry={() => roster.refetch()} />;
+  if (roster.error) return <ErrorBox error={roster.error} onRetry={roster.refetch} />;
+  if (roster.isPending || !roster.data) return <Loading label="Đang tải thành viên…" />;
   const data = roster.data;
   // Every role the roster contains, for the filter: the assignable three plus
   // the owner, who exists but is never offered by the *assignment* picker.
@@ -128,22 +164,7 @@ export function MembersTab({
         <AddMemberForm roster={data} onDone={() => setAdding(false)} />
       ) : null}
 
-      <section className="grid gap-2 sm:grid-cols-4">
-        {teams.known ? (
-          <label className="text-sm">
-            Luồng
-            <Select
-              value={teamFilter}
-              onChange={(event) => setTeamFilter(event.target.value)}
-              className="mt-1 w-full rounded border border-[var(--border)] bg-transparent px-2 py-1.5"
-            >
-              <option value="">Tất cả</option>
-              <option value="ADS">Luồng ORD</option>
-              <option value="PR">Luồng PR</option>
-              <option value="BOTH">Cả hai luồng</option>
-            </Select>
-          </label>
-        ) : null}
+      <section className="grid gap-2 sm:grid-cols-3">
         <label className="text-sm">
           Tìm theo tên, username hoặc Telegram ID
           <input
@@ -188,7 +209,7 @@ export function MembersTab({
         <Empty
           message={
             data.members.length === 0
-              ? "Chưa có thành viên nào."
+              ? "Chưa có ai được gắn vào luồng PR."
               : "Không có thành viên nào khớp bộ lọc."
           }
         />

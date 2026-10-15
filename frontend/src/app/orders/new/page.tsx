@@ -401,7 +401,7 @@ function AdsOrderForm({
             </span>
             {memberCode
               ? null
-              : " — bạn chưa có mã thành viên, hệ thống sẽ lấy từ tên của bạn (Trưởng phòng đổi được ở Quản trị đơn vị)."}
+              : " — bạn chưa có mã thành viên, hệ thống sẽ lấy từ tên của bạn (quản trị đổi được ở Quản trị › Thành viên luồng)."}
           </p>
         )}
         <label className="block text-sm font-medium">

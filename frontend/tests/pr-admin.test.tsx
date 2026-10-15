@@ -299,7 +299,7 @@ describe("9. a 403 is rendered as the server's sentence", () => {
     );
     expect(screen.getByText("Bạn chưa được cấp quyền duyệt ở bước này.")).toBeInTheDocument();
     // And it points at where a grant comes from, rather than saying "try again".
-    expect(screen.getByText("Thành viên & Phân quyền")).toBeInTheDocument();
+    expect(screen.getByText("Thành viên & Phân quyền (PR)")).toBeInTheDocument();
   });
 });
 

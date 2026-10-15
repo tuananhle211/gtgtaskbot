@@ -6,6 +6,7 @@ Importing this package registers every table on ``Base.metadata`` - Alembic's
 
 from meobot.db.models.access import GroupMemberResponsePolicy, PendingGuestAccessRequest
 from meobot.db.models.actor_profile import ActorProfileRow
+from meobot.db.models.ai_connection import AiConnection, AiRoute
 from meobot.db.models.audit_log import AuditLog
 from meobot.db.models.confirmation_request import ConfirmationRequestRow
 from meobot.db.models.conversation import (
@@ -156,6 +157,8 @@ from meobot.db.models.web_session import WebSession, WebSessionKind
 
 __all__ = [
     "ActorProfileRow",
+    "AiConnection",
+    "AiRoute",
     "Announcement",
     "AnnouncementAcknowledgement",
     "AnnouncementRecipient",

@@ -424,14 +424,19 @@ def birthday(world: World, user: User, **overrides: Any) -> Any:
     return world.client.post("/api/orders/birthday", json={**BIRTHDAY, **overrides})
 
 
-def grant_birthday(world: World, user: User, granted: bool = True) -> dict[str, Any]:
-    """The OWNER switches the birthday-order board on (or off) for a member."""
+def grant_birthday(
+    world: World, code: str = "ADS", position: str = "MEMBER", scope: str = "OWN"
+) -> dict[str, Any]:
+    """The OWNER grants a department's position the birthday board (0062)."""
     world.act_as(world.owner)
-    response = world.client.patch(
-        f"/api/units/ADS/members/{user.id}", json={"birthday_orders": granted}
+    departments = world.client.get("/api/departments").json()["departments"]
+    target = next(item for item in departments if item["code"] == code)
+    response = world.client.put(
+        f"/api/departments/{target['id']}/grants",
+        json={"cells": {position: {"BIRTHDAY": scope}}},
     )
     assert response.status_code == 200, response.json()
-    return response.json()
+    return dict(response.json()["cells"])
 
 
 async def test_10_a_birthday_order_goes_straight_to_design_and_ends_there(world: World) -> None:
@@ -451,7 +456,7 @@ async def test_10_a_birthday_order_goes_straight_to_design_and_ends_there(world:
     # Neither does an orderer - until the birthday board is granted to them.
     refused = birthday(world, ads.orderer)
     assert refused.status_code == 403 and error_reason(refused.json()) == "birthday_forbidden"
-    grant_birthday(world, ads.orderer)
+    grant_birthday(world)  # ADS members: their own birthday orders
     made = birthday(world, ads.orderer)
     assert made.status_code == 201, made.json()
     code = made.json()["code"]
@@ -513,8 +518,7 @@ async def test_11_the_birthday_board_is_its_own_and_the_design_team_sees_all_of_
         return (day[5:] < f"{today:%m-%d}", day[5:])
 
     dates = {"late": born(3, 1990), "soon": born(1, 1996), "past": born(-2, 2000)}
-    grant_birthday(world, ads.orderer)
-    grant_birthday(world, other_orderer)
+    grant_birthday(world)  # ADS members: their own birthday orders
     late = birthday(world, ads.orderer, full_name="Muộn hơn", birthday_on=dates["late"]).json()
     soon = birthday(world, ads.designer, full_name="Sắp tới", birthday_on=dates["soon"]).json()
     past = birthday(world, other_orderer, full_name="Đã qua", birthday_on=dates["past"]).json()
@@ -561,7 +565,7 @@ async def test_12_a_birthday_order_is_edited_by_its_creator_or_the_design_leader
     world: World,
 ) -> None:
     ads, _ = await design_world(world)
-    grant_birthday(world, ads.orderer)
+    grant_birthday(world)  # ADS members: their own birthday orders
     made = birthday(world, ads.orderer).json()
     path = f"/api/orders/{made['id']}/birthday"
     world.act_as(ads.designer)
@@ -659,7 +663,7 @@ async def test_14_a_row_says_what_its_viewer_may_do_and_when_design_handed_in(
     assert waiting["design"]["design_submitted_at"] is not None
     assert "SUBMIT_WORK" not in row_of(ads.designer)["actions"]
     # A birthday row: the Leader hands it out, then the designer accepts and submits.
-    grant_birthday(world, ads.orderer)
+    grant_birthday(world)  # ADS members: their own birthday orders
     made = birthday(world, ads.orderer).json()
     rows = board(world, ads.lead_tk, category="BIRTHDAY")["items"]
     assert "ASSIGN" in next(r for r in rows if r["code"] == made["code"])["actions"]
@@ -913,7 +917,7 @@ async def test_17_the_design_team_filters_by_where_the_design_step_stands(world:
 # --- who the birthday board is for --------------------------------------------------------
 
 
-async def test_18_the_birthday_board_is_granted_member_by_member(world: World) -> None:
+async def test_18_the_birthday_board_is_a_permission_like_any_other(world: World) -> None:
     ads, _ = await design_world(world)
 
     def has(user: User) -> bool:
@@ -923,55 +927,44 @@ async def test_18_the_birthday_board_is_granted_member_by_member(world: World) -
     def listed(user: User) -> list[str]:
         return [item["code"] for item in board(world, user, category="BIRTHDAY")["items"]]
 
-    # The Design team has it as it is; the OWNER too. Nobody else does.
+    # Thiết Kế is granted it by default (all of it); the OWNER has everything.
     assert has(ads.designer) and has(ads.lead_tk) and has(world.owner)
     assert not any(has(user) for user in (ads.orderer, ads.head, ads.writer, ads.editor))
-    # The roster says who has the grant, and who needs none.
-    world.act_as(world.owner)
-    roster = {
-        row["user_id"]: row for row in world.client.get("/api/units/ADS/members").json()["members"]
-    }
-    assert roster[str(ads.designer.id)]["birthday_orders_default"] is True
-    assert roster[str(ads.writer.id)]["birthday_orders_default"] is False
-    assert roster[str(ads.writer.id)]["birthday_orders"] is False
+    cells = grant_birthday(world, "TK", "MEMBER", "ALL")
+    assert cells["HEAD"]["BIRTHDAY"] == "ALL" and cells["MEMBER"]["BIRTHDAY"] == "ALL"
 
-    # Granted to a writer: the tab, and their own birthday orders.
-    assert grant_birthday(world, ads.writer)["birthday_orders"] is True
-    assert has(ads.writer) and not has(ads.editor)
+    # Granted to Biên Tập's members, own scope: the tab, and their own orders.
+    grant_birthday(world, "BT", "MEMBER", "OWN")
+    assert has(ads.writer) and not has(ads.lead_bt) and not has(ads.editor)
     mine = birthday(world, ads.writer)
     assert mine.status_code == 201, mine.json()
     theirs = birthday(world, ads.designer).json()
     assert listed(ads.writer) == [mine.json()["code"]]
     assert sorted(listed(ads.designer)) == sorted([mine.json()["code"], theirs["code"]])
-    # The grant does not widen what else they see.
     world.act_as(ads.writer)
     assert world.client.get(f"/api/tasks/{theirs['code']}").status_code == 404
+    # "ALL" for them: every birthday order.
+    grant_birthday(world, "BT", "MEMBER", "ALL")
+    assert sorted(listed(ads.writer)) == sorted([mine.json()["code"], theirs["code"]])
 
     # Taken back: no tab, no new order, and the board lists nothing - the
     # order they placed is still theirs to open.
-    assert grant_birthday(world, ads.writer, granted=False)["birthday_orders"] is False
+    grant_birthday(world, "BT", "MEMBER", "NONE")
     assert not has(ads.writer)
     refused = birthday(world, ads.writer)
     assert refused.status_code == 403 and error_reason(refused.json()) == "birthday_forbidden"
     assert listed(ads.writer) == []
     world.act_as(ads.writer)
     assert world.client.get(f"/api/tasks/{mine.json()['code']}").status_code == 200
-    # A member may not grant it to themselves.
-    world.act_as(ads.editor)
-    selfish = world.client.patch(
+    # Only the OWNER grants it; the per-person switch is gone.
+    world.act_as(ads.lead_tk)
+    assert world.client.get("/api/departments").status_code == 403
+    world.act_as(world.owner)
+    ignored = world.client.patch(
         f"/api/units/ADS/members/{ads.editor.id}", json={"birthday_orders": True}
     )
-    assert selfish.status_code in (403, 404), selfish.json()
+    assert ignored.status_code == 200 and "birthday_orders" not in ignored.json()
     assert not has(ads.editor)
-    # Untagging drops the grant with the tag.
-    grant_birthday(world, ads.editor)
-    world.act_as(world.owner)
-    assert world.client.delete(f"/api/units/ADS/members/{ads.editor.id}").status_code == 200
-    retagged = world.client.post(
-        "/api/units/ADS/members", json={"user_id": str(ads.editor.id), "role": "DUNG"}
-    )
-    assert retagged.status_code in (200, 201), retagged.json()
-    assert retagged.json()["birthday_orders"] is False and not has(ads.editor)
 
 
 async def test_19_a_birthday_order_carries_several_reference_links(world: World) -> None:

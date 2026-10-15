@@ -210,9 +210,22 @@ const CHANNEL = {
 
 type Route = { match: string; status?: number; body?: unknown; method?: string };
 
+/** The PR stream's roster: by default everybody on the account roster is in PR. */
+const prStream = (ids: string[]) => ({
+  unit: "PR",
+  unit_label: "Luồng PR",
+  members: ids.map((user_id) => ({ user_id, full_name: user_id })),
+  assignable_roles: [],
+});
+
 const routes = (list = roster(), extra: Route[] = []): Route[] => [
   ...extra,
   { match: "/api/pr/members", method: "GET", body: list },
+  {
+    match: "/api/units/PR/members",
+    method: "GET",
+    body: prStream((list.members as Array<{ user_id: string }>).map((row) => row.user_id)),
+  },
   { match: "/api/pr/roles", body: ROLES },
   { match: "/api/pr/channels", body: [CHANNEL] },
 ];
@@ -247,7 +260,7 @@ describe("1. the roster", () => {
     expect(screen.getByText("Đang hoạt động: 2")).toBeInTheDocument();
     expect(screen.getByText("Tạm khoá: 1")).toBeInTheDocument();
     expect(screen.getByText("Đã loại khỏi PR: 1")).toBeInTheDocument();
-    // The strip's count is the server's active count, not a client tally.
+    // The strip counts the PR stream's active people.
     expect(screen.getByRole("tab", { name: /Thành viên/ })).toHaveTextContent("2");
   });
 
@@ -582,7 +595,7 @@ describe("7. the roles tab", () => {
   });
 });
 
-describe("9. the two teams on one roster", () => {
+describe("9. only the PR stream's people", () => {
   const UNITS_ME = {
     units: [
       { code: "PR", label: "Luồng PR", role: "MEMBER", role_label: "Thành viên", is_lead: false, member_code: null, personal_nas_url: null, settings: {} },
@@ -601,58 +614,63 @@ describe("9. the two teams on one roster", () => {
       active: true,
       units: units[row.user_id] ?? [],
     }));
+  // The PR stream lists whoever has PR among their tags.
   const extra = (units: Record<string, string[]>): Route[] => [
     { match: "/api/units/me", body: UNITS_ME },
     { match: "/api/units/directory", body: directory(units) },
-    { match: "/api/units/PR/members", method: "POST", body: {} },
+    {
+      match: "/api/units/PR/members",
+      method: "GET",
+      body: prStream(
+        Object.entries(units)
+          .filter(([, codes]) => codes.includes("PR"))
+          .map(([userId]) => userId),
+      ),
+    },
   ];
+  const TAGS = { [OWNER]: ["ADS", "PR"], [HAO]: ["ADS"], [LEAD]: ["PR"] };
 
-  it("tags every member with their streams and adds an ORD member to PR", async () => {
-    const fetchMock = await open(roster(), extra({ [HAO]: ["ADS"], [OWNER]: ["ADS", "PR"] }));
-    await waitFor(() => expect(card("Chị Chủ").getByText("PR")).toBeInTheDocument());
-    expect(card("Chị Chủ").getByText("ORD")).toBeInTheDocument();
-    const hao = card(MEMBERS[1].full_name);
-    expect(hao.getByText("ORD")).toBeInTheDocument();
-    // ORD only: may be added to PR; already in ORD: no "+ Luồng ORD".
-    expect(hao.queryByRole("button", { name: "+ Luồng ORD" })).not.toBeInTheDocument();
-    fireEvent.click(hao.getByRole("button", { name: "+ Luồng PR" }));
-    await confirm();
-    await waitFor(() =>
-      expect(lastCall(fetchMock, "/api/units/PR/members").body).toEqual({
-        user_id: HAO,
-        role: "MEMBER",
-      }),
-    );
+  it("lists only the people tagged in PR, with every stream they hold", async () => {
+    await open(roster(), extra(TAGS));
+    expect(screen.getAllByTestId("member-card")).toHaveLength(2);
+    // ORD only (Hảo) and no stream at all (Đã Nghỉ): not the PR team's.
+    expect(screen.queryByText("Hảo")).not.toBeInTheDocument();
+    expect(screen.queryByText("Đã Nghỉ")).not.toBeInTheDocument();
+    await waitFor(() => expect(card("Chị Chủ").getByText("ORD")).toBeInTheDocument());
+    expect(card("Chị Chủ").getByText("PR")).toBeInTheDocument();
+    expect(card("Lê Trưởng Nhóm").getByText("PR")).toBeInTheDocument();
+    // The counts are the PR team's.
+    expect(screen.getByText("Đang hoạt động: 1")).toBeInTheDocument();
+    expect(screen.getByText("Tạm khoá: 1")).toBeInTheDocument();
+    expect(screen.getByText("Đã loại khỏi PR: 0")).toBeInTheDocument();
+    expect(screen.getByText("Tổng: 2")).toBeInTheDocument();
+    expect(screen.getByRole("tab", { name: /Thành viên/ })).toHaveTextContent("1");
+    // No stream filter: the page is PR's.
+    expect(screen.queryByLabelText("Luồng")).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "+ Luồng ORD" })).not.toBeInTheDocument();
   });
 
-  it("keeps three tabs, splits Thành viên and Quyền duyệt by Luồng PR / Luồng Order (ORD)", async () => {
-    await open(roster(), extra({ [HAO]: ["PR"] }));
+  it("keeps three tabs, PR only: the ORD side lives under Quản trị", async () => {
+    await open(roster(), extra(TAGS));
     expect(
       screen
-        .getByRole("tablist", { name: "Thành viên & Phân quyền" })
+        .getByRole("tablist", { name: "Thành viên & Phân quyền (PR)" })
         .querySelectorAll('[role="tab"]').length,
     ).toBe(3);
-    const teams = screen.getByRole("tablist", { name: "Chọn luồng" });
-    expect(within(teams).getAllByRole("tab").map((tab) => tab.textContent)).toEqual([
-      "Luồng PR",
-      "Luồng Order (ORD)",
-    ]);
-    fireEvent.click(within(teams).getByRole("tab", { name: "Luồng Order (ORD)" }));
-    expect(NAV.current()).toBe("team=ads");
-    // "Vai trò & quyền" has no stream split.
+    expect(screen.queryByRole("tablist", { name: "Chọn luồng" })).not.toBeInTheDocument();
     fireEvent.click(screen.getByRole("tab", { name: /Vai trò & quyền/ }));
     expect(NAV.current()).toBe("tab=roles");
   });
 
-  it("sends a PR member to Luồng Order (ORD) with them picked, and filters by stream", async () => {
-    await open(roster(), extra({ [HAO]: ["PR"] }));
-    const hao = card(MEMBERS[1].full_name);
-    await waitFor(() => expect(hao.getByRole("button", { name: "+ Luồng ORD" })).toBeInTheDocument());
-    // A never-tagged account says so (no stream - no longer "PR by default").
-    expect(card("Chị Chủ").getByText("Chưa có luồng")).toBeInTheDocument();
-    fireEvent.change(screen.getByLabelText("Luồng"), { target: { value: "PR" } });
-    expect(screen.getAllByTestId("member-card")).toHaveLength(1);
-    fireEvent.click(hao.getByRole("button", { name: "+ Luồng ORD" }));
-    expect(NAV.current()).toBe(`team=ads&add=${HAO}`);
+  it("says so when nobody is tagged in PR yet", async () => {
+    stubFetch(routes(roster(), extra({})));
+    renderWithQuery(<PermissionsPage />);
+    expect(await screen.findByText("Chưa có ai được gắn vào luồng PR.")).toBeInTheDocument();
+  });
+
+  it("sends an old ?team=ads link on to Quản trị › Thành viên luồng", async () => {
+    NAV.arriveAt("/pr/permissions?team=ads");
+    await open(roster(), extra(TAGS));
+    await waitFor(() => expect(NAV.current()).toBe(""));
   });
 });

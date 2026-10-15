@@ -66,6 +66,17 @@ class UpdateProfileRequest(BaseModel):
     full_name: str = Field(max_length=200)
 
 
+class MemberCodeRequest(BaseModel):
+    """``null`` or blank clears the code; anything else is folded to A-Z0-9."""
+
+    member_code: str | None = Field(default=None, max_length=40)
+
+
+class MemberCodeResponse(BaseModel):
+    #: As stored: folded, at most 12 characters; null when cleared.
+    member_code: str | None
+
+
 class ChangeRoleRequest(BaseModel):
     """The member's system role. "ADMIN" (Quản trị viên) sees both streams."""
 
@@ -253,6 +264,8 @@ class MemberRowResponse(BaseModel):
     #: person leads it; null / false outside an ORD function.
     function_tag: str | None = None
     is_lead: bool = False
+    #: Additive (0063): the person's member code, in a stream or not.
+    member_code: str | None = None
 
     @classmethod
     def from_view(cls, view: MemberView) -> MemberRowResponse:
@@ -265,6 +278,7 @@ class MemberRowResponse(BaseModel):
         function = next((tag for tag in tags if tag.function_tag is not None), None)
         return cls(
             role=view.user.role.value,
+            member_code=view.user.member_code,
             active=bool(view.user.active),
             unit_tags=tags,
             function_tag=None if function is None else function.function_tag,
@@ -300,6 +314,8 @@ __all__ = [
     "AvatarResponse",
     "AvatarUploadRequest",
     "ChangePasswordRequest",
+    "MemberCodeRequest",
+    "MemberCodeResponse",
     "MemberListResponse",
     "MemberRowResponse",
     "MemberStatsResponse",

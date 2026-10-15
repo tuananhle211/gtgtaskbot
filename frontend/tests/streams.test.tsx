@@ -181,7 +181,7 @@ describe("the nav and the stream switch follow the tags", () => {
     await waitFor(() =>
       expect(within(primary).getByRole("link", { name: /Công việc/ })).toBeInTheDocument(),
     );
-    expect(within(primary).getByRole("link", { name: /Quản trị đơn vị/ })).toBeInTheDocument();
+    expect(within(primary).getByRole("link", { name: /Quản trị/ })).toBeInTheDocument();
     expect(screen.getByText("ORD")).toHaveClass("unit-tag-ads");
   });
 
@@ -399,7 +399,7 @@ const panelRoutes = (canTag: string[], role = "TEAM_LEAD") => [
 describe("tagging follows can_tag", () => {
   it("draws no tag controls in a stream the lead may not tag in", async () => {
     stubFetch(panelRoutes(["PR"]));
-    renderWithQuery(<UnitPanel code="ADS" settings={false} />);
+    renderWithQuery(<UnitPanel code="ADS" />);
     expect(await screen.findByText("Hiền Lương")).toBeInTheDocument();
     expect(screen.queryByLabelText("Thêm thành viên")).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Gỡ" })).not.toBeInTheDocument();
@@ -417,7 +417,7 @@ describe("tagging follows can_tag", () => {
 
   it("lets a lead tag in their own stream, but not untag an owner or themselves", async () => {
     stubFetch(panelRoutes(["PR"]));
-    renderWithQuery(<UnitPanel code="PR" settings={false} />);
+    renderWithQuery(<UnitPanel code="PR" />);
     expect(await screen.findByLabelText("Thêm thành viên")).toBeInTheDocument();
     const rowOf = (name: string) => screen.getByText(name).closest("tr") as HTMLElement;
     expect(within(rowOf("Hà Chi")).getByRole("button", { name: "Gỡ" })).toBeInTheDocument();
@@ -434,7 +434,7 @@ describe("tagging follows can_tag", () => {
       { match: "/api/units/ADS/members", method: "POST", body: {} },
       ...panelRoutes(["PR", "ADS"]),
     ]);
-    renderWithQuery(<UnitPanel code="PR" settings={false} />);
+    renderWithQuery(<UnitPanel code="PR" />);
     const section = await screen.findByRole("region", { name: "Chưa có luồng" });
     await within(section).findByText("Người Mới");
     await userEvent.click(within(section).getByRole("button", { name: "Gắn Người Mới vào luồng" }));
@@ -467,7 +467,7 @@ describe("Quản trị viên in the stream picker", () => {
       { match: `/api/account/members/${NEW_ID}/role`, method: "POST", status: 204 },
       ...panelRoutes(["PR", "ADS"], "OWNER"),
     ]);
-    renderWithQuery(<UnitPanel code="PR" settings={false} />);
+    renderWithQuery(<UnitPanel code="PR" />);
     const section = await screen.findByRole("region", { name: "Chưa có luồng" });
     await within(section).findByText("Người Mới");
     await userEvent.click(within(section).getByRole("button", { name: "Gắn Người Mới vào luồng" }));
@@ -488,7 +488,7 @@ describe("Quản trị viên in the stream picker", () => {
 
   it("is not offered to a team lead", async () => {
     stubFetch(panelRoutes(["PR"]));
-    renderWithQuery(<UnitPanel code="PR" settings={false} />);
+    renderWithQuery(<UnitPanel code="PR" />);
     const picker = await screen.findByLabelText("Vai trò");
     expect(within(picker).queryByText(/Quản trị viên/)).not.toBeInTheDocument();
   });
@@ -500,7 +500,7 @@ describe("deactivating and reactivating an account", () => {
       { match: `/api/account/members/${ADS_ID}/deactivate`, method: "POST", status: 204 },
       ...panelRoutes(["PR", "ADS"], "ADMIN"),
     ]);
-    renderWithQuery(<UnitPanel code="ADS" settings={false} />);
+    renderWithQuery(<UnitPanel code="ADS" />);
     await screen.findByText("Hiền Lương");
     // Not on themselves, and an ADMIN never on an OWNER.
     expect(screen.queryByRole("button", { name: "Vô hiệu hoá tài khoản Chị Chủ" })).not.toBeInTheDocument();
@@ -535,7 +535,7 @@ describe("deactivating and reactivating an account", () => {
           : route,
       ),
     ]);
-    renderWithQuery(<UnitPanel code="ADS" settings={false} />);
+    renderWithQuery(<UnitPanel code="ADS" />);
     await screen.findByText("Hiền Lương");
     expect(screen.queryByText("Đã Nghỉ")).not.toBeInTheDocument();
     await userEvent.click(screen.getByLabelText("Hiện cả tài khoản đã vô hiệu hoá"));

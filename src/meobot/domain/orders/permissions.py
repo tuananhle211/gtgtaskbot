@@ -42,6 +42,9 @@ class AdsPermission(StrEnum):
     FINAL_REVIEW = "FINAL_REVIEW"
     PRIORITY = "PRIORITY"
     CANCEL = "CANCEL"
+    #: 0062: the birthday-order board ("Order sinh nhật"): place birthday
+    #: orders and see them - ``ALL`` every one, ``OWN`` one's own.
+    BIRTHDAY = "BIRTHDAY"
 
 
 class AdsScope(StrEnum):
@@ -72,6 +75,7 @@ PERMISSION_LABELS: Mapping[AdsPermission, str] = MappingProxyType(
         AdsPermission.FINAL_REVIEW: "Duyệt final thay người order",
         AdsPermission.PRIORITY: "Đặt ưu tiên",
         AdsPermission.CANCEL: "Huỷ order",
+        AdsPermission.BIRTHDAY: "Order sinh nhật (bảng sinh nhật, tạo order sinh nhật)",
     }
 )
 
@@ -84,6 +88,7 @@ OWN_MEANING: Mapping[AdsPermission, str] = MappingProxyType(
         AdsPermission.NODE_REVIEW: "Công đoạn của ban mình",
         AdsPermission.VIDEO_REVIEW: "Khi ban mình là Biên tập",
         AdsPermission.CANCEL: "Order của mình, trước khi được duyệt",
+        AdsPermission.BIRTHDAY: "Chỉ order sinh nhật mình tạo",
     }
 )
 
@@ -207,7 +212,12 @@ NODE_SCOPED: frozenset[AdsPermission] = frozenset(
     }
 )
 ORDER_SCOPED: frozenset[AdsPermission] = frozenset(
-    {AdsPermission.VIEW, AdsPermission.ORDER_APPROVE, AdsPermission.CANCEL}
+    {
+        AdsPermission.VIEW,
+        AdsPermission.ORDER_APPROVE,
+        AdsPermission.CANCEL,
+        AdsPermission.BIRTHDAY,
+    }
 )
 
 

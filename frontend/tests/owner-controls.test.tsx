@@ -26,12 +26,22 @@ import EffortPage from "@/app/tasks/effort/page";
 import AccountPage from "@/app/account/page";
 import { BanStatsPanel } from "@/components/ban-stats";
 import { Shell } from "@/components/shell";
-import { UnitPanel } from "@/components/unit-panel";
+import { SettingsForm, UnitPanel } from "@/components/unit-panel";
 import type { TaskRow, UnifiedTaskDetail } from "@/lib/api";
 import { assigneeLoadLabel } from "@/lib/deadline";
 import { effortEnabled } from "@/lib/effort";
 import { confirm, renderWithQuery, SESSION, stubFetch, urlStore } from "./helpers";
 
+
+/** "Thành viên luồng" and "Thiết lập ORD" side by side: tokens show on both. */
+function RosterAndSettings() {
+  return (
+    <>
+      <UnitPanel code="ADS" />
+      <SettingsForm code="ADS" onDone={() => {}} />
+    </>
+  );
+}
 const SEARCH = { value: new URLSearchParams() };
 const URL_BAR = urlStore(SEARCH);
 const PUSHED: string[] = [];
@@ -192,7 +202,7 @@ describe("effort (tokens) switched off", () => {
     ]);
     renderWithQuery(<Shell>{null}</Shell>);
     // The admin entry arrives with /api/units/me: the nav is complete by then.
-    await screen.findByRole("link", { name: /Quản trị đơn vị/ });
+    await screen.findByRole("link", { name: /Quản trị/ });
     expect(screen.queryByRole("link", { name: /Effort/ })).not.toBeInTheDocument();
   });
 
@@ -372,7 +382,7 @@ describe("effort (tokens) switched off", () => {
 
   it("hides the token fields of the unit panel", async () => {
     stubPanel("OWNER", ADMIN_ME(false));
-    renderWithQuery(<UnitPanel code="ADS" />);
+    renderWithQuery(<RosterAndSettings />);
     const toggle = await screen.findByRole("switch", { name: "Tính effort (token)" });
     expect(toggle).not.toBeChecked();
     expect(screen.getByText("Quỳnh Như")).toBeInTheDocument();
@@ -385,7 +395,7 @@ describe("effort (tokens) switched off", () => {
 
   it("shows them while it is on", async () => {
     stubPanel("OWNER", ADMIN_ME(true));
-    renderWithQuery(<UnitPanel code="ADS" />);
+    renderWithQuery(<RosterAndSettings />);
     expect(await screen.findByRole("switch", { name: "Tính effort (token)" })).toBeChecked();
     expect(screen.getByRole("columnheader", { name: "Token/ngày" })).toBeInTheDocument();
     expect(screen.getByRole("spinbutton", { name: /Token\/ngày mặc định/ })).toBeInTheDocument();
@@ -475,7 +485,7 @@ function stubPanel(
 describe('the "Tính effort (token)" switch', () => {
   it("is disabled, with the reason, for anybody but the OWNER", async () => {
     stubPanel("ADMIN", ADMIN_ME(true));
-    renderWithQuery(<UnitPanel code="ADS" />);
+    renderWithQuery(<RosterAndSettings />);
     const toggle = await screen.findByRole("switch", { name: "Tính effort (token)" });
     expect(toggle).toBeChecked();
     expect(toggle).toBeDisabled();
@@ -485,7 +495,7 @@ describe('the "Tính effort (token)" switch', () => {
 
   it("saves effort_enabled for the OWNER, through the settings save", async () => {
     const stub = stubPanel("OWNER", ADMIN_ME(true));
-    renderWithQuery(<UnitPanel code="ADS" />);
+    renderWithQuery(<RosterAndSettings />);
     const toggle = await screen.findByRole("switch", { name: "Tính effort (token)" });
     await waitFor(() => expect(toggle).toBeEnabled());
     expect(screen.queryByText("Chỉ chủ sở hữu đổi được")).not.toBeInTheDocument();

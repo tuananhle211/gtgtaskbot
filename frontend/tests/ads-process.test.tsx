@@ -8,7 +8,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { act, fireEvent, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import NewOrderPage from "@/app/orders/new/page";
-import UnitsAdminPage from "@/app/admin/units/page";
+import OrdSettingsPage from "@/app/admin/settings/page";
 import TasksPage from "@/app/tasks/page";
 import { VideoKindsManager } from "@/components/video-kinds";
 import { renderWithQuery, stubFetch, urlStore } from "./helpers";
@@ -582,7 +582,7 @@ describe("the video kinds manager", () => {
 
   it("lists every kind, inactive ones greyed, from the admin listing", async () => {
     const fetchMock = stubAdmin();
-    renderWithQuery(<UnitsAdminPage />);
+    renderWithQuery(<OrdSettingsPage />);
     const section = await screen.findByRole("region", {
       name: "Loại video & điểm hiệu suất",
     });
@@ -603,7 +603,7 @@ describe("the video kinds manager", () => {
 
   it("edits a kind and sends only what changed", async () => {
     const fetchMock = stubAdmin();
-    renderWithQuery(<UnitsAdminPage />);
+    renderWithQuery(<OrdSettingsPage />);
     const points = await screen.findByLabelText("Điểm · Short video");
     const save = screen.getByRole("button", { name: "Lưu Short video" });
     expect(save).toBeDisabled();
@@ -643,7 +643,7 @@ describe("the video kinds manager", () => {
 
   it("adds a new kind after the last one", async () => {
     const fetchMock = stubAdmin();
-    renderWithQuery(<UnitsAdminPage />);
+    renderWithQuery(<OrdSettingsPage />);
     const name = await screen.findByLabelText("Tên loại video mới");
     const add = screen.getByRole("button", { name: "Thêm" });
     expect(add).toBeDisabled();

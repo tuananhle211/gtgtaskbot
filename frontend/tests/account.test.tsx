@@ -878,6 +878,54 @@ describe("the account page", () => {
     ).toBeInTheDocument();
   });
 
+  it("lets an admin set anybody's member code, a stream or none", async () => {
+    const coded = ROWS.map((row, index) => (index === 1 ? { ...row, member_code: "DUC" } : row));
+    const fetchMock = stubFetch([
+      {
+        match: `/api/account/members/${ROWS[0].user_id}/member-code`,
+        method: "PUT",
+        body: { member_code: "HACHI" },
+      },
+      { match: "/api/account/members", body: { month: "2026-10", members: coded } },
+      { match: "/api/account/me", body: { ...ME, role: "ADMIN", role_label: "Quản trị viên" } },
+    ]);
+    renderWithQuery(<AccountPage />);
+    const user = userEvent.setup();
+    await user.click(await screen.findByRole("tab", { name: "Thành viên" }));
+    expect(screen.getByRole("columnheader", { name: "Mã thành viên" })).toBeInTheDocument();
+    expect(screen.getByRole("textbox", { name: "Mã thành viên của Minh Đức" })).toHaveValue("DUC");
+    const save = screen.getByRole("button", { name: "Lưu mã thành viên của Hà Chi" });
+    expect(save).toBeDisabled();
+    await user.type(screen.getByRole("textbox", { name: "Mã thành viên của Hà Chi" }), "hà chi");
+    await user.click(save);
+    await waitFor(() =>
+      expect(callsOf(fetchMock).find((call) => call.method === "PUT")?.body).toEqual({
+        member_code: "hà chi",
+      }),
+    );
+    // The server's folded code is what is shown back.
+    expect(await screen.findByText("Đã đặt mã thành viên HACHI cho Hà Chi.")).toBeInTheDocument();
+    expect(screen.getByRole("textbox", { name: "Mã thành viên của Hà Chi" })).toHaveValue("HACHI");
+  });
+
+  it("shows the member code, read-only, to everybody else", async () => {
+    stubFetch([
+      {
+        match: "/api/account/members",
+        body: {
+          month: "2026-10",
+          members: ROWS.map((row, index) => (index === 1 ? { ...row, member_code: "DUC" } : row)),
+        },
+      },
+      { match: "/api/account/me", body: { ...ME, role: "TEAM_LEAD" } },
+    ]);
+    renderWithQuery(<AccountPage />);
+    await userEvent.setup().click(await screen.findByRole("tab", { name: "Thành viên" }));
+    expect(screen.queryByRole("textbox", { name: /Mã thành viên của/ })).not.toBeInTheDocument();
+    const row = screen.getByText("Minh Đức").closest("tr") as HTMLElement;
+    expect(within(row).getByText("DUC")).toBeInTheDocument();
+  });
+
   it("offers no reset to somebody who is not an owner or admin", async () => {
     stubFetch([
       { match: "/api/account/members", body: { month: "2026-10", members: ROWS } },
