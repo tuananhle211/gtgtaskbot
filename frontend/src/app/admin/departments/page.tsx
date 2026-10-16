@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useId, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
@@ -668,7 +669,9 @@ function SeatRow({
       className={`border-b border-[var(--border)] align-top ${active ? "" : "opacity-60"}`}
     >
       <td className="px-3 py-2 font-medium">
-        {seat.full_name}
+        <Link href={`/admin/people/${seat.user_id}`} className="hover:underline">
+          {seat.full_name}
+        </Link>
         {active ? null : (
           <span className="mt-1 block">
             <Pill tone="bad">Đã vô hiệu hoá</Pill>
@@ -809,6 +812,9 @@ function Grants({
     },
   });
   const title = `Quyền trong ${module.module_label.toLowerCase()}`;
+  // The PR review gates are held per person over a scope, never a cell here.
+  const cells = module.permissions.filter((permission) => !permission.personal_only);
+  const personalOnly = module.permissions.filter((permission) => permission.personal_only);
   if (!catalog) return null;
   const labels = catalog.scope_labels ?? {};
   const saved = grants.data?.cells ?? {};
@@ -883,7 +889,7 @@ function Grants({
               </tr>
             </thead>
             <tbody>
-              {module.permissions.map((permission) => (
+              {cells.map((permission) => (
                 <tr key={permission.key}>
                   <th scope="row" className="text-left font-medium">
                     {permission.label}
@@ -931,6 +937,16 @@ function Grants({
             </tbody>
           </table>
         </div>
+      ) : null}
+      {personalOnly.length > 0 ? (
+        <p className="mt-3 text-xs text-[var(--text-muted)]">
+          Cấp theo từng người, theo kênh và loại nội dung (không phải ô phòng ban):{" "}
+          {personalOnly.map((permission) => permission.label).join(", ")} — ở{" "}
+          <Link href="/pr/permissions?tab=grants" className="text-[var(--accent)] underline">
+            Thành viên &amp; Phân quyền (PR) › Quyền duyệt cấp thêm
+          </Link>
+          .
+        </p>
       ) : null}
       {save.isError ? (
         <div className="mt-3">

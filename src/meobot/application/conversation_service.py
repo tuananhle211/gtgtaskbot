@@ -440,7 +440,7 @@ class ConversationService:
             PlanningRequest(
                 message=message,
                 actor_role=actor.role,
-                available_tools=self._registry.summaries_for(actor.role),
+                available_tools=self._registry.summaries_for(actor),
             )
         )
         logger.info(

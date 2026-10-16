@@ -84,8 +84,14 @@ class UserService:
         role: Role,
         full_name: str = "",
         telegram_username: str | None = None,
+        authorized_by_module: bool = False,
     ) -> User:
         """Register somebody by Telegram id and return the new row.
+
+        ``authorized_by_module`` (0067): the caller already established the
+        actor may add people - the PR head's ``PR_MEMBERS_MANAGE`` - so the
+        ``user.manage`` role check is skipped; who may hand out which role
+        (:func:`can_invite_role`) still applies.
 
         Raises:
             AuthorizationError: When the actor lacks ``user.manage``, or may not
@@ -93,7 +99,7 @@ class UserService:
             ValidationError: When the Telegram id is not a plausible id.
             ConflictError: When that Telegram account is already registered.
         """
-        if not has_permission(actor.role, Permission.USER_MANAGE):
+        if not authorized_by_module and not has_permission(actor.role, Permission.USER_MANAGE):
             raise AuthorizationError(
                 f"Chỉ {role_label(Role.OWNER)} và {role_label(Role.ADMIN)} "
                 "mới thêm được thành viên.",

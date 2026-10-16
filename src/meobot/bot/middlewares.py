@@ -14,6 +14,7 @@ from aiogram.types import User as TelegramUser
 from meobot.application.access_gate import AccessGate, GateResult, IncomingUpdate
 from meobot.application.actor_profile_service import ActorProfileService
 from meobot.application.identity_service import IdentityService
+from meobot.application.org.bot_access import with_unified_access
 from meobot.bot import formatting
 from meobot.bot.access_notifications import (
     notify_owner_of_access_request,
@@ -242,7 +243,7 @@ class AccessGateMiddleware(BaseMiddleware):
         return (
             result.decision.reason == "quota_exhausted"
             and result.actor is not None
-            and not has_full_bot(result.actor.role)
+            and not has_full_bot(result.actor)
         )
 
     @staticmethod
@@ -318,6 +319,8 @@ class ActorMiddleware(BaseMiddleware):
                 telegram_username=telegram_user.username,
                 full_name=telegram_user.full_name,
             )
+            if actor is not None and actor.active:
+                actor = await with_unified_access(session, actor)
 
         if actor is None or not actor.active:
             if _is_public_command(event):
@@ -379,7 +382,7 @@ class BasicCommandsMiddleware(BaseMiddleware):
         data: dict[str, Any],
     ) -> Any:
         actor: Actor | None = data.get("actor")
-        if actor is None or has_full_bot(actor.role) or not isinstance(event, Message):
+        if actor is None or has_full_bot(actor) or not isinstance(event, Message):
             return await handler(event, data)
 
         command = _command_for_this_bot(event)
@@ -390,5 +393,5 @@ class BasicCommandsMiddleware(BaseMiddleware):
             "command_refused_owner_only",
             extra={"command": command, "telegram_user_id": actor.telegram_user_id},
         )
-        await formatting.answer(event, formatting.escape(owner_only_command_reply(actor.role)))
+        await formatting.answer(event, formatting.escape(owner_only_command_reply(actor)))
         return None

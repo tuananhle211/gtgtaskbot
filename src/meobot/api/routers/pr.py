@@ -609,9 +609,17 @@ async def list_people(
         .scalars()
         .all()
     )
-    return [
-        PersonResponse(user_id=row.id, full_name=row.full_name, role=row.role.value) for row in rows
-    ]
+    people = []
+    for row in rows:
+        people.append(
+            PersonResponse(
+                user_id=row.id,
+                full_name=row.full_name,
+                role=row.role.value,
+                can_manage_permissions=await services.capabilities.manages(actor, row),
+            )
+        )
+    return people
 
 
 @router.get("/brands", response_model=list[BrandResponse], summary="Brands you may choose")
@@ -3853,14 +3861,29 @@ async def list_capabilities(
     screen that showed *who* and *which gate* but not *over what* would be
     describing a grant this module no longer issues.
     """
-    return [
-        CapabilityGrantResponse.from_grant(grant)
-        for grant in await services.queries.approval_grants(
-            actor=actor,
-            capability=_enum(PrCapability, capability, field="capability") if capability else None,
-            user_id=user_id,
-        )
-    ]
+    grants = await services.queries.approval_grants(
+        actor=actor,
+        capability=_enum(PrCapability, capability, field="capability") if capability else None,
+        user_id=user_id,
+    )
+    # 0067: "Thu hồi" is drawn only where it would work - the holders this
+    # caller may administer (OWNER / ADMIN everyone but the OWNER; a PR head
+    # the members of their department).
+    holders = {
+        user.id: user
+        for user in (
+            await services.session.scalars(
+                select(User).where(User.id.in_(list({grant.user_id for grant in grants})))
+            )
+        ).all()
+    }
+    rows = []
+    for grant in grants:
+        row = CapabilityGrantResponse.from_grant(grant)
+        holder = holders.get(grant.user_id)
+        row.can_revoke = holder is not None and await services.capabilities.manages(actor, holder)
+        rows.append(row)
+    return rows
 
 
 @router.post(

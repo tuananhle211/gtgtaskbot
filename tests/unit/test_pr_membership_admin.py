@@ -227,13 +227,17 @@ async def test_2b_an_admin_reads_the_list_but_may_not_change_status_or_role(
     assert body["may_change_role"] is False
 
 
-async def test_2c_a_team_lead_and_a_member_cannot_read_the_roster(world: World) -> None:
-    for user in (world.lead, world.member):
-        world.act_as(user)
-        response = world.client.get(MEMBERS)
-        assert response.status_code == 403
-        assert error_reason(response) == "member_read_forbidden"
-        assert world.client.get("/api/pr/roles").status_code == 403
+async def test_2c_a_member_cannot_read_the_roster_but_the_pr_head_can(world: World) -> None:
+    """0067: the head of PR Thương Hiệu holds ``PR_MEMBERS_VIEW`` through
+    their seat; a member holds nothing of the kind."""
+    world.act_as(world.member)
+    response = world.client.get(MEMBERS)
+    assert response.status_code == 403
+    assert error_reason(response) == "member_read_forbidden"
+    assert world.client.get("/api/pr/roles").status_code == 403
+    world.act_as(world.lead)
+    assert world.client.get(MEMBERS).status_code == 200
+    assert world.client.get("/api/pr/roles").status_code == 200
 
 
 async def test_2d_the_roles_tab_is_the_matrix_grouped_by_domain(world: World) -> None:
@@ -250,9 +254,24 @@ async def test_2d_the_roles_tab_is_the_matrix_grouped_by_domain(world: World) ->
     assert roles["ADMIN"]["active_member_count"] == 0
     for row in body["roles"]:
         codes = {item["capability"] for item in row["capabilities"]}
-        assert codes == {cap.value for cap in role_capabilities(Role(row["role"]))}
+        # 0066: only the OWNER and an ADMIN hold PR capabilities by role; a
+        # Trưởng nhóm / Nhân viên holds what their PR seat grants (below).
+        if row["role"] in ("OWNER", "ADMIN"):
+            assert codes == {cap.value for cap in role_capabilities(Role(row["role"]))}
+        else:
+            assert codes == set()
         assert not codes & {cap.value for cap in GRANT_BACKED}
         assert all(item["domain_label"] and item["label"] for item in row["capabilities"])
+    positions = {row["position"]: row for row in body["positions"]}
+    assert list(positions) == ["HEAD", "MEMBER"]
+    assert positions["HEAD"]["manages_members"] is True
+    assert positions["MEMBER"]["manages_members"] is False
+    assert {item["capability"] for item in positions["HEAD"]["capabilities"]} == {
+        cap.value for cap in role_capabilities(Role.TEAM_LEAD)
+    } | {"PR_MEMBERS_VIEW", "PR_MEMBERS_MANAGE"}
+    assert {item["capability"] for item in positions["MEMBER"]["capabilities"]} == {
+        cap.value for cap in role_capabilities(Role.EMPLOYEE)
+    }
 
 
 # =============================================================================
@@ -650,10 +669,11 @@ async def test_6c_effective_permissions_say_where_each_permission_comes_from(
     assert body["is_active"] is True and body["role"] == "EMPLOYEE"
     rows = {row["capability"]: row for row in body["capabilities"]}
     assert set(rows) == {cap.value for cap in PrCapability}
+    # 0066: an employee's content rights come from their PR seat, not their role.
     assert rows["PR_CONTENT_EDIT"] == {
         **rows["PR_CONTENT_EDIT"],
         "allowed": True,
-        "source": "ROLE",
+        "source": "DEPARTMENT",
         "grants": [],
     }
     assert rows["PR_CHANNEL_MANAGE"]["allowed"] is False
@@ -686,7 +706,8 @@ async def test_6d_a_role_never_shows_as_a_grant_and_an_expired_grant_is_absent(
     assert rows["PR_TEAM_LEAD_REVIEW"]["source"] == "NONE"
     for code, row in rows.items():
         if PrCapability(code) not in GRANT_BACKED:
-            assert row["source"] in ("ROLE", "NONE") and row["grants"] == []
+            assert row["source"] in ("ROLE", "DEPARTMENT", "PERSONAL", "NONE")
+            assert row["grants"] == []
 
 
 async def test_6e_a_member_may_read_their_own_permissions_but_not_a_colleagues(

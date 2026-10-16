@@ -23,6 +23,7 @@ from meobot.core.time import utcnow
 from meobot.db.models.department import DepartmentMember
 from meobot.db.models.org_unit import OrgUnit, OrgUnitMember
 from meobot.db.models.user import User
+from meobot.domain.identity.models import Role
 from meobot.domain.org.models import DepartmentFunction, Position
 from meobot.domain.units.models import UnitCode, UnitMemberRole, unit_seed_id
 
@@ -52,11 +53,12 @@ async def tag_pr(session: AsyncSession, users: Iterable[User]) -> None:
         # The seat behind the tag (0061), written without re-deriving the
         # person's other tags.
         if await open_seat(session, team.id, user.id) is None:
+            # As 0061 seeded production: a TEAM_LEAD heads PR Thương Hiệu.
             session.add(
                 DepartmentMember(
                     department_id=team.id,
                     user_id=user.id,
-                    position=Position.MEMBER,
+                    position=Position.HEAD if user.role is Role.TEAM_LEAD else Position.MEMBER,
                     joined_at=utcnow(),
                 )
             )

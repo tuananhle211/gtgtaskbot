@@ -64,7 +64,6 @@ from meobot.domain.org.models import (
     normalise_department_code,
 )
 from meobot.domain.org.modules import MODULES, module_spec
-from meobot.domain.resources.models import MODULE_RESOURCES, default_resource_grants
 from meobot.domain.units.models import UnitCode, UnitMemberRole, unit_seed_id
 
 #: The production function behind each function role of the order flow.
@@ -124,25 +123,28 @@ async def ensure_default_departments(session: AsyncSession) -> dict[str, Departm
                         scope=scope,
                     )
                 )
-        seed_resource_grants(session, row)
+        seed_module_defaults(session, row)
     await session.flush()
     return found
 
 
-def seed_resource_grants(session: AsyncSession, department: Department) -> None:
-    """The resources module's defaults for one department, by its function
-    (0065): a department added later has them from the start."""
-    for position, cells in default_resource_grants(department.function).items():
-        for permission, scope in cells.items():
-            session.add(
-                DepartmentPermission(
-                    department_id=department.id,
-                    position=position,
-                    module=MODULE_RESOURCES,
-                    permission=permission,
-                    scope=scope,
+def seed_module_defaults(session: AsyncSession, department: Department) -> None:
+    """Every module's defaults for one department, by its function (0065 /
+    0066): a department added later has them from the start. The order
+    flow's defaults are by department code (``DEFAULT_ORDER_GRANTS``) and
+    seeded by the caller."""
+    for spec in MODULES.values():
+        for position, cells in spec.default_grants(department.function).items():
+            for permission, scope in cells.items():
+                session.add(
+                    DepartmentPermission(
+                        department_id=department.id,
+                        position=position,
+                        module=spec.module,
+                        permission=permission,
+                        scope=scope,
+                    )
                 )
-            )
 
 
 # --- the stream tags, derived ---------------------------------------------------------
@@ -451,7 +453,13 @@ async def place(
     head = role is UnitMemberRole.HEAD or (is_lead and role in ROLE_FUNCTIONS)
     if code is UnitCode.PR:
         existing = await open_seat(session, target.id, user_id)
-        head = existing is not None and existing.position is Position.HEAD
+        if existing is not None:
+            head = existing.position is Position.HEAD
+        else:
+            # As 0061 seeded production: a Trưởng nhóm heads PR Thương Hiệu
+            # (0066: the head's PR capabilities come from that seat).
+            user = await session.get(User, user_id)
+            head = user is not None and user.role is Role.TEAM_LEAD
     await seat_person(
         session,
         target.id,
@@ -686,7 +694,7 @@ class DepartmentService:
         )
         self._session.add(row)
         await self._session.flush()
-        seed_resource_grants(self._session, row)
+        seed_module_defaults(self._session, row)
         await self._session.flush()
         await self._record(
             actor, request_id, AuditAction.DEPARTMENT_CREATED, row.id, None, _snap(row)
@@ -817,10 +825,10 @@ class DepartmentService:
         table = await load_grants(self._session, module, [department_id])
         return {
             position.value: {
-                permission.value: dict(table.get((department_id, position.value), ())).get(
-                    permission.value, "NONE"
+                permission: dict(table.get((department_id, position.value), ())).get(
+                    permission, "NONE"
                 )
-                for permission in spec.permissions
+                for permission in spec.department_keys()
             }
             for position in Position
         }
@@ -839,7 +847,7 @@ class DepartmentService:
         await self.department(department_id)
         spec = self._module(module)
         before = await self.grants(actor=actor, department_id=department_id, module=module)
-        wanted: dict[tuple[Position, Any], str] = {}
+        wanted: dict[tuple[Position, str], str] = {}
         for position_key, line in cells.items():
             try:
                 position = Position(position_key)
@@ -850,6 +858,9 @@ class DepartmentService:
                     permission = spec.permission(permission_key)
                 except ValueError as error:
                     raise _bad_cell(permission_key) from error
+                if permission in spec.personal_only:
+                    # A scoped, per-person right (the PR review gates).
+                    raise _bad_cell(f"{permission_key} (cấp theo người)")
                 if scope not in spec.allowed(permission):
                     raise _bad_cell(f"{permission_key}={scope}")
                 wanted[(position, permission)] = scope
@@ -863,7 +874,7 @@ class DepartmentService:
         ).all()
         by_cell = {(row.position, row.permission): row for row in existing}
         for (position, permission), scope in wanted.items():
-            row = by_cell.get((position, permission.value))
+            row = by_cell.get((position, permission))
             if scope == "NONE":
                 if row is not None:
                     await self._session.delete(row)
@@ -873,7 +884,7 @@ class DepartmentService:
                         department_id=department_id,
                         position=position,
                         module=module,
-                        permission=permission.value,
+                        permission=permission,
                         scope=scope,
                     )
                 )
@@ -1002,7 +1013,7 @@ __all__ = [
     "order_matrix",
     "place",
     "seat_person",
-    "seed_resource_grants",
+    "seed_module_defaults",
     "set_unit_manager",
     "sync_stream_tags",
     "unplace",

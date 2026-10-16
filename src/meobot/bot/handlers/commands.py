@@ -125,9 +125,9 @@ async def handle_help(
             ),
         )
         return
-    text = render_help(actor.role)
+    text = render_help(actor)
     invite = BY_NAME["create_invite"]
-    if not invite.visible_to(actor.role) and database is not None:
+    if not invite.visible_to(actor) and database is not None:
         # A Trưởng phòng / Leader of an ORD ban may invite their staff whatever
         # their system role - which the role-based list cannot know.
         async with database.transaction() as session:

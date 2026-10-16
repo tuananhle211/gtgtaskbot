@@ -80,6 +80,7 @@ from meobot.domain.pr.models import (
     PrWorkflowStage,
 )
 from meobot.integrations.llm.fake import FakeLLMProvider
+from tests.unit.streams import tag_pr
 
 SRC = Path("src/meobot")
 
@@ -229,6 +230,8 @@ async def world(session: AsyncSession) -> AsyncIterator[ReviewWorld]:
     platform = PrPlatform(code="YOUTUBE", name="YouTube")
     session.add_all([author, brand, platform])
     await session.flush()
+    # 0066: a Trưởng nhóm's PR rights come from heading PR Thương Hiệu.
+    await tag_pr(session, [author])
     channel = PrChannel(
         code="CH-1F",
         name="Kênh 1F",

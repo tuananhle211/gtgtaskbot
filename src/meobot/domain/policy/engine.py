@@ -11,7 +11,7 @@ from collections.abc import Mapping
 
 from meobot.domain.identity.labels import role_label
 from meobot.domain.identity.models import Actor
-from meobot.domain.permissions.matrix import has_permission
+from meobot.domain.permissions.matrix import actor_has_permission
 from meobot.domain.policy.models import (
     ActionPlan,
     DecisionCode,
@@ -145,7 +145,7 @@ class PolicyEngine:
             )
 
         permission = policy.required_permission
-        if permission is not None and not has_permission(actor.role, permission):
+        if permission is not None and not actor_has_permission(actor, permission):
             return PolicyDecision(
                 allowed=False,
                 code=DecisionCode.MISSING_PERMISSION,

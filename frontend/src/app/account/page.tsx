@@ -1,6 +1,7 @@
 "use client";
 
 import { BoltIcon, TokenBadge } from "@/components/token-badge";
+import Link from "next/link";
 import { useEffect, useId, useMemo, useState } from "react";
 import {
   keepPreviousData,
@@ -1215,6 +1216,17 @@ function Members({
                             <span className="person">{row.full_name}</span>
                             <span className="block text-xs text-[var(--text-muted)]">
                               {row.role_label} · {String(row.telegram_user_id)}
+                              {mayReset ? (
+                                <>
+                                  {" · "}
+                                  <Link
+                                    href={`/admin/people/${row.user_id}`}
+                                    className="text-[var(--accent)] underline"
+                                  >
+                                    Quyền
+                                  </Link>
+                                </>
+                              ) : null}
                             </span>
                             {active ? null : (
                               <span className="mt-0.5 block">

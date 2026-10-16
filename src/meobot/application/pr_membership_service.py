@@ -37,6 +37,9 @@ from datetime import date, datetime
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from meobot.application.org.access import SOURCE_DEPARTMENT, SOURCE_PERSONAL, Access
+from meobot.application.org.departments import function_department
+from meobot.application.org.seats import load_grants
 from meobot.application.pr_capability_service import PrCapabilityGrant, PrCapabilityService
 from meobot.core.errors import AuthorizationError, NotFoundError
 from meobot.core.time import utcnow
@@ -46,8 +49,11 @@ from meobot.db.models.pr_work import PrWorkContribution, PrWorkItem
 from meobot.db.models.pr_work_quota import PrWorkPlan
 from meobot.db.models.user import User
 from meobot.domain.access.models import UserStatus
+from meobot.domain.identity.invites import can_invite_role
 from meobot.domain.identity.labels import role_label
 from meobot.domain.identity.models import Actor, Role
+from meobot.domain.org.models import MODULE_PR, POSITION_LABELS, DepartmentFunction, Position
+from meobot.domain.org.modules import CommonPermission
 from meobot.domain.permissions.matrix import Permission, has_permission
 from meobot.domain.pr.membership import (
     ASSIGNABLE_ROLES,
@@ -70,6 +76,8 @@ class MemberRow:
     user: User
     #: Active approval grants held right now. One grouped query for the list.
     active_grant_count: int = 0
+    #: 0067: the viewer may grant / revoke this person's PR rights.
+    can_manage_permissions: bool = False
 
     @property
     def is_active(self) -> bool:
@@ -94,6 +102,9 @@ class MemberList:
     may_add: bool = False
     may_change_status: bool = False
     may_change_role: bool = False
+    #: 0067: may bring an existing account into PR Thương Hiệu (the same
+    #: right as adding one: ``user.manage`` or ``PR_MEMBERS_MANAGE``).
+    may_tag_pr: bool = False
 
 
 @dataclass(frozen=True, slots=True)
@@ -107,12 +118,24 @@ class RoleSummary:
 
 
 @dataclass(frozen=True, slots=True)
+class PositionSummary:
+    """0066: a position in the PR department and what it grants."""
+
+    position: Position
+    label: str
+    department_id: uuid.UUID
+    capabilities: tuple[PrCapability, ...]
+    #: Holds ``MANAGE_PERMISSIONS``: shapes the members' permissions.
+    manages_members: bool
+
+
+@dataclass(frozen=True, slots=True)
 class EffectiveCapability:
     """One capability, with its provenance."""
 
     capability: PrCapability
     allowed: bool
-    #: ``ROLE`` | ``SCOPED_GRANT`` | ``NONE``.
+    #: ``ROLE`` (OWNER / ADMIN) | ``DEPARTMENT`` | ``PERSONAL`` | ``SCOPED_GRANT`` | ``NONE``.
     source: str
     #: For a grant: the grants that carry it, each with its scope.
     grants: tuple[PrCapabilityGrant, ...] = ()
@@ -169,9 +192,45 @@ class PrMembershipService:
         self._session = session
         self._capabilities = capabilities
 
+    # --- who may read the roster (0067) --------------------------------------------
+    async def may_read(self, actor: Actor) -> bool:
+        """``user.read`` by role (OWNER / ADMIN), or ``PR_MEMBERS_VIEW`` through
+        the unified layers (the head of PR Thương Hiệu by default)."""
+        if has_permission(actor.role, MEMBER_READ_PERMISSION):
+            return True
+        return await self._capabilities.held(actor, PrCapability.PR_MEMBERS_VIEW)
+
+    async def may_add(self, actor: Actor) -> bool:
+        """``user.manage`` by role, or ``PR_MEMBERS_MANAGE`` through the layers."""
+        if has_permission(actor.role, Permission.USER_MANAGE):
+            return True
+        return await self._capabilities.held(actor, PrCapability.PR_MEMBERS_MANAGE)
+
+    @staticmethod
+    def assignable_roles(actor: Actor) -> tuple[Role, ...]:
+        """The roles this actor may hand out when adding somebody: everything
+        assignable for whoever holds ``user.manage``; anybody else (a PR head
+        with ``PR_MEMBERS_MANAGE``, 0067) adds Employees only."""
+        roles = tuple(role for role in ASSIGNABLE_ROLES if can_invite_role(actor.role, role))
+        if has_permission(actor.role, Permission.USER_MANAGE):
+            return roles
+        return tuple(role for role in roles if role is Role.EMPLOYEE)
+
+    async def _require_read(self, actor: Actor) -> None:
+        if not await self.may_read(actor):
+            raise AuthorizationError(
+                "Bạn không có quyền xem danh sách thành viên.",
+                details={"reason": "member_read_forbidden", "actor_role": actor.role.value},
+            )
+
+    async def _require_read_or_self(self, actor: Actor, user_id: uuid.UUID) -> None:
+        if actor.user_id is not None and actor.user_id == user_id:
+            return
+        await self._require_read(actor)
+
     async def list_members(self, *, actor: Actor, on: date | None = None) -> MemberList:
         """Every registered person, by name, with status and grant count."""
-        _require_read(actor)
+        await self._require_read(actor)
         # A deleted account (0054) is listed nowhere.
         rows = (
             (
@@ -184,9 +243,16 @@ class PrMembershipService:
         )
         today = on or utcnow().date()
         grant_counts = await self._active_grant_counts(on=today)
-        members = tuple(
-            MemberRow(user=row, active_grant_count=grant_counts.get(row.id, 0)) for row in rows
-        )
+        listed: list[MemberRow] = []
+        for row in rows:
+            listed.append(
+                MemberRow(
+                    user=row,
+                    active_grant_count=grant_counts.get(row.id, 0),
+                    can_manage_permissions=await self._capabilities.manages(actor, row),
+                )
+            )
+        members = tuple(listed)
         by_status = dict.fromkeys(UserStatus, 0)
         for row in rows:
             by_status[row.status] += 1
@@ -199,20 +265,54 @@ class PrMembershipService:
                 revoked=by_status[UserStatus.REVOKED],
                 pending=by_status[UserStatus.PENDING],
             ),
-            may_add=has_permission(actor.role, Permission.USER_MANAGE),
+            may_add=await self.may_add(actor),
+            may_tag_pr=await self.may_add(actor),
             may_change_status=has_permission(actor.role, Permission.USER_STATUS_MANAGE),
             may_change_role=has_permission(actor.role, Permission.USER_ROLE_MANAGE),
         )
 
     async def member(self, *, actor: Actor, user_id: uuid.UUID) -> MemberRow:
-        _require_read_or_self(actor, user_id)
+        await self._require_read_or_self(actor, user_id)
         user = await self._require_user(user_id)
         counts = await self._active_grant_counts(on=utcnow().date(), user_id=user.id)
-        return MemberRow(user=user, active_grant_count=counts.get(user.id, 0))
+        return MemberRow(
+            user=user,
+            active_grant_count=counts.get(user.id, 0),
+            can_manage_permissions=await self._capabilities.manages(actor, user),
+        )
+
+    async def positions(self, *, actor: Actor) -> tuple[PositionSummary, ...]:
+        """0066: what the PR department grants its heads and its members -
+        the defaults a Trưởng nhóm / Nhân viên used to get from their role."""
+        await self._require_read(actor)
+        team = await function_department(self._session, DepartmentFunction.PR)
+        if team is None:
+            return ()
+        table = await load_grants(self._session, MODULE_PR, [team.id])
+        found: list[PositionSummary] = []
+        for position in Position:
+            cells = dict(table.get((team.id, position.value), ()))
+            held = [
+                capability for capability in PrCapability if cells.get(capability.value) == "ALL"
+            ]
+            found.append(
+                PositionSummary(
+                    position=position,
+                    label=f"{POSITION_LABELS[position]} {team.name}",
+                    department_id=team.id,
+                    capabilities=tuple(sorted(held, key=_capability_order)),
+                    manages_members=cells.get(CommonPermission.MANAGE_PERMISSIONS.value)
+                    in ("OWN", "ALL"),
+                )
+            )
+        return tuple(found)
 
     async def roles(self, *, actor: Actor) -> tuple[RoleSummary, ...]:
-        """The four base roles, what each grants, and how many hold each."""
-        _require_read(actor)
+        """The four base roles, what each grants, and how many hold each.
+        Since 0066 only the OWNER and an ADMIN hold PR capabilities by role;
+        a Trưởng nhóm or a Nhân viên holds what their PR seat grants
+        (:meth:`positions`) and what they were given personally."""
+        await self._require_read(actor)
         rows = (
             await self._session.execute(
                 select(User.role, func.count())
@@ -227,7 +327,9 @@ class PrMembershipService:
                 label=role_label(role),
                 active_member_count=counts.get(role, 0),
                 capabilities=tuple(
-                    sorted(role_capabilities(role), key=_capability_order),
+                    sorted(role_capabilities(role), key=_capability_order)
+                    if role in (Role.OWNER, Role.ADMIN)
+                    else ()
                 ),
                 assignable=role in ASSIGNABLE_ROLES,
             )
@@ -247,7 +349,7 @@ class PrMembershipService:
         entitlement is shown the grant, and a person with neither is shown
         ``NONE``.
         """
-        _require_read_or_self(actor, user_id)
+        await self._require_read_or_self(actor, user_id)
         user = await self._require_user(user_id)
         today = on or utcnow().date()
         subject = Actor(user_id=user.id, full_name=user.full_name, role=user.role)
@@ -255,11 +357,19 @@ class PrMembershipService:
         by_capability: dict[PrCapability, list[PrCapabilityGrant]] = {}
         for grant in grants:
             by_capability.setdefault(grant.capability, []).append(grant)
-        held_by_role = role_capabilities(user.role)
+        # 0066: the unified layers - system role, department seat, personal grant.
+        access = await self._capabilities.access_of(subject)
         rows: list[EffectiveCapability] = []
         for capability in sorted(PrCapability, key=_capability_order):
             if capability in GRANT_BACKED:
                 found = tuple(by_capability.get(capability, ()))
+                if access.sees_all:
+                    rows.append(
+                        EffectiveCapability(
+                            capability=capability, allowed=True, source="ROLE", grants=found
+                        )
+                    )
+                    continue
                 rows.append(
                     EffectiveCapability(
                         capability=capability,
@@ -269,12 +379,11 @@ class PrMembershipService:
                     )
                 )
             else:
-                allowed = capability in held_by_role
                 rows.append(
                     EffectiveCapability(
                         capability=capability,
-                        allowed=allowed,
-                        source="ROLE" if allowed else "NONE",
+                        allowed=access.sees_all or access.allows(MODULE_PR, capability.value),
+                        source=_source_of(access, capability),
                     )
                 )
         return EffectivePermissions(
@@ -290,7 +399,7 @@ class PrMembershipService:
         approval grants active today. Read-only: nothing here reassigns,
         revokes or closes anything, and the dialog says so.
         """
-        _require_read(actor)
+        await self._require_read(actor)
         await self._require_user(user_id)
         content_owned = await self._session.scalar(
             select(func.count())
@@ -365,20 +474,6 @@ class PrMembershipService:
         return user
 
 
-def _require_read(actor: Actor) -> None:
-    if not has_permission(actor.role, MEMBER_READ_PERMISSION):
-        raise AuthorizationError(
-            "Bạn không có quyền xem danh sách thành viên.",
-            details={"reason": "member_read_forbidden", "actor_role": actor.role.value},
-        )
-
-
-def _require_read_or_self(actor: Actor, user_id: uuid.UUID) -> None:
-    if actor.user_id is not None and actor.user_id == user_id:
-        return
-    _require_read(actor)
-
-
 def _capability_order(capability: PrCapability) -> tuple[int, str]:
     domains = list(PrCapabilityDomain)
     return (domains.index(capability_domain(capability)), capability_label(capability))
@@ -398,3 +493,19 @@ __all__: list[str] = [
     "PrMembershipService",
     "RoleSummary",
 ]
+
+
+def _source_of(access: Access, capability: PrCapability) -> str:
+    """Where an unscoped capability comes from, for the screen."""
+    if access.sees_all:
+        return "ROLE"
+    sources = {
+        grant.source
+        for grant in access.of(MODULE_PR)
+        if grant.permission == capability.value and grant.scope == "ALL"
+    }
+    if SOURCE_DEPARTMENT in sources:
+        return "DEPARTMENT"
+    if SOURCE_PERSONAL in sources:
+        return "PERSONAL"
+    return "NONE"

@@ -1,7 +1,7 @@
 "use client";
 
 import { useQuery } from "@tanstack/react-query";
-import type { CapabilityDescriptor, RoleSummary } from "@/lib/api";
+import type { CapabilityDescriptor, PositionSummary, RoleSummary } from "@/lib/api";
 import { api } from "@/lib/api";
 import { Empty, ErrorBox, Loading, Pill } from "@/components/states";
 
@@ -22,11 +22,25 @@ export function RolesTab() {
   if (roles.isError) return <ErrorBox error={roles.error} onRetry={() => roles.refetch()} />;
   if (roles.data.roles.length === 0) return <Empty message="Chưa có vai trò nào." />;
 
+  const positions = roles.data.positions ?? [];
   return (
     <div className="space-y-4">
+      {positions.length > 0 ? (
+        <>
+          <p className="text-sm text-[var(--text-muted)]">
+            Quyền mặc định theo chức vụ trong phòng PR Thương Hiệu (chỉnh ở Quản trị › Phòng ban).
+            Quyền cấp riêng cho từng người xem ở hồ sơ thành viên.
+          </p>
+          <div className="grid gap-4 lg:grid-cols-2">
+            {positions.map((position) => (
+              <PositionCard key={position.position} position={position} />
+            ))}
+          </div>
+        </>
+      ) : null}
       <p className="text-sm text-[var(--text-muted)]">
-        Mỗi thành viên có đúng một vai trò nền. Vai trò quyết định các quyền mặc định dưới đây;
-        không tạo được vai trò mới và không sửa được quyền của vai trò ở đây.
+        Vai trò nền: Chủ sở hữu và Quản trị viên có mọi quyền; Trưởng nhóm và Nhân viên có
+        quyền theo chức vụ trong phòng và quyền được cấp riêng.
       </p>
       <div className="grid gap-4 lg:grid-cols-2">
         {roles.data.roles.map((role) => (
@@ -37,6 +51,44 @@ export function RolesTab() {
         <strong>{roles.data.note}</strong> Quyền duyệt được cấp ở thẻ “Quyền duyệt cấp thêm”.
       </p>
     </div>
+  );
+}
+
+function PositionCard({ position }: { position: PositionSummary }) {
+  const groups = new Map<string, CapabilityDescriptor[]>();
+  for (const capability of position.capabilities) {
+    const list = groups.get(capability.domain_label) ?? [];
+    list.push(capability);
+    groups.set(capability.domain_label, list);
+  }
+  return (
+    <section
+      data-testid="position-card"
+      className="rounded-lg border border-[var(--border)] bg-[var(--surface)] p-4"
+    >
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <h2 className="text-sm font-semibold">{position.label}</h2>
+        {position.manages_members ? <Pill tone="good">Cấp quyền cho nhân viên phòng</Pill> : null}
+      </div>
+      {groups.size === 0 ? (
+        <p className="mt-3 text-sm text-[var(--text-muted)]">Chức vụ này không có quyền mặc định.</p>
+      ) : (
+        <dl className="mt-3 space-y-2 text-sm">
+          {Array.from(groups.entries()).map(([domain, capabilities]) => (
+            <div key={domain}>
+              <dt className="text-xs uppercase tracking-wide text-[var(--text-muted)]">{domain}</dt>
+              <dd className="mt-1 flex flex-wrap gap-1.5">
+                {capabilities.map((capability) => (
+                  <Pill key={capability.capability} tone="good">
+                    {capability.label}
+                  </Pill>
+                ))}
+              </dd>
+            </div>
+          ))}
+        </dl>
+      )}
+    </section>
   );
 }
 

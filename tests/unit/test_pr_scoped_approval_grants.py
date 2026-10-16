@@ -510,16 +510,38 @@ async def test_7c_a_revocation_is_not_recoverable_by_asking_about_an_earlier_day
 
 
 async def test_8a_only_a_grant_manager_may_grant_or_revoke(world: World) -> None:
-    """``user.role.manage`` - OWNER-only, and no capability guards itself."""
-    for actor in (world.actor(world.lead), world.actor(world.member)):
+    """0066: the OWNER, an ADMIN, and whoever holds ``MANAGE_PERMISSIONS`` in
+    the PR module over the person - the Trưởng phòng PR for their members.
+    A member grants nobody; a head grants neither themselves nor the OWNER."""
+    with pytest.raises(PrPermissionDeniedError):
+        await world.capabilities.grant(
+            actor=world.actor(world.member),
+            request_id=world.request_id,
+            user_id=world.member.id,
+            capability=PrCapability.PR_TEAM_LEAD_REVIEW,
+            scope=GrantScope.everything(),
+        )
+    for target in (world.lead, world.owner):
         with pytest.raises(PrPermissionDeniedError):
             await world.capabilities.grant(
-                actor=actor,
+                actor=world.actor(world.lead),
                 request_id=world.request_id,
-                user_id=world.member.id,
+                user_id=target.id,
                 capability=PrCapability.PR_TEAM_LEAD_REVIEW,
                 scope=GrantScope.everything(),
             )
+    # The head of PR Thương Hiệu shapes their own members' rights.
+    row = await world.capabilities.grant(
+        actor=world.actor(world.lead),
+        request_id=world.request_id,
+        user_id=world.member.id,
+        capability=PrCapability.PR_TEAM_LEAD_REVIEW,
+        scope=GrantScope.everything(),
+    )
+    assert row.granted_by_user_id == world.lead.id
+    await world.capabilities.revoke(
+        actor=world.actor(world.lead), request_id=world.request_id, grant_id=row.id
+    )
 
 
 async def test_8b_a_holder_cannot_widen_their_own_grant(world: World) -> None:

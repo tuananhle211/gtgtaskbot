@@ -23,12 +23,13 @@ from dataclasses import dataclass
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from meobot.application.org.seats import grants_of, load_grants, load_seats
+from meobot.application.org.access import Access, load_access
+from meobot.application.org.seats import load_seats
 from meobot.db.models.org_unit import OrgUnit, OrgUnitMember
 from meobot.db.models.user import User
 from meobot.domain.identity.models import Actor, Role
 from meobot.domain.orders.models import OrderNodeType
-from meobot.domain.org.models import MODULE_ORDER
+from meobot.domain.org.models import MODULE_ORDER, DepartmentFunction, Grant
 from meobot.domain.units.errors import UnitNotFoundError
 from meobot.domain.units.models import (
     FUNCTION_ROLES,
@@ -54,6 +55,18 @@ ROLE_FOR_NODE: dict[OrderNodeType, UnitMemberRole] = {
     # node first (``pipeline.function_node``); this is only a safe fallback.
     OrderNodeType.GAN_LINK: UnitMemberRole.DUNG,
 }
+
+
+def order_grants(access: Access) -> tuple[Grant, ...]:
+    """The order flow's view of a person's access: ``(permission, scope,
+    function)`` per grant - a seat's function for a department grant, none
+    for a personal one. Ban Giám đốc sees every order, built in."""
+    grants = [
+        Grant(grant.permission, grant.scope, grant.function) for grant in access.of(MODULE_ORDER)
+    ]
+    if any(seat.function is DepartmentFunction.BOARD for seat in access.seats):
+        grants.append(Grant("VIEW", "ALL", DepartmentFunction.BOARD))
+    return tuple(grants)
 
 
 @dataclass(frozen=True, slots=True)
@@ -105,12 +118,11 @@ class UnitDirectoryService:
             if member.left_at is None
         )
         seats = (await load_seats(self._session, [actor.user_id])).get(actor.user_id, ())
-        grants = None
-        if seats:
-            table = await load_grants(
-                self._session, MODULE_ORDER, [seat.department_id for seat in seats]
-            )
-            grants = grants_of(seats, table)
+        # 0066: one load for every module - seats, their grants, personal grants.
+        access = await load_access(
+            self._session, user_id=actor.user_id, role=actor.role, seats=seats
+        )
+        grants = order_grants(access) if seats else None
         return UnitMembership(
             user_id=actor.user_id,
             entries=entries,
@@ -118,6 +130,7 @@ class UnitDirectoryService:
             is_admin=is_admin,
             seats=seats,
             grants=grants,
+            access=access,
         )
 
     async def require(self, actor: Actor, code: UnitCode) -> UnitMembership:

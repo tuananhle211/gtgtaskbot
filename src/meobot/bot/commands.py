@@ -30,7 +30,7 @@ from collections.abc import Iterable, Sequence
 from dataclasses import dataclass
 from enum import StrEnum
 
-from meobot.domain.identity.models import Role
+from meobot.domain.identity.models import Actor, Role
 from meobot.domain.permissions.matrix import Permission, has_permission
 
 
@@ -94,9 +94,10 @@ class CommandSpec:
     def slash(self) -> str:
         return f"/{self.command}"
 
-    def visible_to(self, role: Role) -> bool:
-        """True when ``role`` should see this command in ``/help``."""
-        if not self.basic and not has_full_bot(role):
+    def visible_to(self, subject: Role | Actor) -> bool:
+        """True when this person should see this command in ``/help``."""
+        role = role_of(subject)
+        if not self.basic and not has_full_bot(subject):
             return False
         if self.min_role is not None and role.rank < self.min_role.rank:
             return False
@@ -110,13 +111,21 @@ class CommandSpec:
         return text
 
 
-def has_full_bot(role: Role) -> bool:
-    """True when ``role`` gets the whole Telegram bot: AI chat, tools, admin.
+def has_full_bot(subject: Role | Actor) -> bool:
+    """True when this person gets the whole Telegram bot: AI chat, tools, admin.
 
-    Only the owner. Everybody else gets the :attr:`CommandSpec.basic` commands,
-    their notifications, HR requests and reminders, and works on the web.
+    The owner - and, since 0067, the head of PR Thương Hiệu, whom the bot's
+    tools serve (``Actor.full_bot``, set from their seat). Everybody else gets
+    the :attr:`CommandSpec.basic` commands, their notifications, HR requests
+    and reminders, and works on the web. A bare role is the owner alone.
     """
-    return role is Role.OWNER
+    if isinstance(subject, Role):
+        return subject is Role.OWNER
+    return subject.role is Role.OWNER or subject.full_bot
+
+
+def role_of(subject: Role | Actor) -> Role:
+    return subject if isinstance(subject, Role) else subject.role
 
 
 COMMANDS: tuple[CommandSpec, ...] = (
@@ -548,9 +557,9 @@ def spec_for(command: str) -> CommandSpec:
     return BY_NAME[command.lstrip("/")]
 
 
-def commands_for(role: Role) -> list[CommandSpec]:
-    """Commands ``role`` may see, in declaration order."""
-    return [spec for spec in COMMANDS if spec.visible_to(role)]
+def commands_for(subject: Role | Actor) -> list[CommandSpec]:
+    """Commands this person may see, in declaration order."""
+    return [spec for spec in COMMANDS if spec.visible_to(subject)]
 
 
 def owner_only_commands() -> frozenset[str]:
@@ -563,10 +572,10 @@ def owner_only_commands() -> frozenset[str]:
 _BASIC_HINT: tuple[str, ...] = ("start", "help", "whoami", "web")
 
 
-def owner_only_command_reply(role: Role) -> str:
+def owner_only_command_reply(subject: Role | Actor) -> str:
     """The one reply a non-owner gets for an owner-only command."""
     hint = [f"/{name}" for name in _BASIC_HINT]
-    if BY_NAME["create_invite"].visible_to(role):
+    if BY_NAME["create_invite"].visible_to(subject):
         hint.append(BY_NAME["create_invite"].slash)
     return "Lệnh này chỉ dành cho chủ sở hữu. Bạn dùng được: " + ", ".join(hint) + "."
 
@@ -587,8 +596,8 @@ def telegram_commands(role: Role = Role.EMPLOYEE) -> list[tuple[str, str]]:
     return [(spec.command, spec.description) for spec in commands_for(role)]
 
 
-def render_help(role: Role, *, unregistered: bool = False) -> str:
-    """Build the ``/help`` body for ``role``.
+def render_help(subject: Role | Actor, *, unregistered: bool = False) -> str:
+    """Build the ``/help`` body for this person.
 
     Rendered in the HTML parse mode with every dynamic part escaped - see
     :mod:`meobot.bot.formatting` for why this is not Markdown.
@@ -598,7 +607,7 @@ def render_help(role: Role, *, unregistered: bool = False) -> str:
     if unregistered:
         specs: Sequence[CommandSpec] = [spec for spec in COMMANDS if spec.available_to_unregistered]
     else:
-        specs = commands_for(role)
+        specs = commands_for(subject)
 
     lines: list[str] = [
         "🤖 " + bold("TasksBot") + " — trợ lý vận hành nội dung",
@@ -612,7 +621,7 @@ def render_help(role: Role, *, unregistered: bool = False) -> str:
         lines.extend(f"{escape(spec.usage)} — {escape(spec.description)}" for spec in in_category)
         lines.append("")
 
-    if not unregistered and not has_full_bot(role):
+    if not unregistered and not has_full_bot(subject):
         lines.extend(
             [
                 bold("Làm việc trên web"),

@@ -14,7 +14,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from meobot.core.config import Settings
 from meobot.core.errors import ToolArgumentError, ToolNotFoundError
 from meobot.domain.identity.models import Actor, Role
-from meobot.domain.permissions.matrix import Permission, has_permission
+from meobot.domain.permissions.matrix import Permission, actor_has_permission, has_permission
 from meobot.domain.policy.models import RiskLevel, ToolPolicy
 from meobot.integrations.llm.base import ToolSummary
 
@@ -162,19 +162,25 @@ class ToolRegistry:
         """Policy metadata for :class:`~meobot.domain.policy.engine.PolicyEngine`."""
         return dict(self._tools)
 
-    def visible_to(self, role: Role) -> list[ToolDefinition]:
-        """Tools whose permission and minimum role the given role satisfies."""
+    def visible_to(self, subject: Role | Actor) -> list[ToolDefinition]:
+        """Tools whose permission and minimum role this person satisfies - by
+        role, or (0067) by what their PR seat gives them (``Actor``)."""
+        role = subject if isinstance(subject, Role) else subject.role
         visible: list[ToolDefinition] = []
         for tool in self._tools.values():
             if tool.min_role is not None and role.rank < tool.min_role.rank:
                 continue
-            if tool.required_permission is not None and not has_permission(
-                role, tool.required_permission
-            ):
-                continue
+            if tool.required_permission is not None:
+                held = (
+                    has_permission(role, tool.required_permission)
+                    if isinstance(subject, Role)
+                    else actor_has_permission(subject, tool.required_permission)
+                )
+                if not held:
+                    continue
             visible.append(tool)
         return sorted(visible, key=lambda item: item.name)
 
-    def summaries_for(self, role: Role) -> list[ToolSummary]:
-        """Tool catalogue handed to the LLM for a given role."""
-        return [tool.to_summary() for tool in self.visible_to(role)]
+    def summaries_for(self, subject: Role | Actor) -> list[ToolSummary]:
+        """Tool catalogue handed to the LLM for this person."""
+        return [tool.to_summary() for tool in self.visible_to(subject)]

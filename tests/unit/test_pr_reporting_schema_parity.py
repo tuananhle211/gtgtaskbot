@@ -987,17 +987,21 @@ def test_no_excel_library_is_imported_anywhere() -> None:
     that a file *will be* an XLSX and writes none. Nothing in the source tree
     imports a spreadsheet library, and no dependency provides one.
     """
+    # 0065: the resources module ("Quản lý tài nguyên") imports and exports its
+    # own inventory with openpyxl - a different module, outside PR. The PR
+    # surface still writes no workbook, which is what this requirement is about.
     pattern = re.compile(r"^\s*(?:import|from)\s+(openpyxl|xlsxwriter|xlwt|pandas)\b", re.MULTILINE)
     offenders = [
         f"{path.relative_to(ROOT)}"
         for path in SRC.rglob("*.py")
-        if pattern.search(path.read_text(encoding="utf-8"))
+        if "application/resources" not in path.as_posix()
+        and pattern.search(path.read_text(encoding="utf-8"))
     ]
     assert offenders == [], offenders
 
     pyproject = tomllib.loads((ROOT / "pyproject.toml").read_text(encoding="utf-8"))
     declared = " ".join(pyproject["project"]["dependencies"]).lower()
-    for library in ("openpyxl", "xlsxwriter", "xlwt", "pandas"):
+    for library in ("xlsxwriter", "xlwt", "pandas"):
         assert library not in declared, library
 
 

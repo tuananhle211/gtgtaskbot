@@ -98,6 +98,7 @@ from meobot.integrations.platform_policy import (
     split_sections,
 )
 from meobot.integrations.platform_policy.fetcher import content_hash
+from tests.unit.streams import tag_pr
 
 SRC = Path("src/meobot")
 
@@ -262,6 +263,8 @@ async def world(session: AsyncSession) -> AsyncIterator[PolicyWorld]:
     youtube = PrPlatform(code="YOUTUBE", name="YouTube")
     session.add_all([author, brand, facebook, tiktok, youtube])
     await session.flush()
+    # 0066: a Trưởng nhóm's PR rights come from heading PR Thương Hiệu.
+    await tag_pr(session, [author])
 
     channels = {}
     for code, platform in (("CH-FB", facebook), ("CH-TT", tiktok), ("CH-YT", youtube)):

@@ -46,6 +46,7 @@ from meobot.api.schemas.pr_members import (
     EffectivePermissionsResponse,
     MemberListResponse,
     MemberResponse,
+    PositionResponse,
     ResponsibilitiesResponse,
     RoleOptionResponse,
     RoleResponse,
@@ -53,14 +54,15 @@ from meobot.api.schemas.pr_members import (
     StatusChangeRequest,
 )
 from meobot.application.audit_service import AuditService
+from meobot.application.org import departments
 from meobot.application.pr_membership_service import MemberRow, PrMembershipService
 from meobot.application.user_service import UserService
-from meobot.core.errors import ValidationError
+from meobot.core.errors import AuthorizationError, ValidationError
 from meobot.core.time import utcnow
 from meobot.db.models.user import User
 from meobot.domain.identity.labels import role_label
 from meobot.domain.identity.models import Actor, Role
-from meobot.domain.pr.membership import ASSIGNABLE_ROLES
+from meobot.domain.units.models import UnitCode, UnitMemberRole
 
 router = APIRouter(prefix="/api/pr", tags=["pr-members"])
 
@@ -100,9 +102,11 @@ def _parse_role(value: str) -> Role:
         ) from error
 
 
-def _assignable() -> list[RoleOptionResponse]:
+def _assignable(membership: PrMembershipService, actor: Actor) -> list[RoleOptionResponse]:
+    """The roles this actor may hand out (decided by the membership service)."""
     return [
-        RoleOptionResponse(role=role.value, label=role_label(role)) for role in ASSIGNABLE_ROLES
+        RoleOptionResponse(role=role.value, label=role_label(role))
+        for role in membership.assignable_roles(actor)
     ]
 
 
@@ -117,7 +121,7 @@ async def _member_response(
 async def list_members(actor: CurrentActorDep, membership: MembershipDep) -> MemberListResponse:
     """Everyone with an account, in every state, with what this actor may do."""
     result = await membership.list_members(actor=actor)
-    return MemberListResponse.from_domain(result, _assignable())
+    return MemberListResponse.from_domain(result, _assignable(membership, actor))
 
 
 @router.post("/members", response_model=MemberResponse, status_code=status.HTTP_201_CREATED)
@@ -127,8 +131,16 @@ async def add_member(
     request_id: RequestIdDep,
     users: UsersDep,
     membership: MembershipDep,
+    session: Annotated[AsyncSession, Depends(get_session)],
 ) -> MemberResponse:
-    """Register a member by Telegram id. ``/add_user``, over HTTP."""
+    """Register a member by Telegram id. ``/add_user``, over HTTP. 0067: the
+    head of PR Thương Hiệu may add an Employee too (``PR_MEMBERS_MANAGE``);
+    whoever adds from here, the new account is seated in PR Thương Hiệu."""
+    if not await membership.may_add(actor):
+        raise AuthorizationError(
+            "Bạn không có quyền thêm thành viên.",
+            details={"reason": "member_add_forbidden", "actor_role": actor.role.value},
+        )
     user = await users.add_user(
         actor=actor,
         request_id=request_id,
@@ -136,7 +148,9 @@ async def add_member(
         role=_parse_role(body.role),
         full_name=body.full_name.strip(),
         telegram_username=body.telegram_username,
+        authorized_by_module=True,
     )
+    await departments.place(session, UnitCode.PR, user.id, UnitMemberRole.MEMBER)
     return MemberResponse.from_row(MemberRow(user=user))
 
 
@@ -239,8 +253,11 @@ async def responsibilities(
 async def list_roles(actor: CurrentActorDep, membership: MembershipDep) -> RolesResponse:
     """The four base roles and what each one carries. Read-only in phase 1."""
     summaries = await membership.roles(actor=actor)
+    positions = await membership.positions(actor=actor)
     return RolesResponse(
-        roles=[RoleResponse.from_domain(summary) for summary in summaries], note=GRANT_NOTE
+        roles=[RoleResponse.from_domain(summary) for summary in summaries],
+        positions=[PositionResponse.from_domain(summary) for summary in positions],
+        note=GRANT_NOTE,
     )
 
 

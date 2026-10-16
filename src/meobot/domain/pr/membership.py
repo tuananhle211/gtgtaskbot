@@ -40,6 +40,7 @@ class PrCapabilityDomain(StrEnum):
     CHANNELS = "CHANNELS"
     WORK = "WORK"
     KPI = "KPI"
+    MEMBERS = "MEMBERS"
 
 
 CAPABILITY_DOMAIN_LABELS: Mapping[PrCapabilityDomain, str] = MappingProxyType(
@@ -52,6 +53,7 @@ CAPABILITY_DOMAIN_LABELS: Mapping[PrCapabilityDomain, str] = MappingProxyType(
         PrCapabilityDomain.CHANNELS: "Kênh",
         PrCapabilityDomain.WORK: "Công việc",
         PrCapabilityDomain.KPI: "KPI & hiệu suất",
+        PrCapabilityDomain.MEMBERS: "Thành viên PR",
     }
 )
 
@@ -91,6 +93,14 @@ CAPABILITY_INFO: Mapping[PrCapability, tuple[PrCapabilityDomain, str]] = Mapping
             "Cấu hình loại việc, KPI và định mức",
         ),
         PrCapability.PR_PERFORMANCE_REVIEW: (PrCapabilityDomain.KPI, "Đánh giá hiệu suất tháng"),
+        PrCapability.PR_MEMBERS_VIEW: (
+            PrCapabilityDomain.MEMBERS,
+            "Xem thành viên PR, vai trò và quyền của họ",
+        ),
+        PrCapability.PR_MEMBERS_MANAGE: (
+            PrCapabilityDomain.MEMBERS,
+            "Thêm thành viên vào PR (tài khoản mới hoặc có sẵn)",
+        ),
     }
 )
 

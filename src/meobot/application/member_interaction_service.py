@@ -102,7 +102,7 @@ class MemberInteractionService:
 
         # AI chat on Telegram is the owner's alone, so nobody else is shown an
         # allowance or a "Hỏi TasksBot" button they could only be refused.
-        full_bot = has_full_bot(actor.role)
+        full_bot = has_full_bot(actor)
         if (
             full_bot
             and self._settings.member_show_ai_allowance_on_home

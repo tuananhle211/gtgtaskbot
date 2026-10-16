@@ -28,7 +28,7 @@ from dataclasses import dataclass, field
 from meobot.bot.commands import COMMANDS, CommandSpec
 from meobot.core.config import Settings
 from meobot.domain.identity.models import Actor
-from meobot.domain.permissions.matrix import Permission, has_permission
+from meobot.domain.permissions.matrix import Permission, actor_has_permission, has_permission
 from meobot.tools.base import ToolDefinition, ToolRegistry
 
 #: Things MeoBot genuinely does not do. Listed so a chat answer can decline
@@ -193,8 +193,8 @@ class CapabilityService:
         """Same two checks the policy engine makes, for display purposes only."""
         if tool.min_role is not None and actor.role.rank < tool.min_role.rank:
             return False
-        return tool.required_permission is None or has_permission(
-            actor.role, tool.required_permission
+        return tool.required_permission is None or actor_has_permission(
+            actor, tool.required_permission
         )
 
     def _missing_configuration(self, tool_name: str) -> str | None:

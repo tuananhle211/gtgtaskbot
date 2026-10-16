@@ -267,6 +267,8 @@ export interface Person {
   user_id: Uuid;
   full_name: string;
   role: string;
+  /** 0067: the viewer may grant / revoke this person's PR rights. Optional. */
+  can_manage_permissions?: boolean;
 }
 
 /**
@@ -2634,6 +2636,8 @@ export interface CapabilityGrant {
   /** True only on grants that predate scoping - see revision 0031. */
   requires_role_baseline: boolean;
   granted_by_user_id: Uuid | null;
+  /** 0067: the viewer may withdraw this grant. Optional: an older API omits it (= may). */
+  can_revoke?: boolean;
 }
 
 export interface Publication {
@@ -3659,6 +3663,8 @@ export interface DepartmentCatalog {
     /** `["NONE", "OWN", "ALL"]` or `["NONE", "ALL"]`. */
     scopes: string[];
     own_meaning?: string | null;
+    /** 0066: held per person over a scope (the PR review gates) - never a department cell. */
+    personal_only?: boolean;
   }>;
   /** Every module a department grants in (0065): the order flow, then Tài nguyên. Optional. */
   modules?: Array<{
@@ -6297,6 +6303,26 @@ export const api = {
   /** Step 2: writes everything, only when no row has an error (422 `import_has_errors`). */
   resourceImportCommit: (body: { filename?: string; data: string }) =>
     post<ResourceImportPreview>("/api/resources/import/commit", body),
+  // --- The personal permission layer (0066): one page per person -------------
+  /** Everything one person holds in every module, with its sources; 403 `permission_forbidden`. */
+  personPermissions: (userId: Uuid) =>
+    get<PersonPermissions>(`/api/permissions/people/${userId}`),
+  /**
+   * 201. 422 `permission_not_grantable` (not held by the granter, or wider),
+   * `permission_use_pr_grant` (a PR review gate: the PR screen), `permission_duplicate`.
+   */
+  grantPersonalPermission: (userId: Uuid, body: PermissionGrantBody) =>
+    post<PersonalGrant>(`/api/permissions/people/${userId}/grants`, body),
+  /**
+   * The checklist of one module, saved whole: `permission -> scope` (`null` =
+   * not ticked). Ticked = granted personally, unticked = revoked; what the
+   * seats give is untouched. Answers with the page as it stands.
+   */
+  savePermissionChecklist: (userId: Uuid, module: string, permissions: Record<string, string | null>) =>
+    put<PersonPermissions>(`/api/permissions/people/${userId}/grants`, { module, permissions }),
+  /** 204. Effective at once; the row stays in the history. */
+  revokePersonalPermission: (userId: Uuid, grantId: Uuid) =>
+    del<void>(`/api/permissions/people/${userId}/grants/${grantId}`),
   /** "Trạng thái nhân sự" of an account: OWNER / ADMIN / HR_STATUS holders. */
   setEmploymentStatus: (userId: Uuid, employmentStatus: string) =>
     put<{ employment_status: string; employment_status_label: string }>(
@@ -6330,6 +6356,8 @@ export interface Member {
   is_active: boolean;
   /** Approval grants in force today. Counted server-side, in one query. */
   active_grant_count: number;
+  /** 0067: the viewer may grant / revoke this person's PR rights. Optional. */
+  can_manage_permissions?: boolean;
   last_status_changed_at: string | null;
   created_at: string | null;
 }
@@ -6356,6 +6384,8 @@ export interface MemberList {
   members: Member[];
   counts: MemberCounts;
   may_add: boolean;
+  /** 0067: may bring an existing account into PR (the PR head too). Optional. */
+  may_tag_pr?: boolean;
   may_change_status: boolean;
   may_change_role: boolean;
   /** The roles a picker may offer. Never `OWNER`. */
@@ -6380,8 +6410,20 @@ export interface RoleSummary {
   capabilities: CapabilityDescriptor[];
 }
 
+/** 0066: a position in the PR department and what it grants (edited on Phòng ban). */
+export interface PositionSummary {
+  position: string;
+  label: string;
+  department_id: Uuid;
+  /** Holds MANAGE_PERMISSIONS: shapes the members' permissions. */
+  manages_members: boolean;
+  capabilities: CapabilityDescriptor[];
+}
+
 export interface RolesResponse {
   roles: RoleSummary[];
+  /** 0066: what Trưởng phòng / Nhân viên of PR Thương Hiệu hold by their seat. Optional. */
+  positions?: PositionSummary[];
   /** The sentence about what a scoped grant does and does not do. */
   note: string;
 }
@@ -6394,7 +6436,8 @@ export interface RolesResponse {
  */
 export interface EffectiveCapability extends CapabilityDescriptor {
   allowed: boolean;
-  source: "ROLE" | "SCOPED_GRANT" | "NONE";
+  /** `ROLE` (OWNER / ADMIN), `DEPARTMENT` (a seat, 0066), `PERSONAL` (a grant on top), `SCOPED_GRANT`, `NONE`. */
+  source: "ROLE" | "DEPARTMENT" | "PERSONAL" | "SCOPED_GRANT" | "NONE";
   grants: CapabilityGrant[];
 }
 
@@ -6701,4 +6744,81 @@ export interface ResourceImportPreview {
   ok_count: number;
   error_count: number;
   written: boolean;
+}
+
+// --- The personal permission layer (0066) -----------------------------------------
+// Mirrors src/meobot/api/schemas/permissions.py.
+
+/** Where one held permission comes from: a seat (`DEPARTMENT`) or a personal grant. */
+export interface PermissionSource {
+  source: "DEPARTMENT" | "PERSONAL" | string;
+  scope: string;
+  department_id?: Uuid | null;
+  department_code?: string | null;
+  department_name?: string | null;
+  position?: string | null;
+  position_label?: string | null;
+  grant_id?: Uuid | null;
+  granted_by_user_id?: Uuid | null;
+  effective_to?: string | null;
+  note?: string | null;
+}
+
+export interface EffectivePermissionRow {
+  permission: string;
+  label: string;
+  /** `NONE` / `OWN` / `ALL`, or `SCOPED` for a PR review gate held over a scope. */
+  scope: string;
+  scope_label: string;
+  sources: PermissionSource[];
+  gate_grants: CapabilityGrant[];
+  /** A PR review gate: granted per person on the PR screen, not a cell here. */
+  personal_only: boolean;
+}
+
+export interface ModulePermissions {
+  module: string;
+  label: string;
+  rows: EffectivePermissionRow[];
+  /** The viewer may grant / revoke this module's permissions for this person. */
+  can_manage: boolean;
+  /** What the viewer may grant here: permission -> scopes. */
+  grantable: Record<string, string[]>;
+}
+
+export interface PersonalGrant {
+  id: Uuid;
+  module: string;
+  module_label: string;
+  permission: string;
+  permission_label: string;
+  scope: string;
+  scope_label: string;
+  note: string | null;
+  granted_by_user_id: Uuid | null;
+  effective_to: string | null;
+  created_at: string;
+}
+
+export interface PersonPermissions {
+  user_id: Uuid;
+  full_name: string;
+  role: string;
+  role_label: string;
+  employment_status: string;
+  employment_status_label: string;
+  /** OWNER / ADMIN: holds everything, everywhere. */
+  sees_all: boolean;
+  seats: Array<{ department_id: Uuid; code: string; name: string; position: string; position_label: string }>;
+  modules: ModulePermissions[];
+  personal: PersonalGrant[];
+  scope_labels: Record<string, string>;
+}
+
+export interface PermissionGrantBody {
+  module: string;
+  permission: string;
+  scope: "OWN" | "ALL" | string;
+  note?: string | null;
+  effective_to?: string | null;
 }

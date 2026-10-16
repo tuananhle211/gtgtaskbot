@@ -146,7 +146,7 @@ async def _dispatch(
         if intent is MemberIntent.HELP:
             return service.help(actor)
         if intent is MemberIntent.VIEW_AI_ALLOWANCE:
-            if not has_full_bot(actor.role):
+            if not has_full_bot(actor):
                 # No AI chat on the basic bot, so no allowance to report.
                 return MemberReply(text=BASIC_ONLY_CHAT)
             return await service.ai_allowance(actor)

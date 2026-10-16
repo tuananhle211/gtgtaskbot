@@ -58,6 +58,7 @@ from sqlalchemy import Select, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from meobot.application.audit_service import AuditService
+from meobot.application.org.access import Access, AccessCache
 from meobot.application.pr_support import record_pr_event
 from meobot.core.logging import get_logger
 from meobot.core.time import utcnow
@@ -69,7 +70,9 @@ from meobot.db.models.pr_authorization import (
 )
 from meobot.db.models.user import User
 from meobot.domain.audit.models import AuditAction
-from meobot.domain.identity.models import Actor
+from meobot.domain.identity.labels import role_label
+from meobot.domain.identity.models import Actor, Role
+from meobot.domain.org.models import MODULE_PR, DepartmentFunction
 from meobot.domain.pr.errors import (
     PrConflictError,
     PrNotFoundError,
@@ -85,9 +88,7 @@ from meobot.domain.pr.policy import (
     PrCapability,
     baseline_permission,
     grant_admits,
-    meets_baseline,
-    require_baseline,
-    require_permission,
+    require_held,
     requires_grant,
 )
 
@@ -159,6 +160,64 @@ class PrCapabilityService:
     def __init__(self, session: AsyncSession, audit: AuditService) -> None:
         self._session = session
         self._audit = audit
+        #: 0066: one load of a person's unified access per service instance.
+        self._access = AccessCache(session)
+
+    # --- The unified layers (0066) -----------------------------------------
+    async def access_of(self, actor: Actor) -> Access:
+        """The actor's effective permissions in every module, loaded once."""
+        return await self._access.for_actor(actor)
+
+    async def held(self, actor: Actor, capability: PrCapability) -> bool:
+        """Whether the actor holds ``capability`` through the unified layers:
+        OWNER / ADMIN, a department seat's grant, or a personal grant. The
+        scoped review gates are *also* held this way only for an OWNER /
+        ADMIN; everybody else holds them through ``pr_user_capabilities``."""
+        access = await self.access_of(actor)
+        return access.sees_all or access.allows(MODULE_PR, capability.value)
+
+    async def legacy_baseline(self, user_id: uuid.UUID, role: Role) -> bool:
+        """What a ``requires_role_baseline`` grant (a row from before Step
+        1F.2.7) asks of its holder, since 0066: the OWNER / ADMIN, or a head
+        of PR Thương Hiệu - the seat a Trưởng nhóm's reviewing role became."""
+        access = await self._access.for_user(user_id, role)
+        return access.sees_all or access.heads(DepartmentFunction.PR)
+
+    async def manages(self, actor: Actor, user: User) -> bool:
+        """Who may grant or revoke this person's PR rights (0066): the OWNER,
+        an ADMIN, or whoever holds ``MANAGE_PERMISSIONS`` in the PR module over
+        them - a Trưởng phòng PR for the members of their department. Never
+        the OWNER's or an ADMIN's rights, never one's own."""
+        mine = await self.access_of(actor)
+        theirs = await self._access.for_user(user.id, user.role)
+        return mine.manages(MODULE_PR, theirs)
+
+    async def _require_administers(self, actor: Actor, user_id: uuid.UUID) -> None:
+        target = await self._session.get(User, user_id)
+        if target is None:
+            raise PrNotFoundError("No user with that id", details={"user_id": str(user_id)})
+        if await self.manages(actor, target):
+            return
+        if target.role in (Role.OWNER, Role.ADMIN):
+            why = f"Không ai cấp hay thu hồi được quyền của {role_label(target.role)}."
+        elif actor.user_id == target.id:
+            why = "Bạn không tự cấp hay thu hồi quyền của chính mình."
+        else:
+            why = (
+                "Bạn chỉ cấp hay thu hồi được quyền của nhân viên trong phòng mình làm "
+                'trưởng phòng (quyền "Cấp / thu hồi quyền" ở Phòng ban).'
+            )
+        raise PrPermissionDeniedError(
+            why,
+            details={
+                "role": actor.role.value,
+                "role_label": role_label(actor.role),
+                "permission": PR_CAPABILITY_ADMIN_PERMISSION.value,
+                "user_id": str(user_id),
+                "target_role": target.role.value,
+                "reason": "cannot_manage_permissions",
+            },
+        )
 
     # --- The check every PR write makes -----------------------------------
     async def require(
@@ -185,7 +244,7 @@ class PrCapabilityService:
                 the handover. Revocation is not day-scoped and ignores this.
         """
         if not requires_grant(capability):
-            require_baseline(actor, capability)
+            require_held(actor, capability, await self.held(actor, capability))
             return
 
         if actor.user_id is None:
@@ -200,9 +259,10 @@ class PrCapabilityService:
 
         key = await self.content_scope_key(content) if content is not None else None
         grants = await self._active_grants(actor.user_id, capability, on=on)
+        baseline = await self.legacy_baseline(actor.user_id, actor.role)
         for row in grants:
             if grant_admits(
-                actor,
+                baseline,
                 capability,
                 requires_role_baseline=row.requires_role_baseline,
                 scope=scope_of(row),
@@ -315,10 +375,12 @@ class PrCapabilityService:
         admit the actor for *something*; whether it admits them for the item
         they then open is :meth:`can_approve`, asked per item.
         """
+        access = await self.access_of(actor)
         held = {
             capability
             for capability in PrCapability
-            if not requires_grant(capability) and meets_baseline(actor, capability)
+            if not requires_grant(capability)
+            and (access.sees_all or access.allows(MODULE_PR, capability.value))
         }
         # One query for all three gates rather than one each - and the *same*
         # enumeration the queue is built from, so "do I review at all" and "what
@@ -353,11 +415,12 @@ class PrCapabilityService:
                 PrUserCapability.capability.in_(sorted(GRANT_BACKED, key=lambda c: c.value)),
             )
         )
+        baseline = await self.legacy_baseline(actor.user_id, actor.role)
         return [
             PrCapabilityGrant.from_row(row)
             for row in result.scalars().all()
             if grant_admits(
-                actor,
+                baseline,
                 row.capability,
                 requires_role_baseline=row.requires_role_baseline,
                 scope=scope_of(row),
@@ -463,7 +526,7 @@ class PrCapabilityService:
             PrConflictError: That person already holds an active grant of this
                 capability with exactly this scope.
         """
-        require_permission(actor, PR_CAPABILITY_ADMIN_PERMISSION)
+        await self._require_administers(actor, user_id)
         if not requires_grant(capability):
             raise PrValidationError(
                 f"{capability.value} is decided by role and cannot be granted",
@@ -591,8 +654,8 @@ class PrCapabilityService:
             PrValidationError: Neither form of identification was given, the
                 pair is ambiguous, or the end date precedes the start.
         """
-        require_permission(actor, PR_CAPABILITY_ADMIN_PERMISSION)
         row = await self._grant_to_revoke(grant_id=grant_id, user_id=user_id, capability=capability)
+        await self._require_administers(actor, row.user_id)
 
         closing = effective_to or utcnow().date()
         if row.effective_from is not None and closing < row.effective_from:
@@ -649,7 +712,7 @@ class PrCapabilityService:
         Raises:
             PrNotFoundError: There is no active grant to withdraw.
         """
-        require_permission(actor, PR_CAPABILITY_ADMIN_PERMISSION)
+        await self._require_administers(actor, user_id)
         result = await self._session.execute(
             self._active_query(on=None).where(
                 PrUserCapability.user_id == user_id,

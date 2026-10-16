@@ -229,6 +229,11 @@ class UnitMembership:
     #: then read from their stream tags alone (the role matrix, as before).
     seats: tuple[Seat, ...] = ()
     grants: tuple[Grant, ...] | None = None
+    #: 0066: the person's effective permissions in every module
+    #: (:class:`meobot.application.org.access.Access`), loaded once per
+    #: request. ``object`` here because the domain does not import the
+    #: application layer; the one reader casts.
+    access: object | None = None
 
     @property
     def is_board(self) -> bool:

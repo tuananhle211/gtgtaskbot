@@ -161,6 +161,7 @@ from meobot.db.models.task import Task
 from meobot.db.models.user import User
 from meobot.db.models.user_avatar import UserAvatar
 from meobot.db.models.user_notification import UserNotification
+from meobot.db.models.user_permission import UserPermission
 from meobot.db.models.web_session import WebSession, WebSessionKind
 
 __all__ = [
@@ -297,6 +298,7 @@ __all__ = [
     "User",
     "UserAvatar",
     "UserNotification",
+    "UserPermission",
     "UserQuotaOverride",
     "WebSession",
     "WebSessionKind",

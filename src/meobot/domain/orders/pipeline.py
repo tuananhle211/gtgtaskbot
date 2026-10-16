@@ -263,24 +263,17 @@ class OrderActorContext:
             members.add(node_type)
             if entry.is_lead:
                 leads.add(node_type)
-        if membership.is_owner:
+        if membership.is_owner or membership.is_admin:
+            # 0066: an ADMIN holds every permission, like the OWNER. The old
+            # "Admin column" of the stored matrix is no longer read.
             permissions = AdsPermissions.full()
         elif membership.grants is not None:
-            # 0061: what the person's department seats grant - plus the
-            # matrix's Admin column for an ADMIN.
+            # 0061: what the person's department seats grant (and, 0066,
+            # their personal grants - a function of their own only).
             permissions = AdsPermissions.from_grants(
                 (grant.permission, grant.scope, FUNCTION_NODES.get(grant.function))
                 for grant in membership.grants
             )
-            if membership.is_admin:
-                permissions = permissions.union(
-                    AdsPermissions.compute(
-                        resolve_matrix(settings.permissions),
-                        roles=[AdsRoleKey.ADMIN],
-                        function_nodes=frozenset(members),
-                        lead_nodes=frozenset(leads),
-                    )
-                )
         else:
             roles: list[AdsRoleKey] = []
             if entry is not None:
@@ -292,10 +285,6 @@ class OrderActorContext:
                     roles.append(AdsRoleKey.STAFF)
                     if entry.is_lead:
                         roles.append(AdsRoleKey.LEAD)
-            # An ADMIN sees every stream, tagged in it or not: the matrix's
-            # Admin column applies either way.
-            if membership.is_admin:
-                roles.append(AdsRoleKey.ADMIN)
             permissions = AdsPermissions.compute(
                 resolve_matrix(settings.permissions),
                 roles=roles,

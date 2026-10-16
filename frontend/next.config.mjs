@@ -105,6 +105,11 @@ const nextConfig = {
       { source: "/api/ai/:path*", destination: `${target}/api/ai/:path*` },
       // Resources ("Quản lý tài nguyên", 0065): the list is the bare
       // collection route, like /api/orders; the rest sits under it.
+      // The personal permission layer (0066).
+      {
+        source: "/api/permissions/:path*",
+        destination: `${target}/api/permissions/:path*`,
+      },
       { source: "/api/resources", destination: `${target}/api/resources` },
       {
         source: "/api/resources/:path*",

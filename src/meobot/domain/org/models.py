@@ -49,6 +49,8 @@ class Position(StrEnum):
 #: The modules whose permissions departments grant: the order flow, and
 #: (0065) the resources module - see :mod:`meobot.domain.org.modules`.
 MODULE_ORDER = "ORDER"
+#: 0066: the PR module's capabilities, granted by position like the others.
+MODULE_PR = "PR"
 
 FUNCTION_LABELS: MappingProxyType[DepartmentFunction, str] = MappingProxyType(
     {
@@ -177,6 +179,7 @@ __all__ = [
     "FUNCTION_LABELS",
     "FUNCTION_NODES",
     "MODULE_ORDER",
+    "MODULE_PR",
     "POSITION_LABELS",
     "PRODUCTION_FUNCTIONS",
     "DepartmentFunction",

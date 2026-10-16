@@ -843,42 +843,12 @@ describe("the unit admin page", () => {
     return stub;
   };
 
-  it("lets the OWNER edit only the Quản trị viên column, and sends only it", async () => {
+  it("draws no Quản trị viên column since 0066: an ADMIN holds everything", async () => {
     pathname = "/admin/settings";
-    const fetchMock = settingsPage("OWNER");
-    const box = await screen.findByRole("region", { name: "Quyền của Quản trị viên" });
-    // The departments' columns are Phòng ban's now: not drawn here.
-    expect(within(box).queryByText("Trưởng phòng")).not.toBeInTheDocument();
-    expect(within(box).getByRole("link", { name: "Phòng ban" })).toHaveAttribute(
-      "href",
-      "/admin/departments",
-    );
-    const cell = await within(box).findByLabelText("Giao việc · Quản trị viên");
-    expect(cell).toHaveValue("NONE");
-    await userEvent.selectOptions(cell, "ALL");
-    await userEvent.click(within(box).getByRole("button", { name: "Lưu quyền" }));
-    const dialog = await screen.findByRole("dialog");
-    await userEvent.click(within(dialog).getByRole("button", { name: "Lưu" }));
-    await waitFor(() => {
-      const sent = (
-        fetchMock as unknown as {
-          calls: Array<{ url: string; method: string; body: unknown }>;
-        }
-      ).calls.find(
-        (call) => call.method === "PATCH" && call.url.includes("/api/units/ADS/settings"),
-      );
-      expect(sent?.body).toEqual({ permissions: { ADMIN: { NODE_ASSIGN: "ALL" } } });
-    });
-  });
-
-  it("shows an ADMIN the column read-only", async () => {
-    pathname = "/admin/settings";
-    settingsPage("ADMIN");
-    const box = await screen.findByRole("region", { name: "Quyền của Quản trị viên" });
-    expect(await within(box).findByText("Chỉ chủ sở hữu chỉnh được.")).toBeInTheDocument();
-    expect(within(box).queryByRole("combobox")).not.toBeInTheDocument();
-    expect(within(box).queryByRole("button", { name: "Lưu quyền" })).not.toBeInTheDocument();
-    expect(within(box).getByText("Không")).toBeInTheDocument();
+    settingsPage("OWNER");
+    await screen.findByRole("heading", { name: "Thiết lập ORD" });
+    expect(screen.queryByRole("region", { name: "Quyền của Quản trị viên" })).not.toBeInTheDocument();
+    expect(screen.queryByText("Giao việc · Quản trị viên")).not.toBeInTheDocument();
   });
 
   it("puts the admin screens on one tab strip, Kết nối AI for the OWNER", async () => {

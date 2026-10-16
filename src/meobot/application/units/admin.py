@@ -54,6 +54,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from meobot.application.account.member_code import write_member_code
 from meobot.application.audit_service import AuditService
 from meobot.application.org import departments
+from meobot.application.org.access import Access
 from meobot.application.units.directory import (
     ROLE_FOR_NODE,
     UnitDirectoryService,
@@ -75,6 +76,8 @@ from meobot.domain.identity.models import Actor, Role
 from meobot.domain.orders.labels import node_type_label
 from meobot.domain.orders.models import ACTIVE_NODE_STATUSES, TERMINAL_STAGES, OrderNodeType
 from meobot.domain.orders.permissions import AdsPermissionMatrixError, normalise_matrix
+from meobot.domain.org.models import MODULE_PR
+from meobot.domain.pr.policy import PrCapability
 from meobot.domain.units.errors import (
     UnitAccessDeniedError,
     UnitNotFoundError,
@@ -125,13 +128,41 @@ class UnitAdminService:
         """Whether ``actor`` may tag people into (and out of) ``code``."""
         if actor.role in (Role.OWNER, Role.ADMIN):
             return True
-        return actor.role is Role.TEAM_LEAD and membership.entry(code) is not None
+        if actor.role is Role.TEAM_LEAD and membership.entry(code) is not None:
+            return True
+        # 0067: whoever holds ``PR_MEMBERS_MANAGE`` (the PR head by default)
+        # brings people into PR Thương Hiệu.
+        access = membership.access
+        return (
+            code is UnitCode.PR
+            and isinstance(access, Access)
+            and access.allows(MODULE_PR, PrCapability.PR_MEMBERS_MANAGE.value)
+        )
 
     @staticmethod
     def assigns(actor: Actor) -> bool:
         """Who places people in departments - and so in streams, roles and
         under a Leader: the OWNER alone (0061)."""
         return actor.role is Role.OWNER
+
+    async def _require_placer(
+        self, actor: Actor, code: UnitCode, role: UnitMemberRole | None
+    ) -> None:
+        """Who may put somebody into (or take them out of) a stream: the
+        OWNER anywhere; 0067: a ``PR_MEMBERS_MANAGE`` holder (the PR head)
+        into PR Thương Hiệu as a member, and out of it."""
+        if self.assigns(actor):
+            return
+        membership = await self._directory.membership_for(actor)
+        access = membership.access
+        if (
+            code is UnitCode.PR
+            and role in (None, UnitMemberRole.MEMBER)
+            and isinstance(access, Access)
+            and access.allows(MODULE_PR, PrCapability.PR_MEMBERS_MANAGE.value)
+        ):
+            return
+        self._require_assigner(actor, code)
 
     def _require_assigner(self, actor: Actor, code: UnitCode) -> None:
         if not self.assigns(actor):
@@ -159,7 +190,7 @@ class UnitAdminService:
             raise UnitNotFoundError("Không tìm thấy.", details={"reason": "unit_not_visible"})
         if not self.tags_in(membership, actor, code):
             raise UnitTagForbiddenError(code)
-        if actor.role is Role.TEAM_LEAD:
+        if actor.role not in (Role.OWNER, Role.ADMIN):
             if actor.user_id is not None and target_id == actor.user_id:
                 raise UnitTagForbiddenError(
                     code, "Bạn không thể tự gắn hoặc gỡ luồng của chính mình."
@@ -198,7 +229,7 @@ class UnitAdminService:
         personal_nas_url: str | None = None,
     ) -> UnitMemberRow:
         unit = await self._require_tagger(actor, code, user_id)
-        self._require_assigner(actor, code)
+        await self._require_placer(actor, code, role)
         user = await self._session.get(User, user_id)
         if user is None:
             raise UnitValidationError(
@@ -340,7 +371,7 @@ class UnitAdminService:
         self, *, actor: Actor, request_id: uuid.UUID, code: UnitCode, user_id: uuid.UUID
     ) -> UnitMemberRow:
         unit = await self._require_tagger(actor, code, user_id)
-        self._require_assigner(actor, code)
+        await self._require_placer(actor, code, None)
         row = await self._directory.member(unit.id, user_id)
         if row is None or row.left_at is not None:
             raise UnitNotFoundError(

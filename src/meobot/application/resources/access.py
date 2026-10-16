@@ -21,8 +21,9 @@ from dataclasses import dataclass, replace
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from meobot.application.org.seats import load_grants
+from meobot.application.org.access import Access, load_access
 from meobot.core.errors import AuthorizationError, NotFoundError, ValidationError
+from meobot.domain.identity.models import Role
 from meobot.domain.org.models import DepartmentFunction, Position
 from meobot.domain.resources.models import MODULE_RESOURCES, ResourcePermission
 from meobot.domain.units.models import UnitMembership
@@ -95,31 +96,35 @@ _FLAGS: tuple[tuple[ResourcePermission, str], ...] = (
 
 
 async def resource_access(session: AsyncSession, membership: UnitMembership) -> ResourceAccess:
-    """What ``membership`` may do in the module."""
+    """What ``membership`` may do in the module, from its effective access
+    (0066: seats' grants plus personal grants)."""
     if membership.sees_all:
         return replace(EVERYTHING, user_id=membership.user_id)
-    seats = membership.seats
-    if not seats or membership.user_id is None:
-        return ResourceAccess(user_id=membership.user_id)
-    table = await load_grants(session, MODULE_RESOURCES, [seat.department_id for seat in seats])
+    if membership.user_id is None:
+        return ResourceAccess(user_id=None)
+    access = (
+        membership.access
+        if isinstance(membership.access, Access)
+        else await load_access(session, user_id=membership.user_id, role=Role.EMPLOYEE)
+    )
     view_all = False
     departments: set[uuid.UUID] = set()
     held = False
     flags: dict[str, bool] = {attr: False for _permission, attr in _FLAGS}
-    for seat in seats:
-        cells = dict(table.get((seat.department_id, seat.position.value), ()))
-        if seat.function is DepartmentFunction.BOARD:
-            view_all = True
-            flags["report"] = True
-        scope = cells.get(ResourcePermission.VIEW.value)
-        if scope == "ALL":
-            view_all = True
-        elif scope == "OWN":
-            held = True
-            if seat.position is Position.HEAD:
-                departments.add(seat.department_id)
+    if any(seat.function is DepartmentFunction.BOARD for seat in access.seats):
+        view_all = True
+        flags["report"] = True
+    for grant in access.of(MODULE_RESOURCES):
+        if grant.permission == ResourcePermission.VIEW.value:
+            if grant.scope == "ALL":
+                view_all = True
+            else:
+                held = True
+                if grant.seat is not None and grant.seat.position is Position.HEAD:
+                    departments.add(grant.seat.department_id)
+            continue
         for permission, attr in _FLAGS:
-            if cells.get(permission.value) == "ALL":
+            if grant.permission == permission.value and grant.scope == "ALL":
                 flags[attr] = True
     return ResourceAccess(
         user_id=membership.user_id,

@@ -784,7 +784,8 @@ def build_pr_admin_tools() -> list[ToolDefinition]:
             handler=_grant_handler,
             arguments_model=GrantArgs,
             risk_level=RiskLevel.HIGH,
-            required_permission=Permission.USER_ROLE_MANAGE,
+            # 0067: the service decides who administers whose grants (``manages``).
+            required_permission=Permission.SCRIPT_REVIEW,
             read_only=False,
         ),
         ToolDefinition(
@@ -793,7 +794,8 @@ def build_pr_admin_tools() -> list[ToolDefinition]:
             handler=_revoke_handler,
             arguments_model=GrantArgs,
             risk_level=RiskLevel.HIGH,
-            required_permission=Permission.USER_ROLE_MANAGE,
+            # 0067: the service decides who administers whose grants (``manages``).
+            required_permission=Permission.SCRIPT_REVIEW,
             # NOT ``destructive``: in this repository that flag means
             # "deletes data", and ``PolicyEngine`` refuses any destructive tool
             # outright (``deny_destructive=True``). Rejecting cancels content,

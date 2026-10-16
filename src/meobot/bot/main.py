@@ -15,7 +15,7 @@ from typing import Any
 from aiogram import Bot, Dispatcher
 from aiogram.dispatcher.event.bases import UNHANDLED
 from aiogram.types import BotCommand, BotCommandScopeChat, ErrorEvent
-from sqlalchemy import select
+from sqlalchemy import or_, select
 
 from meobot.application.ai.routing import build_ai_provider
 from meobot.application.conversation_service import ConversationService
@@ -52,9 +52,11 @@ from meobot.bot.storage import PostgresStorage
 from meobot.core.config import Settings, get_settings
 from meobot.core.errors import ConfigurationError
 from meobot.core.logging import configure_logging, get_logger
+from meobot.db.models.department import Department, DepartmentMember
 from meobot.db.models.user import User
 from meobot.db.session import Database
 from meobot.domain.identity.models import Role
+from meobot.domain.org.models import DepartmentFunction, Position
 from meobot.domain.policy.engine import PolicyEngine
 from meobot.integrations.google.factory import build_drive_client, build_sheets_client
 from meobot.tools.registry import build_default_registry
@@ -226,20 +228,33 @@ def _bot_commands(menu: list[tuple[str, str]]) -> list[BotCommand]:
 
 
 async def owner_chat_ids(database: Database, settings: Settings) -> list[int]:
-    """Private chats that get the owner's full menu.
+    """Private chats that get the full menu.
 
     Every active OWNER row (their private chat, which for a person is their
-    Telegram id) plus the configured bootstrap owner. A lookup failure only
-    costs the owner their full menu, never the bot.
+    Telegram id) plus the configured bootstrap owner - and, since 0067, every
+    active head of PR Thương Hiệu, who has the whole bot too. A lookup
+    failure only costs them their full menu, never the bot.
     """
     chat_ids: list[int] = []
     if settings.meobot_owner_telegram_id is not None:
         chat_ids.append(settings.meobot_owner_telegram_id)
     try:
         async with database.session() as session:
+            pr_heads = (
+                select(DepartmentMember.user_id)
+                .join(Department, Department.id == DepartmentMember.department_id)
+                .where(
+                    DepartmentMember.left_at.is_(None),
+                    DepartmentMember.position == Position.HEAD,
+                    Department.function == DepartmentFunction.PR,
+                    Department.active.is_(True),
+                )
+            )
             rows = await session.execute(
                 select(User.telegram_private_chat_id, User.telegram_user_id).where(
-                    User.role == Role.OWNER, User.active.is_(True)
+                    or_(User.role == Role.OWNER, User.id.in_(pr_heads)),
+                    User.active.is_(True),
+                    User.deleted_at.is_(None),
                 )
             )
             for private_chat_id, telegram_user_id in rows.all():

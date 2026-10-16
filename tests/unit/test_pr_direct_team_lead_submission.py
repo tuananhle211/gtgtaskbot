@@ -475,16 +475,18 @@ async def test_08_the_direct_submission_needs_the_same_right_as_the_ai_one(
     )
 
     content_id = await scripted(world)
-    from meobot.domain.pr import policy
+    # 0066: the unscoped capabilities are held through the unified layers,
+    # asked of the capability service - the one place both submissions ask.
+    from meobot.application import pr_capability_service as module
 
-    real = policy.meets_baseline
-    monkeypatch.setattr(
-        policy,
-        "meets_baseline",
-        lambda actor, capability: (
-            False if capability is PrCapability.PR_CONTENT_TRANSITION else real(actor, capability)
-        ),
-    )
+    real = module.PrCapabilityService.held
+
+    async def held(self: object, actor: object, capability: PrCapability) -> bool:
+        if capability is PrCapability.PR_CONTENT_TRANSITION:
+            return False
+        return await real(self, actor, capability)  # type: ignore[arg-type]
+
+    monkeypatch.setattr(module.PrCapabilityService, "held", held)
     with pytest.raises(PrPermissionDeniedError):
         await submit_direct(world, content_id)
     assert await world.stage(content_id) is PrWorkflowStage.SCRIPTING

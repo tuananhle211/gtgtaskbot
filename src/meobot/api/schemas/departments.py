@@ -112,6 +112,9 @@ class PermissionEntry(BaseModel):
     label: str
     scopes: list[str]
     own_meaning: str | None = None
+    #: 0066: held per person over a scope (the PR review gates) - not a
+    #: department cell; the personal layer's screen lists it instead.
+    personal_only: bool = False
 
 
 class ModuleEntry(BaseModel):
@@ -128,12 +131,13 @@ class ModuleEntry(BaseModel):
             module_label=spec.label,
             permissions=[
                 PermissionEntry(
-                    key=permission.value,
-                    label=spec.labels[permission],
-                    scopes=[scope.value for scope in spec.scopes(permission)],
-                    own_meaning=spec.own_meaning.get(permission),
+                    key=key,
+                    label=spec.label_of(key),
+                    scopes=sorted(spec.allowed(key), key=("NONE", "OWN", "ALL").index),
+                    own_meaning=spec.own_meaning_of(key),
+                    personal_only=key in spec.personal_only,
                 )
-                for permission in spec.permissions
+                for key in spec.permission_keys()
             ],
         )
 

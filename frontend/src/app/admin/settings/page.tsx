@@ -7,14 +7,15 @@ import { DurationManager } from "@/components/durations";
 import { PageHeader } from "@/components/pr";
 import { PlatformManager } from "@/components/platforms";
 import { ErrorBox, Loading } from "@/components/states";
-import { AdminPermissions, SettingsForm } from "@/components/unit-panel";
+import { SettingsForm } from "@/components/unit-panel";
 import { VideoKindsManager } from "@/components/video-kinds";
 
 /**
  * "Quản trị › Thiết lập ORD": the order flow's settings (review steps, effort,
- * AI script review...), its catalogues (video kinds, platforms, durations) and
- * the Quản trị viên column. For whoever administers ORD (OWNER / ADMIN); the
- * server refuses every write from anybody else.
+ * AI script review...) and its catalogues (video kinds, platforms, durations).
+ * For whoever administers ORD (OWNER / ADMIN); the server refuses every write
+ * from anybody else. No permission column here since 0066: an ADMIN holds
+ * everything, and what a department grants is edited on "Phòng ban".
  */
 export default function OrdSettingsPage() {
   const queryClient = useQueryClient();
@@ -39,7 +40,6 @@ export default function OrdSettingsPage() {
           <VideoKindsManager code="ADS" />
           <PlatformManager code="ADS" />
           <DurationManager code="ADS" />
-          <AdminPermissions code="ADS" onDone={refresh} />
         </>
       ) : null}
     </div>

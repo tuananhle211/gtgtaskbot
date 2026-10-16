@@ -32,6 +32,7 @@ from meobot.application.pr_membership_service import (
     MemberList,
     MemberRow,
     OpenResponsibilities,
+    PositionSummary,
     RoleSummary,
 )
 from meobot.application.user_service import status_label
@@ -66,6 +67,8 @@ class MemberResponse(BaseModel):
     status_label: str
     is_active: bool
     active_grant_count: int
+    #: 0067: the viewer may grant / revoke this person's PR rights.
+    can_manage_permissions: bool = False
     last_status_changed_at: datetime | None
     created_at: datetime | None
 
@@ -84,6 +87,7 @@ class MemberResponse(BaseModel):
             status_label=status_label(user.status),
             is_active=row.is_active,
             active_grant_count=row.active_grant_count,
+            can_manage_permissions=row.can_manage_permissions,
             last_status_changed_at=user.last_status_changed_at,
             created_at=user.created_at,
         )
@@ -120,6 +124,8 @@ class MemberListResponse(BaseModel):
     may_add: bool
     may_change_status: bool
     may_change_role: bool
+    #: 0067: may put an existing account into PR Thương Hiệu.
+    may_tag_pr: bool = False
     assignable_roles: list[RoleOptionResponse]
 
     @classmethod
@@ -130,6 +136,7 @@ class MemberListResponse(BaseModel):
             members=[MemberResponse.from_row(row) for row in result.members],
             counts=MemberCountsResponse.from_domain(result.counts),
             may_add=result.may_add,
+            may_tag_pr=result.may_tag_pr,
             may_change_status=result.may_change_status,
             may_change_role=result.may_change_role,
             assignable_roles=assignable,
@@ -213,8 +220,34 @@ class RoleResponse(BaseModel):
         )
 
 
+class PositionResponse(BaseModel):
+    """0066: a position in the PR department and the capabilities it grants."""
+
+    position: str
+    label: str
+    department_id: uuid.UUID
+    manages_members: bool
+    capabilities: list[CapabilityDescriptorResponse]
+
+    @classmethod
+    def from_domain(cls, summary: PositionSummary) -> PositionResponse:
+        return cls(
+            position=summary.position.value,
+            label=summary.label,
+            department_id=summary.department_id,
+            manages_members=summary.manages_members,
+            capabilities=[
+                CapabilityDescriptorResponse.from_capability(capability)
+                for capability in summary.capabilities
+            ],
+        )
+
+
 class RolesResponse(BaseModel):
     roles: list[RoleResponse]
+    #: 0066: what the PR department grants by position (the defaults a
+    #: Trưởng nhóm / Nhân viên hold), edited on "Phòng ban".
+    positions: list[PositionResponse] = []
     #: A note the tab prints verbatim, so the sentence about what a grant does
     #: and does not do is the server's, not the client's.
     note: str

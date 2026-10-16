@@ -120,7 +120,7 @@ async def handle_free_text(
       however many questions it contained.
     """
     raw = message.text or ""
-    if not has_full_bot(actor.role):
+    if not has_full_bot(actor):
         # The basic bot has no AI chat, so nothing below may run: no provider
         # call, no tool, no slot spent. In a group, silence unless addressed by
         # name or reply - even when the deployment does not require a mention.

@@ -10,7 +10,7 @@ from collections.abc import Mapping
 from enum import StrEnum
 from types import MappingProxyType
 
-from meobot.domain.identity.models import Role
+from meobot.domain.identity.models import Actor, Role
 
 
 class Permission(StrEnum):
@@ -178,3 +178,9 @@ def permissions_for(role: Role) -> frozenset[Permission]:
 def has_permission(role: Role, permission: Permission) -> bool:
     """True when ``role`` grants ``permission``."""
     return permission in ROLE_PERMISSIONS[role]
+
+
+def actor_has_permission(actor: Actor, permission: Permission) -> bool:
+    """``has_permission`` for a person: their role, plus what their PR seat
+    and personal grants give them (0067, ``Actor.extra_permissions``)."""
+    return has_permission(actor.role, permission) or permission.value in actor.extra_permissions

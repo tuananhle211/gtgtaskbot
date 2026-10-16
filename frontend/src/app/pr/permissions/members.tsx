@@ -175,7 +175,7 @@ export function MembersTab({
         <AddMemberForm
           roster={data}
           outsiders={roster.outsiders}
-          mayTagPr={teams.admins.includes("PR")}
+          mayTagPr={teams.admins.includes("PR") || Boolean(data.may_tag_pr)}
           onDone={() => setAdding(false)}
         />
       ) : null}
@@ -712,6 +712,8 @@ function EffectivePermissionsPanel({ member }: { member: Member }) {
                   {row.label}
                 </span>
                 {row.source === "ROLE" ? <Pill tone="neutral">Vai trò</Pill> : null}
+                {row.source === "DEPARTMENT" ? <Pill tone="neutral">Phòng ban</Pill> : null}
+                {row.source === "PERSONAL" ? <Pill tone="good">Cấp riêng</Pill> : null}
                 {row.source === "SCOPED_GRANT" ? <Pill tone="good">Quyền cấp thêm</Pill> : null}
                 {row.source === "NONE" ? (
                   <span className="text-xs text-[var(--text-muted)]">Không có</span>

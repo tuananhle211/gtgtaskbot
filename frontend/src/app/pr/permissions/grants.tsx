@@ -94,7 +94,10 @@ export function GrantsTab() {
     queryFn: () => api.unitMembers("PR"),
   });
   const inPr = new Set((stream.data?.members ?? []).map((member) => member.user_id));
-  const prPeople = (people.data ?? []).filter((person) => inPr.has(person.user_id));
+  // 0067: only the people whose rights the viewer may administer are offered.
+  const prPeople = (people.data ?? []).filter(
+    (person) => inPr.has(person.user_id) && person.can_manage_permissions !== false,
+  );
   const channels = useQuery({
     queryKey: ["channels"],
     queryFn: () => api.listChannels(),
@@ -234,15 +237,19 @@ export function GrantsTab() {
                   it asks - and the question names the gate and the person,
                   because a row of three grants for three people is exactly where
                   a mis-click lands on the wrong one. */}
-              <ConfirmButton
-                spec={revokeCapabilityConfirmation(row.capability, names.get(row.user_id) ?? null)}
-                tone="secondary"
-                pending={revoke.isPending}
-                error={revoke.error}
-                onConfirm={() => revoke.mutate({ grant_id: row.id })}
-              >
-                Thu hồi
-              </ConfirmButton>
+              {row.can_revoke === false ? (
+                <span className="text-xs text-[var(--text-muted)]">Không thu hồi được</span>
+              ) : (
+                <ConfirmButton
+                  spec={revokeCapabilityConfirmation(row.capability, names.get(row.user_id) ?? null)}
+                  tone="secondary"
+                  pending={revoke.isPending}
+                  error={revoke.error}
+                  onConfirm={() => revoke.mutate({ grant_id: row.id })}
+                >
+                  Thu hồi
+                </ConfirmButton>
+              )}
             </li>
           ))}
         </ul>
@@ -270,6 +277,7 @@ export function GrantsTab() {
                     pending={revoke.isPending}
                     error={revoke.error}
                     onConfirm={() => revoke.mutate({ grant_id: row.id })}
+                    disabled={row.can_revoke === false}
                   >
                     Thu hồi
                   </ConfirmButton>

@@ -31,7 +31,7 @@ from meobot.bot.texts import BASIC_ONLY_CHAT
 from meobot.db.models.quota import DailyAiUsage
 from meobot.db.models.user import User
 from meobot.domain.access.models import UserStatus
-from meobot.domain.identity.models import Role
+from meobot.domain.identity.models import Actor, Role
 from meobot.domain.member import copy
 from tests.fakes import RecordingSession, SqliteDatabase, make_group_update, make_update
 from tests.unit.test_access_gate import CountingProvider, counting_llm  # noqa: F401
@@ -72,9 +72,15 @@ def listed_commands(help_body: str) -> set[str]:
 
 # --- The registry -----------------------------------------------------------
 def test_only_the_owner_has_the_full_bot() -> None:
+    """...by role. 0067: a person flagged ``full_bot`` - the head of PR
+    Thương Hiệu, set from their seat at the transport boundary - has it too."""
     assert has_full_bot(Role.OWNER)
     for role in NON_OWNERS:
         assert not has_full_bot(role)
+        assert not has_full_bot(Actor(full_name="x", role=role))
+        assert has_full_bot(Actor(full_name="x", role=role, full_bot=True))
+    head = Actor(full_name="x", role=Role.TEAM_LEAD, full_bot=True)
+    assert len(commands_for(head)) > len(commands_for(Role.TEAM_LEAD))
 
 
 def test_the_basic_commands_are_exactly_these() -> None:

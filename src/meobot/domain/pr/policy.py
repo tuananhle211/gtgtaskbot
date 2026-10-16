@@ -209,6 +209,17 @@ class PrCapability(StrEnum):
     #: service and by a database CHECK, whatever capability the actor has.
     PR_PERFORMANCE_REVIEW = "PR_PERFORMANCE_REVIEW"
 
+    # --- 0067: the PR roster, for the head of PR Thương Hiệu ------------------
+    #: Seeing the PR roster, the roles tab and a colleague's effective
+    #: permissions. ``user.read`` is what already means "may see who works
+    #: here"; the PR head holds this through their seat instead of a role.
+    PR_MEMBERS_VIEW = "PR_MEMBERS_VIEW"
+    #: Adding somebody to PR Thương Hiệu: registering an account (as an
+    #: Employee) or bringing an existing account into PR. Not the system half
+    #: - changing a role, deactivating, revoking - which stays with the
+    #: OWNER / ADMIN.
+    PR_MEMBERS_MANAGE = "PR_MEMBERS_MANAGE"
+
 
 #: Capability -> the existing permission that must be held for it.
 #:
@@ -295,6 +306,11 @@ _BASELINE_PERMISSIONS: Mapping[PrCapability, Permission] = MappingProxyType(
         # department-wide view back where this capability exists to remove it
         # from.
         PrCapability.PR_WORK_VIEW_ALL: Permission.USER_READ,
+        # 0067: the roster. ``user.read`` / ``user.manage``, the permissions
+        # that already mean "may see / decide about people"; a PR head holds
+        # the capabilities through their seat, not the permissions.
+        PrCapability.PR_MEMBERS_VIEW: Permission.USER_READ,
+        PrCapability.PR_MEMBERS_MANAGE: Permission.USER_MANAGE,
     }
 )
 
@@ -422,14 +438,14 @@ def may_read(actor: Actor) -> bool:
 
 
 def grant_admits(
-    actor: Actor,
+    baseline_held: bool,
     capability: PrCapability,
     *,
     requires_role_baseline: bool,
     scope: GrantScope,
     key: ContentScopeKey | None,
 ) -> bool:
-    """Whether **one** active grant authorises this actor for this item.
+    """Whether **one** active grant authorises its holder for this item.
 
     The predicate from the module docstring, for a single grant. Pure: the
     caller has already established that the grant is active - not revoked, and
@@ -437,8 +453,10 @@ def grant_admits(
     this is a question about authority.
 
     Args:
-        actor: The authenticated principal. Only :attr:`Actor.role` is read;
-            the grant was already matched to :attr:`Actor.user_id`.
+        baseline_held: Whether the holder holds the capability through the
+            unified layers (0066: OWNER / ADMIN, their department seat, a
+            personal grant) - what ``requires_role_baseline`` rows ask for.
+            Before 0066 this was the holder's system role.
         capability: The grant-backed capability being exercised.
         requires_role_baseline: The grant's own reading of itself - see the
             module docstring. ``True`` for rows written before Step 1F.2.7.
@@ -448,27 +466,27 @@ def grant_admits(
             buttons for a list, or a queue picking lanes, needs. **Never** what
             a write asks: every approval path passes the item.
     """
-    if requires_role_baseline and not meets_baseline(actor, capability):
+    del capability  # named for the reader; the decision needs only the two facts
+    if requires_role_baseline and not baseline_held:
         return False
     if key is None:
         return True
     return scope.covers(key)
 
 
-def require_baseline(actor: Actor, capability: PrCapability) -> None:
-    """Raise unless the actor's role carries the capability's permission.
+def require_held(actor: Actor, capability: PrCapability, held: bool) -> None:
+    """Raise unless ``held`` - the unified layers' answer (0066) for a
+    capability the matrix decides without a scoped grant.
 
-    The first half of the check. The second half - the grant - needs a session
-    and lives in
-    :meth:`~meobot.application.pr_capability_service.PrCapabilityService.require`,
-    which calls this first so a role that was never entitled fails for the
-    honest reason rather than for a missing grant.
+    The first half of the check. The second half - the scoped grant - needs a
+    session and lives in
+    :meth:`~meobot.application.pr_capability_service.PrCapabilityService.require`.
 
     Messages are structural English and the codes are in ``details``: PR
     services are shared by the Telegram bot, a future web admin UI and CLI
     scripts, so the sentence a human reads belongs to the client.
     """
-    if meets_baseline(actor, capability):
+    if held:
         return
     permission = baseline_permission(capability)
     raise PrPermissionDeniedError(
@@ -496,7 +514,7 @@ __all__: list[str] = [
     "grant_admits",
     "may_read",
     "meets_baseline",
-    "require_baseline",
+    "require_held",
     "require_permission",
     "requires_grant",
 ]

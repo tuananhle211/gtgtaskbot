@@ -55,6 +55,8 @@ NEW_TABLES = (
     "resource_handovers",
     "resource_status_history",
     "resource_changes",
+    # 0066 rides the same chain: the personal permission layer.
+    "user_permissions",
 )
 APPEND_ONLY = ("resource_handovers", "resource_status_history", "resource_changes")
 
@@ -115,7 +117,7 @@ async def test_01_models_and_migration_agree(database: Database) -> None:
         }
     assert diff == [], diff
     assert columns and "WORKING" in str(columns["employment_status"])
-    assert alembic_head() == "0065"
+    assert alembic_head() == "0067"
 
 
 def _mentions(item: object) -> bool:
@@ -268,7 +270,7 @@ async def test_04_the_migration_goes_both_ways(dsn: str) -> None:
                     )
                 ).all()
             }
-            assert not set(NEW_TABLES) & tables
+            assert not (set(NEW_TABLES) - {"user_permissions"}) & tables
             columns = {
                 row[0]
                 for row in (

@@ -351,6 +351,10 @@ def test_the_capability_vocabulary_is_exactly_the_twenty_specified() -> None:
         "PR_WORK_CONFIGURE",
         "PR_WORK_VIEW_ALL",
         "PR_PERFORMANCE_REVIEW",
+        # 0067: the PR roster, held by the head of PR Thương Hiệu through
+        # their seat (0066) - see / add members, never the system half.
+        "PR_MEMBERS_VIEW",
+        "PR_MEMBERS_MANAGE",
     ]
 
 

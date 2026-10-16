@@ -56,6 +56,14 @@ class Actor(BaseModel):
         default=False,
         description="True when identity came from MEOBOT_OWNER_TELEGRAM_ID, not the database.",
     )
+    #: 0067: gets the whole Telegram bot like the OWNER - the head of PR
+    #: Thương Hiệu, whom the bot serves. Set at the transport boundary from
+    #: the person's department seats.
+    full_bot: bool = False
+    #: 0067: permission values the person holds beyond their role, derived
+    #: from the PR capabilities their seats and personal grants give them
+    #: (the capability's baseline permission). Read by the tool gates.
+    extra_permissions: frozenset[str] = Field(default_factory=frozenset)
 
     @property
     def display_name(self) -> str:

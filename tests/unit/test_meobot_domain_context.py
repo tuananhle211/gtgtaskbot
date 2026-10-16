@@ -1228,6 +1228,11 @@ async def test_building_context_does_not_scale_with_row_count(world: World) -> N
     """
     content_id, master = await ready_to_publish(world)
     await publish(world, content_id, submission=master, actor=world.owner)
+    # 0066: the capability service memoises a person's unified access per
+    # instance (seats, grants, personal grants: three statements, once). The
+    # world shares one instance, so warm it before counting - the count is
+    # about the records, not about the first call's memo.
+    await context_for(world, user=world.other, message="?", content_id=content_id)
 
     async def statements(extra: int) -> int:
         """Grow every collection that carries a per-row flag, then count.

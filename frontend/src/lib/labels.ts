@@ -922,6 +922,8 @@ const MEMBER_REASONS: Record<string, string> = {
   role_change_forbidden: "Chỉ Chủ sở hữu mới đổi được vai trò thành viên.",
   role_unchanged: "Thành viên này đã ở vai trò đó rồi.",
   member_not_found: "Không tìm thấy thành viên này.",
+  cannot_manage_permissions:
+    "Bạn không cấp hay thu hồi được quyền của người này: trưởng phòng chỉ cấp cho nhân viên phòng mình, và không ai cấp cho Chủ sở hữu hay Quản trị viên.",
   member_read_forbidden: "Bạn không có quyền xem danh sách thành viên.",
 };
 

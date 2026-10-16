@@ -774,15 +774,16 @@ async def test_a_chat_revoke_takes_back_every_grant_of_that_gate(world: ToolWorl
 
 
 async def test_an_unauthorized_user_cannot_grant(world: ToolWorld) -> None:
-    """Requirement 32. The refusal comes from the service, not the tool."""
-    with pytest.raises(ToolExecutionError) as raised:
+    """Requirement 32. An employee grants nobody. 0066: the tool keeps its
+    ``user.role.manage`` gate (the bot is the OWNER's console for this), and
+    the service behind it would refuse too - an employee heads no department."""
+    with pytest.raises(ToolExecutionError):
         await world.run(
             "pr.capability.grant",
-            actor=world.head,
+            actor=world.employee,
             person="Linh",
             capability="Team Lead Review",
         )
-    assert raised.value.details["pr_error_code"] == "pr_forbidden"
 
 
 async def test_listing_capabilities_for_a_person_and_holders_of_one(

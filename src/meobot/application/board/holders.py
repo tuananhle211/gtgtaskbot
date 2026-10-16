@@ -412,9 +412,11 @@ async def pr_reviewers(
             user = users.get(grant.user_id)
             if user is None or user.id in seen:
                 continue
-            actor = Actor(user_id=user.id, full_name=user.full_name, role=user.role)
+            # 0066: a legacy ``requires_role_baseline`` grant asks whether the
+            # holder holds the gate through the unified layers.
+            baseline = await capabilities.legacy_baseline(user.id, user.role)
             if grant_admits(
-                actor,
+                baseline,
                 grant.capability,
                 requires_role_baseline=grant.requires_role_baseline,
                 scope=grant.scope,

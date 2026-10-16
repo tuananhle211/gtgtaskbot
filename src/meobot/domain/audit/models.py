@@ -493,6 +493,9 @@ class AuditAction(StrEnum):
     RESOURCE_SETTINGS_UPDATED = "resource.settings.updated"
     RESOURCE_IMPORTED = "resource.imported"
     USER_EMPLOYMENT_STATUS_UPDATED = "user.employment_status.updated"
+    #: 0066: the personal permission layer.
+    USER_PERMISSION_GRANTED = "user.permission.granted"
+    USER_PERMISSION_REVOKED = "user.permission.revoked"
 
     UNIT_VIDEO_KIND_CREATED = "unit.video_kind.created"
     UNIT_VIDEO_KIND_UPDATED = "unit.video_kind.updated"

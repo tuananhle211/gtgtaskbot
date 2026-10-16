@@ -182,6 +182,8 @@ class PersonResponse(BaseModel):
     user_id: uuid.UUID
     full_name: str
     role: str
+    #: 0067: the caller may grant / revoke this person's PR rights.
+    can_manage_permissions: bool = False
 
 
 class BrandResponse(BaseModel):
@@ -2987,6 +2989,9 @@ class CapabilityGrantResponse(BaseModel):
     #: permission. Only rows that predate Step 1F.2.7 - see revision 0031.
     requires_role_baseline: bool
     granted_by_user_id: uuid.UUID | None
+    #: 0067: whether the caller may withdraw this grant (the holder's rights
+    #: are theirs to administer). The screen draws "Thu hồi" only then.
+    can_revoke: bool = True
 
     @classmethod
     def from_grant(cls, grant: PrCapabilityGrant) -> CapabilityGrantResponse:
