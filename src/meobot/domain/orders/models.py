@@ -167,7 +167,7 @@ class OrderEventKind(StrEnum):
     PLAN_SET = "PLAN_SET"
     #: A node deadline past the orderer's wish, or the order finished after it.
     DEADLINE_EXCEEDED = "DEADLINE_EXCEEDED"
-    #: 0058: the order's design codes ("mã video") were set - picked by the
+    #: 0058: the order's design codes ("mã task design") were set - picked by the
     #: script step, or a designer's change approved by the Design Leader.
     DESIGN_CODES_SET = "DESIGN_CODES_SET"
     #: 0058: the designer handed in with a different list; the Leader decides.
@@ -227,6 +227,14 @@ def last_production_node(code: OrderVideoType) -> OrderNodeType:
     """The node whose hand-in is the finished product (its link is the
     order's product link) and whose completion opens the final review."""
     return NODE_PLAN[code][-1]
+
+
+def is_design_only(code: OrderVideoType) -> bool:
+    """Only Design ticked ("T"): the order skips the ORD approval and goes
+    straight to the Design Leader; it lists design codes ("Task công việc")
+    instead of a video kind / platform / duration, and its "Nội dung" is a
+    plain brief the AI does not read."""
+    return NODE_PLAN[code] == (OrderNodeType.THIET_KE,)
 
 
 def process_code(nodes: Iterable[OrderNodeType]) -> OrderVideoType | None:

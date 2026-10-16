@@ -661,6 +661,10 @@ async def test_12_every_process_combination_plans_its_nodes_and_its_code(world: 
             f"-{number:02d}"
         )
         assert order["process"] == nodes
+        if nodes == ["THIET_KE"]:
+            # Design only: no ORD approval, it starts at Design at once.
+            assert order["stage"] == "THIET_KE"
+            continue
         assert statuses(detail) == {
             node_type: ("CHUA_TOI" if node_type in nodes else "BO_QUA")
             for node_type in ("BIEN_TAP", "THIET_KE", "DUNG")
@@ -844,7 +848,6 @@ async def test_15_the_orderer_decides_the_final_review(world: World) -> None:
     other = await person(world, "Marketing khác")
     await tag(world, ads.unit, other, UnitMemberRole.ORDERER, member_code="KHAC")
     second = create(world, ads, video_type="T", preassigned={"THIET_KE": str(ads.designer.id)})
-    second = act(world, ads.head, "/approve", second)
     tk = node(second, "THIET_KE")["id"]
     second = act(world, ads.designer, f"/nodes/{tk}/accept", second)
     second = act(world, ads.designer, f"/nodes/{tk}/submit", second, link="https://example.com/t")

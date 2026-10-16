@@ -187,7 +187,7 @@ class Order(Base, UUIDPrimaryKeyMixin, TimestampMixin):
         server_default=OrderCategory.STANDARD.value,
         index=True,
     )
-    #: 0058: the design codes ("mã video") the order needs, each with a
+    #: 0058: the design codes ("mã task design") the order needs, each with a
     #: quantity - snapshots, see :mod:`meobot.domain.orders.design_codes`.
     design_items: Mapped[list[dict[str, Any]] | None] = mapped_column(JSONColumn, nullable=True)
     #: 0058, birthday orders only (the person's name is the title).

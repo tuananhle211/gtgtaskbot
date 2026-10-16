@@ -6,7 +6,7 @@ import { api, type DesignCode, type DesignCodeItem, type DesignCodePick } from "
 import { Select } from "@/components/pr";
 
 /**
- * The "mã video" picker: choose codes from the Design catalogue, each with a
+ * The "mã task design" picker: choose codes from the Design catalogue, each with a
  * quantity.
  *
  * The value is the order's own list - snapshots (`code_id`, `code`, `name`,
@@ -47,7 +47,7 @@ export function DesignCodesPicker({
   options,
   required = false,
   hint,
-  label = "Mã video",
+  label = "Mã task design",
   loading = false,
 }: {
   value: DesignCodeItem[];
@@ -134,7 +134,7 @@ export function DesignCodesPicker({
           ))}
         </ul>
       ) : (
-        <p className="text-[var(--text-muted)]">Chưa chọn mã video nào.</p>
+        <p className="text-[var(--text-muted)]">Chưa chọn mã task design nào.</p>
       )}
       {value.some((item) => !validQuantity(item.quantity)) ? (
         <p role="status" className="font-medium text-[var(--bad)]">
@@ -150,12 +150,12 @@ export function DesignCodesPicker({
       >
         <option value="">
           {loading
-            ? "Đang tải bảng mã video…"
+            ? "Đang tải bảng mã task design…"
             : full
               ? `Đã đủ ${MAX_DESIGN_ITEMS} mã`
               : addable.length === 0
                 ? "Không còn mã nào để thêm"
-                : "— thêm mã video —"}
+                : "— thêm mã task design —"}
         </option>
         {addable.map((option) => (
           <option key={option.id} value={option.id}>
@@ -190,7 +190,7 @@ export function DesignCodesInput(
       />
       {catalogue.isError ? (
         <p role="status" className="text-xs font-medium text-[var(--warn)]">
-          Không tải được bảng mã video nên chưa thêm được mã mới.
+          Không tải được bảng mã task design nên chưa thêm được mã mới.
         </p>
       ) : null}
     </div>

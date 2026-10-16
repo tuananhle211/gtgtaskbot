@@ -98,6 +98,7 @@ from meobot.domain.orders.models import (
     OrderNodeType,
     OrderStage,
     OrderVideoType,
+    is_design_only,
 )
 from meobot.domain.orders.pipeline import OrderActionKind, function_node, hands_in_product
 from meobot.domain.pr.models import (
@@ -606,16 +607,16 @@ class TaskDetailService:
                         inputs = (*inputs, "design_codes")
                         required = (*required, "design_codes")
                         codes = current
-                        hint = "Chọn các mã video Design cần làm, kèm số lượng."
+                        hint = "Chọn các mã task design Design cần làm, kèm số lượng."
                     elif node.node_type is OrderNodeType.THIET_KE:
                         inputs = (*inputs, "design_codes")
                         codes = current
                         if current:
-                            hint = "Sửa mã video thì bài nộp cần Trưởng phòng Design duyệt."
+                            hint = "Sửa mã task design thì bài nộp cần Trưởng phòng Design duyệt."
                         else:
                             required = (*required, "design_codes")
                             hint = (
-                                "Order chưa có mã video: chọn mã và số lượng, "
+                                "Order chưa có mã task design: chọn mã và số lượng, "
                                 "Trưởng phòng Design sẽ duyệt."
                             )
             elif (
@@ -628,7 +629,9 @@ class TaskDetailService:
                 inputs = ("note", "design_codes")
                 required = ("design_codes",)
                 codes = code_views(node.proposed_design_items)
-                hint = "Nhân viên yêu cầu thay đổi mã video. Duyệt là chốt danh sách bên dưới."
+                hint = (
+                    "Nhân viên yêu cầu thay đổi mã task design. Duyệt là chốt danh sách bên dưới."
+                )
             elif kind is OrderActionKind.RETURN_NODE:
                 # "Token sửa" required (0 allowed), "Deadline sửa" optional.
                 inputs = ("note", "tokens", "deadline")
@@ -1090,6 +1093,10 @@ def _ads_fields(order: Order) -> tuple[TaskField, ...]:
         TaskField("design_link", "Link thiết kế", order.design_link, "link", "ads"),
         TaskField("source_link", "Link nguồn", order.source_link, "link", "ads"),
     ]
+    if is_design_only(order.video_type):
+        # Its "Task công việc" (the design codes) stand for these.
+        dropped = {"video_kind", "video_kind_points", "script_source"}
+        fields = [item for item in fields if item.key not in dropped]
     # What the orderer filled in on the form and the team works from.
     if order.platform_name:
         fields.append(TaskField("platform", "Nền tảng", order.platform_name, "text", "ads"))

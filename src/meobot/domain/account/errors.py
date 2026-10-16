@@ -121,6 +121,18 @@ class MemberCodeForbiddenError(AuthorizationError):
         super().__init__(message, details={"reason": self.code})
 
 
+class MemberCodeTakenError(ValidationError):
+    """0068: one member code per person. 422."""
+
+    code = "member_code_taken"
+
+    def __init__(self, code: str, holder: str) -> None:
+        super().__init__(
+            f"Mã thành viên {code} đã thuộc về {holder}. Mỗi người một mã riêng.",
+            details={"reason": self.code, "field": "member_code", "member_code": code},
+        )
+
+
 class MemberDeleteForbiddenError(AuthorizationError):
     """Deleting an account for good: the OWNER only, never oneself or another
     OWNER. 403."""

@@ -197,7 +197,7 @@ async def test_07_settings_are_validated_and_defaulted(world: World) -> None:
         "review_dung": False,
         "review_video_by_script_lead": False,
         "effort_enabled": True,
-        # 0058: design codes ("mã video") on hand-ins to / by Design.
+        # 0058: design codes ("mã task design") on hand-ins to / by Design.
         "design_codes_enabled": True,
         # The AI reads the order's script when it is placed, against these rules.
         "script_ai_review": True,

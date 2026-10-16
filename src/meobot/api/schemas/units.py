@@ -72,7 +72,7 @@ class UnitSettingsResponse(BaseModel):
     scope_labels: dict[str, str]
     #: Effort (token) mode; only the OWNER switches it.
     effort_enabled: bool = True
-    #: 0058: design codes ("mã video") are asked for on hand-ins to / by Design.
+    #: 0058: design codes ("mã task design") are asked for on hand-ins to / by Design.
     design_codes_enabled: bool = True
     #: The AI reads the order's script when it is placed; the rules it uses.
     script_ai_review: bool = True
@@ -417,7 +417,7 @@ class UpdateUnitSettingsRequest(BaseModel):
 
 
 class DesignCodeResponse(BaseModel):
-    """One row of the Design team's catalogue of design codes ("mã video")."""
+    """One row of the Design team's catalogue of design codes ("mã task design")."""
 
     id: uuid.UUID
     code: str

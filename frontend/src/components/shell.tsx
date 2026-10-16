@@ -86,7 +86,7 @@ const ORDER_BIRTHDAY_NAV: NavItem = {
 };
 const DESIGN_CODES_NAV: NavItem = {
   href: "/tasks/design-codes",
-  label: "Bảng mã video",
+  label: "Mã task design",
   icon: "codes",
 };
 

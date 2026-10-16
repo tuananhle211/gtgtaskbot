@@ -8,11 +8,17 @@ import {
   api,
   scriptReviewOf,
   type CreateOrderBody,
+  type DesignCodeItem,
   type OrderInfo,
   type ScriptCheck,
   type ScriptReview,
 } from "@/lib/api";
 import { ScriptReviewDialog } from "@/components/script-review-dialog";
+import {
+  DesignCodesPicker,
+  designCodesValid,
+  toDesignCodePicks,
+} from "@/components/design-codes-picker";
 import {
   hasUnit,
   isUntagged,
@@ -103,6 +109,7 @@ export default function NewOrderPage() {
           memberCode={unitEntry(me.data, "ADS")?.member_code ?? null}
           isHead={unitEntry(me.data, "ADS")?.role === "HEAD"}
           aiReview={unitEntry(me.data, "ADS")?.settings?.script_ai_review === true}
+          designCodes={unitEntry(me.data, "ADS")?.settings?.design_codes_enabled !== false}
           editing={order}
         />
       </div>
@@ -173,6 +180,7 @@ export default function NewOrderPage() {
           memberCode={unitEntry(me.data, "ADS")?.member_code ?? null}
           isHead={unitEntry(me.data, "ADS")?.role === "HEAD"}
           aiReview={unitEntry(me.data, "ADS")?.settings?.script_ai_review === true}
+          designCodes={unitEntry(me.data, "ADS")?.settings?.design_codes_enabled !== false}
         />
       ) : (
         <PrCreateSection onCreated={() => router.push("/tasks?unit=PR")} />
@@ -219,6 +227,7 @@ function AdsOrderForm({
   memberCode,
   isHead = false,
   aiReview = false,
+  designCodes = true,
   editing,
 }: {
   memberCode: string | null;
@@ -229,6 +238,8 @@ function AdsOrderForm({
    * button (and pass, or the AI be unable to answer) before the order goes.
    */
   aiReview?: boolean;
+  /** ORD asks for design codes: a Design-only order must list its "Task công việc". */
+  designCodes?: boolean;
   /** A returned order being fixed: the form starts from it and resubmits. */
   editing?: OrderInfo;
 }) {
@@ -272,6 +283,12 @@ function AdsOrderForm({
     queryKey: ["units", "ADS", "durations"],
     queryFn: () => api.unitDurations("ADS"),
   });
+  const designCodesQ = useQuery({
+    queryKey: ["units", "ADS", "design-codes"],
+    queryFn: () => api.designCodes(),
+  });
+  // "Task công việc" of a Design-only order: the design codes it needs.
+  const [tasks, setTasks] = useState<DesignCodeItem[]>([]);
   const [form, setForm] = useState({
     title: editing?.title ?? "",
     video_kind_id: editing?.video_kind_id ?? "",
@@ -291,6 +308,13 @@ function AdsOrderForm({
   const [ticked, setTicked] = useState<ProcessNode[]>(
     editing ? ((editing.process ?? []) as ProcessNode[]) : ["DUNG"],
   );
+  const nodes = orderedProcess(ticked);
+  const code = processCode(nodes);
+  // Only Design ticked: no ORD approval (straight to the Design Leader), the
+  // design codes stand for kind / platform / duration, and the script box is a
+  // plain "Nội dung" the AI does not read.
+  const designOnly = nodes.length === 1 && nodes[0] === "THIET_KE";
+  const reviewsScript = aiReview && !designOnly;
   const create = useMutation({
     mutationFn: (body: CreateOrderBody) =>
       editing
@@ -335,7 +359,7 @@ function AdsOrderForm({
   });
   const current = checked && checked.text === checkedText ? checked.result : null;
   // Passed, switched off, or the AI could not answer (the history will say so).
-  const mayGo = !aiReview || Boolean(current && (current.passed || !current.reviewed));
+  const mayGo = !reviewsScript || Boolean(current && (current.passed || !current.reviewed));
   // The AI read the script and found it against the rules - with the button,
   // or when the order was sent. Its findings sit under the script field,
   // which is brought into view, and open in a window with a corrected version.
@@ -359,8 +383,6 @@ function AdsOrderForm({
     findings.current?.scrollIntoView?.({ block: "center" });
     setShowReview(true);
   }, [refusedAt]);
-  const nodes = orderedProcess(ticked);
-  const code = processCode(nodes);
   const route = [
     "Order",
     ...nodes.map((node) => NODE_LABELS[node]),
@@ -375,9 +397,9 @@ function AdsOrderForm({
   const activeDurations = (durationsQ.data?.durations ?? [])
     .filter((d) => d.active)
     .sort((a, b) => a.sort_order - b.sort_order);
-  const needsKind = activeKinds.length > 0;
-  const needsPlatform = activePlatforms.length > 0;
-  const needsDuration = activeDurations.length > 0;
+  const needsKind = !designOnly && activeKinds.length > 0;
+  const needsPlatform = !designOnly && activePlatforms.length > 0;
+  const needsDuration = !designOnly && activeDurations.length > 0;
   const toggleNode = (node: ProcessNode) =>
     !editing &&
     setTicked((current) =>
@@ -396,17 +418,21 @@ function AdsOrderForm({
   const body: CreateOrderBody = {
     title: form.title,
     process: nodes,
-    video_kind_id: form.video_kind_id || null,
-    platform_id: form.platform_id || null,
-    duration_id: form.duration_id || null,
+    ...(designOnly
+      ? { design_codes: toDesignCodePicks(tasks) }
+      : {
+        video_kind_id: form.video_kind_id || null,
+        platform_id: form.platform_id || null,
+        duration_id: form.duration_id || null,
+        script_source: form.script_source,
+      }),
     order_content: form.order_content,
-    script_source: form.script_source,
     design_link: form.design_link || null,
     reference_link: form.reference_link || null,
     source_link: form.source_link || null,
     note: form.note || null,
     desired_deadline_at: toIsoFromLocal(form.desired_deadline),
-    ...(offersApprover && approver ? { approver_user_id: approver } : {}),
+    ...(offersApprover && approver && !designOnly ? { approver_user_id: approver } : {}),
   };
   // A wish in the past is refused by the server (an unchanged one on a
   // resubmit is not sent at all).
@@ -422,7 +448,8 @@ function AdsOrderForm({
     (!needsDuration || form.duration_id) &&
     body.desired_deadline_at &&
     !deadlinePast &&
-    (!approverRequired || approver) &&
+    (designOnly || !approverRequired || approver) &&
+    (!designOnly || designCodesValid(tasks, designCodes)) &&
     mayGo;
   const field =
     "min-h-11 w-full rounded-lg border border-[var(--border)] bg-[var(--surface)] px-3 text-sm text-[var(--text)]";
@@ -519,6 +546,21 @@ function AdsOrderForm({
             </p>
           ) : null}
         </fieldset>
+        {designOnly ? (
+          <div className="space-y-1">
+            <p className="text-sm font-medium">3 · Task công việc</p>
+            <DesignCodesPicker
+              value={tasks}
+              onChange={setTasks}
+              options={designCodesQ.data?.codes ?? []}
+              loading={designCodesQ.isLoading}
+              required={designCodes}
+              label="Mã task design"
+              hint="Chọn các task Design cần làm, kèm số lượng."
+            />
+            {designCodesQ.isError ? <NoticeBox error={designCodesQ.error} /> : null}
+          </div>
+        ) : null}
         {needsKind ? (
           <label className="block text-sm font-medium">
             3 · Loại video
@@ -593,7 +635,16 @@ function AdsOrderForm({
             </span>
           )}
         </label>
-        {ownGate ? (
+        {designOnly ? (
+          <p
+            data-testid="design-only-route"
+            className="rounded-lg bg-[var(--surface-muted)] px-3 py-2 text-xs text-[var(--text-muted)]"
+          >
+            Order chỉ có Design: không qua Trưởng phòng ORD, gửi là chuyển thẳng tới Trưởng phòng
+            Design. Trưởng phòng Design giao việc hoặc nhận việc là đã duyệt order, hoặc huỷ nếu
+            không làm. Trước khi được duyệt, bạn vẫn huỷ được order.
+          </p>
+        ) : ownGate ? (
           <p className="rounded-lg bg-[var(--surface-muted)] px-3 py-2 text-xs text-[var(--text-muted)]">
             Bạn có quyền duyệt order: order của bạn không cần duyệt, gửi là chuyển thẳng tới công
             đoạn đầu.
@@ -632,35 +683,48 @@ function AdsOrderForm({
           </label>
         ) : null}
         <div className="space-y-1">
-          <p className="text-sm font-medium">4 · Khung nhập kịch bản</p>
-          <div className="flex gap-4 text-sm">
-            {[
-              ["AI", "AI"],
-              ["REAL", "Quay thực tế"],
-            ].map(([value, label]) => (
-              <label
-                key={value}
-                className="inline-flex min-h-11 items-center gap-2"
-              >
-                <input
-                  type="radio"
-                  name="script_source"
-                  value={value}
-                  checked={form.script_source === value}
-                  onChange={set("script_source")}
-                />
-                {label}
-              </label>
-            ))}
-          </div>
+          {designOnly ? (
+            <label htmlFor="order-content" className="block text-sm font-medium">
+              4 · Nội dung
+            </label>
+          ) : (
+            <p className="text-sm font-medium">4 · Khung nhập kịch bản</p>
+          )}
+          {designOnly ? null : (
+            <div className="flex gap-4 text-sm">
+              {[
+                ["AI", "AI"],
+                ["REAL", "Quay thực tế"],
+              ].map(([value, label]) => (
+                <label
+                  key={value}
+                  className="inline-flex min-h-11 items-center gap-2"
+                >
+                  <input
+                    type="radio"
+                    name="script_source"
+                    value={value}
+                    checked={form.script_source === value}
+                    onChange={set("script_source")}
+                  />
+                  {label}
+                </label>
+              ))}
+            </div>
+          )}
           <textarea
+            id="order-content"
             aria-label="Nội dung order"
             value={form.order_content}
             onChange={set("order_content")}
-            placeholder="Nội dung order, key mong muốn, kịch bản voice (hoàn chỉnh nếu là kịch bản AI)…"
+            placeholder={
+              designOnly
+                ? "Nội dung cần thiết kế, yêu cầu, thông điệp…"
+                : "Nội dung order, key mong muốn, kịch bản voice (hoàn chỉnh nếu là kịch bản AI)…"
+            }
             className={`${field} min-h-32`}
           />
-          {aiReview ? (
+          {reviewsScript ? (
             <div className="flex flex-wrap items-center gap-2">
               <button
                 type="button"
@@ -805,8 +869,9 @@ function AdsOrderForm({
                 }
                 : {
                   title: "Gửi order?",
-                  description:
-                    "Hệ thống sinh mã order và báo Trưởng phòng duyệt. Order hiện ở bảng task của bạn.",
+                  description: designOnly
+                    ? "Hệ thống sinh mã order và chuyển thẳng tới Trưởng phòng Design: giao việc hoặc nhận việc là duyệt. Order hiện ở bảng task của bạn."
+                    : "Hệ thống sinh mã order và báo Trưởng phòng duyệt. Order hiện ở bảng task của bạn.",
                   confirmLabel: "Gửi order",
                 }
             }
@@ -819,14 +884,16 @@ function AdsOrderForm({
             {editing ? "Gửi lại order" : "Gửi order"}
           </ConfirmButton>
         </div>
-        {aiReview && !mayGo ? (
+        {reviewsScript && !mayGo ? (
           <p data-testid="needs-script-check" className="text-right text-xs text-[var(--warn)]">
             Bấm “AI duyệt kịch bản” ở ô kịch bản: đạt mới gửi được order.
           </p>
         ) : null}
         {create.isPending ? (
           <p role="status" className="text-right text-xs text-[var(--text-muted)]">
-            AI đang duyệt kịch bản, vui lòng chờ trong giây lát…
+            {reviewsScript
+              ? "AI đang duyệt kịch bản, vui lòng chờ trong giây lát…"
+              : "Đang gửi order…"}
           </p>
         ) : null}
         {create.isError ? <NoticeBox error={create.error} /> : null}
@@ -838,7 +905,9 @@ function AdsOrderForm({
           </h2>
           <ol className="mt-2 space-y-1">
             <li>ORD lên order</li>
-            {ownGate ? null : (
+            {designOnly ? (
+              <li>Trưởng phòng Design duyệt: giao việc / nhận việc là duyệt, hoặc huỷ</li>
+            ) : ownGate ? null : (
               <li>{approverName ?? "Trưởng phòng ADS"} duyệt order</li>
             )}
             {nodes.map((node, index) => (

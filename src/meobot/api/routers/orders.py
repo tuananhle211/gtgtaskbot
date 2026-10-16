@@ -251,6 +251,12 @@ async def create_order(
             desired_deadline_at=body.desired_deadline_at,
             approver_user_id=body.approver_user_id,
             note=body.note,
+            design_codes=None
+            if body.design_codes is None
+            else tuple(
+                DesignPick(code_id=item.code_id, quantity=item.quantity)
+                for item in body.design_codes
+            ),
         ),
     )
     return await _detail(services, actor, order.id)

@@ -24,12 +24,22 @@ export default function ImportPage() {
   const inputId = useId();
   const [file, setFile] = useState<{ name: string; data: string } | null>(null);
   const [preview, setPreview] = useState<ResourceImportPreview | null>(null);
+  // What the file needs and the system lacks may be created on the way in.
+  const [createOptions, setCreateOptions] = useState(true);
+  const [createPeople, setCreatePeople] = useState(true);
   const read = useMutation({
-    mutationFn: (body: { filename: string; data: string }) => api.resourceImportPreview(body),
+    mutationFn: (body: { filename: string; data: string; create_options: boolean; create_people: boolean }) =>
+      api.resourceImportPreview(body),
     onSuccess: setPreview,
   });
   const write = useMutation({
-    mutationFn: () => api.resourceImportCommit({ filename: file?.name ?? "", data: file?.data ?? "" }),
+    mutationFn: () =>
+      api.resourceImportCommit({
+        filename: file?.name ?? "",
+        data: file?.data ?? "",
+        create_options: createOptions,
+        create_people: createPeople,
+      }),
     onSuccess: (result) => {
       setPreview(result);
       void queryClient.invalidateQueries({ queryKey: ["resources"] });
@@ -49,7 +59,7 @@ export default function ImportPage() {
       const result = String(reader.result ?? "");
       const data = result.slice(result.indexOf(",") + 1);
       setFile({ name: chosen.name, data });
-      read.mutate({ filename: chosen.name, data });
+      read.mutate({ filename: chosen.name, data, create_options: createOptions, create_people: createPeople });
     };
     reader.readAsDataURL(chosen);
   };
@@ -59,7 +69,7 @@ export default function ImportPage() {
     <div className="space-y-4">
       <PageHeader
         title="Nhập từ Excel"
-        subtitle="File kiểm kê (Apexmed_KhaiBaoTaiNguyen): mỗi tab một ban, tiêu đề ở dòng 5, dữ liệu từ dòng 6. Xem trước, báo lỗi từng dòng, rồi mới ghi."
+        subtitle="File kiểm kê (Apexmed_KhaiBaoTaiNguyen): mỗi tab một ban, tự nhận dòng tiêu đề. Xem trước, báo lỗi từng dòng, rồi mới ghi."
       />
       <div className="panel space-y-3 p-4">
         <label htmlFor={inputId} className="block text-sm font-medium">
@@ -72,10 +82,35 @@ export default function ImportPage() {
           onChange={(event) => pick(event.target.files?.[0] ?? null)}
           className="block text-sm"
         />
+        <div className="flex flex-wrap gap-4 text-sm">
+          <label className="inline-flex items-center gap-2">
+            <input
+              type="checkbox"
+              checked={createOptions}
+              onChange={(event) => {
+                setCreateOptions(event.target.checked);
+                if (file) read.mutate({ filename: file.name, data: file.data, create_options: event.target.checked, create_people: createPeople });
+              }}
+            />
+            Tự thêm lựa chọn còn thiếu (loại, quyền, nguồn gốc…)
+          </label>
+          <label className="inline-flex items-center gap-2">
+            <input
+              type="checkbox"
+              checked={createPeople}
+              onChange={(event) => {
+                setCreatePeople(event.target.checked);
+                if (file) read.mutate({ filename: file.name, data: file.data, create_options: createOptions, create_people: event.target.checked });
+              }}
+            />
+            Tự tạo tài khoản cho người chưa có (theo tab &quot;Người sử dụng&quot;)
+          </label>
+        </div>
         <ul className="list-disc space-y-1 pl-5 text-xs text-[var(--text-muted)]">
           <li>Tên tab = tên hoặc mã ban (ADS, Biên Tập, Thiết Kế, Media Dựng, PR Thương Hiệu). Tab &quot;Người sử dụng&quot; và &quot;Tổng hợp&quot; được bỏ qua.</li>
           <li>Mã tài nguyên trong file được giữ nguyên; dòng không có mã được cấp mã mới.</li>
           <li>Người được bàn giao phải khớp họ tên trong danh sách nhân viên; giá trị danh sách (loại, quyền, trạng thái…) phải có trong Cài đặt.</li>
+          <li>Mã thành viên là duy nhất và chỉ Chủ sở hữu / Quản trị viên mới được nhập: tài khoản tự tạo bởi người khác sẽ chưa có mã; một mã đã có trong hệ thống trỏ về đúng người đó.</li>
           <li>Mỗi ô tháng (T10/2026…) có giá trị = một dòng lịch sử trạng thái; ô cuối cùng là trạng thái hiện tại.</li>
           <li>Có lỗi thì sửa trong file rồi tải lại - không sửa trên web.</li>
         </ul>
@@ -141,6 +176,37 @@ export default function ImportPage() {
               <div className="mt-2">
                 <NoticeBox error={write.error} onDismiss={() => write.reset()} />
               </div>
+            ) : null}
+            {(preview.missing_options?.length ?? 0) > 0 ? (
+              <p className="mt-2 text-sm">
+                <span className="font-medium">Lựa chọn chưa có ({preview.missing_options?.length}):</span>{" "}
+                {preview.missing_options?.map((item) => `${item.name} (${item.label})`).join(", ")}
+                {createOptions ? " — sẽ được thêm khi ghi." : " — bật ô tự thêm hoặc thêm ở Cài đặt."}
+              </p>
+            ) : null}
+            {(preview.missing_people?.length ?? 0) > 0 ? (
+              <details className="mt-2 text-sm">
+                <summary className="cursor-pointer font-medium">
+                  Người chưa có tài khoản ({preview.missing_people?.length})
+                  {createPeople ? " — sẽ được tạo khi ghi" : " — bật ô tự tạo hoặc thêm thủ công"}
+                </summary>
+                <ul className="mt-1 list-disc pl-5 text-xs text-[var(--text-muted)]">
+                  {preview.missing_people?.map((person) => (
+                    <li key={person.name}>
+                      {person.name}
+                      {person.member_code ? ` · ${person.member_code}` : ""}
+                      {person.department ? ` · ${person.department}` : " · chưa rõ phòng"}
+                      {person.position ? ` · ${person.position}` : ""}
+                      {person.employment_status ? ` · ${person.employment_status}` : ""}
+                    </li>
+                  ))}
+                </ul>
+              </details>
+            ) : null}
+            {(preview.skipped_rows ?? 0) > 0 ? (
+              <p className="mt-2 text-xs text-[var(--text-muted)]">
+                Bỏ qua {preview.skipped_rows} dòng mẫu trống (chỉ có mã, chưa khai gì).
+              </p>
             ) : null}
             <ul className="mt-3 flex flex-wrap gap-2 text-xs">
               {preview.sheets.map((sheet) => (

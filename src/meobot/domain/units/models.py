@@ -165,7 +165,7 @@ class UnitSettings(BaseModel):
     #: is handed out, not taken off anybody's day, not shown. Only the OWNER
     #: switches it.
     effort_enabled: bool = True
-    #: 0058: design codes ("mã video") on orders that visit Design: the script
+    #: 0058: design codes ("mã task design") on orders that visit Design: the script
     #: step picks them when handing in, a designer's change waits for the
     #: Design Leader. Off = hand-ins ask for none and nothing waits on them.
     design_codes_enabled: bool = True

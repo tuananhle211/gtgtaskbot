@@ -131,6 +131,70 @@ async function fillBasics() {
   fireEvent.change(desiredDeadline(), { target: { value: FUTURE_DEADLINE } });
 }
 
+const DESIGN_CODE = "dddddddd-dddd-dddd-dddd-dddddddddddd";
+
+describe("a Design-only order", () => {
+  it("asks for its Task công việc, no approver and a plain Nội dung", async () => {
+    const fetchMock = stubFetch([
+      {
+        match: "/api/units/me",
+        body: {
+          ...ORDERER,
+          units: [{ ...ADS_ENTRY, settings: { ...ADS_SETTINGS, script_ai_review: true } }],
+        },
+      },
+      { match: "/api/units/ADS/members", body: MEMBERS },
+      { match: "/api/units/ADS/video-kinds", body: KINDS },
+      {
+        match: "/api/units/ADS/design-codes",
+        body: {
+          codes: [
+            {
+              id: DESIGN_CODE,
+              code: "TKBTS",
+              name: "SOCIAL - Banner",
+              active: true,
+              sort_order: 1,
+            },
+          ],
+        },
+      },
+      { match: "/api/orders", method: "POST", body: { order: { code: "TUAN-T-261008-01" } } },
+    ]);
+    renderWithQuery(<NewOrderPage />);
+    await userEvent.click(await screen.findByRole("checkbox", { name: "Design" }));
+    await userEvent.click(screen.getByRole("checkbox", { name: "Dựng" }));
+    await fillBasics();
+    // No kind / platform / duration, no script source, no AI check, no approver.
+    expect(screen.queryByRole("combobox", { name: /Loại video/ })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "AI duyệt kịch bản" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("radio", { name: "Quay thực tế" })).not.toBeInTheDocument();
+    expect(screen.getByText("4 · Nội dung")).toBeInTheDocument();
+    expect(screen.getByTestId("design-only-route")).toHaveTextContent("Trưởng phòng Design");
+    // The tasks are required.
+    expect(submit()).toBeDisabled();
+    await userEvent.selectOptions(
+      await screen.findByRole("combobox", { name: "Mã task design (bắt buộc)" }),
+      DESIGN_CODE,
+    );
+    expect(submit()).toBeEnabled();
+    await userEvent.click(submit());
+    const dialog = await screen.findByRole("dialog");
+    await userEvent.click(within(dialog).getByRole("button", { name: "Gửi order" }));
+    await waitFor(() => {
+      const sent = calls(fetchMock).find(
+        (call) => call.method === "POST" && call.url.includes("/api/orders"),
+      );
+      expect(sent?.body).toMatchObject({
+        process: ["THIET_KE"],
+        design_codes: [{ code_id: DESIGN_CODE, quantity: 1 }],
+      });
+      expect(sent?.body).not.toHaveProperty("video_kind_id");
+      expect(sent?.body).not.toHaveProperty("script_source");
+    });
+  });
+});
+
 describe("the create form's Quy trình", () => {
   it("starts with Order and Dựng, and Order cannot be unticked", async () => {
     stubCreateForm();

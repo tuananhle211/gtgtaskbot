@@ -534,7 +534,7 @@ async def update_video_kind(
     return VideoKindResponse.from_row(row)
 
 
-# --- design codes ("mã video", 0058) ---------------------------------------------
+# --- design codes ("mã task design", 0058) ---------------------------------------------
 
 
 def _design_unit(code: str) -> None:

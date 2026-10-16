@@ -1,4 +1,4 @@
-"""The Design team's catalogue of design codes ("mã video"), and the check
+"""The Design team's catalogue of design codes ("mã task design"), and the check
 every picked list goes through.
 
 Reading is any ORD member's; keeping the catalogue is the Design Leader's
@@ -136,7 +136,7 @@ class DesignCodeService:
         row = await self._session.get(UnitDesignCode, code_id)
         if row is None or row.unit_id != unit_id:
             raise OrderNotFoundError(
-                "Không tìm thấy mã video.", details={"reason": "design_code_not_found"}
+                "Không tìm thấy mã task design.", details={"reason": "design_code_not_found"}
             )
         before = _snapshot(row)
         if code is not None:
@@ -169,14 +169,14 @@ class DesignCodeService:
         it was picked may stay on the order, with its old snapshot."""
         if len(picks) > MAX_ITEMS:
             raise OrderValidationError(
-                f"Mỗi order tối đa {MAX_ITEMS} mã video.",
+                f"Mỗi order tối đa {MAX_ITEMS} mã task design.",
                 details={"reason": "design_code_invalid", "field": "design_codes"},
             )
         kept = {item.code_id: item for item in keep}
         wanted = [pick.code_id for pick in picks]
         if len(set(wanted)) != len(wanted):
             raise OrderValidationError(
-                "Mỗi mã video chỉ chọn một lần; tăng số lượng nếu cần nhiều hơn.",
+                "Mỗi mã task design chỉ chọn một lần; tăng số lượng nếu cần nhiều hơn.",
                 details={"reason": "design_code_invalid", "field": "design_codes"},
             )
         rows = (
@@ -213,7 +213,7 @@ class DesignCodeService:
                 )
             else:
                 raise OrderValidationError(
-                    "Mã video không hợp lệ hoặc đã ngừng dùng.",
+                    "Mã task design không hợp lệ hoặc đã ngừng dùng.",
                     details={"reason": "design_code_invalid", "field": "design_codes"},
                 )
         return tuple(items)
@@ -236,7 +236,7 @@ class DesignCodeService:
             statement = statement.where(UnitDesignCode.id != exclude)
         if await self._session.scalar(statement.limit(1)) is not None:
             raise OrderValidationError(
-                "Mã này đã có trong bảng mã video.",
+                "Mã này đã có trong bảng mã task design.",
                 details={"reason": "design_code_taken", "field": "code"},
             )
 
@@ -263,7 +263,7 @@ class DesignCodeService:
 
 def _forbidden() -> OrderActionNotAllowedError:
     return OrderActionNotAllowedError(
-        "Chỉ Trưởng phòng Design mới quản lý bảng mã video.",
+        "Chỉ Trưởng phòng Design mới quản lý bảng mã task design.",
         details={"reason": "design_code_forbidden"},
     )
 

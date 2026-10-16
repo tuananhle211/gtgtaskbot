@@ -39,6 +39,7 @@ from meobot.domain.orders.models import (
     OrderNodeType,
     OrderStage,
     OrderVideoType,
+    is_design_only,
     last_production_node,
 )
 from meobot.domain.orders.permissions import (
@@ -231,6 +232,9 @@ class OrderView:
     owner_user_id: uuid.UUID
     is_priority: bool
     category: OrderCategory = OrderCategory.STANDARD
+    #: The order gate was passed. A Design-only order passes it when the
+    #: Design Leader hands its step out or takes it.
+    approved: bool = True
 
 
 @dataclass(frozen=True, slots=True)
@@ -460,6 +464,17 @@ def available_actions(
         # A birthday order is never "pending": whoever placed it may take it
         # back for as long as it is not finished.
         or (is_owner and order.category is OrderCategory.BIRTHDAY)
+        # A Design-only order skips the ORD head: the Design Leader stands in
+        # for them and may turn it down; its orderer may take it back until
+        # the Leader has handed it out (= approved it).
+        or (
+            order.category is OrderCategory.STANDARD
+            and is_design_only(order.video_type)
+            and (
+                OrderNodeType.THIET_KE in may.nodes(AdsPermission.NODE_ASSIGN)
+                or (is_owner and not order.approved)
+            )
+        )
     ):
         add(OrderActionKind.CANCEL)
     return tuple(actions)

@@ -117,7 +117,7 @@ async def test_01_models_and_migration_agree(database: Database) -> None:
         }
     assert diff == [], diff
     assert columns and "WORKING" in str(columns["employment_status"])
-    assert alembic_head() == "0067"
+    assert alembic_head() == "0068"
 
 
 def _mentions(item: object) -> bool:

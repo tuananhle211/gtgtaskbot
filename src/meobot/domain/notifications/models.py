@@ -266,6 +266,9 @@ class NotificationEvent(StrEnum):
     ORDER_NODE_RETURNED = "order_node_returned"
     ORDER_FINAL_RETURNED = "order_final_returned"
     ORDER_COMPLETED = "order_completed"
+    #: Somebody else cancelled the order (e.g. the Design Leader turning a
+    #: Design-only order down). To the orderer.
+    ORDER_CANCELLED = "order_cancelled"
     # --- Account (0046) -------------------------------------------------------
     #: A temporary web password, sent to its owner's private chat only.
     ACCOUNT_TEMPORARY_PASSWORD = "account_temporary_password"  # noqa: S105

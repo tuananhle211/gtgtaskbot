@@ -3369,6 +3369,8 @@ export interface UnitSettingsInfo {
    */
   script_ai_review?: boolean;
   script_review_rules?: string;
+  /** ORD: design codes ("mã task design") are asked for. Optional: absent = on. */
+  design_codes_enabled?: boolean;
   /** ORD: hashtags + standard footer the AI adds to its corrected script. */
   script_footer?: string;
   /** ORD: a member's token budget per working day unless their own is set (80). */
@@ -3445,7 +3447,7 @@ export interface UnitsMe {
  *
  * - `view`: in the Design ban (not OWNER / ADMIN) - `/tasks` draws the
  *   simplified Design table for ORD;
- * - `manage_codes`: may edit the "mã video" catalogue (Design Leader, OWNER, ADMIN);
+ * - `manage_codes`: may edit the "mã task design" catalogue (Design Leader, OWNER, ADMIN);
  * - `birthday`: may open the birthday board and create birthday orders - the
  *   OWNER / ADMIN and whoever holds the order flow's `BIRTHDAY` permission
  *   (granted per department on `/admin/departments`; Thiết Kế by default);
@@ -3794,7 +3796,7 @@ export interface UnitDurationBody {
 }
 
 /**
- * One row of ORD's "mã video" catalogue (e.g. `TKBTS` "SOCIAL - Thiết kế
+ * One row of ORD's "mã task design" catalogue (e.g. `TKBTS` "SOCIAL - Thiết kế
  * Banner, Thumb Video, Avatar"). Never deleted: a retired row is `active: false`.
  */
 export interface DesignCode {
@@ -3817,7 +3819,7 @@ export interface DesignCodeBody {
 }
 
 /**
- * One "mã video" on one order: a snapshot of the catalogue row (so a renamed
+ * One "mã task design" on one order: a snapshot of the catalogue row (so a renamed
  * or retired row still reads) and how many of it.
  */
 export interface DesignCodeItem {
@@ -3873,7 +3875,7 @@ export interface TaskRowDesign {
   design_submitted_at?: string | null;
 }
 
-/** The task page's "Mã video" block. */
+/** The task page's "Mã task design" block. */
 export interface TaskDesignCodes {
   codes?: DesignCodeItem[];
   proposed_codes?: DesignCodeItem[] | null;
@@ -4253,6 +4255,11 @@ export interface CreateOrderBody {
   desired_deadline_at?: string | null;
   /** The Trưởng phòng ADS chosen to approve it (ignored for a head's own order). */
   approver_user_id?: Uuid | null;
+  /**
+   * Only Design ticked: "Task công việc" = the design codes, in place of the
+   * video kind, platform and duration (422 `design_codes_required`).
+   */
+  design_codes?: DesignCodePick[];
 }
 
 // --- The unified task (PR content + Ads order) ------------------------------
@@ -4367,7 +4374,7 @@ export interface TaskAction {
   defaults?: { tokens?: number | null; deadline_at?: string | null };
   /** ESTIMATE → "Token" / "Deadline"; REVISION → "Token sửa" / "Deadline sửa". */
   plan_mode?: "ESTIMATE" | "REVISION";
-  /** What the "mã video" picker starts from (the order's codes, or a proposal). */
+  /** What the "mã task design" picker starts from (the order's codes, or a proposal). */
   design_codes?: DesignCodeItem[] | null;
   /** One line under the picker, e.g. what changing the codes leads to. */
   hint?: string | null;
@@ -4390,7 +4397,7 @@ export interface UnifiedTaskDetail {
   can_delete?: boolean;
   /** ORD: STANDARD or BIRTHDAY. Optional: older APIs omit it. */
   category?: OrderCategory | string | null;
-  /** ORD: the order's "mã video" (and a change waiting for the Leader). PR: null. */
+  /** ORD: the order's "mã task design" (and a change waiting for the Leader). PR: null. */
   design?: TaskDesignCodes | null;
   /** Set on a birthday order. */
   birthday?: BirthdayInfo | null;
@@ -4407,7 +4414,7 @@ export interface TaskActionBody {
   tokens?: number;
   /** ORD: the node's deadline, ISO-8601. */
   deadline_at?: string;
-  /** ORD: the "mã video" list; sent only when the action lists the input. */
+  /** ORD: the "mã task design" list; sent only when the action lists the input. */
   design_codes?: DesignCodePick[] | null;
 }
 
@@ -4881,7 +4888,7 @@ export const api = {
   updateUnitDuration: (code: string, id: Uuid, body: UnitDurationBody) =>
     patch<UnitDuration>(`/api/units/${code}/durations/${id}`, body),
   /**
-   * ORD's "mã video" catalogue. Active rows for any ORD member;
+   * ORD's "mã task design" catalogue. Active rows for any ORD member;
    * `includeInactive` needs `design.manage_codes` (else 403).
    */
   designCodes: (includeInactive = false) =>
@@ -6298,10 +6305,10 @@ export const api = {
     get<ResourceSummary>(`/api/resources/reports/summary${query({ month })}`),
   resourceWarnings: () => get<ResourceWarnings>("/api/resources/reports/warnings"),
   /** Step 1 of the Excel import: writes nothing, reports every row's errors. */
-  resourceImportPreview: (body: { filename?: string; data: string }) =>
+  resourceImportPreview: (body: ResourceImportBody) =>
     post<ResourceImportPreview>("/api/resources/import/preview", body),
   /** Step 2: writes everything, only when no row has an error (422 `import_has_errors`). */
-  resourceImportCommit: (body: { filename?: string; data: string }) =>
+  resourceImportCommit: (body: ResourceImportBody) =>
     post<ResourceImportPreview>("/api/resources/import/commit", body),
   // --- The personal permission layer (0066): one page per person -------------
   /** Everything one person holds in every module, with its sources; 403 `permission_forbidden`. */
@@ -6743,6 +6750,19 @@ export interface ResourceImportPreview {
   rows: ResourceImportRow[];
   ok_count: number;
   error_count: number;
+  /** Pre-numbered template lines left out. Optional. */
+  skipped_rows?: number;
+  /** Pick-list entries the file uses and the lists lack. Optional. */
+  missing_options?: Array<{ kind: string; label: string; name: string }>;
+  /** People the file names who have no account yet. Optional. */
+  missing_people?: Array<{
+    name: string;
+    member_code: string | null;
+    department: string | null;
+    position: string | null;
+    employment_status: string | null;
+    exists: boolean;
+  }>;
   written: boolean;
 }
 
@@ -6821,4 +6841,14 @@ export interface PermissionGrantBody {
   scope: "OWN" | "ALL" | string;
   note?: string | null;
   effective_to?: string | null;
+}
+
+/** The import's body: the file, and whether to add what the file needs. */
+export interface ResourceImportBody {
+  filename?: string;
+  data: string;
+  /** Add missing pick-list entries (type, role, origin...) instead of refusing the row. */
+  create_options?: boolean;
+  /** Create accounts for people the file names who have none (from the "Người sử dụng" tab). */
+  create_people?: boolean;
 }

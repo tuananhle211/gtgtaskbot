@@ -1,6 +1,6 @@
 """The Design team's own rules (0058).
 
-* the catalogue of design codes ("mã video"): everybody in ORD reads it, the
+* the catalogue of design codes ("mã task design"): everybody in ORD reads it, the
   Design Leader keeps it;
 * the script step picks the codes when it hands in to Design; a designer who
   hands in with a different list waits for the Design Leader, and on an order
@@ -218,7 +218,7 @@ async def test_03_the_script_step_must_pick_design_codes_for_design(world: World
     assert page["task"]["stage"] == "THIET_KE"
     assert summary(page["design"]["codes"]) == [("CA", 1), ("TKBTS", 3)]
     assert page["design"]["proposed_codes"] is None
-    assert any(entry["label"].startswith("Chốt mã video") for entry in page["timeline"])
+    assert any(entry["label"].startswith("Chốt mã task design") for entry in page["timeline"])
     # The Design team's table reads the script link, who wrote it and the codes.
     row = next(item for item in board(world, ads.lead_tk)["items"] if item["code"] == code)
     assert row["category"] == "STANDARD" and row["birthday"] is None
@@ -286,9 +286,10 @@ async def test_06_a_changed_list_waits_for_the_design_leader(world: World) -> No
     assert page["task"]["stage"] == "THIET_KE" and page["task"]["state"] == "CHO_DUYET"
     assert summary(page["design"]["codes"]) == [("CA", 1), ("TKBTS", 3)]
     assert summary(page["design"]["proposed_codes"]) == [("O-TB", 1), ("TKBTS", 2)]
-    note = next(e for e in page["timeline"] if e["label"].startswith("Yêu cầu thay đổi mã video"))
+    asked = "Yêu cầu thay đổi mã task design"
+    note = next(e for e in page["timeline"] if e["label"].startswith(asked))
     assert note["note"] == (
-        "Nhân viên yêu cầu thay đổi mã video: TKBTS x3, CA x1 → TKBTS x2, O-TB x1"
+        "Nhân viên yêu cầu thay đổi mã task design: TKBTS x3, CA x1 → TKBTS x2, O-TB x1"
     )
     waiting = board(world, ads.lead_tk, awaiting_me="true")
     assert [item["code"] for item in waiting["items"]] == [code]
@@ -1023,3 +1024,116 @@ async def test_19_a_birthday_order_carries_several_reference_links(world: World)
     single = birthday(world, ads.designer, reference_link=first)
     assert single.status_code == 201
     assert task(world, ads.designer, single.json()["code"])["design"]["reference_links"] == [first]
+
+
+# --- a Design-only order ("T") ---------------------------------------------------------
+
+
+def design_only(world: World, ads: Ads, **overrides: Any) -> Any:
+    """POST a Design-only order as the orderer; the raw response."""
+    world.act_as(ads.orderer)
+    body = {
+        "title": "Banner tháng 11",
+        "process": ["THIET_KE"],
+        "order_content": "Banner khuyến mãi, tông đỏ.",
+        "desired_deadline_at": FAR_DEADLINE,
+        **overrides,
+    }
+    return world.client.post("/api/orders", json=body)
+
+
+async def test_design_only_order_skips_the_head_and_lists_its_tasks(world: World) -> None:
+    ads, codes = await design_world(world)
+    # Its "Task công việc" are the design codes: required, and the video
+    # kind / platform / duration are not asked for.
+    refused = design_only(world, ads)
+    assert refused.status_code == 422 and error_reason(refused.json()) == "design_codes_required"
+    made = design_only(world, ads, design_codes=pick(codes, TKBTS=2))
+    assert made.status_code == 201, made.json()
+    detail = made.json()
+    order = detail["order"]
+    # No ORD approval: straight to Design, waiting on its Leader to hand out.
+    assert order["stage"] == "THIET_KE"
+    assert order.get("approver_user_id") is None
+    tk = node(detail, "THIET_KE")
+    assert tk["assignee_user_id"] == str(ads.lead_tk.id)
+    assert not any(a["gate"] == "ORDER" for a in detail["approvals"])
+    page = task(world, ads.lead_tk, order["code"])
+    assert summary(page["design"]["codes"]) == [("TKBTS", 2)]
+    keys = {field["key"] for field in page["fields"]}
+    assert not keys & {"video_kind", "video_kind_points", "script_source"}
+    # The ORD head is never asked to approve it.
+    world.act_as(ads.head)
+    seen = world.client.get(f"/api/tasks/{order['code']}")
+    if seen.status_code == 200:
+        assert not any("APPROVE_ORDER" in item["key"] for item in seen.json()["actions"])
+    # Not approved yet: the Leader's hand-out is the approval.
+    assert detail["order"]["order_approved_at"] is None
+    # The designer's hand-in without a new list keeps the order's tasks.
+    detail = act(
+        world,
+        ads.lead_tk,
+        f"/nodes/{tk['id']}/assign",
+        detail,
+        assignee_user_id=str(ads.designer.id),
+    )
+    assert detail["order"]["order_approved_at"] is not None
+    gates = [(a["gate"], a["decision"], a["actor_user_id"]) for a in detail["approvals"]]
+    assert ("ORDER", "APPROVED", str(ads.lead_tk.id)) in gates
+    detail = act(world, ads.designer, f"/nodes/{tk['id']}/accept", detail)
+    detail = act(world, ads.designer, f"/nodes/{tk['id']}/submit", detail, link="https://e/tk")
+    assert detail["order"]["stage"] == "FINAL_REVIEW"
+    # Approved once: later takes do not add another approval.
+    assert sum(1 for a in detail["approvals"] if a["gate"] == "ORDER") == 1
+
+
+async def test_design_only_content_is_not_read_by_the_ai(world: World) -> None:
+    ads, codes = await design_world(world)
+    # Words the (fake) AI refuses in a script pass in a Design-only "Nội dung".
+    made = design_only(
+        world, ads, order_content="Cam kết hiệu quả 100%", design_codes=pick(codes, CA=1)
+    )
+    assert made.status_code == 201, made.json()
+    world.act_as(ads.orderer)
+    scripted = world.client.post(
+        "/api/orders",
+        json={
+            "title": "Video",
+            "video_type": "BTD",
+            "order_content": "Cam kết hiệu quả 100%",
+            "desired_deadline_at": FAR_DEADLINE,
+        },
+    )
+    assert scripted.status_code == 422
+    assert error_reason(scripted.json()) == "script_review_failed"
+
+
+async def test_design_only_the_design_leader_approves_by_taking_or_cancels(world: World) -> None:
+    from tests.unit.test_order_commands import inbox
+
+    ads, codes = await design_world(world)
+
+    def kinds(user: User, code: str) -> set[str]:
+        return {item["key"].split(":")[1] for item in task(world, user, code)["actions"]}
+
+    # The Leader takes it: that is the approval too.
+    taken = design_only(world, ads, design_codes=pick(codes, CA=1)).json()
+    tk = node(taken, "THIET_KE")["id"]
+    assert "CANCEL" in kinds(ads.lead_tk, taken["order"]["code"])
+    # Before that the orderer may still take it back; afterwards not.
+    assert "CANCEL" in kinds(ads.orderer, taken["order"]["code"])
+    taken = act(world, ads.lead_tk, f"/nodes/{tk}/accept", taken)
+    assert taken["order"]["order_approved_at"] is not None
+    assert "CANCEL" not in kinds(ads.orderer, taken["order"]["code"])
+    assert "CANCEL" in kinds(ads.lead_tk, taken["order"]["code"])
+    # The Leader turns one down: cancelled, and the orderer is told why.
+    refused = design_only(world, ads, title="Không làm", design_codes=pick(codes, CA=1)).json()
+    refused = act(world, ads.lead_tk, "/cancel", refused, note="Trùng order khác")
+    assert refused["order"]["stage"] == "CANCELLED"
+    assert ("order_cancelled", "Order đã bị huỷ") in await inbox(world, ads.orderer)
+    # A Design member is no stand-in for the Leader.
+    other = design_only(world, ads, title="Khác", design_codes=pick(codes, CA=1)).json()
+    world.act_as(ads.designer)
+    seen = world.client.get(f"/api/tasks/{other['order']['code']}")
+    if seen.status_code == 200:
+        assert not any("CANCEL" in item["key"] for item in seen.json()["actions"])

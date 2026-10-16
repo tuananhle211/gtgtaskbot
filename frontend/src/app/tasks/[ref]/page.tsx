@@ -56,7 +56,7 @@ import {
  * Those are the PR module's components, reused as they are, in tabs beside the
  * overview; they talk to `/api/pr/...` with the content id (`task.source.id`).
  *
- * An ORD order may carry "mã video" (`design`: the codes the Design ban
+ * An ORD order may carry "mã task design" (`design`: the codes the Design ban
  * produces, and a change waiting for its Leader) and, when it is an "Order
  * sinh nhật", the person it is for (`birthday`); both are drawn as their own
  * blocks, and an action that lists the `design_codes` input gets the picker.
@@ -483,7 +483,7 @@ function BirthdayPanel({ info }: { info: BirthdayInfo }) {
 }
 
 /**
- * "Mã video": the codes the Design ban produces for this order, each with its
+ * "Mã task design": the codes the Design ban produces for this order, each with its
  * quantity. While the designer's changed list waits for the Trưởng phòng
  * Design, both lists are shown - the one in force and the one proposed.
  * Nothing is drawn for an order that has neither (no Design step, or not
@@ -494,8 +494,8 @@ function DesignCodesPanel({ design }: { design: TaskDesignCodes }) {
   const proposed = design.proposed_codes ?? null;
   if (codes.length === 0 && !proposed) return null;
   return (
-    <section aria-label="Mã video" className="panel p-4 text-sm">
-      <h2 className="font-semibold">Mã video</h2>
+    <section aria-label="Mã task design" className="panel p-4 text-sm">
+      <h2 className="font-semibold">Mã task design</h2>
       {proposed ? (
         <div className="mt-3 grid gap-4 md:grid-cols-2">
           <div data-testid="design-codes-current">

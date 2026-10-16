@@ -11,10 +11,12 @@ from sqlalchemy import (
     CheckConstraint,
     DateTime,
     ForeignKey,
+    Index,
     Integer,
     String,
     Text,
     false,
+    text,
 )
 from sqlalchemy import Enum as SAEnum
 from sqlalchemy.orm import Mapped, mapped_column
@@ -51,6 +53,14 @@ class User(UUIDPrimaryKeyMixin, TimestampMixin, Base):
             name="password_hash_is_scrypt",
         ),
         CheckConstraint("failed_login_count >= 0", name="failed_login_count_not_negative"),
+        # 0068: one member code per living person.
+        Index(
+            "uq_users_member_code",
+            "member_code",
+            unique=True,
+            postgresql_where=text("member_code IS NOT NULL AND deleted_at IS NULL"),
+            sqlite_where=text("member_code IS NOT NULL AND deleted_at IS NULL"),
+        ),
     )
 
     telegram_user_id: Mapped[int | None] = mapped_column(

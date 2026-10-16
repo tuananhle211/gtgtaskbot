@@ -145,6 +145,7 @@ class OrderQueryService:
             owner_user_id=order.owner_user_id,
             is_priority=order.is_priority,
             category=order.category,
+            approved=order.order_approved_at is not None,
         )
         node_views = tuple(
             NodeView(

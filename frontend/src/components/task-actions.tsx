@@ -40,7 +40,7 @@ import { Select } from "@/components/pr";
  *
  * - `useTaskActionForm` is the dialog's content and behaviour for one task:
  *   each action's confirmation (`specFor`: the question, plus its inputs - a
- *   note, a link, a text, an assignee, tokens, a deadline, the "mã video"
+ *   note, a link, a text, an assignee, tokens, a deadline, the "mã task design"
  *   picker with its hint), whether something required is still missing
  *   (`missing`), and the request (`submit`: `{key, version, ...inputs}`).
  *   A stale version is a 409: the caller reloads (`onStale`) and the failure
@@ -61,7 +61,7 @@ const FIELD_CLASS =
  * Every action confirms - it moves the task, which is the rule in
  * `components/confirm.tsx` - and the dialog is also where its inputs are
  * collected: a note (mandatory when `requires_note`), a link, a text, a
- * person from `assignee_options`, or the order's "mã video" (`design_codes`:
+ * person from `assignee_options`, or the order's "mã task design" (`design_codes`:
  * the picker, started from the action's own list). The body is
  * `{key, version, ...inputs}`; the fresh task comes back through `onDone`.
  */
@@ -82,7 +82,7 @@ export function useTaskActionForm({
   const [values, setValues] = useState<Record<string, Record<string, string>>>(
     {},
   );
-  // The "mã video" each action's picker holds, once it was touched.
+  // The "mã task design" each action's picker holds, once it was touched.
   const [codes, setCodes] = useState<Record<string, DesignCodeItem[]>>({});
   const run = useMutation({
     mutationFn: (body: TaskActionBody) => api.taskAction(task.id, body),

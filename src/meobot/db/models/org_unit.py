@@ -216,7 +216,7 @@ class UnitDuration(Base, UUIDPrimaryKeyMixin, TimestampMixin):
 
 
 class UnitDesignCode(Base, UUIDPrimaryKeyMixin, TimestampMixin):
-    """One design code ("mã video") of a unit's catalogue (0058): a kind of
+    """One design code ("mã task design") of a unit's catalogue (0058): a kind of
     artwork the Design team produces, e.g. ``TKBTS`` "SOCIAL - Thiết kế Banner,
     Thumb Video, Avatar". Kept by the Design Leader; never deleted, only
     deactivated - orders snapshot the code and name."""

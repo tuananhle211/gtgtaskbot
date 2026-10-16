@@ -1,9 +1,9 @@
 /**
- * The Design ban: the nav tree, the simplified task table, "mã video" and
+ * The Design ban: the nav tree, the simplified task table, "mã task design" and
  * "Order sinh nhật".
  *
  * Nav: "Quản lý task" became the branch "Bảng order" - "Order tổng" for
- * everybody, "Order sinh nhật" and "Bảng mã video" by the `design` block of
+ * everybody, "Order sinh nhật" and "Mã task design" by the `design` block of
  * `/api/units/me`. There is no "Tạo order" entry any more: an order is created
  * from the board of its own kind.
  *
@@ -11,9 +11,9 @@
  * Trạng thái · Đang giữ / Deadline / Nội dung / Tên task / Thiết kế; everybody
  * else keeps the per-step cells and "Kết quả".
  *
- * Mã video: the picker (add, quantity, remove, required) on its own and inside
+ * Mã task design: the picker (add, quantity, remove, required) on its own and inside
  * the task page's action dialog, where the chosen list is sent as
- * `design_codes`; the task page's "Mã video" block and the catalogue screen.
+ * `design_codes`; the task page's "Mã task design" block and the catalogue screen.
  *
  * Order sinh nhật: the board asks for `category=BIRTHDAY&order=birthday`, and
  * its modal creates and edits.
@@ -180,12 +180,12 @@ describe('the "Bảng order" branch of the nav', () => {
       "/tasks/birthday",
     );
     expect(navHrefs()).toEqual(["/dashboard", "/tasks", "/tasks/birthday"]);
-    expect(screen.queryByRole("link", { name: "Bảng mã video" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("link", { name: "Mã task design" })).not.toBeInTheDocument();
   });
 
-  it('adds "Bảng mã video" as the third child for design.manage_codes', async () => {
+  it('adds "Mã task design" as the third child for design.manage_codes', async () => {
     shell(DESIGN_LEAD);
-    await screen.findByRole("link", { name: "Bảng mã video" });
+    await screen.findByRole("link", { name: "Mã task design" });
     const branch = within(primary()).getByRole("group", { name: "Bảng order" });
     expect(
       within(branch)
@@ -194,13 +194,13 @@ describe('the "Bảng order" branch of the nav', () => {
     ).toEqual([
       ["Order tổng", "/tasks"],
       ["Order sinh nhật", "/tasks/birthday"],
-      ["Bảng mã video", "/tasks/design-codes"],
+      ["Mã task design", "/tasks/design-codes"],
     ]);
   });
 
   it("shows the catalogue alone when only manage_codes is set", async () => {
     shell({ view: false, manage_codes: true, birthday: false });
-    await screen.findByRole("link", { name: "Bảng mã video" });
+    await screen.findByRole("link", { name: "Mã task design" });
     expect(navHrefs()).toEqual(["/dashboard", "/tasks", "/tasks/design-codes"]);
   });
 
@@ -210,7 +210,7 @@ describe('the "Bảng order" branch of the nav', () => {
     const birthday = await screen.findByRole("link", { name: "Order sinh nhật" });
     expect(birthday).toHaveAttribute("aria-current", "page");
     expect(screen.getByRole("link", { name: "Order tổng" })).not.toHaveAttribute("aria-current");
-    expect(screen.getByRole("link", { name: "Bảng mã video" })).not.toHaveAttribute("aria-current");
+    expect(screen.getByRole("link", { name: "Mã task design" })).not.toHaveAttribute("aria-current");
   });
 
   it('keeps a task\'s own page under "Order tổng"', async () => {
@@ -492,14 +492,14 @@ function PickerHarness({
 const picks = () => JSON.parse(screen.getByTestId("picks").textContent ?? "[]");
 const valid = () => screen.getByTestId("valid").textContent;
 
-describe("the mã video picker", () => {
+describe("the mã task design picker", () => {
   it("adds a code with quantity 1, and offers each code once", async () => {
     renderWithQuery(<PickerHarness required />);
-    const add = screen.getByRole("combobox", { name: "Mã video (bắt buộc)" });
-    expect(screen.getByText("Chưa chọn mã video nào.")).toBeInTheDocument();
+    const add = screen.getByRole("combobox", { name: "Mã task design (bắt buộc)" });
+    expect(screen.getByText("Chưa chọn mã task design nào.")).toBeInTheDocument();
     expect(valid()).toBe("false");
     expect(within(add).getAllByRole("option").map((option) => option.textContent)).toEqual([
-      "— thêm mã video —",
+      "— thêm mã task design —",
       "TKBTS · SOCIAL - Thiết kế Banner, Thumb Video, Avatar",
       "CA · Cover Album",
     ]);
@@ -507,7 +507,7 @@ describe("the mã video picker", () => {
     expect(picks()).toEqual([{ code_id: TKBTS.id, quantity: 1 }]);
     expect(valid()).toBe("true");
     expect(within(add).getAllByRole("option").map((option) => option.textContent)).toEqual([
-      "— thêm mã video —",
+      "— thêm mã task design —",
       "CA · Cover Album",
     ]);
     await userEvent.selectOptions(add, CA.id);
@@ -541,7 +541,7 @@ describe("the mã video picker", () => {
     renderWithQuery(<PickerHarness initial={[item(TKBTS, 3), item(CA, 1)]} required />);
     await userEvent.click(screen.getByRole("button", { name: "Bỏ mã TKBTS" }));
     expect(picks()).toEqual([{ code_id: CA.id, quantity: 1 }]);
-    const add = screen.getByRole("combobox", { name: "Mã video (bắt buộc)" });
+    const add = screen.getByRole("combobox", { name: "Mã task design (bắt buộc)" });
     expect(within(add).getByRole("option", { name: /TKBTS/ })).toBeInTheDocument();
     await userEvent.click(screen.getByRole("button", { name: "Bỏ mã CA" }));
     expect(picks()).toEqual([]);
@@ -551,7 +551,7 @@ describe("the mã video picker", () => {
 
   it("accepts an empty list when nothing is required", () => {
     renderWithQuery(<PickerHarness />);
-    expect(screen.getByRole("combobox", { name: "Mã video" })).toBeInTheDocument();
+    expect(screen.getByRole("combobox", { name: "Mã task design" })).toBeInTheDocument();
     expect(valid()).toBe("true");
   });
 
@@ -560,16 +560,16 @@ describe("the mã video picker", () => {
     expect(screen.getByTestId("design-code-item")).toHaveTextContent("OLD Mã đã ngừng");
     expect(valid()).toBe("true");
     await userEvent.click(screen.getByRole("button", { name: "Bỏ mã OLD" }));
-    const add = screen.getByRole("combobox", { name: "Mã video" });
+    const add = screen.getByRole("combobox", { name: "Mã task design" });
     expect(within(add).queryByRole("option", { name: /OLD/ })).not.toBeInTheDocument();
   });
 
   it("shows the action's hint under the list", () => {
     renderWithQuery(
-      <PickerHarness hint="Sửa mã video thì bài nộp cần Trưởng phòng Design duyệt." />,
+      <PickerHarness hint="Sửa mã task design thì bài nộp cần Trưởng phòng Design duyệt." />,
     );
     expect(
-      screen.getByText("Sửa mã video thì bài nộp cần Trưởng phòng Design duyệt."),
+      screen.getByText("Sửa mã task design thì bài nộp cần Trưởng phòng Design duyệt."),
     ).toBeInTheDocument();
   });
 });
@@ -627,7 +627,7 @@ const SCRIPT_HAND_IN = {
   assignee_options: [],
 };
 
-const HINT = "Sửa mã video thì bài nộp cần Trưởng phòng Design duyệt.";
+const HINT = "Sửa mã task design thì bài nộp cần Trưởng phòng Design duyệt.";
 
 const DESIGN_HAND_IN = {
   key: "ads:SUBMIT_WORK:n-tk",
@@ -657,12 +657,12 @@ const accept = () =>
 const actionBody = (stub: unknown) =>
   calls(stub).find((call) => call.method === "POST" && call.url.endsWith("/actions"))?.body;
 
-describe("mã video in the action dialog", () => {
+describe("mã task design in the action dialog", () => {
   it("is required at the script hand-in, and is sent as design_codes", async () => {
     const stub = detailPage({ ...DETAIL, actions: [SCRIPT_HAND_IN] });
     await userEvent.click(await screen.findByRole("button", { name: "Nộp bài · Biên kịch" }));
     const dialog = await screen.findByRole("dialog");
-    const add = within(dialog).getByRole("combobox", { name: "Mã video (bắt buộc)" });
+    const add = within(dialog).getByRole("combobox", { name: "Mã task design (bắt buộc)" });
     // Nothing chosen yet: the hand-in cannot be confirmed.
     expect(accept()).toBeDisabled();
     await waitFor(() => expect(within(add).getAllByRole("option")).toHaveLength(3));
@@ -723,7 +723,7 @@ describe("mã video in the action dialog", () => {
     // A list that was there may be changed, never emptied.
     expect(accept()).toBeDisabled();
     await userEvent.selectOptions(
-      within(dialog).getByRole("combobox", { name: "Mã video (bắt buộc)" }),
+      within(dialog).getByRole("combobox", { name: "Mã task design (bắt buộc)" }),
       CA.id,
     );
     await confirm();
@@ -743,7 +743,7 @@ describe("mã video in the action dialog", () => {
     });
     await userEvent.click(await screen.findByRole("button", { name: "Nộp bài · Biên kịch" }));
     const dialog = await screen.findByRole("dialog");
-    expect(within(dialog).queryByRole("group", { name: "Mã video" })).not.toBeInTheDocument();
+    expect(within(dialog).queryByRole("group", { name: "Mã task design" })).not.toBeInTheDocument();
     await confirm();
     await waitFor(() => expect(actionBody(stub)).toBeDefined());
     expect(actionBody(stub)).toEqual({ key: "ads:SUBMIT_WORK:n-bt", version: 5 });
@@ -752,9 +752,9 @@ describe("mã video in the action dialog", () => {
 });
 
 describe("the task page's own blocks", () => {
-  it('lists the order\'s codes under "Mã video"', async () => {
+  it('lists the order\'s codes under "Mã task design"', async () => {
     detailPage({ ...DETAIL, design: { codes: [item(TKBTS, 3), item(CA, 1)], proposed_codes: null } });
-    const block = await screen.findByRole("region", { name: "Mã video" });
+    const block = await screen.findByRole("region", { name: "Mã task design" });
     expect(within(block).getAllByRole("listitem")).toHaveLength(2);
     expect(block).toHaveTextContent("× 3");
     expect(within(block).queryByText(/Đề xuất đổi mã/)).not.toBeInTheDocument();
@@ -765,7 +765,7 @@ describe("the task page's own blocks", () => {
       ...DETAIL,
       design: { codes: [item(TKBTS, 3)], proposed_codes: [item(TKBTS, 2), item(CA, 1)] },
     });
-    const block = await screen.findByRole("region", { name: "Mã video" });
+    const block = await screen.findByRole("region", { name: "Mã task design" });
     expect(
       within(block).getByText("Đề xuất đổi mã – chờ Trưởng phòng Design duyệt"),
     ).toBeInTheDocument();
@@ -776,7 +776,7 @@ describe("the task page's own blocks", () => {
   it("draws neither block for an order that has neither", async () => {
     detailPage(DETAIL);
     await screen.findByRole("heading", { name: "Banner khai trương" });
-    expect(screen.queryByRole("region", { name: "Mã video" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("region", { name: "Mã task design" })).not.toBeInTheDocument();
     expect(screen.queryByRole("region", { name: "Order sinh nhật" })).not.toBeInTheDocument();
     expect(screen.getByRole("link", { name: "Quản lý task" })).toHaveAttribute(
       "href",
@@ -814,7 +814,7 @@ describe("the task page's own blocks", () => {
     delete old.birthday;
     detailPage(old as UnifiedTaskDetail);
     await screen.findByRole("heading", { name: "Banner khai trương" });
-    expect(screen.queryByRole("region", { name: "Mã video" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("region", { name: "Mã task design" })).not.toBeInTheDocument();
   });
 });
 
@@ -1180,7 +1180,7 @@ describe("the birthday board", () => {
 
 // --- 6. The catalogue ----------------------------------------------------------
 
-describe('"Bảng mã video"', () => {
+describe('"Mã task design"', () => {
   const cataloguePage = (me: unknown, extra: Parameters<typeof stubFetch>[0] = []) => {
     const stub = stubFetch([
       ...extra,
@@ -1215,11 +1215,11 @@ describe('"Bảng mã video"', () => {
     const add = await screen.findByRole("button", { name: "Thêm" });
     // A code and a name, or there is nothing to add.
     expect(add).toBeDisabled();
-    await userEvent.type(screen.getByRole("textbox", { name: "Mã video mới" }), "CA");
+    await userEvent.type(screen.getByRole("textbox", { name: "Mã task design mới" }), "CA");
     expect(add).toBeDisabled();
-    await userEvent.type(screen.getByRole("textbox", { name: "Tên mã video mới" }), "Cover Album");
+    await userEvent.type(screen.getByRole("textbox", { name: "Tên mã task design mới" }), "Cover Album");
     await userEvent.click(add);
-    expect(await screen.findByRole("dialog")).toHaveTextContent('Thêm mã video "CA"?');
+    expect(await screen.findByRole("dialog")).toHaveTextContent('Thêm mã task design "CA"?');
     await confirm();
     await waitFor(() => expect(calls(stub).some((call) => call.method === "POST")).toBe(true));
     expect(calls(stub).find((call) => call.method === "POST")!.body).toEqual({
@@ -1256,7 +1256,7 @@ describe('"Bảng mã video"', () => {
   it("is only a notice for somebody who may not manage it", async () => {
     const stub = cataloguePage(ME_AS("THIET_KE", DESIGNER));
     expect(await screen.findByRole("status")).toHaveTextContent(
-      "Bảng mã video do Trưởng phòng Design quản lý",
+      "Mã task design do Trưởng phòng Design quản lý",
     );
     expect(calls(stub).some((call) => call.url.includes("design-codes"))).toBe(false);
   });

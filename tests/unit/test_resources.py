@@ -800,10 +800,15 @@ async def test_09_export_keeps_ids_as_text_and_import_previews_then_writes(world
     assert [item["status"] for item in rows[6]["months"]] == ["Hoạt động", "Checkpoint"]
     assert any("không khớp danh sách nhân viên" in item for item in rows[7]["errors"])
     assert any("không có trong danh sách lựa chọn" in item for item in rows[8]["errors"])
-    assert any("Chưa có trạng thái" in item for item in rows[8]["errors"])
-    assert rows[9]["errors"] == ["Chưa có trạng thái (không ô tháng nào có giá trị)."]
-    assert rows[9]["warnings"] == ["Chưa ghi bàn giao: lấy 'Chưa bàn giao'."]
-    assert body["error_count"] == 4 and body["ok_count"] == 0
+    # No month filled: the status defaults to "Hoạt động" with a note, not an error.
+    assert rows[9]["errors"] == []
+    assert rows[9]["warnings"] == [
+        "Chưa ghi bàn giao: lấy 'Chưa bàn giao'.",
+        "Chưa có trạng thái tháng nào: lấy 'Hoạt động'.",
+    ]
+    assert body["error_count"] == 3 and body["ok_count"] == 1
+    assert [item["name"] for item in body["missing_options"]] == ["Máy bay"]
+    assert [item["name"] for item in body["missing_people"]] == ["Người Không Có"]
     assert (await world.session.scalar(select(Resource).where(Resource.code == "ADS-010"))) is None
     commit = world.client.post("/api/resources/import/commit", json={"data": bad_file})
     assert commit.status_code == 422 and error_reason(commit.json()) == "import_has_errors"
@@ -894,6 +899,100 @@ async def test_09_export_keeps_ids_as_text_and_import_previews_then_writes(world
         "/api/resources/import/preview", json={"data": base64.b64encode(b"hello").decode()}
     )
     assert garbage.status_code == 422 and error_reason(garbage.json()) == "import_file_invalid"
+
+
+async def test_09b_import_gives_member_codes_only_from_the_owner_or_an_admin(
+    world: World,
+) -> None:
+    """0068: the accounts an import creates get the file's member code only
+    when the importer is the OWNER / an ADMIN; a code already carried points
+    at its person."""
+    people = await cast(world)
+    taken = await person(world, "Người Có Mã")
+    world.act_as(world.owner)
+    assert (
+        world.client.put(
+            f"/api/account/members/{taken.id}/member-code", json={"member_code": "NCM"}
+        ).status_code
+        == 200
+    )
+
+    file_naming = _with_holder_code
+
+    async def account_of(name: str) -> User:
+        found = await world.session.scalar(select(User).where(User.full_name == name))
+        assert found is not None, name
+        return found
+
+    # The head of Tài nguyên imports: the account is made, the code is not.
+    world.act_as(people.tn_head)
+    written = world.client.post(
+        "/api/resources/import/commit",
+        json={"data": file_naming("Nhân Viên Mới", "NVM", "x1"), "create_people": True},
+    )
+    assert written.status_code == 200, written.json()
+    assert (await account_of("Nhân Viên Mới")).member_code is None
+    # The OWNER imports: the code comes with the account...
+    world.act_as(world.owner)
+    written = world.client.post(
+        "/api/resources/import/commit",
+        json={"data": file_naming("Nhân Viên Hai", "NVH", "x2"), "create_people": True},
+    )
+    assert written.status_code == 200, written.json()
+    assert (await account_of("Nhân Viên Hai")).member_code == "NVH"
+    # A code somebody already carries names *that* person, whatever the row
+    # calls them: no second account, no second holder of the code.
+    written = world.client.post(
+        "/api/resources/import/commit",
+        json={"data": file_naming("Nhân Viên Ba", "ncm", "x3"), "create_people": True},
+    )
+    assert written.status_code == 200, written.json()
+    assert await world.session.scalar(select(User).where(User.full_name == "Nhân Viên Ba")) is None
+    listed = world.client.get("/api/resources", params={"q": "x3"}).json()["items"]
+    assert listed[0]["holder"]["full_name"] == "Người Có Mã"
+    assert (await account_of("Người Có Mã")).member_code == "NCM"
+
+
+def _with_holder_code(name: str, code: str, external_id: str) -> str:
+    """An inventory file whose one row names ``name`` (member code ``code``)
+    as the holder: the header gains a "Mã nhân viên" column."""
+    raw = base64.b64decode(
+        workbook(
+            [
+                [
+                    1,
+                    "",
+                    "Via",
+                    external_id,
+                    "Via X",
+                    "",
+                    name,
+                    "",
+                    "",
+                    "",
+                    "",
+                    "",
+                    "",
+                    "",
+                    "",
+                    "",
+                    "",
+                    "",
+                    "Hoạt động",
+                    "",
+                    "",
+                ]
+            ]
+        )
+    )
+    book = load_workbook(io.BytesIO(raw))
+    sheet = book["ADS"]
+    last = sheet.max_column + 1
+    sheet.cell(row=5, column=last, value="Mã nhân viên")
+    sheet.cell(row=6, column=last, value=code)
+    buffer = io.BytesIO()
+    book.save(buffer)
+    return base64.b64encode(buffer.getvalue()).decode()
 
 
 async def test_10_the_owner_and_an_admin_need_no_seat(world: World) -> None:

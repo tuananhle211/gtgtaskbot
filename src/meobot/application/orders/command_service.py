@@ -95,6 +95,7 @@ from meobot.domain.orders.models import (
     OrderScriptSource,
     OrderStage,
     OrderVideoType,
+    is_design_only,
     last_production_node,
 )
 from meobot.domain.orders.permissions import AdsPermission
@@ -142,6 +143,9 @@ class CreateOrderCommand:
     #: 0056: the Trưởng phòng ADS chosen to approve this order. None = the
     #: orderer's own head, else every head.
     approver_user_id: uuid.UUID | None = None
+    #: A Design-only order's "Task công việc": the design codes it needs, in
+    #: place of the video kind, platform and duration. Ignored otherwise.
+    design_codes: tuple[DesignPick, ...] | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -205,6 +209,7 @@ class _Loaded:
             owner_user_id=self.order.owner_user_id,
             is_priority=self.order.is_priority,
             category=self.order.category,
+            approved=self.order.order_approved_at is not None,
         )
 
     def node_views(self) -> tuple[NodeView, ...]:
@@ -281,15 +286,19 @@ class OrderCommandService:
             )
         self._validate_fields(command.title, command.order_content)
         desired = _desired_deadline(command.desired_deadline_at, now=utcnow())
+        # Only Design ticked: no ORD approval - the order goes straight to the
+        # Design step, to the Design Leader to hand out - and its "Task công
+        # việc" (design codes) stands for the video kind, platform, duration.
+        design_only = is_design_only(command.video_type)
         # Somebody who approves orders needs no approval of their own order -
         # and so no approver.
         own_gate = context.permissions.holds(AdsPermission.ORDER_APPROVE)
         approver = (
             None
-            if own_gate
+            if own_gate or design_only
             else await self._approver(unit.id, command.approver_user_id, actor.user_id)
         )
-        if not own_gate and approver is None:
+        if not own_gate and not design_only and approver is None:
             # Nobody chosen: the orderer's own approvers (0061). None at all -
             # no head of theirs approves orders - and they must pick one.
             routes = await ads_approvers(self._session, unit.id)
@@ -299,12 +308,22 @@ class OrderCommandService:
                     details={"reason": "approver_required", "field": "approver_user_id"},
                 )
         await self._validate_preassigned(unit.id, command.video_type, command.preassigned)
-        kind = await self._video_kind(unit.id, command.video_kind_id, required=True)
-        platform = await self._platform(unit.id, command.platform_id, required=True)
-        duration = await self._duration(unit.id, command.duration_id, required=True)
-        # Last check, before anything is written: the AI reads the script. A
-        # script that breaks the rules goes back to the orderer here.
-        ai_note = await self._review_script(settings, command.title, command.order_content)
+        kind = platform = duration = None
+        design_items: tuple[DesignItem, ...] = ()
+        ai_note = None
+        if design_only:
+            if settings.design_codes_enabled:
+                if not command.design_codes:
+                    raise _design_codes_required()
+                design_items = await self._design.resolve(unit.id, command.design_codes)
+        else:
+            kind = await self._video_kind(unit.id, command.video_kind_id, required=True)
+            platform = await self._platform(unit.id, command.platform_id, required=True)
+            duration = await self._duration(unit.id, command.duration_id, required=True)
+            # Last check, before anything is written: the AI reads the script.
+            # A script that breaks the rules goes back to the orderer here. A
+            # Design-only order's "Nội dung" is a plain brief: not read.
+            ai_note = await self._review_script(settings, command.title, command.order_content)
 
         member_code = None if entry is None else entry.member_code
         if member_code is None:
@@ -331,7 +350,7 @@ class OrderCommandService:
             duration_name=None if duration is None else duration.name,
             duration_points=None if duration is None else Decimal(duration.points),
             order_content=command.order_content.strip(),
-            script_source=command.script_source,
+            script_source=None if design_only else command.script_source,
             design_link=_blank_to_none(command.design_link),
             reference_link=_blank_to_none(command.reference_link),
             source_link=_blank_to_none(command.source_link),
@@ -341,21 +360,38 @@ class OrderCommandService:
             submitted_at=now,
             desired_deadline_at=desired,
             approver_user_id=approver,
+            design_items=items_to_json(design_items) if design_items else None,
         )
         self._session.add(order)
         await self._session.flush()
+        created: dict[OrderNodeType, OrderNode] = {}
         for node_type, status in initial_node_statuses(command.video_type).items():
-            self._session.add(
-                OrderNode(
-                    order_id=order.id,
-                    node_type=node_type,
-                    status=status,
-                    preassigned_user_id=command.preassigned.get(node_type),
-                )
+            created[node_type] = OrderNode(
+                order_id=order.id,
+                node_type=node_type,
+                status=status,
+                preassigned_user_id=command.preassigned.get(node_type),
             )
+            self._session.add(created[node_type])
         await self._session.flush()
         await self._event(order, OrderEventKind.SUBMITTED, actor, note=ai_note)
         await self._audit_order(actor, request_id, AuditAction.ORDER_SUBMITTED, order, before=None)
+        if design_only and not own_gate:
+            # No ORD gate: it starts at Design as it is placed. The Design
+            # Leader stands in for the approver - handing the step out or
+            # taking it approves the order (:meth:`_design_only_approval`),
+            # cancelling it turns it down.
+            loaded = _Loaded(
+                order=order,
+                nodes=created,
+                scope=OrderScope.for_actor(membership, settings, unit_id=unit.id),
+                settings=settings,
+                membership=membership,
+            )
+            await self._activate(loaded, created[OrderNodeType.THIET_KE], actor, now, first=True)
+            self._bump(order)
+            await self._session.flush()
+            return order
         if own_gate:
             # Placed by a head: approved as it is placed, straight to the
             # first step. Nobody is asked to approve it.
@@ -626,7 +662,11 @@ class OrderCommandService:
             for node_type, node in loaded.nodes.items():
                 node.preassigned_user_id = edit.preassigned.get(node_type)
         # Sent again = read again: the script may have changed, or the rules.
-        ai_note = await self._review_script(loaded.settings, order.title, order.order_content)
+        ai_note = (
+            None
+            if is_design_only(order.video_type)
+            else await self._review_script(loaded.settings, order.title, order.order_content)
+        )
         order.stage = OrderStage.ORDER_PENDING
         order.returned_reason = None
         self._bump(order)
@@ -725,6 +765,7 @@ class OrderCommandService:
         await self._apply_plan(
             loaded, node, actor, plan or NodePlan(), required=_unplanned(node, loaded.settings)
         )
+        await self._design_only_approval(loaded, node, actor)
         changed = node.assignee_user_id != assignee_user_id
         node.assignee_user_id = assignee_user_id
         node.assigned_at = utcnow()
@@ -774,6 +815,7 @@ class OrderCommandService:
             await self._apply_plan(
                 loaded, node, actor, plan or NodePlan(), required=_unplanned(node, loaded.settings)
             )
+        await self._design_only_approval(loaded, node, actor)
         node.accepted_at = utcnow()
         node.version += 1
         self._bump(loaded.order)
@@ -855,7 +897,7 @@ class OrderCommandService:
                 OrderEventKind.DESIGN_CODES_SET,
                 actor,
                 node=node,
-                note=f"Mã video: {describe_items(picked)}",
+                note=f"Mã task design: {describe_items(picked)}",
             )
         if proposed is not None:
             current = items_from_json(loaded.order.design_items)
@@ -865,7 +907,7 @@ class OrderCommandService:
                 actor,
                 node=node,
                 note=(
-                    "Nhân viên yêu cầu thay đổi mã video: "
+                    "Nhân viên yêu cầu thay đổi mã task design: "
                     f"{describe_items(current)} → {describe_items(proposed)}"
                 ),
             )
@@ -939,7 +981,7 @@ class OrderCommandService:
                 OrderEventKind.DESIGN_CODES_SET,
                 actor,
                 node=node,
-                note=f"Duyệt đổi mã video: {describe_items(decided)}",
+                note=f"Duyệt đổi mã task design: {describe_items(decided)}",
             )
         await self._complete_node(loaded, node, actor, request_id, note=note)
         await self._audit_order(
@@ -1447,9 +1489,28 @@ class OrderCommandService:
         await self._audit_order(
             actor, request_id, AuditAction.ORDER_CANCELLED, order, before=before
         )
+        await self._notify.order_cancelled(
+            actor=actor, order=order, unit=loaded.settings, reason=reason
+        )
         return order
 
     # --- shared steps -------------------------------------------------------------------
+
+    async def _design_only_approval(self, loaded: _Loaded, node: OrderNode, actor: Actor) -> None:
+        """A Design-only order is approved by the Design Leader's first hand-out
+        or take of its step: recorded as the order gate's approval."""
+        order = loaded.order
+        if (
+            order.order_approved_at is not None
+            or order.category is not OrderCategory.STANDARD
+            or not is_design_only(order.video_type)
+            or node.node_type is not OrderNodeType.THIET_KE
+        ):
+            return
+        order.order_approved_at = utcnow()
+        order.order_approved_by_user_id = actor.user_id
+        await self._approval(order, OrderApprovalGate.ORDER, OrderApprovalDecision.APPROVED, actor)
+        await self._event(order, OrderEventKind.ORDER_APPROVED, actor)
 
     async def _design_hand_in(
         self, loaded: _Loaded, node: OrderNode, picks: Sequence[DesignPick] | None
@@ -1866,6 +1927,16 @@ class OrderCommandService:
                 )
             )
         )
+        # 0068: one code per person, across every account.
+        taken.update(
+            await self._session.scalars(
+                select(User.member_code).where(
+                    User.member_code.is_not(None),
+                    User.deleted_at.is_(None),
+                    User.id != actor.user_id,
+                )
+            )
+        )
         code, suffix = base, 2
         while code in taken:
             code = f"{base[: 12 - len(str(suffix))]}{suffix}"
@@ -1973,7 +2044,7 @@ def _format_when(at: datetime) -> str:
 
 def _design_codes_required() -> OrderValidationError:
     return OrderValidationError(
-        "Cần chọn ít nhất một mã video kèm số lượng.",
+        "Cần chọn ít nhất một mã task design kèm số lượng.",
         details={"reason": "design_codes_required", "field": "design_codes"},
     )
 

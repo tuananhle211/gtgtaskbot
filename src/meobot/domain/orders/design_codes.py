@@ -1,4 +1,4 @@
-"""The design codes ("mã video") an order carries, with no I/O.
+"""The design codes ("mã task design") an order carries, with no I/O.
 
 A design code is one kind of artwork the Design team produces - ``TKBTS``
 "SOCIAL - Thiết kế Banner, Thumb Video, Avatar" - from a catalogue the Design

@@ -374,6 +374,9 @@ class CreateOrderRequest(BaseModel):
     #: 0056: the Trưởng phòng ADS chosen to approve it (422 ``approver_invalid``).
     #: Ignored for a head's own order, which needs no approval.
     approver_user_id: uuid.UUID | None = None
+    #: A Design-only order's "Task công việc" (design codes, 422
+    #: ``design_codes_required``) in place of video kind / platform / duration.
+    design_codes: list[DesignPickRequest] | None = Field(default=None, max_length=100)
 
 
 class VersionedRequest(BaseModel):
@@ -417,7 +420,7 @@ class ReturnNodeRequest(PlanRequest):
 
 
 class DesignPickRequest(BaseModel):
-    """One design code ("mã video") and how many (0058)."""
+    """One design code ("mã task design") and how many (0058)."""
 
     code_id: uuid.UUID
     quantity: int = Field(ge=1, le=999)

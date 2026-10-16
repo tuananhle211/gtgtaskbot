@@ -152,3 +152,39 @@ async def test_06_a_code_made_from_the_name_is_kept_on_the_account(world: World)
     assert prefix == "NGOC"
     assert await account_code(world, newcomer) == "NGOC"
     assert await tag_code(world, newcomer, UnitCode.ADS) == "NGOC"
+
+
+async def test_07_a_code_is_one_persons_and_the_derived_one_steps_aside(world: World) -> None:
+    """0068: a code another living account carries is refused everywhere it
+    is written; a code made from a name skips every account's code."""
+    ads = await ads_world(world)
+    world.act_as(world.owner)
+    assert (
+        world.client.put(
+            f"/api/account/members/{ads.writer.id}/member-code", json={"member_code": "NGOC"}
+        ).status_code
+        == 200
+    )
+    taken = world.client.put(
+        f"/api/account/members/{ads.designer.id}/member-code", json={"member_code": "ngoc"}
+    )
+    assert taken.status_code == 422 and error_reason(taken.json()) == "member_code_taken"
+    assert ads.writer.full_name in taken.json()["error"]["message"]
+    # The same person may keep their own code; the stream roster refuses the clash too.
+    assert (
+        world.client.put(
+            f"/api/account/members/{ads.writer.id}/member-code", json={"member_code": "NGOC"}
+        ).status_code
+        == 200
+    )
+    clash = world.client.patch(
+        f"/api/units/ADS/members/{ads.designer.id}", json={"member_code": "NGOC"}
+    )
+    assert clash.status_code == 422 and error_reason(clash.json()) == "member_code_taken"
+    # An orderer named Ngọc Hà would derive NGOC: it is taken, so NGOC2.
+    newcomer = await person(world, "Ngọc Hà")
+    assert seat(world, "ADS", newcomer).status_code == 200
+    made = order(world, newcomer)
+    assert made.status_code == 201, made.json()
+    assert made.json()["order"]["code"].split("-")[0] == "NGOC2"
+    assert await account_code(world, newcomer) == "NGOC2"

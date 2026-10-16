@@ -44,7 +44,7 @@ class ExtraResponse(BaseModel):
 
 
 class DesignCodeItemResponse(BaseModel):
-    """One design code ("mã video") on an order, with its quantity."""
+    """One design code ("mã task design") on an order, with its quantity."""
 
     model_config = ConfigDict(from_attributes=True)
 

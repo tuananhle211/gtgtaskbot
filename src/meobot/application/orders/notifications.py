@@ -105,6 +105,21 @@ class OrderNotificationService:
             suffix=f"{node.node_type.value}:{node.revision_count}",
         )
 
+    async def order_cancelled(
+        self, *, actor: Actor, order: Order, unit: UnitSettings, reason: str
+    ) -> None:
+        """Cancelled by somebody else: the orderer is told why."""
+        await self._tell(
+            actor=actor,
+            order=order,
+            unit=unit,
+            event=NotificationEvent.ORDER_CANCELLED,
+            recipients=[order.owner_user_id],
+            body=f"“{order.title}” ({order.code}) đã bị huỷ.",
+            note=reason,
+            suffix=f"v{order.version}",
+        )
+
     async def node_assigned(
         self, *, actor: Actor, order: Order, node: OrderNode, unit: UnitSettings
     ) -> None:

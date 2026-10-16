@@ -310,7 +310,7 @@ const DETAIL = (
   actions,
 });
 
-const HINT = "Sửa mã video thì bài nộp cần Trưởng phòng Design duyệt.";
+const HINT = "Sửa mã task design thì bài nộp cần Trưởng phòng Design duyệt.";
 type Action = UnifiedTaskDetail["actions"][number];
 
 const HAND_IN: Action = {

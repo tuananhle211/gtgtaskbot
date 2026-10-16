@@ -499,7 +499,7 @@ async def final_review(world: World, ads: Any, **overrides: Any) -> dict[str, An
     detail = create(
         world, ads, video_type="T", preassigned={"THIET_KE": str(ads.designer.id)}, **overrides
     )
-    detail = act(world, ads.head, "/approve", detail)
+    # Design only: no ORD approval, it starts at Design.
     tk = node(detail, "THIET_KE")["id"]
     detail = act(world, ads.designer, f"/nodes/{tk}/accept", detail)
     detail = act(world, ads.designer, f"/nodes/{tk}/submit", detail, link="https://e.com/final")

@@ -32,7 +32,7 @@ const validDraft = (draft: Draft) =>
 const CATALOGUE_KEY = ["units", "ADS", "design-codes"];
 
 /**
- * "Bảng mã video": the Design ban's catalogue of codes - what the Biên kịch
+ * "Mã task design": the Design ban's catalogue of codes - what the Biên kịch
  * step picks from when handing in to Design, each with a quantity. Kept by the
  * Trưởng phòng Design (and OWNER / ADMIN): `design.manage_codes`.
  *
@@ -53,14 +53,14 @@ export function DesignCodesManager() {
   if (!canManage) {
     return (
       <p role="status" className="panel p-4 text-sm text-[var(--text-muted)]">
-        Bảng mã video do Trưởng phòng Design quản lý. Bạn không có quyền chỉnh
+        Mã task design do Trưởng phòng Design quản lý. Bạn không có quyền chỉnh
         sửa bảng này.
       </p>
     );
   }
   return (
     <section
-      aria-label="Bảng mã video"
+      aria-label="Mã task design"
       className="rounded-xl border border-[var(--border)] bg-[var(--surface)] p-4"
     >
       <p className="text-xs text-[var(--text-muted)]">
@@ -69,7 +69,7 @@ export function DesignCodesManager() {
       </p>
       {codes.isPending ? (
         <div className="mt-3">
-          <Loading label="Đang tải bảng mã video…" />
+          <Loading label="Đang tải bảng mã task design…" />
         </div>
       ) : codes.isError ? (
         <div className="mt-3">
@@ -190,7 +190,7 @@ function CodeRow({ row }: { row: DesignCode }) {
             spec={{
               title: retiring
                 ? `Ngừng dùng mã "${saved.code}"?`
-                : `Lưu mã video "${draft.code.trim()}"?`,
+                : `Lưu mã task design "${draft.code.trim()}"?`,
               description: retiring
                 ? "Mã không còn trong danh sách chọn khi nộp bài. Order đã chọn mã này giữ nguyên."
                 : "Áp dụng cho các lần chọn mã từ giờ. Order đã chọn giữ mã và tên cũ.",
@@ -243,7 +243,7 @@ function NewCodeRow({ nextOrder }: { nextOrder: number }) {
       <tr className="border-t-2 border-[var(--border)]">
         <td>
           <input
-            aria-label="Mã video mới"
+            aria-label="Mã task design mới"
             placeholder="Mã, vd. TKBTS"
             value={draft.code}
             onChange={(event) =>
@@ -254,8 +254,8 @@ function NewCodeRow({ nextOrder }: { nextOrder: number }) {
         </td>
         <td>
           <input
-            aria-label="Tên mã video mới"
-            placeholder="Thêm mã video…"
+            aria-label="Tên mã task design mới"
+            placeholder="Thêm mã task design…"
             value={draft.name}
             onChange={(event) =>
               setDraft((all) => ({ ...all, name: event.target.value }))
@@ -265,7 +265,7 @@ function NewCodeRow({ nextOrder }: { nextOrder: number }) {
         </td>
         <td className="text-center">
           <input
-            aria-label="Đang dùng mã video mới"
+            aria-label="Đang dùng mã task design mới"
             type="checkbox"
             checked={draft.active}
             onChange={(event) =>
@@ -275,7 +275,7 @@ function NewCodeRow({ nextOrder }: { nextOrder: number }) {
         </td>
         <td>
           <input
-            aria-label="Thứ tự mã video mới"
+            aria-label="Thứ tự mã task design mới"
             type="number"
             step={1}
             placeholder={String(nextOrder)}
@@ -289,7 +289,7 @@ function NewCodeRow({ nextOrder }: { nextOrder: number }) {
         <td className="text-right">
           <ConfirmButton
             spec={{
-              title: `Thêm mã video "${draft.code.trim()}"?`,
+              title: `Thêm mã task design "${draft.code.trim()}"?`,
               description: "Biên kịch chọn được ngay khi nộp bài sang Design.",
               confirmLabel: "Thêm",
             }}

@@ -9,7 +9,7 @@ from typing import Any
 from pydantic import BaseModel, Field
 
 from meobot.application.resources.access import ResourceAccess
-from meobot.application.resources.excel import ImportPreview, ImportRow, SheetSummary
+from meobot.application.resources.excel import ImportPreview, ImportRow, SheetSummary, fold
 from meobot.application.resources.reports import Summary, Warnings
 from meobot.application.resources.service import (
     ChangeLine,
@@ -23,7 +23,7 @@ from meobot.application.resources.service import (
 )
 from meobot.db.models.department import Department
 from meobot.db.models.resource import ResourceOption
-from meobot.domain.org.models import FUNCTION_LABELS
+from meobot.domain.org.models import FUNCTION_LABELS, POSITION_LABELS
 from meobot.domain.resources.models import (
     ALERT_LABELS,
     EMPLOYMENT_STATUS_LABELS,
@@ -559,6 +559,21 @@ class ImportFileRequest(BaseModel):
     filename: str = Field(default="", max_length=300)
     #: The ``.xlsx`` file, base64.
     data: str = Field(min_length=1, max_length=MAX_IMPORT_CHARS)
+    #: Add the pick-list entries the file uses and the lists lack (type,
+    #: role, origin...; never a status) instead of refusing the row.
+    create_options: bool = False
+    #: Create an Employee account for every person the file names who has
+    #: none, seated by the "Người sử dụng" tab (Ban, Chức vụ, Trạng thái).
+    create_people: bool = False
+
+
+class ImportPersonResponse(BaseModel):
+    name: str
+    member_code: str | None = None
+    department: str | None = None
+    position: str | None = None
+    employment_status: str | None = None
+    exists: bool
 
 
 class ImportRowResponse(BaseModel):
@@ -616,17 +631,45 @@ class ImportPreviewResponse(BaseModel):
     rows: list[ImportRowResponse]
     ok_count: int
     error_count: int
+    #: Pre-numbered template lines left out (a code and nothing else).
+    skipped_rows: int = 0
+    #: Pick-list entries the file uses and the lists lack: ``{kind, label, name}``.
+    missing_options: list[dict[str, str]] = []
+    #: People the file names who have no account (would be created with ``create_people``).
+    missing_people: list[ImportPersonResponse] = []
     written: bool = False
 
     @classmethod
     def from_preview(
         cls, preview: ImportPreview, *, written: bool = False
     ) -> ImportPreviewResponse:
+        by_name = {fold(person.name): person for person in preview.people}
+        missing = []
+        for name, code in preview.missing_people:
+            person = by_name.get(fold(name))
+            missing.append(
+                ImportPersonResponse(
+                    name=name,
+                    member_code=code,
+                    department=person.department.name
+                    if person and person.department
+                    else (person.department_text if person else None),
+                    position=POSITION_LABELS[person.position] if person else None,
+                    employment_status=EMPLOYMENT_STATUS_LABELS[person.status] if person else None,
+                    exists=False,
+                )
+            )
         return cls(
             sheets=[ImportSheetResponse.from_sheet(sheet) for sheet in preview.sheets],
             rows=[ImportRowResponse.from_row(row) for row in preview.rows],
             ok_count=preview.ok_count,
             error_count=preview.error_count,
+            skipped_rows=preview.skipped_rows,
+            missing_options=[
+                {"kind": kind.value, "label": OPTION_KIND_LABELS[kind], "name": text}
+                for kind, text in preview.missing_options
+            ],
+            missing_people=missing,
             written=written,
         )
 
