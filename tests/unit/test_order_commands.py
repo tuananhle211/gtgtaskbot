@@ -30,7 +30,7 @@ from typing import Any
 import pytest
 from sqlalchemy import func, select
 
-from meobot.application.orders.script_review import PASSED_SCRIPTS, _grounded
+from meobot.application.orders.script_review import PASSED_SCRIPTS, SYSTEM_PROMPT, _grounded
 from meobot.core.errors import LLMError
 from meobot.db.models.order import Order, OrderWorkRule
 from meobot.db.models.org_unit import OrgUnit, UnitVideoKind
@@ -1214,6 +1214,14 @@ async def test_ai_script_check_when_off_down_or_not_an_orderer(
     assert down["enabled"] is True and down["reviewed"] is False and down["passed"] is False
     assert down["problem"] == "AI đang lỗi"
     assert "Bạn vẫn gửi được" in down["message"]
+
+
+def test_the_suggested_script_rewrites_rather_than_cuts() -> None:
+    """The corrected version keeps each sentence's meaning: an offending phrase
+    is replaced by a compliant one of the same sense, never just deleted."""
+    assert "Sửa là VIẾT LẠI, không phải cắt chữ" in SYSTEM_PROMPT
+    assert "câu tương tự về ý nghĩa nhưng hợp lệ" in " ".join(SYSTEM_PROMPT.split())
+    assert "Chỉ bỏ hẳn một dòng khi không có" in " ".join(SYSTEM_PROMPT.split())
 
 
 def test_ai_findings_must_quote_the_script_itself() -> None:
