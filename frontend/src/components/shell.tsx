@@ -157,22 +157,27 @@ function resourcesBranch(me: UnitsMe | undefined): NavGroup | null {
 const FORCED_PASSWORD_CHANGE = "/account?doi-mat-khau=1";
 
 /**
- * The PR module's own screens. Unchanged, and shown only to somebody tagged
- * PR, or to an OWNER / ADMIN: an ORD member or an untagged account has
- * nothing behind these routes (the API answers 404).
+ * "Phòng PR": the PR module's screens as one branch, like "Bảng order". Shown
+ * only to somebody tagged PR, or to an OWNER / ADMIN: an ORD member or an
+ * untagged account has nothing behind these routes (the API answers 404).
  */
-const PR_NAV: NavItem[] = [
-  // No "Nội dung PR" entry: PR pieces are created from the shared "Tạo order"
-  // screen (/orders/new) and followed on the shared task table. The board at /pr/content
-  // stays reachable from a row and from the table's "bảng chi tiết" link.
-  // M1. "Công việc" is the Work Ledger; "Giao việc" is the legacy task module
-  // and stays until the bridge milestone decides its future.
-  { href: "/pr/work", label: "Công việc", icon: "work" },
-  { href: "/pr/tasks", label: "Giao việc", icon: "task" },
-  { href: "/pr/channels", label: "Kênh", icon: "channel" },
-  { href: "/pr/permissions", label: "Thành viên & Phân quyền (PR)", icon: "people" },
-  { href: "/pr/reports", label: "Báo cáo", icon: "report" },
-];
+const PR_GROUP: NavGroup = {
+  label: "Phòng PR",
+  icon: "content",
+  children: [
+    // "Quản lý task" is PR's own board by stage (/pr/content); PR pieces are
+    // still created from the shared "Tạo order" screen (/orders/new) and also
+    // followed on the shared task table.
+    { href: "/pr/content", label: "Quản lý task", icon: "board" },
+    // M1. "Công việc" is the Work Ledger; "Giao việc" is the legacy task module
+    // and stays until the bridge milestone decides its future.
+    { href: "/pr/work", label: "Công việc", icon: "work" },
+    { href: "/pr/tasks", label: "Giao việc", icon: "task" },
+    { href: "/pr/channels", label: "Kênh", icon: "channel" },
+    { href: "/pr/permissions", label: "Thành viên & Phân quyền", icon: "people" },
+    { href: "/pr/reports", label: "Báo cáo", icon: "report" },
+  ],
+};
 
 /**
  * The ORD token grid (people × days). For whoever hands out ORD work: OWNER /
@@ -204,7 +209,7 @@ const ADMIN_NAV: NavItem = { href: "/admin", label: "Quản trị", icon: "admin
 /** Whether the sidebar is folded; shared by every Shell mount in this tab. */
 let sidebarCollapsed = false;
 
-/** The branches that are folded ("Bảng order", "Thư viện"), by label; shared the same way. */
+/** The branches that are folded ("Bảng order", "Phòng PR", "Thư viện"), by label; shared the same way. */
 const foldedBranches: Record<string, boolean> = {};
 
 /**
@@ -223,8 +228,9 @@ const LEGAL_LINKS = [
  * more, so the PR screens wait until the server says the person is in PR (or
  * sees every stream). The shared screens are always there, so the frame never
  * strands anybody on a blank sidebar. The order boards are one branch
- * ("Bảng order"), whose Design entries follow the `design` flags; the Design
- * team's "Thư viện" is another, after everything else.
+ * ("Bảng order"), whose Design entries follow the `design` flags; the PR
+ * screens are another ("Phòng PR"); the Design team's "Thư viện" is the last,
+ * after everything else.
  *
  * "Quản trị" is for whoever administers a unit or may tag members in one,
  * and for the OWNER and an ADMIN by their system role (its "Phòng ban" tab).
@@ -245,7 +251,7 @@ export function navFor(me: UnitsMe | undefined, sessionRole?: string): NavEntry[
     orderBoards(me),
     ...(effort ? EFFORT_NAV : []),
     ...(resources ? [resources] : []),
-    ...(pr ? PR_NAV : []),
+    ...(pr ? [PR_GROUP] : []),
     ...(admin ? [ADMIN_NAV] : []),
     ...(library ? [library] : []),
   ];

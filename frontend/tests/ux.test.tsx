@@ -399,6 +399,7 @@ describe("the legal pages are reachable from the panel without crowding it", () 
     expect(destinations).toEqual([
       "/dashboard",
       "/tasks",
+      "/pr/content",
       "/pr/work",
       "/pr/tasks",
       "/pr/channels",

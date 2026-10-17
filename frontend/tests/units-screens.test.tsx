@@ -279,7 +279,7 @@ describe("the nav follows the person's units", () => {
       expect(hrefs).toContain("/pr/channels");
     });
     // A long label wraps inside the sidebar (from lg) instead of running out of it.
-    const long = screen.getByRole("link", { name: "Thành viên & Phân quyền (PR)" });
+    const long = screen.getByRole("link", { name: "Thành viên & Phân quyền" });
     expect(long.querySelector("span")).toHaveClass("lg:whitespace-normal", "min-w-0");
     // The unit switch moved beside the page title; the top bar has none.
     expect(
