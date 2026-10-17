@@ -155,26 +155,40 @@ STATUS_GROUP_LABELS: Mapping[StatusGroup, str] = MappingProxyType(
 #: what the import matches and the reports count on; the names are what
 #: people read and may rename.
 SEED_OPTIONS: tuple[tuple[OptionKind, str, str, StatusGroup | None], ...] = (
+    # Loại tài nguyên - Phòng Tài nguyên's catalogue sheet (2026-10-16).
     (OptionKind.TYPE, "VIA", "Via", None),
     (OptionKind.TYPE, "PAGE", "Page", None),
     (OptionKind.TYPE, "GROUP", "Nhóm", None),
     (OptionKind.TYPE, "AI", "AI", None),
     (OptionKind.TYPE, "TKQC", "TKQC", None),
     (OptionKind.TYPE, "BM", "BM", None),
+    (OptionKind.TYPE, "CAPCUT", "CapCut", None),
+    (OptionKind.TYPE, "ADOBE", "Adobe", None),
+    (OptionKind.TYPE, "VPS", "VPS", None),
+    (OptionKind.TYPE, "TIKTOK_CHANNEL", "Kênh Tiktok", None),
+    (OptionKind.TYPE, "TIKTOK_BC", "BC Tiktok", None),
+    (OptionKind.TYPE, "TIKTOK_TKQC", "TKQC Tiktok", None),
+    (OptionKind.TYPE, "DOMAIN", "Tên Miền", None),
+    (OptionKind.TYPE, "MAGNIFIC", "Magnific", None),
+    (OptionKind.TYPE, "GMAIL", "Gmail", None),
+    (OptionKind.TYPE, "WEBCAKE", "Webcake", None),
+    (OptionKind.TYPE, "FIGMA", "Figma", None),
+    (OptionKind.TYPE, "SKETCHUP", "Sketchup", None),
+    (OptionKind.TYPE, "YOUTUBE", "Youtube", None),
     (OptionKind.TYPE, "OTHER", "Khác", None),
-    (OptionKind.ROLE, "OWNER_ADMIN", "Chủ sở hữu/Admin", None),
+    (OptionKind.ROLE, "OWNER_ADMIN", "Chủ sở hữu / Admin", None),
     (OptionKind.ROLE, "EDITOR", "Biên tập viên", None),
     (OptionKind.ROLE, "MODERATOR", "Kiểm duyệt viên", None),
     (OptionKind.ROLE, "ADVERTISER", "Nhà quảng cáo", None),
     (OptionKind.ROLE, "ANALYST", "Phân tích", None),
     (OptionKind.ROLE, "MEMBER", "Thành viên", None),
-    (OptionKind.ROLE, "ACCOUNT_OWNER", "Chủ tài khoản", None),
-    (OptionKind.ROLE, "SHARED", "Dùng chung", None),
+    (OptionKind.ROLE, "ACCOUNT_OWNER", "Chủ tài khoản (Via/AI)", None),
+    (OptionKind.ROLE, "SHARED", "Được chia sẻ dùng chung", None),
     (OptionKind.ROLE, "OTHER", "Khác", None),
     (OptionKind.STATUS, "ACTIVE", "Hoạt động", StatusGroup.NORMAL),
     (OptionKind.STATUS, "RESTRICTED", "Hạn chế", StatusGroup.ATTENTION),
     (OptionKind.STATUS, "CHECKPOINT", "Checkpoint", StatusGroup.ATTENTION),
-    (OptionKind.STATUS, "DIE", "Die/Mất", StatusGroup.LOST),
+    (OptionKind.STATUS, "DIE", "Die / Mất", StatusGroup.LOST),
     (OptionKind.STATUS, "RETURNED", "Đã thu hồi", StatusGroup.CLOSED),
     (OptionKind.STATUS, "STOPPED", "Ngừng dùng", StatusGroup.CLOSED),
     (OptionKind.ORIGIN, "COMPANY", "Công ty cấp", None),
@@ -226,6 +240,9 @@ class EmploymentStatus(StrEnum):
     WORKING = "WORKING"
     PROBATION = "PROBATION"
     ON_LEAVE = "ON_LEAVE"
+    #: "Chuyển ban": moved to another department - a hand-over of what they
+    #: hold is due, like a leaver's, but they are still with the company.
+    MOVED = "MOVED"
     LEFT = "LEFT"
 
 
@@ -234,6 +251,7 @@ EMPLOYMENT_STATUS_LABELS: Mapping[EmploymentStatus, str] = MappingProxyType(
         EmploymentStatus.WORKING: "Đang làm",
         EmploymentStatus.PROBATION: "Thử việc",
         EmploymentStatus.ON_LEAVE: "Tạm nghỉ",
+        EmploymentStatus.MOVED: "Chuyển ban",
         EmploymentStatus.LEFT: "Đã nghỉ việc",
     }
 )

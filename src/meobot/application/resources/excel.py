@@ -47,6 +47,7 @@ from meobot.application.org.departments import seat_person, sync_stream_tags
 from meobot.application.resources.access import ResourceAccess, ResourceValidationError
 from meobot.application.resources.service import (
     FIELD_LABELS,
+    LIMITS,
     OptionCatalog,
     ResourceInput,
     ResourceRow,
@@ -268,7 +269,12 @@ CREATABLE_KINDS: frozenset[OptionKind] = frozenset(
     }
 )
 PEOPLE_FIELDS = ("holder", "two_factor_holder")
-REQUIRED = ("type", "external_id", "name")
+#: Nothing a resource is made of is required any more (2026-10-16): a
+#: blank id takes the code, a blank type "Khác", a blank name is made from
+#: the type and the id - all flagged, all to be completed on the screen.
+REQUIRED: tuple[str, ...] = ()
+#: The type a row without one gets.
+FALLBACK_TYPE_CODE = "OTHER"
 #: The rows above which a department tab's header is looked for.
 HEADER_SCAN_ROWS = 8
 #: Words in "Chức vụ" that make somebody a head of their department.
@@ -277,6 +283,7 @@ EMPLOYMENT_WORDS: tuple[tuple[str, EmploymentStatus], ...] = (
     ("nghi viec", EmploymentStatus.LEFT),
     ("da nghi", EmploymentStatus.LEFT),
     ("tam nghi", EmploymentStatus.ON_LEAVE),
+    ("chuyen ban", EmploymentStatus.MOVED),
     ("thu viec", EmploymentStatus.PROBATION),
 )
 
@@ -511,9 +518,14 @@ def parse_workbook(raw: bytes, context: ImportContext) -> ImportPreview:
 
 
 def _is_template_row(row: ImportRow) -> bool:
-    """A pre-numbered line of the template: a code and at most a type, and
-    nothing a resource is made of."""
-    filled = {key for key, value in row.raw.items() if value and key not in ("code", "type")}
+    """A pre-numbered line of the template: a code, at most a type and the
+    name of whoever the line is reserved for, and nothing a resource is
+    made of."""
+    filled = {
+        key
+        for key, value in row.raw.items()
+        if value and key not in ("code", "type", "holder", "holder_code")
+    }
     return not filled and not row.months
 
 
@@ -607,11 +619,11 @@ def _read_row(
     row.raw = {key: cell_text(value) for key, value in texts.items()}
     if _is_template_row(row):
         return
-    # A software account (Adobe, Gmail...) has no id of its own: the
-    # registered email stands in, so the row is not refused for a blank.
-    if not row.raw.get("external_id") and row.raw.get("email"):
-        row.raw["external_id"] = row.raw["email"]
-        row.warnings.append(f"Không có ID: lấy email '{row.raw['email']}' làm ID.")
+    # The id is the platform's, and a tool account (Adobe, Magnific...) has
+    # none of its own: a blank one is no error, the resource code stands in
+    # (one email often serves several such accounts, so it is no id either).
+    if not row.raw.get("external_id"):
+        row.warnings.append("Không có ID: hệ thống lấy mã tài nguyên làm ID.")
     for key in REQUIRED:
         if not row.raw.get(key):
             row.errors.append(f"Thiếu {_label(key).lower()}.")
@@ -630,6 +642,15 @@ def _read_row(
                 option = catalog.by_code(OptionKind.HANDOVER, DEFAULT_HANDOVER_CODE)
                 row.values["handover_id"] = option.id if option else None
                 row.warnings.append("Chưa ghi bàn giao: lấy 'Chưa bàn giao'.")
+            elif key == "type":
+                fallback = catalog.by_code(OptionKind.TYPE, FALLBACK_TYPE_CODE)
+                if fallback is None:
+                    row.errors.append("Thiếu loại tài nguyên.")
+                else:
+                    row.values["type_id"] = fallback.id
+                    row.warnings.append(
+                        f"Thiếu loại: tạm để '{fallback.name}', bổ sung sau trên màn hình."
+                    )
             continue
         option = _match_option(text, catalog.of_kind(kind, include_inactive=True))
         if option is not None:
@@ -660,6 +681,12 @@ def _read_row(
         text = row.raw.get(key, "")
         if text:
             row.values[key] = text
+    if not row.values.get("name"):
+        type_option = catalog.get(row.values.get("type_id"))
+        stem = type_option.name if type_option is not None else "Tài nguyên"
+        made = f"{stem} {row.values['external_id']}" if row.values.get("external_id") else stem
+        row.values["name"] = made[: LIMITS["name"]]
+        row.warnings.append(f"Thiếu tên: tạm đặt '{row.values['name']}', bổ sung sau.")
     link = row.values.get("link")
     if link and not link.lower().startswith(("http://", "https://")):
         row.values["link"] = f"https://{link}"
@@ -724,8 +751,13 @@ def _check_duplicates(
         if row.code in context.taken_codes:
             row.errors.append(f"Mã {row.code} đã có trong hệ thống.")
         elif row.code in seen_codes:
+            # The file numbered two lines alike: the later one gets a fresh code.
             earlier = seen_codes[row.code]
-            row.errors.append(f"Mã {row.code} trùng với tab {earlier.sheet} dòng {earlier.row_no}.")
+            row.warnings.append(
+                f"Mã {row.code} trùng với tab {earlier.sheet} dòng {earlier.row_no}: "
+                "dòng này sẽ được cấp mã mới."
+            )
+            row.code = None
         else:
             seen_codes[row.code] = row
 

@@ -108,7 +108,8 @@ export default function ImportPage() {
         </div>
         <ul className="list-disc space-y-1 pl-5 text-xs text-[var(--text-muted)]">
           <li>Tên tab = tên hoặc mã ban (ADS, Biên Tập, Thiết Kế, Media Dựng, PR Thương Hiệu). Tab &quot;Người sử dụng&quot; và &quot;Tổng hợp&quot; được bỏ qua.</li>
-          <li>Mã tài nguyên trong file được giữ nguyên; dòng không có mã được cấp mã mới.</li>
+          <li>Mã tài nguyên trong file được giữ nguyên; dòng không có mã, hoặc trùng mã với dòng trước trong file, được cấp mã mới.</li>
+          <li>Dòng thiếu ID, loại hoặc tên vẫn được nhập: ID = mã tài nguyên, loại tạm là &quot;Khác&quot;, tên tạm ghép từ loại + ID. Bổ sung sau trên màn hình.</li>
           <li>Người được bàn giao phải khớp họ tên trong danh sách nhân viên; giá trị danh sách (loại, quyền, trạng thái…) phải có trong Cài đặt.</li>
           <li>Mã thành viên là duy nhất và chỉ Chủ sở hữu / Quản trị viên mới được nhập: tài khoản tự tạo bởi người khác sẽ chưa có mã; một mã đã có trong hệ thống trỏ về đúng người đó.</li>
           <li>Mỗi ô tháng (T10/2026…) có giá trị = một dòng lịch sử trạng thái; ô cuối cùng là trạng thái hiện tại.</li>

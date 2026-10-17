@@ -169,7 +169,7 @@ export function ResourceFormDialog({
     () => (people.data?.people ?? []).filter((person) => person.active),
     [people.data],
   );
-  const ready = draft.department_id && draft.type_id && draft.external_id.trim() && draft.name.trim();
+  const ready = draft.department_id && draft.type_id && draft.name.trim();
   const errorOf = (name: string) =>
     field === name && save.error instanceof ApiError ? save.error.message : null;
   const select = (
@@ -312,9 +312,8 @@ export function ResourceFormDialog({
           </label>
           {select(ids.type, "Loại", "type_id", "TYPE", { required: true, keep: resource?.type.id })}
           {text(ids.external, "ID tài nguyên", "external_id", {
-            required: true,
             mono: true,
-            placeholder: "Giữ nguyên số 0 đầu, ID dài",
+            placeholder: "Để trống: hệ thống lấy mã tài nguyên làm ID",
           })}
           {text(ids.name, "Tên tài nguyên", "name", { required: true })}
           {text(ids.link, "Link", "link", { type: "url", placeholder: "https://…" })}

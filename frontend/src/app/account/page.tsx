@@ -969,7 +969,7 @@ function MemberCodeField({
 
 /**
  * "Nhân sự" (0065): the person's employment status - Đang làm / Thử việc /
- * Tạm nghỉ / Đã nghỉ việc. OWNER / ADMIN and whoever holds the resources
+ * Tạm nghỉ / Chuyển ban / Đã nghỉ việc. OWNER / ADMIN and whoever holds the resources
  * module's HR_STATUS (the Phòng Tài nguyên's head); the server refuses the
  * rest (403 `employment_status_forbidden`). A leaver's resources turn red at once.
  */
@@ -977,6 +977,7 @@ const EMPLOYMENT_STATUSES: ReadonlyArray<[string, string]> = [
   ["WORKING", "Đang làm"],
   ["PROBATION", "Thử việc"],
   ["ON_LEAVE", "Tạm nghỉ"],
+  ["MOVED", "Chuyển ban"],
   ["LEFT", "Đã nghỉ việc"],
 ];
 

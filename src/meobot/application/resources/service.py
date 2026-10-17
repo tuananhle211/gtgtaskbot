@@ -118,8 +118,9 @@ class ResourceInput:
 
     department_id: uuid.UUID
     type_id: uuid.UUID
-    external_id: str
     name: str
+    #: Blank = the system's own: the resource code stands in (``ADS-012``).
+    external_id: str | None = None
     handover_id: uuid.UUID | None = None
     status_id: uuid.UUID | None = None
     link: str | None = None
@@ -853,7 +854,9 @@ class ResourceService:
         status_line: bool = True,
     ) -> Resource:
         """A new resource with its first history lines. ``code`` keeps an old
-        code (the Excel import); otherwise one is allocated. ``status_line``
+        code (the Excel import); otherwise one is allocated. A blank "ID tài
+        nguyên" takes the code: the id is the platform's, not ours, and many
+        a tool account has none. ``status_line``
         off = the caller writes the status history itself (the import's
         month columns)."""
         access.require("edit")
@@ -875,6 +878,8 @@ class ResourceService:
             await self._bump_counter(code)
         else:
             code = await self._allocate_code(department.code)
+        if values["external_id"] is None:
+            values["external_id"] = code
         now = utcnow()
         row = Resource(
             code=code,
@@ -958,6 +963,8 @@ class ResourceService:
             setattr(current, key, value)
         values = await self._validate(current, catalog, exclude=row.id)
         values.pop("_department")
+        if values["external_id"] is None:
+            values["external_id"] = row.code
         before = await self._snap(row)
         changed: list[tuple[str, Any, Any]] = []
         for key, value in values.items():
@@ -1218,9 +1225,7 @@ class ResourceService:
             values[field_name] = self._option(catalog, option_id, kind, field_name).id
         for field_name in TEXT_FIELDS:
             values[field_name] = _text(
-                getattr(data, field_name),
-                field_name=field_name,
-                required=field_name in ("external_id", "name"),
+                getattr(data, field_name), field_name=field_name, required=field_name == "name"
             )
         for field_name in USER_FIELDS:
             user_id = getattr(data, field_name)
@@ -1228,13 +1233,14 @@ class ResourceService:
                 await self._check_user(user_id, field_name=field_name)
             values[field_name] = user_id
         values["started_on"] = data.started_on
-        # Rule 3: one id per type.
+        # Rule 3: one id per type. No id given = the resource code will stand
+        # in (unique on its own), see ``create`` / ``update``.
         statement = select(Resource.id).where(
             Resource.type_id == values["type_id"], Resource.external_id == values["external_id"]
         )
         if exclude is not None:
             statement = statement.where(Resource.id != exclude)
-        if await self._session.scalar(statement) is not None:
+        if values["external_id"] is not None and await self._session.scalar(statement) is not None:
             raise ResourceValidationError(
                 "ID này đã có trong cùng loại tài nguyên.",
                 details={"reason": "resource_id_taken", "field": "external_id"},

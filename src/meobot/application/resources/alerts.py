@@ -52,7 +52,7 @@ def alerts_for(
             found.append(Alert.of(AlertKind.HOLDER_INACTIVE))
         elif holder.employment_status is EmploymentStatus.LEFT:
             found.append(Alert.of(AlertKind.HOLDER_LEFT))
-        elif not holder_seated:
+        elif holder.employment_status is EmploymentStatus.MOVED or not holder_seated:
             found.append(Alert.of(AlertKind.HOLDER_MOVED))
     if status_group is StatusGroup.LOST:
         found.append(Alert.of(AlertKind.STATUS_LOST))

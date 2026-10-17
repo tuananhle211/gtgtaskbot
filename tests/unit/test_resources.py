@@ -995,6 +995,65 @@ def _with_holder_code(name: str, code: str, external_id: str) -> str:
     return base64.b64encode(buffer.getvalue()).decode()
 
 
+async def test_09c_a_resource_without_an_id_takes_its_code(world: World) -> None:
+    """The id is the platform's, not ours: a blank one (form, API or Excel)
+    is filled with the resource code, which is unique on its own."""
+    people = await cast(world)
+    catalog = options(world, people.tn_head)
+    made = create(world, people.tn_head, catalog, external_id="")["resource"]
+    assert made["external_id"] == made["code"] == "ADS-001"
+    # A second one with no id is no duplicate.
+    again = create(world, people.tn_head, catalog, external_id="")["resource"]
+    assert again["external_id"] == again["code"] == "ADS-002"
+    # Blanking the id on edit falls back to the code too.
+    world.act_as(people.tn_head)
+    edited = world.client.patch(f"/api/resources/{made['id']}", json={"external_id": "123"})
+    assert edited.status_code == 200 and edited.json()["resource"]["external_id"] == "123"
+    blanked = world.client.patch(f"/api/resources/{made['id']}", json={"external_id": " "})
+    assert blanked.status_code == 200 and blanked.json()["resource"]["external_id"] == "ADS-001"
+    # Excel: a row without an id is a warning, not an error.
+    row = ["", "", "Page", "", "Page HN"] + [""] * 13 + ["Hoạt động", "", ""]
+    preview = world.client.post("/api/resources/import/preview", json={"data": workbook([row])})
+    assert preview.status_code == 200, preview.json()
+    body = preview.json()
+    assert body["error_count"] == 0 and body["ok_count"] == 1
+    assert "Không có ID: hệ thống lấy mã tài nguyên làm ID." in body["rows"][0]["warnings"]
+    written = world.client.post("/api/resources/import/commit", json={"data": workbook([row])})
+    assert written.status_code == 200, written.json()
+    listed = world.client.get("/api/resources", params={"q": "Page HN"}).json()["items"]
+    assert listed[0]["external_id"] == listed[0]["code"] == "ADS-003"
+    # Nor are the type and the name: "Khác" and a made-up name stand in,
+    # and a line holding nothing but a reserved person's name is skipped.
+    no_type = ["", "", "", "555", ""] + [""] * 13 + ["Hoạt động", "", ""]
+    no_name = ["", "", "TKQC", "777", ""] + [""] * 13 + ["Hoạt động", "", ""]
+    reserved = ["", "", "", "", "", "", people.tn_staff.full_name] + [""] * 14
+    body = world.client.post(
+        "/api/resources/import/preview", json={"data": workbook([no_type, no_name, reserved])}
+    ).json()
+    assert body["error_count"] == 0 and body["ok_count"] == 2 and len(body["rows"]) == 2
+    assert "Thiếu loại: tạm để 'Khác', bổ sung sau trên màn hình." in body["rows"][0]["warnings"]
+    assert "Thiếu tên: tạm đặt 'Khác 555', bổ sung sau." in body["rows"][0]["warnings"]
+    assert "Thiếu tên: tạm đặt 'TKQC 777', bổ sung sau." in body["rows"][1]["warnings"]
+    # Two lines of the file numbered alike: the later one gets a fresh code.
+    twice = [
+        ["", "ADS-050", "Via", "901", "Via A"] + [""] * 13 + ["Hoạt động", "", ""],
+        ["", "ADS-050", "Via", "902", "Via B"] + [""] * 13 + ["Hoạt động", "", ""],
+    ]
+    body = world.client.post("/api/resources/import/preview", json={"data": workbook(twice)}).json()
+    assert body["error_count"] == 0 and body["ok_count"] == 2
+    assert body["rows"][1]["code"] is None
+    assert any(
+        item.startswith("Mã ADS-050 trùng với tab ADS dòng 6")
+        for item in body["rows"][1]["warnings"]
+    )
+    written = world.client.post("/api/resources/import/commit", json={"data": workbook(twice)})
+    assert written.status_code == 200, written.json()
+    codes = {
+        item["name"]: item["code"] for item in world.client.get("/api/resources").json()["items"]
+    }
+    assert codes["Via A"] == "ADS-050" and codes["Via B"] == "ADS-051"
+
+
 async def test_10_the_owner_and_an_admin_need_no_seat(world: World) -> None:
     await cast(world)
     catalog = options(world, world.owner)

@@ -4580,7 +4580,7 @@ export interface MemberRow {
   is_lead?: boolean;
   /** The person's member code (0063), in a stream or not. Optional: older APIs omit it. */
   member_code?: string | null;
-  /** "Trạng thái nhân sự" (0065): WORKING / PROBATION / ON_LEAVE / LEFT. Optional. */
+  /** "Trạng thái nhân sự" (0065): WORKING / PROBATION / ON_LEAVE / MOVED / LEFT. Optional. */
   employment_status?: string;
   employment_status_label?: string;
   last_login_at: string | null;

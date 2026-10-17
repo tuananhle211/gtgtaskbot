@@ -430,7 +430,7 @@ class ResourceBody(BaseModel):
 class CreateResourceRequest(ResourceBody):
     department_id: uuid.UUID
     type_id: uuid.UUID
-    external_id: str = Field(max_length=400)
+    #: Optional: blank = the resource code stands in.
     name: str = Field(max_length=600)
 
 

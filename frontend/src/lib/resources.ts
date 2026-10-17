@@ -58,6 +58,7 @@ export function employmentTone(status: string | null | undefined): "good" | "war
       return "good";
     case "PROBATION":
     case "ON_LEAVE":
+    case "MOVED":
       return "warn";
     case "LEFT":
       return "bad";
