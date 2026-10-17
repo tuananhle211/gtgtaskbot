@@ -3,6 +3,7 @@ import "./globals.css";
 import { cookies } from "next/headers";
 import { Providers } from "@/components/providers";
 import { parseTheme, THEME_COOKIE } from "@/lib/theme";
+import { fontVariables } from "./fonts";
 
 export const metadata: Metadata = {
   /*
@@ -10,14 +11,14 @@ export const metadata: Metadata = {
    * is every page under /pr, because they are client components and a client
    * component cannot export metadata. `template` is what the pages that *do*
    * set one are composed into, so a page names only itself: `/terms` says
-   * "Terms of Service" and the browser tab reads "Terms of Service | TasksBot".
+   * "Terms of Service" and the browser tab reads "Terms of Service | APM Management".
    *
    * The product name therefore appears once, here, rather than being repeated in
    * every page's own title where the two could drift apart.
    */
   title: {
-    default: "TasksBot",
-    template: "%s | TasksBot",
+    default: "APM Management",
+    template: "%s | APM Management",
   },
   description: "Bảng điều khiển nội dung PR.",
   // Nothing here is public, and a search engine indexing an approval queue would
@@ -53,7 +54,7 @@ export default async function RootLayout({ children }: { children: React.ReactNo
   // The header switch's saved choice; none = follow the system.
   const theme = parseTheme((await cookies()).get(THEME_COOKIE)?.value);
   return (
-    <html lang="vi" data-theme={theme ?? undefined}>
+    <html lang="vi" data-theme={theme ?? undefined} className={fontVariables}>
       <body>
         <Providers>{children}</Providers>
       </body>

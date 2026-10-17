@@ -634,7 +634,7 @@ export interface ChannelConnection {
   last_sync_failed_at: string | null;
   /** A safe error class, never a provider message. */
   last_sync_error_code: string | null;
-  /** A Vietnamese sentence TasksBot wrote. Never provider prose. */
+  /** A Vietnamese sentence APM Management wrote. Never provider prose. */
   last_sync_error_message: string | null;
   days_since_success: number | null;
   auto_sync_enabled: boolean;
@@ -776,7 +776,7 @@ export interface TikTokOverview {
   max_video_pages: number;
   granted_scopes: string[];
   scopes: TikTokScope[];
-  /** When TasksBot asked TikTok. Not when the numbers became true. */
+  /** When APM Management asked TikTok. Not when the numbers became true. */
   fetched_at: string;
   /** When a *snapshot* sync last succeeded. A different fact. */
   last_sync_succeeded_at: string | null;
@@ -859,7 +859,7 @@ export interface WorkType {
 // canonical-component rule exists to prevent.
 //
 // **No money.** M6 scores and reports performance; the head allocates
-// performance pay separately, outside TasksBot. A performance index is an
+// performance pay separately, outside APM Management. A performance index is an
 // evaluation result and not a salary multiplier, so nothing here carries an
 // amount or a coefficient.
 //
@@ -1103,7 +1103,7 @@ export interface WorkContribution {
 }
 
 /**
- * A text, or a link, proving the work. TasksBot stores no files.
+ * A text, or a link, proving the work. APM Management stores no files.
  *
  * Two shapes on one row. A row written as **one free text** carries it in
  * `text` - links and all, rendered with the links made clickable - and its
@@ -2492,7 +2492,7 @@ export interface MetricCapabilities {
  * second as "0", and telling them apart is the entire reason this shape exists.
  *
  * The derived half - growth, growth rate, engagement change - is computed by
- * the server from TasksBot's own stored snapshots, not fetched from any platform.
+ * the server from APM Management's own stored snapshots, not fetched from any platform.
  * No arithmetic on these numbers belongs in the browser.
  */
 export interface ChannelAnalytics {

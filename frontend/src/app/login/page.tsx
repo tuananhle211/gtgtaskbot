@@ -31,56 +31,122 @@ export default function LoginPage() {
   const [forgot, setForgot] = useState(false);
   const [username, setUsername] = useState("");
   return (
-    <main className="flex min-h-screen items-center justify-center bg-[var(--surface-muted)] px-4 py-10">
-      <div className="w-full max-w-sm">
-        <div className="panel p-6 shadow-sm sm:p-7">
-          <div className="flex items-center gap-3">
-            <LogoMark size={40} className="shrink-0" />
-            <div className="min-w-0 leading-tight">
-              <h1 className="text-lg font-semibold tracking-tight">
-                {forgot ? "Quên mật khẩu" : "Đăng nhập TasksBot"}
-              </h1>
-              <p className="text-xs text-[var(--text-muted)]">Creative Ops</p>
+    <main className="grid min-h-screen lg:grid-cols-[minmax(0,1.05fr)_minmax(0,1fr)]">
+      <BrandHero />
+      <div className="flex items-center justify-center px-4 py-10 sm:px-8">
+        <div className="w-full max-w-sm">
+          <div className="panel p-6 sm:p-8">
+            <div className="flex items-center gap-3">
+              <LogoMark size={44} className="shrink-0" />
+              <div className="min-w-0 leading-tight">
+                <p className="brand-eyebrow">Creative Ops</p>
+                <h1 className="mt-0.5 text-xl font-semibold tracking-tight">
+                  {forgot ? "Quên mật khẩu" : "Đăng nhập APM Management"}
+                </h1>
+              </div>
+            </div>
+
+            {forgot ? (
+              <ForgotPasswordForm
+                initialUsername={username}
+                onBack={(id) => {
+                  setUsername(id);
+                  setForgot(false);
+                }}
+              />
+            ) : (
+              <LoginForm
+                username={username}
+                onUsername={setUsername}
+                onForgot={() => setForgot(true)}
+              />
+            )}
+
+            <div className="mt-6 border-t border-[var(--border)] pt-4 text-sm text-[var(--text-muted)]">
+              <p>
+                Hoặc đăng nhập bằng Telegram: nhắn{" "}
+                <code className="rounded bg-[var(--surface-muted)] px-1.5 py-0.5 text-[var(--text)]">/web</code>{" "}
+                cho bot để nhận link
+              </p>
+              <p className="mt-2 text-xs">
+                ID Telegram là dãy số của tài khoản Telegram (không phải @username).
+              </p>
             </div>
           </div>
-
-          {forgot ? (
-            <ForgotPasswordForm
-              initialUsername={username}
-              onBack={(id) => {
-                setUsername(id);
-                setForgot(false);
-              }}
-            />
-          ) : (
-            <LoginForm
-              username={username}
-              onUsername={setUsername}
-              onForgot={() => setForgot(true)}
-            />
-          )}
-
-          <div className="mt-6 border-t border-[var(--border)] pt-4 text-sm text-[var(--text-muted)]">
-            <p>
-              Hoặc đăng nhập bằng Telegram: nhắn{" "}
-              <code className="rounded bg-[var(--surface-muted)] px-1.5 py-0.5 text-[var(--text)]">/web</code>{" "}
-              cho bot để nhận link
-            </p>
-            <p className="mt-2 text-xs">
-              ID Telegram là dãy số của tài khoản Telegram (không phải @username).
-            </p>
-          </div>
+          <nav aria-label="Thông tin pháp lý" className="mt-4 flex justify-center gap-4 text-xs text-[var(--text-muted)]">
+            <Link href="/terms" className="hover:underline">
+              Điều khoản sử dụng
+            </Link>
+            <Link href="/privacy" className="hover:underline">
+              Chính sách quyền riêng tư
+            </Link>
+          </nav>
         </div>
-        <nav aria-label="Thông tin pháp lý" className="mt-4 flex justify-center gap-4 text-xs text-[var(--text-muted)]">
-          <Link href="/terms" className="hover:underline">
-            Điều khoản sử dụng
-          </Link>
-          <Link href="/privacy" className="hover:underline">
-            Chính sách quyền riêng tư
-          </Link>
-        </nav>
       </div>
     </main>
+  );
+}
+
+/** The guideline's five words for what every piece of work should feel like. */
+const BRAND_VALUES = ["Sạch", "Cao cấp", "Đồng bộ", "Tin cậy", "Chuẩn y khoa"];
+
+/**
+ * The navy band beside the form on wide screens: the brand's "A" peak with the
+ * medical cross at its heart, and the guideline's values. Decoration only - on
+ * a phone it is left out and the form is the whole page.
+ */
+function BrandHero() {
+  return (
+    <section
+      aria-hidden="true"
+      className="brand-rail relative hidden overflow-hidden before:hidden lg:flex lg:flex-col lg:justify-between lg:p-12 xl:p-16"
+    >
+      <div className="flex items-center gap-3">
+        <LogoMark size={40} className="shrink-0" />
+        <span className="font-display text-lg font-semibold tracking-tight">APM Management</span>
+      </div>
+
+      <svg
+        viewBox="0 0 100 100"
+        className="pointer-events-none absolute -right-16 top-1/2 h-[min(78vh,640px)] -translate-y-1/2 opacity-[0.16]"
+        fill="none"
+      >
+        <defs>
+          <linearGradient id="login-peak" x1="0" y1="0" x2="1" y2="1">
+            <stop offset="0" stopColor="#afe8ff" />
+            <stop offset="1" stopColor="#88afea" stopOpacity="0.2" />
+          </linearGradient>
+        </defs>
+        <path d="M50 6 94 92H72L50 46 28 92H6z" fill="url(#login-peak)" />
+        <path d="M46 58h8v8h8v8h-8v8h-8v-8h-8v-8h8z" fill="#fa9ae1" />
+      </svg>
+
+      <div className="relative max-w-md">
+        <p className="brand-eyebrow !text-[var(--brand-pastel)]">Luồng PR · Luồng Order</p>
+        <p className="mt-4 font-display text-4xl font-bold leading-[1.1] tracking-tight xl:text-5xl">
+          Một bảng việc,
+          <br />
+          <span className="bg-gradient-to-r from-[#afe8ff] via-[#88afea] to-[#fa9ae1] bg-clip-text text-transparent">
+            chuẩn mực đỉnh cao.
+          </span>
+        </p>
+        <p className="mt-5 text-base leading-relaxed text-[var(--text-muted)]">
+          Order, duyệt, sản xuất và báo cáo của cả đội Creative Ops - nhất quán, chuyên nghiệp,
+          dễ theo dõi.
+        </p>
+      </div>
+
+      <ul className="relative flex flex-wrap gap-2">
+        {BRAND_VALUES.map((value) => (
+          <li
+            key={value}
+            className="rounded-full border border-white/15 bg-white/[0.06] px-3.5 py-1.5 text-xs font-medium text-white/85 backdrop-blur"
+          >
+            {value}
+          </li>
+        ))}
+      </ul>
+    </section>
   );
 }
 
@@ -247,7 +313,7 @@ function ForgotPasswordForm({
   return (
     <form className="mt-6 space-y-4" onSubmit={submit} noValidate>
       <p className="text-sm text-[var(--text-muted)]">
-        Nhập ID Telegram của bạn. TasksBot sẽ gửi mật khẩu tạm vào tin nhắn riêng trên Telegram; đăng
+        Nhập ID Telegram của bạn. APM Management sẽ gửi mật khẩu tạm vào tin nhắn riêng trên Telegram; đăng
         nhập bằng mật khẩu đó rồi đổi mật khẩu mới.
       </p>
       <label className="block text-sm font-medium">

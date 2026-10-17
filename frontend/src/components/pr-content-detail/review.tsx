@@ -110,7 +110,7 @@ export function ReviewTab({
 /**
  * The AI review panel: queued, running, a verdict, or a failure.
  *
- * Step 1F. Before it, this section said "TasksBot không tự chạy AI review" and
+ * Step 1F. Before it, this section said "APM Management không tự chạy AI review" and
  * showed whatever verdict had been recorded from outside. There is now a worker,
  * so the panel shows what it is doing.
  *
@@ -190,7 +190,7 @@ export function AiReviewPanel({
         ) : run?.status === "FAILED" ? (
           <div className="space-y-3">
             <p className="text-sm">
-              TasksBot chưa thể hoàn tất AI review. Nội dung vẫn đang ở bước AI
+              APM Management chưa thể hoàn tất AI review. Nội dung vẫn đang ở bước AI
               review và chưa chuyển đi đâu cả.
             </p>
             {state.data.can_retry ? (

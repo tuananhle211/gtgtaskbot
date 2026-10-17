@@ -1,17 +1,12 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" width="32" height="32">
-  <!-- TasksBot mark. Keep in step with LogoMark in src/components/logo.tsx. -->
+  <!-- APM Management mark (Apexmed "A" + medical cross). Keep in step with LogoMark in src/components/logo.tsx. -->
   <defs>
-    <linearGradient id="tb-accent" gradientUnits="userSpaceOnUse" x1="11.4" y1="0" x2="21" y2="0">
-      <stop offset="0.15" stop-color="#14b8a6"/>
-      <stop offset="0.85" stop-color="#ea580c"/>
+    <linearGradient id="apm-accent" gradientUnits="userSpaceOnUse" x1="14" y1="20.6" x2="18" y2="24.6">
+      <stop offset="0" stop-color="#afe8ff"/>
+      <stop offset="1" stop-color="#e86a8e"/>
     </linearGradient>
   </defs>
-  <rect width="32" height="32" rx="7.5" fill="#1f6feb"/>
-  <rect x="15.1" y="6" width="1.8" height="4.5" fill="#fff"/>
-  <circle cx="16" cy="5.4" r="2.2" fill="#14b8a6"/>
-  <rect x="2.8" y="15" width="3.2" height="7.5" rx="1.6" fill="#fff"/>
-  <rect x="26" y="15" width="3.2" height="7.5" rx="1.6" fill="#fff"/>
-  <rect x="5" y="9.6" width="22" height="17.6" rx="5.6" fill="#fff"/>
-  <rect x="7.6" y="12.6" width="16.8" height="11.6" rx="4.6" fill="#0b1f4a"/>
-  <path d="M11.6 18.6 L14.9 21.7 L20.6 15.3" fill="none" stroke="url(#tb-accent)" stroke-width="3.1" stroke-linecap="round" stroke-linejoin="round"/>
+  <rect width="32" height="32" rx="7.5" fill="#132863"/>
+  <polygon points="16,5.5 27,26.5 21.6,26.5 16,15.8 10.4,26.5 5,26.5" fill="#fff"/>
+  <path d="M16 20.8v3.6M14.2 22.6h3.6" fill="none" stroke="url(#apm-accent)" stroke-width="2" stroke-linecap="round"/>
 </svg>

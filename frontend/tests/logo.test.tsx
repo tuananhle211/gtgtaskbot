@@ -1,5 +1,5 @@
 /**
- * The TasksBot mark and wordmark.
+ * The APM Management mark and wordmark.
  *
  * The mark is an inline SVG (no request for the CSP to allow) and decorative by
  * default. Its gradient id must be unique per instance: the sidebar copy is
@@ -25,8 +25,8 @@ describe("LogoMark", () => {
   });
 
   it("names itself when given a title", () => {
-    render(<LogoMark title="TasksBot" />);
-    expect(screen.getByRole("img", { name: "TasksBot" })).not.toHaveAttribute("aria-hidden");
+    render(<LogoMark title="APM Management" />);
+    expect(screen.getByRole("img", { name: "APM Management" })).not.toHaveAttribute("aria-hidden");
   });
 
   it("gives every instance its own gradient", () => {
@@ -48,7 +48,7 @@ describe("LogoMark", () => {
 describe("Logo", () => {
   it("shows the wordmark in the theme text colour, with an optional subtitle", () => {
     const { container } = render(<Logo subtitle="Creative Ops" />);
-    const word = screen.getByText("TasksBot");
+    const word = screen.getByText("APM Management");
     expect(word.className).toContain("text-[var(--text)]");
     expect(screen.getByText("Creative Ops")).toBeInTheDocument();
     expect(container.querySelector("svg[data-logo-mark]")).toHaveAttribute("aria-hidden", "true");
@@ -62,7 +62,7 @@ describe("Logo", () => {
 
 describe("the brand assets", () => {
   it("ships the mark as the app icon and no longer uses the old bitmap", () => {
-    expect(readFileSync(path.join(SRC, "app/icon.svg"), "utf8")).toContain("#1f6feb");
+    expect(readFileSync(path.join(SRC, "app/icon.svg"), "utf8")).toContain("#132863");
     for (const file of ["components/shell.tsx", "app/login/page.tsx", "components/legal.tsx"]) {
       const source = readFileSync(path.join(SRC, file), "utf8");
       expect(source, file).not.toContain("meochat-icon");

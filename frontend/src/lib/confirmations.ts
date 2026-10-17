@@ -416,7 +416,7 @@ export const reactivateMemberConfirmation = (name: string): ConfirmSpec => ({
 export const disconnectChannelConfirmation = (provider: string): ConfirmSpec => ({
   title: `Ngắt kết nối ${provider} này?`,
   description:
-    "TasksBot sẽ ngừng đồng bộ dữ liệu từ tài khoản này cho đến khi được kết nối lại. Số liệu đã ghi nhận vẫn được giữ.",
+    "APM Management sẽ ngừng đồng bộ dữ liệu từ tài khoản này cho đến khi được kết nối lại. Số liệu đã ghi nhận vẫn được giữ.",
   confirmLabel: "Ngắt kết nối",
   variant: "destructive",
 });
@@ -985,12 +985,12 @@ export const approvePerformancePolicyConfirmation = (version: number): ConfirmSp
  *
  * The description says what becomes fixed and what does not, and deliberately
  * does not mention pay: M6 scores and reports performance, and the head decides
- * any allocation separately, outside TasksBot. A dialog that implied otherwise
+ * any allocation separately, outside APM Management. A dialog that implied otherwise
  * would turn an evaluation into a promise.
  */
 export const finalizePerformanceConfirmation = (name: string, month: string): ConfirmSpec => ({
   title: `Chốt hiệu suất tháng ${month}?`,
-  description: `Kết quả đánh giá hiệu suất của “${name}” sẽ được ghi lại thành lịch sử và không tự động tính lại nữa. Đây là kết quả đánh giá — việc phân bổ thưởng do quản lý quyết định riêng, ngoài TasksBot.`,
+  description: `Kết quả đánh giá hiệu suất của “${name}” sẽ được ghi lại thành lịch sử và không tự động tính lại nữa. Đây là kết quả đánh giá — việc phân bổ thưởng do quản lý quyết định riêng, ngoài APM Management.`,
   confirmLabel: "Chốt hiệu suất",
 });
 
@@ -1000,7 +1000,7 @@ export const finalizePerformanceConfirmation = (name: string, month: string): Co
  */
 export const resetMemberPasswordConfirmation = (name: string): ConfirmSpec => ({
   title: `Đặt lại mật khẩu của ${name}?`,
-  description: `TasksBot sẽ tạo một mật khẩu tạm và gửi qua Telegram cho “${name}”. Mật khẩu cũ hết hiệu lực, khoá đăng nhập (nếu có) được gỡ và mọi phiên đăng nhập của họ bị đăng xuất ngay. Lần đăng nhập tới bằng mật khẩu tạm họ phải đổi mật khẩu mới dùng được TasksBot.`,
+  description: `APM Management sẽ tạo một mật khẩu tạm và gửi qua Telegram cho “${name}”. Mật khẩu cũ hết hiệu lực, khoá đăng nhập (nếu có) được gỡ và mọi phiên đăng nhập của họ bị đăng xuất ngay. Lần đăng nhập tới bằng mật khẩu tạm họ phải đổi mật khẩu mới dùng được APM Management.`,
   confirmLabel: "Đặt lại mật khẩu",
   variant: "destructive",
 });

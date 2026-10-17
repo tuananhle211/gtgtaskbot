@@ -153,7 +153,7 @@ describe("the login page", () => {
       { match: "/api/auth/password-login", method: "POST", body: { must_change_password: false } },
     ]);
     renderWithQuery(<LoginPage />);
-    expect(screen.getByRole("heading", { name: "Đăng nhập TasksBot" })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "Đăng nhập APM Management" })).toBeInTheDocument();
     const id = screen.getByLabelText("ID Telegram");
     expect(id).toHaveAttribute("inputmode", "numeric");
     expect(id).toHaveAttribute("autocomplete", "username");
@@ -265,7 +265,7 @@ describe("forgot password", () => {
 
     // And back to the login form.
     await user.click(screen.getByRole("button", { name: "Quay lại đăng nhập" }));
-    expect(screen.getByRole("heading", { name: "Đăng nhập TasksBot" })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "Đăng nhập APM Management" })).toBeInTheDocument();
     expect(screen.getByLabelText("ID Telegram")).toHaveValue(" 987654321 ");
   });
 
@@ -512,16 +512,16 @@ describe("the change-password dialog", () => {
       "true",
     );
     await user.type(currentField, "Cu-2026");
-    await user.type(within(again).getByLabelText("Mật khẩu mới"), "TasksBot#2026-moi");
+    await user.type(within(again).getByLabelText("Mật khẩu mới"), "APM Management#2026-moi");
     expect(within(again).getByText("Mạnh")).toBeInTheDocument();
-    await user.type(within(again).getByLabelText("Nhập lại mật khẩu mới"), "TasksBot#2026-moi");
+    await user.type(within(again).getByLabelText("Nhập lại mật khẩu mới"), "APM Management#2026-moi");
     await user.click(within(again).getByRole("button", { name: "Đổi mật khẩu" }));
 
     await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
     expect(await screen.findByRole("status")).toHaveTextContent("Đã đổi mật khẩu.");
     const post = callsOf(fetchMock).find((call) => call.method === "POST");
     expect(post?.url).toBe("/api/account/password");
-    expect(post?.body).toEqual({ current_password: "Cu-2026", new_password: "TasksBot#2026-moi" });
+    expect(post?.body).toEqual({ current_password: "Cu-2026", new_password: "APM Management#2026-moi" });
     // Not the forced flow: nowhere to be sent.
     expect(REPLACED).toEqual([]);
   });
@@ -541,8 +541,8 @@ describe("the change-password dialog", () => {
     await user.click((await screen.findAllByRole("button", { name: "Đổi mật khẩu" }))[0]);
     const dialog = screen.getByRole("dialog", { name: "Đổi mật khẩu" });
     await user.type(within(dialog).getByLabelText("Mật khẩu hiện tại"), "cu-sai-1");
-    await user.type(within(dialog).getByLabelText("Mật khẩu mới"), "TasksBot2026");
-    await user.type(within(dialog).getByLabelText("Nhập lại mật khẩu mới"), "TasksBot2026");
+    await user.type(within(dialog).getByLabelText("Mật khẩu mới"), "APM Management2026");
+    await user.type(within(dialog).getByLabelText("Nhập lại mật khẩu mới"), "APM Management2026");
     await user.click(within(dialog).getByRole("button", { name: "Đổi mật khẩu" }));
     expect(await within(dialog).findByRole("alert")).toHaveTextContent("Mật khẩu hiện tại không đúng.");
     expect(screen.getByRole("dialog", { name: "Đổi mật khẩu" })).toBeInTheDocument();

@@ -424,7 +424,7 @@ function AddMemberForm({
         </label>
       </div>
       <p className="text-xs text-[var(--text-muted)]">
-        Thành viên được nhận diện bằng Telegram ID — đây là cách duy nhất TasksBot biết ai là ai. Sau
+        Thành viên được nhận diện bằng Telegram ID — đây là cách duy nhất APM Management biết ai là ai. Sau
         khi thêm, họ gõ <code className="rounded bg-[var(--surface-muted)] px-1">/start</code> trong
         bot Telegram để bắt đầu; tên sẽ tự lấy từ Telegram nếu để trống. Thêm ở đây giống hệt lệnh{" "}
         <code className="rounded bg-[var(--surface-muted)] px-1">/add_user</code> của bot.

@@ -305,8 +305,8 @@ describe("43. the global header shows a person, not a capability model", () => {
     );
 
     const header = document.querySelector("header");
-    expect(header?.textContent).toContain("TasksBot · Creative Ops");
-    // The brand mark is the inline TasksBot logo, decorative next to the name.
+    expect(header?.textContent).toContain("APM Management · Creative Ops");
+    // The brand mark is the inline APM Management logo, decorative next to the name.
     const mark = header?.querySelector("svg[data-logo-mark]");
     expect(mark).not.toBeNull();
     expect(mark).toHaveAttribute("aria-hidden", "true");

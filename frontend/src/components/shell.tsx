@@ -493,7 +493,8 @@ export function Shell({ children }: { children: React.ReactNode }) {
     <div className="min-h-screen lg:flex">
       <aside
         data-collapsed={collapsed ? "true" : undefined}
-        className={`border-b border-[var(--border)] bg-[var(--surface)] transition-[width] duration-150 lg:sticky lg:top-0 lg:flex lg:h-screen lg:shrink-0 lg:flex-col lg:border-b-0 lg:border-r ${
+        // `brand-rail` (globals.css): the navy Apexmed rail, in both schemes.
+        className={`brand-rail border-b border-[var(--border)] bg-[var(--surface)] transition-[width] duration-150 lg:sticky lg:top-0 lg:flex lg:h-screen lg:shrink-0 lg:flex-col lg:border-b-0 lg:border-r ${
           collapsed ? "lg:w-[4.5rem]" : "lg:w-60"
         }`}
       >
@@ -604,7 +605,7 @@ export function Shell({ children }: { children: React.ReactNode }) {
       </aside>
 
       <div className="flex min-w-0 flex-1 flex-col">
-        <header className="sticky top-0 z-20 flex min-h-14 items-center justify-between gap-3 border-b border-[var(--border)] bg-[var(--surface)]/95 px-4 backdrop-blur sm:px-6 xl:px-8">
+        <header className="brand-topbar sticky top-0 z-20 flex min-h-14 items-center justify-between gap-3 border-b border-[var(--border)] px-4 sm:px-6 xl:px-8">
           <div className="flex min-w-0 items-center gap-2.5">
             <button
               type="button"
@@ -622,8 +623,8 @@ export function Shell({ children }: { children: React.ReactNode }) {
             </button>
             <LogoMark size={28} className="shrink-0 lg:hidden" />
             <div className="min-w-0 leading-tight">
-              <p className="truncate text-sm font-semibold tracking-tight">
-                TasksBot · Creative Ops
+              <p className="truncate font-display text-sm font-semibold tracking-tight">
+                APM Management<span className="hidden sm:inline"> <span className="text-[var(--accent)]">·</span> Creative Ops</span>
               </p>
               {session.data ? (
                 <p className="truncate text-xs text-[var(--text-muted)]">

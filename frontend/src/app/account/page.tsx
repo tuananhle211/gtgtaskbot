@@ -201,7 +201,7 @@ function ForcedPasswordChange({ me, onChanged }: { me: AccountMe; onChanged: () 
             Đặt mật khẩu mới
           </h1>
           <div role="alert" className="mt-2 space-y-1 text-sm leading-relaxed text-[var(--text-muted)]">
-            <p className="font-medium text-[var(--text)]">Bạn cần đổi mật khẩu trước khi dùng TasksBot.</p>
+            <p className="font-medium text-[var(--text)]">Bạn cần đổi mật khẩu trước khi dùng APM Management.</p>
             <p>
               {me.password_temporary
                 ? "Bạn vừa đăng nhập bằng mật khẩu tạm gửi qua Telegram."
@@ -438,7 +438,7 @@ function AccountSettings({
 }) {
   return (
     <div className="space-y-6">
-      <SettingsSection id="account-profile" title="Hồ sơ" description="Mọi người trong TasksBot thấy ảnh và tên này.">
+      <SettingsSection id="account-profile" title="Hồ sơ" description="Mọi người trong APM Management thấy ảnh và tên này.">
         <SettingRow label="Ảnh đại diện" hint="PNG, JPG, WEBP hoặc GIF. Ảnh được cắt vuông.">
           <div className="flex flex-wrap items-center gap-4">
             <Avatar name={me.full_name} src={me.avatar_url} size={56} />
@@ -490,7 +490,7 @@ function AccountSettings({
         <DepartmentsRow />
       </SettingsSection>
 
-      <SettingsSection id="account-security" title="Bảo mật" description="Mật khẩu đăng nhập TasksBot trên web.">
+      <SettingsSection id="account-security" title="Bảo mật" description="Mật khẩu đăng nhập APM Management trên web.">
         <SettingRow label="Mật khẩu">
           <div className="flex flex-wrap items-center justify-between gap-3">
             <div className="flex flex-wrap items-center gap-2">

@@ -31,7 +31,7 @@ export default function LoginFailed() {
       {/* Names the command rather than the bot - see the note in states.tsx. */}
       <p className="mt-4 text-sm">
         Gửi lệnh <code className="rounded bg-[var(--surface-muted)] px-1.5 py-0.5">/web</code> trong
-        bot Telegram để đăng nhập TasksBot.
+        bot Telegram để đăng nhập APM Management.
       </p>
       <p className="mt-3 text-sm text-[var(--text-muted)]">
         Muốn đăng nhập bằng Chrome hoặc Safari: sao chép liên kết trong tin nhắn rồi dán vào trình
@@ -46,7 +46,7 @@ export default function LoginFailed() {
         .
       </p>
       <p className="mt-6 text-xs text-[var(--text-muted)]">
-        TasksBot chỉ gửi liên kết trong tin nhắn riêng, và không gửi cho ai khác ngoài bạn.
+        APM Management chỉ gửi liên kết trong tin nhắn riêng, và không gửi cho ai khác ngoài bạn.
       </p>
     </div>
   );

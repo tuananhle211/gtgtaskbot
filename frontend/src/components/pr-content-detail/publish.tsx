@@ -346,7 +346,7 @@ export function PublishTab({
         ) : null}
       </div>
       <p className="mt-1 text-xs text-[var(--text-muted)]">
-        Lịch sử đăng thật, ghi thủ công. TasksBot không đăng hộ và không kiểm tra
+        Lịch sử đăng thật, ghi thủ công. APM Management không đăng hộ và không kiểm tra
         link.
       </p>
 

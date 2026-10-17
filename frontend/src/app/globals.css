@@ -13,9 +13,18 @@
 }
 
 /*
- * One theme, both schemes. The panel is looked at all day, often on a NAS-hosted
- * page in a browser somebody has already set to dark - so the colours follow the
- * system rather than insisting.
+ * Apexmed brand theme (Brand Guideline GTG 05/2026), both schemes. The skill
+ * `.claude/skills/apexmed-ui` is the rulebook: every colour on screen comes
+ * from these tokens, never from a literal in a component.
+ *
+ * Brand palette: navy #132863 (main), blue #245CB5, blue sky #88AFEA, blue
+ * pastel #AFE8FF, white; magenta #E86A8E -> magenta pastel #FA9AE1 is the
+ * accent gradient the guideline reserves for ads (= the ORD stream here).
+ *
+ * Light = "background y tế sạch": white cards on a faint blue page, navy text,
+ * brand blue for action. Dark = a navy night: deep navy page, navy cards, blue
+ * sky for action (the guideline puts 88AFEA on dark backgrounds). Pale blue is
+ * never used for small text on white (guideline "KHÔNG NÊN").
  *
  * `--accent` arrived in Step 1E.2. Before it, the primary button was the text
  * colour on the surface colour, which made "Tạo nội dung" and "Duyệt" look
@@ -23,41 +32,70 @@
  * emphasised is a workspace where the next step has to be hunted for.
  */
 :root {
+  /* Fixed brand colours: identical in both schemes. */
+  --brand-navy: #132863;
+  --brand-blue: #245cb5;
+  --brand-sky: #88afea;
+  --brand-pastel: #afe8ff;
+  --brand-magenta: #e86a8e;
+  --brand-magenta-pastel: #fa9ae1;
+  --brand-gradient: linear-gradient(160deg, #0c1b4d 0%, #132863 42%, #1d4596 100%);
+  --brand-ads-gradient: linear-gradient(135deg, #e86a8e 0%, #fa9ae1 100%);
+  --brand-duo-gradient: linear-gradient(90deg, #245cb5 0%, #e86a8e 100%);
+
   --surface: #ffffff;
-  --surface-muted: #f6f7f9;
-  --border: #e3e6ea;
-  --text: #16191d;
-  --text-muted: #5d646d;
-  --accent: #1f6feb;
+  --surface-muted: #f2f6fc;
+  --border: #dae3f1;
+  --text: #0d1a3f;
+  --text-muted: #55627f;
+  --accent: #245cb5;
   --accent-text: #ffffff;
   /* Creative Ops, Step 2: the sidebar's active entry and soft highlights. */
-  --accent-soft: #e8f0fe;
-  --accent-strong: #1550b8;
-  --good: #17663a;
-  --good-soft: #dff3e6;
+  --accent-soft: #e6eefc;
+  --accent-strong: #132863;
+  --accent-gradient: linear-gradient(135deg, #2f6fd0 0%, #245cb5 45%, #132863 100%);
+  --accent-glow: rgb(36 92 181 / 0.35);
+  --ring: rgb(36 92 181 / 0.28);
+  --magenta: #c23c66;
+  --magenta-soft: #fde8ef;
+  --good: #13734a;
+  --good-soft: #ddf4e8;
   --warn: #8a4b00;
   --warn-soft: #fff1dc;
-  --bad: #a2341a;
-  --bad-soft: #ffe3da;
+  --bad: #b3261e;
+  --bad-soft: #ffe4de;
+  --shadow-card: 0 1px 2px rgb(19 40 99 / 0.05), 0 8px 24px -12px rgb(19 40 99 / 0.16);
+  --shadow-pop: 0 18px 48px -16px rgb(19 40 99 / 0.38);
+  --page-glow: radial-gradient(1100px 520px at 100% -10%, rgb(136 175 234 / 0.22), transparent 70%),
+    radial-gradient(700px 380px at -10% 0%, rgb(175 232 255 / 0.25), transparent 70%);
 }
 
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme="light"]) {
-    --surface: #14171a;
-    --surface-muted: #1c2024;
-    --border: #2b3036;
-    --text: #e9ecef;
-    --text-muted: #9aa2ab;
-    --accent: #4c8dff;
-    --accent-text: #0b1220;
-    --accent-soft: #1b2a44;
-    --accent-strong: #9dbcff;
-    --good: #6fd39a;
-    --good-soft: #15301f;
-    --warn: #f0b26b;
+    --surface: #0e1a3d;
+    --surface-muted: #081127;
+    --border: #22325f;
+    --text: #e7eefc;
+    --text-muted: #9babd0;
+    --accent: #88afea;
+    --accent-text: #0a1430;
+    --accent-soft: #172a5a;
+    --accent-strong: #afe8ff;
+    --accent-gradient: linear-gradient(135deg, #afe8ff 0%, #88afea 55%, #6c92da 100%);
+    --accent-glow: rgb(136 175 234 / 0.35);
+    --ring: rgb(136 175 234 / 0.32);
+    --magenta: #f59ab8;
+    --magenta-soft: #45193a;
+    --good: #6fd9a5;
+    --good-soft: #0f3429;
+    --warn: #f3b86e;
     --warn-soft: #3a2a12;
-    --bad: #ff9a85;
-    --bad-soft: #3b1d17;
+    --bad: #ff9a8a;
+    --bad-soft: #421c24;
+    --shadow-card: 0 1px 2px rgb(0 0 0 / 0.3), 0 10px 28px -14px rgb(0 0 0 / 0.6);
+    --shadow-pop: 0 22px 56px -18px rgb(0 0 0 / 0.75);
+    --page-glow: radial-gradient(1100px 560px at 100% -10%, rgb(36 92 181 / 0.28), transparent 70%),
+      radial-gradient(700px 420px at -10% 0%, rgb(232 106 142 / 0.08), transparent 70%);
   }
 }
 /* Native controls and scrollbars follow the same choice. */
@@ -72,23 +110,38 @@
 }
 /* The switch in the header: an explicit choice beats the system setting. */
 :root[data-theme="dark"] {
-  --surface: #14171a;
-  --surface-muted: #1c2024;
-  --border: #2b3036;
-  --text: #e9ecef;
-  --text-muted: #9aa2ab;
-  --accent: #4c8dff;
-  --accent-text: #0b1220;
-  --accent-soft: #1b2a44;
-  --accent-strong: #9dbcff;
-  --good: #6fd39a;
-  --good-soft: #15301f;
-  --warn: #f0b26b;
+  --surface: #0e1a3d;
+  --surface-muted: #081127;
+  --border: #22325f;
+  --text: #e7eefc;
+  --text-muted: #9babd0;
+  --accent: #88afea;
+  --accent-text: #0a1430;
+  --accent-soft: #172a5a;
+  --accent-strong: #afe8ff;
+  --accent-gradient: linear-gradient(135deg, #afe8ff 0%, #88afea 55%, #6c92da 100%);
+  --accent-glow: rgb(136 175 234 / 0.35);
+  --ring: rgb(136 175 234 / 0.32);
+  --magenta: #f59ab8;
+  --magenta-soft: #45193a;
+  --good: #6fd9a5;
+  --good-soft: #0f3429;
+  --warn: #f3b86e;
   --warn-soft: #3a2a12;
-  --bad: #ff9a85;
-  --bad-soft: #3b1d17;
+  --bad: #ff9a8a;
+  --bad-soft: #421c24;
+  --shadow-card: 0 1px 2px rgb(0 0 0 / 0.3), 0 10px 28px -14px rgb(0 0 0 / 0.6);
+  --shadow-pop: 0 22px 56px -18px rgb(0 0 0 / 0.75);
+  --page-glow: radial-gradient(1100px 560px at 100% -10%, rgb(36 92 181 / 0.28), transparent 70%),
+    radial-gradient(700px 420px at -10% 0%, rgb(232 106 142 / 0.08), transparent 70%);
 }
 
+/* The three brand type families (loaded in app/fonts.ts). */
+@theme inline {
+  --font-sans: var(--font-body), ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  --font-display: var(--font-heading), var(--font-body), ui-sans-serif, system-ui, sans-serif;
+  --font-label: var(--font-accent), var(--font-body), ui-sans-serif, system-ui, sans-serif;
+}
 
 /*
  * Creative Ops, Step 2. A few shared shapes the two-unit screens repeat: the
@@ -105,38 +158,39 @@
   letter-spacing: 0.03em;
 }
 .unit-tag-pr {
-  background: #ccfbf1;
-  color: #115e59;
+  background: #dfeafc;
+  color: #1d4596;
 }
 .unit-tag-ads {
-  background: #ffedd5;
-  color: #9a3412;
+  background: #fde4ee;
+  color: #b2325c;
 }
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme="light"]) .unit-tag-pr {
-    background: #0f3d38;
-    color: #8be9d8;
+    background: #1a3168;
+    color: #afe8ff;
   }
   :root:not([data-theme="light"]) .unit-tag-ads {
-    background: #4a2a12;
-    color: #ffc99a;
+    background: #4a1a3a;
+    color: #fbb3cc;
   }
 }
 /* The switch in the header: an explicit choice beats the system setting. */
 :root[data-theme="dark"] .unit-tag-pr {
-  background: #0f3d38;
-  color: #8be9d8;
+  background: #1a3168;
+  color: #afe8ff;
 }
 :root[data-theme="dark"] .unit-tag-ads {
-  background: #4a2a12;
-  color: #ffc99a;
+  background: #4a1a3a;
+  color: #fbb3cc;
 }
 
 
 .panel {
   border: 1px solid var(--border);
-  border-radius: 12px;
+  border-radius: 14px;
   background: var(--surface);
+  box-shadow: var(--shadow-card);
 }
 
 .table-dense {
@@ -151,9 +205,10 @@
   z-index: 1;
   background: var(--surface-muted);
   color: var(--text-muted);
+  font-family: var(--font-label);
   font-size: 11px;
-  font-weight: 600;
-  letter-spacing: 0.02em;
+  font-weight: 700;
+  letter-spacing: 0.06em;
   text-align: left;
   text-transform: uppercase;
   white-space: nowrap;
@@ -166,10 +221,10 @@
   top: 3.5rem;
 }
 .panel > div > .table-page-sticky thead th:first-child {
-  border-top-left-radius: 12px;
+  border-top-left-radius: 14px;
 }
 .panel > div > .table-page-sticky thead th:last-child {
-  border-top-right-radius: 12px;
+  border-top-right-radius: 14px;
 }
 .table-dense tbody td {
   padding: 8px 12px;
@@ -177,7 +232,7 @@
   vertical-align: top;
 }
 .table-dense tbody tr:hover td {
-  background: color-mix(in srgb, var(--surface-muted) 60%, var(--surface));
+  background: color-mix(in srgb, var(--accent-soft) 45%, var(--surface));
 }
 /* A priority row keeps the table's one background and is marked by an amber
    bar on its first cell (plus the "Ưu tiên" pill), so the table never turns
@@ -187,9 +242,14 @@
 }
 
 body {
-  background: var(--surface-muted);
+  background-color: var(--surface-muted);
+  background-image: var(--page-glow);
+  background-attachment: fixed;
+  background-repeat: no-repeat;
   color: var(--text);
-  font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  font-family: var(--font-sans);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
   /*
    * Nothing on this panel is wider than the viewport by design. Saying so here
    * turns a layout mistake into a clipped element rather than a page that can be
@@ -254,14 +314,14 @@ textarea {
   align-items: center;
   gap: 4px;
   padding: 4px;
-  border-radius: 12px;
+  border-radius: 14px;
   border: 1px solid var(--border);
-  background: var(--surface-muted);
-  box-shadow: 0 1px 2px rgb(0 0 0 / 0.06);
+  background: var(--surface);
+  box-shadow: var(--shadow-card);
 }
 .unit-switch :is(a, button) {
-  --unit: #0d9488;
-  --unit-soft: rgb(13 148 136 / 0.12);
+  --unit: #245cb5;
+  --unit-soft: rgb(36 92 181 / 0.12);
   display: inline-flex;
   align-items: center;
   gap: 8px;
@@ -281,12 +341,12 @@ textarea {
   background: var(--unit);
 }
 .unit-switch :is(a, button)[data-unit="ADS"] {
-  --unit: #ea580c;
-  --unit-soft: rgb(234 88 12 / 0.12);
+  --unit: linear-gradient(135deg, #e86a8e, #f285b9);
+  --unit-soft: rgb(232 106 142 / 0.14);
 }
 .unit-switch :is(a, button)[data-unit="ALL"] {
-  --unit: linear-gradient(90deg, #0d9488, #ea580c);
-  --unit-soft: rgb(120 120 120 / 0.12);
+  --unit: linear-gradient(90deg, #245cb5, #e86a8e);
+  --unit-soft: rgb(136 175 234 / 0.16);
 }
 .unit-switch :is(a, button):hover {
   background: var(--unit-soft);
@@ -337,50 +397,50 @@ textarea {
   background: currentColor;
   opacity: 0.85;
 }
-.st-slate { background: #e2e8f0; color: #334155; }
+.st-slate { background: #e7edf7; color: #35425f; }
 .st-amber { background: #fef3c7; color: #92400e; }
 .st-red { background: #fee2e2; color: #991b1b; }
 .st-violet { background: #ede9fe; color: #5b21b6; }
-.st-pink { background: #fce7f3; color: #9d174d; }
-.st-blue { background: #dbeafe; color: #1e40af; }
+.st-pink { background: #fde4ee; color: #a8264f; }
+.st-blue { background: #dfeafc; color: #1d4596; }
 .st-cyan { background: #cffafe; color: #155e75; }
 .st-indigo { background: #e0e7ff; color: #3730a3; }
 .st-orange { background: #ffedd5; color: #9a3412; }
 .st-green { background: #dcfce7; color: #166534; }
 .st-teal { background: #ccfbf1; color: #115e59; }
 .st-lime { background: #ecfccb; color: #3f6212; }
-.st-sky { background: #e0f2fe; color: #075985; }
+.st-sky { background: #def5ff; color: #0b5a85; }
 .st-fuchsia { background: #fae8ff; color: #86198f; }
 @media (prefers-color-scheme: dark) {
-  :root:not([data-theme="light"]) .st-slate { background: #273040; color: #cbd5e1; }
+  :root:not([data-theme="light"]) .st-slate { background: #1d2a4d; color: #c5d1ee; }
   :root:not([data-theme="light"]) .st-amber { background: #3d2e0b; color: #fcd34d; }
   :root:not([data-theme="light"]) .st-red { background: #44191b; color: #fca5a5; }
   :root:not([data-theme="light"]) .st-violet { background: #2e2350; color: #c4b5fd; }
-  :root:not([data-theme="light"]) .st-pink { background: #45192f; color: #f9a8d4; }
-  :root:not([data-theme="light"]) .st-blue { background: #1b2b4d; color: #93c5fd; }
+  :root:not([data-theme="light"]) .st-pink { background: #4a1a3a; color: #fbb3cc; }
+  :root:not([data-theme="light"]) .st-blue { background: #1a3168; color: #a9c6f5; }
   :root:not([data-theme="light"]) .st-cyan { background: #123a44; color: #67e8f9; }
   :root:not([data-theme="light"]) .st-indigo { background: #24264d; color: #a5b4fc; }
   :root:not([data-theme="light"]) .st-orange { background: #432414; color: #fdba74; }
   :root:not([data-theme="light"]) .st-green { background: #143522; color: #86efac; }
   :root:not([data-theme="light"]) .st-teal { background: #103a37; color: #5eead4; }
   :root:not([data-theme="light"]) .st-lime { background: #27350f; color: #bef264; }
-  :root:not([data-theme="light"]) .st-sky { background: #11334a; color: #7dd3fc; }
+  :root:not([data-theme="light"]) .st-sky { background: #123659; color: #afe8ff; }
   :root:not([data-theme="light"]) .st-fuchsia { background: #3d1842; color: #f0abfc; }
 }
 /* The switch in the header: an explicit choice beats the system setting. */
-:root[data-theme="dark"] .st-slate { background: #273040; color: #cbd5e1; }
+:root[data-theme="dark"] .st-slate { background: #1d2a4d; color: #c5d1ee; }
 :root[data-theme="dark"] .st-amber { background: #3d2e0b; color: #fcd34d; }
 :root[data-theme="dark"] .st-red { background: #44191b; color: #fca5a5; }
 :root[data-theme="dark"] .st-violet { background: #2e2350; color: #c4b5fd; }
-:root[data-theme="dark"] .st-pink { background: #45192f; color: #f9a8d4; }
-:root[data-theme="dark"] .st-blue { background: #1b2b4d; color: #93c5fd; }
+:root[data-theme="dark"] .st-pink { background: #4a1a3a; color: #fbb3cc; }
+:root[data-theme="dark"] .st-blue { background: #1a3168; color: #a9c6f5; }
 :root[data-theme="dark"] .st-cyan { background: #123a44; color: #67e8f9; }
 :root[data-theme="dark"] .st-indigo { background: #24264d; color: #a5b4fc; }
 :root[data-theme="dark"] .st-orange { background: #432414; color: #fdba74; }
 :root[data-theme="dark"] .st-green { background: #143522; color: #86efac; }
 :root[data-theme="dark"] .st-teal { background: #103a37; color: #5eead4; }
 :root[data-theme="dark"] .st-lime { background: #27350f; color: #bef264; }
-:root[data-theme="dark"] .st-sky { background: #11334a; color: #7dd3fc; }
+:root[data-theme="dark"] .st-sky { background: #123659; color: #afe8ff; }
 :root[data-theme="dark"] .st-fuchsia { background: #3d1842; color: #f0abfc; }
 
 
@@ -390,16 +450,16 @@ textarea {
   color: var(--person);
 }
 :root {
-  --person: #1d4ed8;
+  --person: #1d4596;
 }
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme="light"]) {
-    --person: #93c5fd;
+    --person: #afe8ff;
   }
 }
 /* The switch in the header: an explicit choice beats the system setting. */
 :root[data-theme="dark"] {
-  --person: #93c5fd;
+  --person: #afe8ff;
 }
 
 
@@ -491,15 +551,15 @@ textarea {
 .profile-cover {
   background:
     radial-gradient(120% 140% at 0% 0%, color-mix(in srgb, var(--accent) 22%, transparent), transparent 60%),
-    radial-gradient(90% 120% at 100% 0%, color-mix(in srgb, #8b5cf6 16%, transparent), transparent 55%),
+    radial-gradient(90% 120% at 100% 0%, color-mix(in srgb, var(--brand-magenta) 18%, transparent), transparent 55%),
     linear-gradient(180deg, var(--accent-soft), color-mix(in srgb, var(--accent-soft) 35%, var(--surface)));
   border-bottom: 1px solid var(--border);
 }
 
 /* Form dialogs (components/modal.tsx). */
 .modal-scrim {
-  background: rgb(9 11 14 / 0.5);
-  backdrop-filter: blur(2px);
+  background: rgb(8 17 39 / 0.55);
+  backdrop-filter: blur(4px);
 }
 .modal-panel {
   animation: modal-in 140ms ease-out;
@@ -510,6 +570,18 @@ textarea {
     transform: translateY(6px) scale(0.99);
   }
 }
+/* Stream tags on the navy rail. Outside the layers: the plain .unit-tag-* rules
+   above are unlayered and would otherwise win. */
+:root .brand-rail .unit-tag-pr,
+:root .brand-rail .unit-tag-ads {
+  background: rgb(255 255 255 / 0.12);
+  color: #ffffff;
+  box-shadow: inset 0 0 0 1px rgb(255 255 255 / 0.14);
+}
+:root .brand-rail .unit-tag-ads {
+  background: linear-gradient(135deg, rgb(232 106 142 / 0.6), rgb(250 154 225 / 0.35));
+}
+
 @media (prefers-reduced-motion: reduce) {
   .modal-panel {
     animation: none;
@@ -551,3 +623,190 @@ textarea {
   color: #c4b5fd;
 }
 
+
+
+/* ------------------------------------------------------------------------
+ * Apexmed brand polish. One place that gives every screen the brand's look
+ * without a class change in each file: the type families on headings, the
+ * gradient on primary actions, depth on cards, the navy sidebar rail.
+ * In cascade layers on purpose: a utility written on an element (its own
+ * shadow, font, background) still wins over anything here.
+ * --------------------------------------------------------------------- */
+@layer base {
+  /* Headings: the Conthrax stand-in (Exo 2) - modern, technical, premium. */
+  h1,
+  h2,
+  h3,
+  .font-display {
+    font-family: var(--font-display);
+    letter-spacing: -0.005em;
+  }
+  h1 {
+    font-weight: 700;
+  }
+  ::selection {
+    background: color-mix(in srgb, var(--brand-sky) 45%, transparent);
+  }
+  * {
+    scrollbar-color: color-mix(in srgb, var(--text-muted) 35%, transparent) transparent;
+  }
+  a,
+  button {
+    -webkit-tap-highlight-color: transparent;
+  }
+  :where(input:not([type="checkbox"]):not([type="radio"]):not([type="range"]), select, textarea) {
+    transition:
+      border-color 120ms,
+      box-shadow 120ms;
+  }
+  :where(input:not([type="checkbox"]):not([type="radio"]):not([type="range"]), select, textarea):focus {
+    border-color: var(--accent);
+    box-shadow: 0 0 0 3px var(--ring);
+  }
+  :where(input[type="checkbox"], input[type="radio"]) {
+    accent-color: var(--accent);
+  }
+}
+
+@layer components {
+  /* Large figures (KPI tiles, page titles) in the display face. */
+  :is(.text-2xl, .text-3xl, .text-4xl) {
+    font-family: var(--font-display);
+  }
+  /* Small uppercase headings ("THƯ VIỆN", lane titles): Jura, the guideline's own face. */
+  :is(h2, h3, p, span, dt, th).uppercase {
+    font-family: var(--font-label);
+    font-weight: 700;
+    letter-spacing: 0.07em;
+  }
+
+  /* Primary action = the brand gradient (light: blue into navy; dark: pastel into sky). */
+  .bg-\[var\(--accent\)\] {
+    background-image: var(--accent-gradient);
+  }
+  :is(button, a).bg-\[var\(--accent\)\] {
+    box-shadow:
+      inset 0 1px 0 rgb(255 255 255 / 0.16),
+      0 6px 16px -8px var(--accent-glow);
+    transition:
+      opacity 120ms,
+      transform 120ms,
+      box-shadow 120ms;
+  }
+  :is(button, a).bg-\[var\(--accent\)\]:not(:disabled):hover {
+    box-shadow:
+      inset 0 1px 0 rgb(255 255 255 / 0.2),
+      0 10px 22px -8px var(--accent-glow);
+  }
+  :is(button, a).bg-\[var\(--accent\)\]:not(:disabled):active {
+    transform: translateY(1px);
+  }
+
+  /* Cards: rounded surfaces lift off the page a little. */
+  :is(.rounded-xl, .rounded-2xl).bg-\[var\(--surface\)\] {
+    box-shadow: var(--shadow-card);
+  }
+  .modal-panel {
+    box-shadow: var(--shadow-pop);
+  }
+
+  /* The header bar: frosted, with a hairline of the brand under it. */
+  .brand-topbar {
+    background: color-mix(in srgb, var(--surface) 86%, transparent);
+    backdrop-filter: saturate(1.4) blur(10px);
+  }
+  .brand-topbar::after {
+    content: "";
+    position: absolute;
+    inset: auto 0 -1px 0;
+    height: 1px;
+    background: linear-gradient(90deg, transparent, color-mix(in srgb, var(--brand-sky) 55%, transparent) 30%, color-mix(in srgb, var(--brand-magenta) 40%, transparent) 75%, transparent);
+    pointer-events: none;
+  }
+
+  /*
+   * The sidebar rail: navy in both schemes, like the guideline's hero band.
+   * It redefines the tokens for everything inside it, so the nav markup in
+   * shell.tsx is the same as on any other surface.
+   */
+  .brand-rail {
+    --surface: transparent;
+    --surface-muted: rgb(255 255 255 / 0.07);
+    --border: rgb(255 255 255 / 0.1);
+    --text: #ffffff;
+    --text-muted: rgb(214 226 250 / 0.74);
+    --accent: #afe8ff;
+    --accent-soft: rgb(175 232 255 / 0.14);
+    --accent-strong: #ffffff;
+    --person: #afe8ff;
+    position: relative;
+    isolation: isolate;
+    background-image:
+      radial-gradient(520px 340px at 110% 105%, rgb(136 175 234 / 0.32), transparent 70%),
+      radial-gradient(360px 240px at -20% 100%, rgb(232 106 142 / 0.14), transparent 70%),
+      var(--brand-gradient);
+    color: var(--text);
+  }
+  .brand-rail::before {
+    /* The brand "A" peak, as a faint watermark at the foot of the rail. */
+    content: "";
+    position: absolute;
+    z-index: -1;
+    right: -38px;
+    bottom: -26px;
+    width: 220px;
+    height: 220px;
+    opacity: 0.07;
+    background: no-repeat center / contain
+      url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Cpath d='M50 6 94 92H72L50 46 28 92H6z' fill='white'/%3E%3Cpath d='M46 58h8v8h8v8h-8v8h-8v-8h-8v-8h8z' fill='white'/%3E%3C/svg%3E");
+    pointer-events: none;
+  }
+  .brand-rail a[aria-current="page"] {
+    background: linear-gradient(90deg, rgb(175 232 255 / 0.2), rgb(255 255 255 / 0.05));
+    box-shadow: inset 3px 0 0 var(--brand-pastel);
+  }
+  .brand-rail [data-logo-mark] {
+    border-radius: 9px;
+    box-shadow:
+      0 0 0 1px rgb(255 255 255 / 0.22),
+      0 8px 18px -8px rgb(0 0 0 / 0.6);
+  }
+  :root[data-theme="dark"] .brand-rail {
+    border-color: var(--border);
+  }
+
+  /* An eyebrow line above a title: small, spaced, Jura. */
+  .brand-eyebrow {
+    font-family: var(--font-label);
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: var(--accent);
+  }
+  /* Brand gradient text (titles on hero bands only - never body copy). */
+  .brand-gradient-text {
+    background: linear-gradient(90deg, var(--accent-strong), var(--accent) 60%, var(--brand-magenta));
+    -webkit-background-clip: text;
+    background-clip: text;
+    color: transparent;
+  }
+}
+
+/* Stream tags on the navy rail. Outside the layers: the plain .unit-tag-* rules
+   above are unlayered and would otherwise win. */
+:root .brand-rail .unit-tag-pr,
+:root .brand-rail .unit-tag-ads {
+  background: rgb(255 255 255 / 0.12);
+  color: #ffffff;
+  box-shadow: inset 0 0 0 1px rgb(255 255 255 / 0.14);
+}
+:root .brand-rail .unit-tag-ads {
+  background: linear-gradient(135deg, rgb(232 106 142 / 0.6), rgb(250 154 225 / 0.35));
+}
+
+@media (prefers-reduced-motion: reduce) {
+  :is(button, a).bg-\[var\(--accent\)\] {
+    transition: none;
+  }
+}

@@ -951,7 +951,7 @@ describe("172b. disconnecting a channel asks; connecting one does not", () => {
     );
 
     // Requirement 22: TikTok's own consent screen *is* the authorization step.
-    // A TasksBot dialog in front of it would be a click that authorises nothing.
+    // A APM Management dialog in front of it would be a click that authorises nothing.
     expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
     await waitFor(() => expect(assign).toHaveBeenCalled());
   });

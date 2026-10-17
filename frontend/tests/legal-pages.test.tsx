@@ -111,11 +111,11 @@ describe("page metadata", () => {
     // a review queue.
     const root = (await import("@/app/layout")).metadata;
     const template = (root.title as { template: string }).template;
-    expect((root.title as { default: string }).default).toBe("TasksBot");
+    expect((root.title as { default: string }).default).toBe("APM Management");
 
     const compose = (title: unknown) => template.replace("%s", String(title));
-    expect(compose(termsMetadata.title)).toBe("Terms of Service | TasksBot");
-    expect(compose(privacyMetadata.title)).toBe("Privacy Policy | TasksBot");
+    expect(compose(termsMetadata.title)).toBe("Terms of Service | APM Management");
+    expect(compose(privacyMetadata.title)).toBe("Privacy Policy | APM Management");
   });
 
   it("overrides the app-wide noindex, because these two are published", () => {
