@@ -630,15 +630,15 @@ describe("9. only the PR stream's people", () => {
   ];
   const TAGS = { [OWNER]: ["ADS", "PR"], [HAO]: ["ADS"], [LEAD]: ["PR"] };
 
-  it("lists only the people tagged in PR, with every stream they hold", async () => {
+  it("lists only the people seated in PR, with no stream tag on anybody", async () => {
     await open(roster(), extra(TAGS));
     expect(screen.getAllByTestId("member-card")).toHaveLength(2);
-    // ORD only (Hảo) and no stream at all (Đã Nghỉ): not the PR team's.
+    // ORD only (Hảo) and no seat at all (Đã Nghỉ): not the PR team's.
     expect(screen.queryByText("Hảo")).not.toBeInTheDocument();
     expect(screen.queryByText("Đã Nghỉ")).not.toBeInTheDocument();
-    await waitFor(() => expect(card("Chị Chủ").getByText("ORD")).toBeInTheDocument());
-    expect(card("Chị Chủ").getByText("PR")).toBeInTheDocument();
-    expect(card("Lê Trưởng Nhóm").getByText("PR")).toBeInTheDocument();
+    // People wear their departments (★ = head) since 2026-10-17, never a PR / ORD chip.
+    expect(card("Chị Chủ").queryByText("ORD")).not.toBeInTheDocument();
+    expect(document.querySelector(".unit-tag-pr, .unit-tag-ads")).toBeNull();
     // The counts are the PR team's.
     expect(screen.getByText("Đang hoạt động: 1")).toBeInTheDocument();
     expect(screen.getByText("Tạm khoá: 1")).toBeInTheDocument();
@@ -668,7 +668,7 @@ describe("9. only the PR stream's people", () => {
     expect(await screen.findByText("Chưa có ai được gắn vào luồng PR.")).toBeInTheDocument();
   });
 
-  it("brings an account from outside PR into the stream", async () => {
+  it("brings an account from outside PR into the PR department", async () => {
     const fetchMock = await open(roster(), [
       ...extra(TAGS),
       { match: "/api/units/PR/members", method: "POST", status: 201, body: {} },
@@ -679,13 +679,13 @@ describe("9. only the PR stream's people", () => {
     await waitFor(() =>
       expect(form.getByRole("radio", { name: /Thành viên đã có/ })).toBeChecked(),
     );
-    const picker = form.getByLabelText("Thành viên ngoài luồng PR");
+    const picker = form.getByLabelText("Tài khoản chưa ở phòng PR");
     expect(within(picker).getAllByRole("option").map((option) => option.textContent)).toEqual([
       "— chọn —",
       "Hảo (Nhân viên)",
     ]);
     fireEvent.change(picker, { target: { value: HAO } });
-    fireEvent.submit(form.getByRole("button", { name: "Thêm Hảo vào luồng PR" }));
+    fireEvent.submit(form.getByRole("button", { name: "Thêm Hảo vào phòng PR" }));
     await waitFor(() =>
       expect(lastCall(fetchMock, "/api/units/PR/members").body).toEqual({
         user_id: HAO,

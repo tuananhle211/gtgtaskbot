@@ -88,6 +88,17 @@ const ME = {
   stats: STATS,
 };
 
+/** `/api/units/me` for the hero and the identity section: one seat in Biên Tập. */
+const MY_UNITS = {
+  units: [{ code: "ADS", label: "Luồng Order (ORD)", role: "BIEN_TAP", role_label: "Biên kịch", member_code: "TUAN" }],
+  default_unit: "ADS",
+  can_view_all: false,
+  can_admin: [],
+  departments: [
+    { department_id: "d1d1d1d1-d1d1-d1d1-d1d1-d1d1d1d1d1d1", code: "BT", name: "Biên Tập", function: "BIEN_TAP", position: "MEMBER", position_label: "Nhân viên" },
+  ],
+};
+
 const ROWS = [
   {
     user_id: "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa",
@@ -563,10 +574,11 @@ describe("the change-password dialog", () => {
 });
 
 describe("the account page", () => {
-  it("leads with a profile header: picture, name, role, Telegram id and units", async () => {
+  it("leads with a profile header: picture, name, role, Telegram id and departments", async () => {
     stubFetch([
       { match: "/api/account/members", status: 403, body: FORBIDDEN },
       { match: "/api/account/me", body: ME },
+      { match: "/api/units/me", body: MY_UNITS },
     ]);
     renderWithQuery(<AccountPage />);
     const hero = await screen.findByRole("region", { name: "Hồ sơ của tôi" });
@@ -574,10 +586,11 @@ describe("the account page", () => {
     expect(hero).toHaveTextContent("Thành viên");
     expect(hero).toHaveTextContent("123456789");
     expect(hero).toHaveTextContent("@tuan_ads");
-    const units = within(hero).getByRole("list", { name: "Luồng của tôi" });
-    expect(within(units).getByText("ORD")).toHaveClass("unit-tag");
-    expect(units).toHaveTextContent("Biên kịch");
-    expect(units).toHaveTextContent("TUAN");
+    // The person's departments as chips (★ = Trưởng phòng), no stream tag.
+    const seats = await within(hero).findByLabelText("Phòng ban của tôi");
+    expect(within(seats).getByText("Biên Tập")).toHaveClass("dept-tag");
+    expect(within(seats).queryByText("ORD")).not.toBeInTheDocument();
+    expect(seats).toHaveTextContent("TUAN");
     // No picture yet: the initials.
     expect(within(hero).getByRole("button", { name: "Đổi ảnh đại diện" })).toHaveTextContent("LT");
     expect(within(hero).getByRole("button", { name: "Đăng xuất" })).toBeInTheDocument();
@@ -588,12 +601,14 @@ describe("the account page", () => {
       { match: "/api/account/profile", method: "PATCH", body: { ...ME, full_name: "Tuấn Lê" } },
       { match: "/api/account/members", status: 403, body: FORBIDDEN },
       { match: "/api/account/me", body: ME },
+      { match: "/api/units/me", body: MY_UNITS },
     ]);
     renderWithQuery(<AccountPage />);
     await userEvent.click(await screen.findByRole("tab", { name: "Thông tin tài khoản" }));
     const identity = await screen.findByRole("region", { name: "Thông tin tài khoản" });
     expect(within(identity).getByText("123456789")).toBeInTheDocument();
-    expect(within(identity).getByText("ORD")).toHaveClass("unit-tag");
+    expect(await within(identity).findByText("Biên Tập")).toHaveClass("dept-tag");
+    expect(within(identity).queryByText("ORD")).not.toBeInTheDocument();
     expect(within(identity).getByText("TUAN")).toBeInTheDocument();
     // No picture: nothing to remove.
     expect(screen.queryByRole("button", { name: "Xoá ảnh" })).not.toBeInTheDocument();

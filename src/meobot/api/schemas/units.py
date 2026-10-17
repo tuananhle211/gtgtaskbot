@@ -7,6 +7,7 @@ for the PR membership screens, so the browser holds no second vocabulary.
 from __future__ import annotations
 
 import uuid
+from collections.abc import Sequence
 from datetime import date as date_type
 from datetime import datetime
 from decimal import Decimal
@@ -299,12 +300,20 @@ class UnitMemberResponse(BaseModel):
     manager_user_id: uuid.UUID | None = None
     #: Additive (0053): their own daily token budget; null = the unit default.
     daily_tokens: float | None = None
+    #: Additive (2026-10-17): the person's seats, for the department chips.
+    departments: list[DepartmentSeatResponse] = []
 
     @classmethod
-    def from_row(cls, row: UnitMemberRow, avatar_url: str | None = None) -> UnitMemberResponse:
+    def from_row(
+        cls,
+        row: UnitMemberRow,
+        avatar_url: str | None = None,
+        seats: Sequence[Seat] = (),
+    ) -> UnitMemberResponse:
         membership, user = row.membership, row.user
         return cls(
             avatar_url=avatar_url,
+            departments=[DepartmentSeatResponse.from_domain(seat) for seat in seats],
             user_id=user.id,
             full_name=user.full_name,
             base_role=user.role.value,
@@ -354,6 +363,8 @@ class DirectoryUserResponse(BaseModel):
     base_role_label: str
     active: bool
     units: list[str]
+    #: Additive (2026-10-17): the person's seats, for the "Thêm người vào phòng" picker.
+    departments: list[DepartmentSeatResponse] = []
 
 
 class UntaggedUserResponse(BaseModel):

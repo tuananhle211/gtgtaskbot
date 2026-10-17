@@ -11,7 +11,6 @@ import { screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import DepartmentsPage from "@/app/admin/departments/page";
 import { Shell } from "@/components/shell";
-import { UnitPanel } from "@/components/unit-panel";
 import { canEditMembersIn } from "@/lib/units";
 import type { UnitsMe } from "@/lib/api";
 import { renderWithQuery, SESSION, stubFetch } from "./helpers";
@@ -557,64 +556,7 @@ function stubPanel(session: unknown, me: Partial<UnitsMe>) {
   ]);
 }
 
-describe("the stream member panel: placing people vs editing a row", () => {
-  it("lets an ADMIN edit a row but not place people, pointing at Phòng ban", async () => {
-    stubPanel(ADMIN, { can_view_all: true, can_admin: ["ADS"], can_tag: [], can_edit_members: ["ADS"] });
-    renderWithQuery(<UnitPanel code="ADS" />);
-    // The rest of the row is editable.
-    expect(await screen.findByRole("textbox", { name: "Mã thành viên của Quỳnh Như" })).toBeInTheDocument();
-    expect(screen.getByRole("textbox", { name: "Kho cá nhân của Quỳnh Như" })).toBeInTheDocument();
-    // Placing people is not.
-    expect(screen.queryByRole("combobox", { name: "Vai trò của Quỳnh Như" })).not.toBeInTheDocument();
-    expect(
-      screen.queryByRole("combobox", { name: "Trưởng quản lý của Quỳnh Như" }),
-    ).not.toBeInTheDocument();
-    expect(screen.getByText("Trưởng quản lý: Trưởng A")).toBeInTheDocument();
-    expect(screen.queryByText("Thêm thành viên")).not.toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: "Gỡ" })).not.toBeInTheDocument();
-    expect(screen.queryByRole("region", { name: "Chưa có luồng" })).not.toBeInTheDocument();
-    const hint = screen.getByTestId("placement-hint");
-    expect(hint).toHaveTextContent(
-      "Gắn người, vai trò và trưởng quản lý ở màn Phòng ban (chủ sở hữu).",
-    );
-    expect(within(hint).getByRole("link")).toHaveAttribute("href", "/admin/departments");
-  });
-
-  it("gives the OWNER every control and no hint", async () => {
-    stubPanel(
-      { ...OWNER, user_id: "u-owner" },
-      { can_view_all: true, can_admin: ["ADS"], can_tag: ["ADS"], can_edit_members: ["ADS"] },
-    );
-    renderWithQuery(<UnitPanel code="ADS" />);
-    expect(await screen.findByRole("combobox", { name: "Vai trò của Quỳnh Như" })).toBeInTheDocument();
-    expect(screen.getByRole("combobox", { name: "Trưởng quản lý của Quỳnh Như" })).toHaveValue("u-a");
-    expect(screen.getByRole("textbox", { name: "Mã thành viên của Quỳnh Như" })).toBeInTheDocument();
-    expect(screen.getByText("Thêm thành viên")).toBeInTheDocument();
-    expect(screen.getAllByRole("button", { name: "Gỡ" }).length).toBeGreaterThan(0);
-    expect(screen.queryByTestId("placement-hint")).not.toBeInTheDocument();
-  });
-
-  it("leaves a team lead with the row edits, and the hint without a link", async () => {
-    stubPanel(SESSION, { can_admin: [], can_tag: [], can_edit_members: ["ADS"] });
-    renderWithQuery(<UnitPanel code="ADS" />);
-    expect(await screen.findByRole("textbox", { name: "Kho cá nhân của Quỳnh Như" })).toBeInTheDocument();
-    // The member code is the admins' (0063): shown, not editable.
-    expect(screen.queryByRole("textbox", { name: "Mã thành viên của Quỳnh Như" })).not.toBeInTheDocument();
-    expect(screen.getByText("NHU")).toBeInTheDocument();
-    expect(screen.queryByRole("combobox", { name: "Vai trò của Quỳnh Như" })).not.toBeInTheDocument();
-    const hint = screen.getByTestId("placement-hint");
-    expect(within(hint).queryByRole("link")).not.toBeInTheDocument();
-  });
-
-  it("shows a reader with neither right a plain roster", async () => {
-    stubPanel(SESSION, { can_admin: [], can_tag: [], can_edit_members: [] });
-    renderWithQuery(<UnitPanel code="ADS" />);
-    expect(await screen.findByText("Quỳnh Như")).toBeInTheDocument();
-    expect(screen.queryAllByRole("textbox")).toHaveLength(0);
-    expect(screen.queryAllByRole("combobox")).toHaveLength(0);
-    expect(screen.queryByText(/Order sinh nhật/)).not.toBeInTheDocument();
-  });
-
+describe("canEditMembersIn", () => {
   it("reads an API without can_edit_members as can_tag", () => {
     const base = ME as unknown as UnitsMe;
     expect(canEditMembersIn({ ...base, can_tag: ["ADS"] }, "ADS")).toBe(true);

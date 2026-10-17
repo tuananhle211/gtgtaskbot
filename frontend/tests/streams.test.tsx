@@ -11,7 +11,6 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { fireEvent, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { Shell } from "@/components/shell";
-import { UnitPanel } from "@/components/unit-panel";
 import TasksPage from "@/app/tasks/page";
 import DashboardPage from "@/app/dashboard/page";
 import AccountPage from "@/app/account/page";
@@ -139,11 +138,12 @@ describe("an account with no stream", () => {
       NOTIFICATIONS,
     ]);
     renderWithQuery(<Shell>{null}</Shell>);
-    expect(await screen.findByText("Chưa có luồng")).toBeInTheDocument();
+    expect(await screen.findByText("Chưa có phòng ban")).toBeInTheDocument();
+    // The modules follow the permissions (2026-10-17): no seat, no grant - no
+    // order board either, only the dashboard.
     const primary = screen.getByRole("navigation", { name: "Điều hướng chính" });
     expect(within(primary).getAllByRole("link").map((link) => link.getAttribute("href"))).toEqual([
       "/dashboard",
-      "/tasks",
     ]);
   });
 });
@@ -161,7 +161,7 @@ describe("the nav and the stream switch follow the tags", () => {
     expect(within(primary).queryByRole("link", { name: /Công việc/ })).not.toBeInTheDocument();
   });
 
-  it("gives an ADMIN the PR screens and the admin screen, and the ORD chip", async () => {
+  it("gives an ADMIN the PR screens and the admin screen", async () => {
     stubFetch([
       { match: "/api/auth/session", body: { ...SESSION, role: "ADMIN" } },
       {
@@ -182,7 +182,6 @@ describe("the nav and the stream switch follow the tags", () => {
       expect(within(primary).getByRole("link", { name: /Công việc/ })).toBeInTheDocument(),
     );
     expect(within(primary).getByRole("link", { name: /Quản trị/ })).toBeInTheDocument();
-    expect(screen.getByText("ORD")).toHaveClass("unit-tag-ads");
   });
 
   it("lists only the tagged streams, and no Tất cả without can_view_all", async () => {
@@ -396,166 +395,7 @@ const panelRoutes = (canTag: string[], role = "TEAM_LEAD") => [
   },
 ];
 
-describe("tagging follows can_tag", () => {
-  it("draws no tag controls in a stream the lead may not tag in", async () => {
-    stubFetch(panelRoutes(["PR"]));
-    renderWithQuery(<UnitPanel code="ADS" />);
-    expect(await screen.findByText("Hiền Lương")).toBeInTheDocument();
-    expect(screen.queryByLabelText("Thêm thành viên")).not.toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: "Gỡ" })).not.toBeInTheDocument();
-    expect(screen.queryByLabelText("Vai trò của Hiền Lương")).not.toBeInTheDocument();
-    expect(screen.queryByRole("region", { name: "Chưa có luồng" })).not.toBeInTheDocument();
-    // Nobody but OWNER / ADMIN changes an account's status.
-    expect(screen.queryByRole("button", { name: /Vô hiệu hoá/ })).not.toBeInTheDocument();
-    // [ORD][BT★]: the function tag, starred for its lead.
-    const row = screen.getByText("Hiền Lương").closest("tr") as HTMLElement;
-    expect(within(row).getByText("ORD")).toHaveClass("unit-tag-ads");
-    const fn = row.querySelector('[data-function-tag="BT"]');
-    expect(fn).toHaveTextContent("BT★");
-    expect(fn).toHaveAttribute("title", "Trưởng phòng Biên kịch");
-  });
-
-  it("lets a lead tag in their own stream, but not untag an owner or themselves", async () => {
-    stubFetch(panelRoutes(["PR"]));
-    renderWithQuery(<UnitPanel code="PR" />);
-    expect(await screen.findByLabelText("Thêm thành viên")).toBeInTheDocument();
-    const rowOf = (name: string) => screen.getByText(name).closest("tr") as HTMLElement;
-    expect(within(rowOf("Hà Chi")).getByRole("button", { name: "Gỡ" })).toBeInTheDocument();
-    expect(within(rowOf("Chị Chủ")).queryByRole("button", { name: "Gỡ" })).not.toBeInTheDocument();
-    expect(within(rowOf("Le Trưởng Nhóm")).queryByRole("button", { name: "Gỡ" })).not.toBeInTheDocument();
-    // The owner is not offered in the add picker either.
-    const picker = screen.getByLabelText("Thêm thành viên");
-    expect(within(picker).queryByText(/Chị Chủ/)).not.toBeInTheDocument();
-    expect(within(picker).getByText(/Hiền Lương · đang ở ORD/)).toBeInTheDocument();
-  });
-
-  it("tags an untagged account into a stream picked in the dialog", async () => {
-    const fetchMock = stubFetch([
-      { match: "/api/units/ADS/members", method: "POST", body: {} },
-      ...panelRoutes(["PR", "ADS"]),
-    ]);
-    renderWithQuery(<UnitPanel code="PR" />);
-    const section = await screen.findByRole("region", { name: "Chưa có luồng" });
-    await within(section).findByText("Người Mới");
-    await userEvent.click(within(section).getByRole("button", { name: "Gắn Người Mới vào luồng" }));
-    const dialog = await screen.findByRole("dialog");
-    // It opens on the panel's own stream.
-    expect(within(dialog).getByLabelText("Luồng")).toHaveValue("PR");
-    await userEvent.selectOptions(within(dialog).getByLabelText("Luồng"), "ADS");
-    await waitFor(() =>
-      expect(
-        within(within(dialog).getByLabelText("Vai trò trong luồng"))
-          .getAllByRole("option")
-          .map((option) => option.textContent),
-      ).toEqual(["Trưởng phòng ADS", "Trưởng phòng Biên kịch", "Biên kịch"]),
-    );
-    await userEvent.selectOptions(within(dialog).getByLabelText("Vai trò trong luồng"), "BIEN_TAP:LEAD");
-    expect(dialog).toHaveTextContent("Gắn Người Mới vào Luồng Order (ORD)?");
-    expect(callsOf(fetchMock).some((call) => call.method === "POST")).toBe(false);
-    await userEvent.click(within(dialog).getByRole("button", { name: "Gắn vào luồng" }));
-    await waitFor(() => {
-      const sent = callsOf(fetchMock).find((call) => call.method === "POST");
-      expect(sent?.url).toBe("/api/units/ADS/members");
-      expect(sent?.body).toEqual({ user_id: NEW_ID, role: "BIEN_TAP", is_lead: true });
-    });
-  });
-});
-
-describe("Quản trị viên in the stream picker", () => {
-  it("is offered to the OWNER only, and makes the account an ADMIN", async () => {
-    const fetchMock = stubFetch([
-      { match: `/api/account/members/${NEW_ID}/role`, method: "POST", status: 204 },
-      ...panelRoutes(["PR", "ADS"], "OWNER"),
-    ]);
-    renderWithQuery(<UnitPanel code="PR" />);
-    const section = await screen.findByRole("region", { name: "Chưa có luồng" });
-    await within(section).findByText("Người Mới");
-    await userEvent.click(within(section).getByRole("button", { name: "Gắn Người Mới vào luồng" }));
-    const dialog = await screen.findByRole("dialog");
-    const role = within(dialog).getByLabelText("Vai trò trong luồng");
-    await waitFor(() =>
-      expect(within(role).getByRole("option", { name: "Quản trị viên · xem toàn bộ task cả 2 luồng" })).toBeInTheDocument(),
-    );
-    await userEvent.selectOptions(role, "SYSTEM:ADMIN");
-    expect(dialog).toHaveTextContent("Đặt Người Mới làm Quản trị viên?");
-    await userEvent.click(within(dialog).getByRole("button", { name: "Đặt làm Quản trị viên" }));
-    await waitFor(() => {
-      const sent = callsOf(fetchMock).find((call) => call.method === "POST");
-      expect(sent?.url).toBe(`/api/account/members/${NEW_ID}/role`);
-      expect(sent?.body).toEqual({ role: "ADMIN" });
-    });
-  });
-
-  it("is not offered to a team lead", async () => {
-    stubFetch(panelRoutes(["PR"]));
-    renderWithQuery(<UnitPanel code="PR" />);
-    const picker = await screen.findByLabelText("Vai trò");
-    expect(within(picker).queryByText(/Quản trị viên/)).not.toBeInTheDocument();
-  });
-});
-
 describe("deactivating and reactivating an account", () => {
-  it("lets an ADMIN deactivate a member behind a destructive confirmation", async () => {
-    const fetchMock = stubFetch([
-      { match: `/api/account/members/${ADS_ID}/deactivate`, method: "POST", status: 204 },
-      ...panelRoutes(["PR", "ADS"], "ADMIN"),
-    ]);
-    renderWithQuery(<UnitPanel code="ADS" />);
-    await screen.findByText("Hiền Lương");
-    // Not on themselves, and an ADMIN never on an OWNER.
-    expect(screen.queryByRole("button", { name: "Vô hiệu hoá tài khoản Chị Chủ" })).not.toBeInTheDocument();
-    expect(
-      screen.queryByRole("button", { name: "Vô hiệu hoá tài khoản Le Trưởng Nhóm" }),
-    ).not.toBeInTheDocument();
-    await userEvent.click(screen.getByRole("button", { name: "Vô hiệu hoá tài khoản Hiền Lương" }));
-    const dialog = await screen.findByRole("dialog");
-    expect(dialog).toHaveTextContent("Vô hiệu hoá tài khoản Hiền Lương?");
-    expect(dialog).toHaveTextContent("đăng xuất khỏi mọi phiên web");
-    expect(callsOf(fetchMock).some((call) => call.method === "POST")).toBe(false);
-    await userEvent.click(within(dialog).getByRole("button", { name: "Vô hiệu hoá" }));
-    await waitFor(() =>
-      expect(callsOf(fetchMock).find((call) => call.method === "POST")?.url).toBe(
-        `/api/account/members/${ADS_ID}/deactivate`,
-      ),
-    );
-  });
-
-  it("hides deactivated accounts until asked, then greys them and offers Kích hoạt lại", async () => {
-    const gone = member(NEW_ID, "Đã Nghỉ", { active: false, account_active: false });
-    const fetchMock = stubFetch([
-      { match: `/api/account/members/${NEW_ID}/reactivate`, method: "POST", status: 204 },
-      {
-        match: "/api/units/ADS/members?include_inactive=true",
-        method: "GET",
-        body: { ...ADS_MEMBERS, members: [...ADS_MEMBERS.members, gone] },
-      },
-      ...panelRoutes(["PR", "ADS"], "OWNER").map((route) =>
-        route.match === "/api/units/ADS/members"
-          ? { ...route, body: { ...ADS_MEMBERS, members: [...ADS_MEMBERS.members, gone] } }
-          : route,
-      ),
-    ]);
-    renderWithQuery(<UnitPanel code="ADS" />);
-    await screen.findByText("Hiền Lương");
-    expect(screen.queryByText("Đã Nghỉ")).not.toBeInTheDocument();
-    await userEvent.click(screen.getByLabelText("Hiện cả tài khoản đã vô hiệu hoá"));
-    const name = await screen.findByText("Đã Nghỉ");
-    expect(
-      callsOf(fetchMock).some((call) => call.url === "/api/units/ADS/members?include_inactive=true"),
-    ).toBe(true);
-    const row = name.closest("tr") as HTMLElement;
-    expect(row).toHaveAttribute("data-inactive", "true");
-    expect(within(row).getByText("Đã vô hiệu hoá")).toBeInTheDocument();
-    await userEvent.click(within(row).getByRole("button", { name: "Kích hoạt lại tài khoản Đã Nghỉ" }));
-    const dialog = await screen.findByRole("dialog");
-    await userEvent.click(within(dialog).getByRole("button", { name: "Kích hoạt lại" }));
-    await waitFor(() =>
-      expect(callsOf(fetchMock).find((call) => call.method === "POST")?.url).toBe(
-        `/api/account/members/${NEW_ID}/reactivate`,
-      ),
-    );
-  });
-
   it("does the same on the account member list, with include_inactive on the request", async () => {
     const rows = [
       {
@@ -593,7 +433,8 @@ describe("deactivating and reactivating an account", () => {
     );
     const row = screen.getByText("Hiền Lương").closest("tr") as HTMLElement;
     expect(within(row).getByText("Đã vô hiệu hoá")).toBeInTheDocument();
-    expect(row.querySelector('[data-function-tag="D"]')).toHaveTextContent("D");
+    // Department chips, not the ORD function tag; this row has no seat.
+    expect(within(row).getByText("Chưa có phòng ban")).toBeInTheDocument();
     expect(within(row).getByRole("button", { name: "Kích hoạt lại tài khoản Hiền Lương" })).toBeInTheDocument();
   });
 });

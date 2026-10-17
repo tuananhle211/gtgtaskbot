@@ -82,9 +82,9 @@ ADS_CODE = "ADS"
 class DepartmentForbiddenError(AuthorizationError):
     code = "department_forbidden"
 
-    def __init__(self) -> None:
+    def __init__(self, message: str | None = None) -> None:
         super().__init__(
-            "Chỉ chủ sở hữu mới tạo phòng ban, gắn người và phân quyền.",
+            message or "Chỉ chủ sở hữu mới tạo phòng ban, gắn người và phân quyền.",
             details={"reason": "department_forbidden"},
         )
 
@@ -621,6 +621,30 @@ async def apply_order_matrix(
     return {key: dict(value) for key, value in cells.items() if key not in MATRIX_SEATS}
 
 
+async def head_team(session: AsyncSession, head_id: uuid.UUID) -> frozenset[uuid.UUID]:
+    """The members "của" a department head (2026-10-17): in a department they
+    head, seated as MEMBER, reporting to them - or reporting to nobody while
+    they are that department's only head. What the head's account list shows
+    and what they may take out of the department."""
+    everyone = await load_seats(session)
+    heads_of: dict[uuid.UUID, set[uuid.UUID]] = {}
+    for user_id, seats in everyone.items():
+        for seat in seats:
+            if seat.position is Position.HEAD:
+                heads_of.setdefault(seat.department_id, set()).add(user_id)
+    mine = {department for department, heads in heads_of.items() if head_id in heads}
+    team: set[uuid.UUID] = set()
+    for user_id, seats in everyone.items():
+        for seat in seats:
+            if seat.department_id not in mine or seat.position is Position.HEAD:
+                continue
+            if seat.manager_user_id == head_id or (
+                seat.manager_user_id is None and heads_of[seat.department_id] == {head_id}
+            ):
+                team.add(user_id)
+    return frozenset(team)
+
+
 # --- the OWNER's screen ---------------------------------------------------------------
 
 
@@ -630,9 +654,19 @@ class SeatRow:
     user: User
 
 
+#: Accounts a department head never seats or unseats: the system roles.
+PROTECTED_ROLES = frozenset({Role.OWNER, Role.ADMIN})
+
+
 class DepartmentService:
-    """Departments, seats and grants, as the OWNER edits them. Everybody else
-    may read nothing here but their own seats (on ``/api/units/me``)."""
+    """Departments, seats and grants, as the OWNER edits them.
+
+    A department's **head** gets a slice of it (2026-10-17): they read the
+    department list and their own department's roster, and add or remove the
+    *members* of their own department (never a head, never an OWNER / ADMIN
+    account, never themselves). Everybody else may read nothing here but
+    their own seats (on ``/api/units/me``).
+    """
 
     def __init__(self, session: AsyncSession, audit: AuditService) -> None:
         self._session = session
@@ -643,13 +677,40 @@ class DepartmentService:
         if actor.role is not Role.OWNER:
             raise DepartmentForbiddenError()
 
-    @staticmethod
-    def _may_read(actor: Actor) -> None:
-        if actor.role not in (Role.OWNER, Role.ADMIN):
+    async def _heads(self, actor: Actor) -> frozenset[uuid.UUID]:
+        """The departments this actor is a head of (none for OWNER / ADMIN:
+        they need no seat)."""
+        if actor.user_id is None:
+            return frozenset()
+        seats = (await load_seats(self._session, [actor.user_id])).get(actor.user_id, ())
+        return frozenset(seat.department_id for seat in seats if seat.position is Position.HEAD)
+
+    async def _may_read(self, actor: Actor, department_id: uuid.UUID | None = None) -> None:
+        """OWNER / ADMIN read everything; a head reads the list and their own
+        department."""
+        if actor.role in (Role.OWNER, Role.ADMIN):
+            return
+        heads = await self._heads(actor)
+        if not heads or (department_id is not None and department_id not in heads):
+            raise DepartmentForbiddenError()
+
+    async def _may_seat(
+        self, actor: Actor, department_id: uuid.UUID, user: User, *, position: Position
+    ) -> None:
+        """The OWNER seats anybody anywhere; a head seats a *member* of their
+        own department, not a system account and not themselves."""
+        if actor.role is Role.OWNER:
+            return
+        if (
+            position is Position.HEAD
+            or user.role in PROTECTED_ROLES
+            or user.id == actor.user_id
+            or department_id not in await self._heads(actor)
+        ):
             raise DepartmentForbiddenError()
 
     async def departments(self, *, actor: Actor) -> list[tuple[Department, int]]:
-        self._may_read(actor)
+        await self._may_read(actor)
         rows = (
             await self._session.scalars(
                 select(Department).order_by(Department.sort_order, Department.code)
@@ -736,7 +797,7 @@ class DepartmentService:
         return row
 
     async def members(self, *, actor: Actor, department_id: uuid.UUID) -> list[SeatRow]:
-        self._may_read(actor)
+        await self._may_read(actor, department_id)
         await self.department(department_id)
         rows = (
             await self._session.execute(
@@ -764,7 +825,8 @@ class DepartmentService:
         clear_manager: bool = False,
     ) -> SeatRow:
         """Add a person to the department, or change their seat."""
-        self._require_owner(actor)
+        if actor.role is not Role.OWNER and department_id not in await self._heads(actor):
+            raise DepartmentForbiddenError()
         department = await self.department(department_id)
         user = await self._session.get(User, user_id)
         if user is None or user.deleted_at is not None:
@@ -775,6 +837,33 @@ class DepartmentService:
         existing = await open_seat(self._session, department.id, user_id)
         before = None if existing is None else _seat_snap(existing)
         target = position or (existing.position if existing is not None else Position.MEMBER)
+        # A head adds members; a head's own seat is the OWNER's to change.
+        await self._may_seat(
+            actor,
+            department.id,
+            user,
+            position=(
+                Position.HEAD
+                if existing is not None and existing.position is Position.HEAD
+                else target
+            ),
+        )
+        if actor.role is not Role.OWNER:
+            # A head takes in only somebody seated nowhere yet (one person in
+            # several departments is the OWNER's call), and becomes their
+            # Trưởng quản lý; an existing member of theirs stays theirs.
+            held = (await load_seats(self._session, [user_id])).get(user_id, ())
+            if existing is None and held:
+                raise DepartmentForbiddenError(
+                    "Người này đã thuộc phòng ban khác. Chỉ chủ sở hữu mới xếp một người vào "
+                    "nhiều phòng."
+                )
+            if existing is not None and user_id not in await head_team(
+                self._session,
+                actor.user_id,  # type: ignore[arg-type]
+            ):
+                raise DepartmentForbiddenError()
+            manager_user_id, clear_manager = actor.user_id, False
         row = await seat_person(
             self._session,
             department.id,
@@ -800,13 +889,22 @@ class DepartmentService:
     async def unseat(
         self, *, actor: Actor, request_id: uuid.UUID, department_id: uuid.UUID, user_id: uuid.UUID
     ) -> None:
-        self._require_owner(actor)
+        if actor.role is not Role.OWNER and department_id not in await self._heads(actor):
+            raise DepartmentForbiddenError()
         department = await self.department(department_id)
         existing = await open_seat(self._session, department.id, user_id)
         if existing is None:
             raise DepartmentNotFoundError(
                 "Người này không thuộc phòng.", details={"reason": "member_not_seated"}
             )
+        user = await self._session.get(User, user_id)
+        if user is not None:
+            await self._may_seat(actor, department.id, user, position=existing.position)
+        if actor.role is not Role.OWNER and user_id not in await head_team(
+            self._session,
+            actor.user_id,  # type: ignore[arg-type]
+        ):
+            raise DepartmentForbiddenError()
         before = _seat_snap(existing)
         reports = await _reports_of(self._session, user_id)
         await close_seat(self._session, department.id, user_id)
@@ -819,7 +917,7 @@ class DepartmentService:
         self, *, actor: Actor, department_id: uuid.UUID, module: str = MODULE_ORDER
     ) -> dict[str, dict[str, str]]:
         """``position -> permission -> scope`` (``NONE`` included)."""
-        self._may_read(actor)
+        await self._may_read(actor, department_id)
         await self.department(department_id)
         spec = self._module(module)
         table = await load_grants(self._session, module, [department_id])
@@ -1009,6 +1107,7 @@ __all__ = [
     "check_manager",
     "close_seat",
     "ensure_default_departments",
+    "head_team",
     "holds_open_order_work",
     "order_matrix",
     "place",

@@ -3,7 +3,6 @@
 import Link from "next/link";
 import { useQuery } from "@tanstack/react-query";
 import { api, type UnitsMe } from "@/lib/api";
-import { taggableUnits } from "@/lib/units";
 
 /**
  * "Quản trị": one menu entry, three screens - each a route of its own, so a
@@ -12,8 +11,10 @@ import { taggableUnits } from "@/lib/units";
  * * **Phòng ban** (`/admin/departments`) - the one place people are seated
  *   (department, Trưởng phòng / Nhân viên, Trưởng quản lý) and permissions
  *   granted. OWNER edits, ADMIN reads;
- * * **Thành viên luồng** (`/admin/units`) - the stream rosters and what a
- *   row carries besides its seat: member code, NAS, token/ngày, account status;
+ * * **Quản lý tài khoản** (`/admin/accounts`) - every account, flat, with a
+ *   department filter: seats, member code, employment status, password reset,
+ *   deactivate / reactivate / delete. OWNER / ADMIN, and a department head for
+ *   the people of their own department (2026-10-17; `/admin/units` redirects here);
  * * **Thiết lập ORD** (`/admin/settings`) - the order flow's settings,
  *   catalogues and the Quản trị viên column;
  * * **Kết nối AI** (`/admin/ai`, OWNER only) - the AI services the app calls
@@ -23,14 +24,19 @@ import { taggableUnits } from "@/lib/units";
  * Who sees which tab is a convenience; every route and write is checked again
  * on the server.
  */
-export type AdminTabKey = "departments" | "units" | "settings" | "ai";
+export type AdminTabKey = "departments" | "accounts" | "settings" | "ai";
 
 export const ADMIN_TABS: ReadonlyArray<{ key: AdminTabKey; href: string; label: string }> = [
   { key: "departments", href: "/admin/departments", label: "Phòng ban" },
-  { key: "units", href: "/admin/units", label: "Thành viên luồng" },
+  { key: "accounts", href: "/admin/accounts", label: "Quản lý tài khoản" },
   { key: "settings", href: "/admin/settings", label: "Thiết lập ORD" },
   { key: "ai", href: "/admin/ai", label: "Kết nối AI" },
 ];
+
+/** Whether this person heads at least one department (a seat with position HEAD). */
+export function headsDepartments(me: UnitsMe | undefined): boolean {
+  return Boolean(me?.departments?.some((seat) => seat.position === "HEAD"));
+}
 
 /** The "Quản trị" tabs this person may open, in menu order. */
 export function adminTabsFor(
@@ -38,13 +44,10 @@ export function adminTabsFor(
   sessionRole?: string,
 ): Array<(typeof ADMIN_TABS)[number]> {
   const manages = sessionRole === "OWNER" || sessionRole === "ADMIN";
-  const streams = Boolean(
-    me && (me.can_admin.length > 0 || taggableUnits(me).length > 0),
-  );
   const ordSettings = Boolean(me?.can_admin.includes("ADS"));
   const shown: Record<AdminTabKey, boolean> = {
     departments: manages,
-    units: streams,
+    accounts: manages || headsDepartments(me),
     settings: ordSettings,
     ai: sessionRole === "OWNER",
   };

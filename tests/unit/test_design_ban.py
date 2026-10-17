@@ -957,8 +957,9 @@ async def test_18_the_birthday_board_is_a_permission_like_any_other(world: World
     assert listed(ads.writer) == []
     world.act_as(ads.writer)
     assert world.client.get(f"/api/tasks/{mine.json()['code']}").status_code == 200
-    # Only the OWNER grants it; the per-person switch is gone.
-    world.act_as(ads.lead_tk)
+    # Only the OWNER grants it (a head reads the screen since 2026-10-17, a
+    # member does not); the per-person switch is gone.
+    world.act_as(ads.designer)
     assert world.client.get("/api/departments").status_code == 403
     world.act_as(world.owner)
     ignored = world.client.patch(

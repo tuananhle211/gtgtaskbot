@@ -447,8 +447,15 @@ async def test_05_who_sees_the_member_list(world: World) -> None:
     assert _names(_members(world, unit="ads")) == ads_people
     assert world.client.get("/api/account/members", params={"unit": "PR"}).status_code == 403
 
+    # The PR head (a TEAM_LEAD seated in PR is its head): the PR department's
+    # people - a department head lists their own department (2026-10-17) -
+    # and no stream filter.
+    world.act_as(world.lead)
+    assert _names(_members(world)) == pr_people
+    assert world.client.get("/api/account/members", params={"unit": "ADS"}).status_code == 403
+
     # Anybody else: refused, whatever they ask.
-    for outsider in (team.writer, world.member, world.lead):
+    for outsider in (team.writer, world.member):
         world.act_as(outsider)
         response = world.client.get("/api/account/members")
         assert response.status_code == 403, outsider.full_name

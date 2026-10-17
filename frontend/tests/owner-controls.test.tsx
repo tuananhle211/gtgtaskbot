@@ -26,21 +26,16 @@ import EffortPage from "@/app/tasks/effort/page";
 import AccountPage from "@/app/account/page";
 import { BanStatsPanel } from "@/components/ban-stats";
 import { Shell } from "@/components/shell";
-import { SettingsForm, UnitPanel } from "@/components/unit-panel";
+import { SettingsForm } from "@/components/unit-panel";
 import type { TaskRow, UnifiedTaskDetail } from "@/lib/api";
 import { assigneeLoadLabel } from "@/lib/deadline";
 import { effortEnabled } from "@/lib/effort";
 import { confirm, renderWithQuery, SESSION, stubFetch, urlStore } from "./helpers";
 
 
-/** "Thành viên luồng" and "Thiết lập ORD" side by side: tokens show on both. */
+/** "Thiết lập ORD": the token fields follow the effort switch. */
 function RosterAndSettings() {
-  return (
-    <>
-      <UnitPanel code="ADS" />
-      <SettingsForm code="ADS" onDone={() => {}} />
-    </>
-  );
+  return <SettingsForm code="ADS" onDone={() => {}} />;
 }
 const SEARCH = { value: new URLSearchParams() };
 const URL_BAR = urlStore(SEARCH);
@@ -380,13 +375,11 @@ describe("effort (tokens) switched off", () => {
     ).toEqual(["Tổng", "1", "6", "4", "2"]);
   });
 
-  it("hides the token fields of the unit panel", async () => {
+  it("hides the token fields of the settings form", async () => {
     stubPanel("OWNER", ADMIN_ME(false));
     renderWithQuery(<RosterAndSettings />);
     const toggle = await screen.findByRole("switch", { name: "Tính effort (token)" });
     expect(toggle).not.toBeChecked();
-    expect(screen.getByText("Quỳnh Như")).toBeInTheDocument();
-    expect(screen.queryByRole("columnheader", { name: "Token/ngày" })).not.toBeInTheDocument();
     expect(screen.queryByRole("spinbutton", { name: /Token\/ngày/ })).not.toBeInTheDocument();
     expect(screen.queryByRole("checkbox", { name: /Thứ 7 làm buổi sáng/ })).not.toBeInTheDocument();
     // What is not about tokens stays.
@@ -397,7 +390,6 @@ describe("effort (tokens) switched off", () => {
     stubPanel("OWNER", ADMIN_ME(true));
     renderWithQuery(<RosterAndSettings />);
     expect(await screen.findByRole("switch", { name: "Tính effort (token)" })).toBeChecked();
-    expect(screen.getByRole("columnheader", { name: "Token/ngày" })).toBeInTheDocument();
     expect(screen.getByRole("spinbutton", { name: /Token\/ngày mặc định/ })).toBeInTheDocument();
     expect(screen.getByRole("checkbox", { name: /Thứ 7 làm buổi sáng/ })).toBeInTheDocument();
   });
@@ -577,77 +569,6 @@ describe('"Xoá task"', () => {
 
 const deleteButton = (name: string) =>
   screen.queryByRole("button", { name: `Xoá hẳn tài khoản ${name}` });
-
-describe('"Xoá" on a unit roster', () => {
-  it("is the OWNER's, for somebody who is neither an OWNER nor themselves", async () => {
-    const stub = stubPanel("OWNER", ADMIN_ME(true), [
-      { match: `/api/account/members/${NHU_ID}`, method: "DELETE", status: 204 },
-    ]);
-    renderWithQuery(<UnitPanel code="ADS" />);
-    const button = await screen.findByRole("button", { name: "Xoá hẳn tài khoản Quỳnh Như" });
-    expect(button).toHaveTextContent("Xoá");
-    expect(deleteButton("Chính Tôi")).not.toBeInTheDocument();
-    expect(deleteButton("Sếp Lớn")).not.toBeInTheDocument();
-
-    await userEvent.click(button);
-    const dialog = await screen.findByRole("dialog");
-    expect(dialog).toHaveTextContent("Xoá hẳn tài khoản Quỳnh Như?");
-    expect(dialog).toHaveTextContent(
-      "Không khôi phục được. Order và công việc cũ vẫn giữ, ghi tên kèm “(đã xoá)”. Muốn tạm khoá thì dùng Vô hiệu hoá.",
-    );
-    expect(calls(stub).some((call) => call.method === "DELETE")).toBe(false);
-    const before = calls(stub).filter((call) => call.url.includes("/api/units/ADS/members")).length;
-    await confirm();
-    await waitFor(() =>
-      expect(
-        calls(stub).filter((call) => call.method === "DELETE").map((call) => call.url),
-      ).toEqual([`/api/account/members/${NHU_ID}`]),
-    );
-    // The roster is read again.
-    await waitFor(() =>
-      expect(
-        calls(stub).filter((call) => call.url.includes("/api/units/ADS/members")).length,
-      ).toBeGreaterThan(before),
-    );
-  });
-
-  it("is not drawn for an ADMIN", async () => {
-    stubPanel("ADMIN", ADMIN_ME(true));
-    renderWithQuery(<UnitPanel code="ADS" />);
-    // The ADMIN's own control on the row: the session has arrived.
-    await screen.findByRole("button", { name: "Vô hiệu hoá tài khoản Quỳnh Như" });
-    expect(screen.queryByRole("button", { name: /Xoá hẳn tài khoản/ })).not.toBeInTheDocument();
-  });
-
-  it("shows the server's sentence when the member still holds open work", async () => {
-    stubPanel("OWNER", ADMIN_ME(true), [
-      {
-        match: `/api/account/members/${NHU_ID}`,
-        method: "DELETE",
-        status: 422,
-        body: {
-          error: {
-            code: "member_has_open_work",
-            message: "Thành viên này còn order hoặc công đoạn đang mở. Bàn giao xong rồi xoá.",
-            details: { reason: "member_has_open_work" },
-          },
-        },
-      },
-    ]);
-    renderWithQuery(<UnitPanel code="ADS" />);
-    await userEvent.click(
-      await screen.findByRole("button", { name: "Xoá hẳn tài khoản Quỳnh Như" }),
-    );
-    await confirm();
-    expect(
-      await screen.findByText(
-        "Thành viên này còn order hoặc công đoạn đang mở. Bàn giao xong rồi xoá.",
-      ),
-    ).toBeInTheDocument();
-    // Refused: the member is still on the roster, the button still there.
-    expect(deleteButton("Quỳnh Như")).toBeInTheDocument();
-  });
-});
 
 const ACCOUNT_STATS = {
   month: "2026-10",

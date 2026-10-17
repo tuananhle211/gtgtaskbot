@@ -55,6 +55,7 @@ from meobot.application.account.member_code import write_member_code
 from meobot.application.audit_service import AuditService
 from meobot.application.org import departments
 from meobot.application.org.access import Access
+from meobot.application.org.seats import load_seats
 from meobot.application.units.directory import (
     ROLE_FOR_NODE,
     UnitDirectoryService,
@@ -76,7 +77,7 @@ from meobot.domain.identity.models import Actor, Role
 from meobot.domain.orders.labels import node_type_label
 from meobot.domain.orders.models import ACTIVE_NODE_STATUSES, TERMINAL_STAGES, OrderNodeType
 from meobot.domain.orders.permissions import AdsPermissionMatrixError, normalise_matrix
-from meobot.domain.org.models import MODULE_PR
+from meobot.domain.org.models import MODULE_PR, Position
 from meobot.domain.pr.policy import PrCapability
 from meobot.domain.units.errors import (
     UnitAccessDeniedError,
@@ -416,16 +417,26 @@ class UnitAdminService:
         Only for somebody who may tag in at least one unit.
         """
         membership = await self._directory.membership_for(actor)
-        if not self.tag_units(membership, actor):
+        # 2026-10-17: a department head picks people for their own department
+        # from the same directory (Quản lý tài khoản).
+        heads = any(seat.position is Position.HEAD for seat in membership.seats)
+        tagger = bool(self.tag_units(membership, actor))
+        if not tagger and not heads:
             raise UnitAccessDeniedError(
                 "Bạn không có quyền quản trị luồng nào.",
                 details={"reason": "unit_admin_forbidden"},
             )
-        users = (
-            await self._session.scalars(
-                select(User).where(User.deleted_at.is_(None)).order_by(User.full_name, User.id)
-            )
-        ).all()
+        users = list(
+            (
+                await self._session.scalars(
+                    select(User).where(User.deleted_at.is_(None)).order_by(User.full_name, User.id)
+                )
+            ).all()
+        )
+        if not tagger:
+            # A head takes in only somebody seated nowhere yet.
+            seated = await load_seats(self._session, [user.id for user in users])
+            users = [user for user in users if not seated.get(user.id)]
         tags = (
             await self._session.execute(
                 select(OrgUnitMember.user_id, OrgUnit.code)

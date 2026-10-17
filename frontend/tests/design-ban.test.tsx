@@ -155,7 +155,7 @@ describe('the "Bảng order" branch of the nav', () => {
 
   it('holds only "Order tổng" without the design flags, and no "Tạo order" entry', async () => {
     shell();
-    await screen.findByText("Luồng của bạn");
+    await screen.findByText("Phòng ban của bạn");
     await waitFor(() => expect(navHrefs()).toEqual(["/dashboard", "/tasks"]));
     const branch = within(primary()).getByRole("group", { name: "Bảng order" });
     expect(within(branch).getByRole("button", { name: "Bảng order" })).toHaveAttribute(

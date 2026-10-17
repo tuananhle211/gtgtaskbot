@@ -14,9 +14,7 @@ import { Shell } from "@/components/shell";
 import TasksPage from "@/app/tasks/page";
 import DashboardPage from "@/app/dashboard/page";
 import OrderDetailPage from "@/app/orders/[ref]/page";
-import UnitsAdminPage from "@/app/admin/units/page";
 import OrdSettingsPage from "@/app/admin/settings/page";
-import { UnitPanel } from "@/components/unit-panel";
 import { renderWithQuery, SESSION, stubFetch, urlStore } from "./helpers";
 
 const SEARCH = { value: new URLSearchParams() };
@@ -580,221 +578,7 @@ describe("the order detail", () => {
   });
 });
 
-describe("the unit admin page", () => {
-  it("lists members with their roles and tags a new one", async () => {
-    pathname = "/admin/units";
-    const fetchMock = stubFetch([
-      { match: "/api/units/me", body: OWNER_OF_BOTH },
-      {
-        match: "/api/units/PR/members",
-        body: {
-          unit: "PR",
-          unit_label: "Luồng PR",
-          members: [],
-          assignable_roles: [{ role: "MEMBER", label: "Thành viên" }],
-        },
-      },
-      {
-        match: "/api/units/ADS/members",
-        method: "GET",
-        body: {
-          unit: "ADS",
-          unit_label: "Luồng Order (ORD)",
-          members: [
-            {
-              user_id: "55555555-5555-5555-5555-555555555555",
-              full_name: "Hiền Lương",
-              base_role: "EMPLOYEE",
-              base_role_label: "Nhân viên",
-              role: "BIEN_TAP",
-              role_label: "Biên tập",
-              is_lead: true,
-              member_code: null,
-              personal_nas_url: null,
-              joined_at: "2026-10-07T02:00:00Z",
-              left_at: null,
-              active: true,
-            },
-          ],
-          assignable_roles: [
-            { role: "HEAD", label: "Trưởng phòng ADS" },
-            { role: "BIEN_TAP", label: "Trưởng phòng Biên kịch", is_lead: true },
-            { role: "ORDERER", label: "Nhân viên ADS (người order)" },
-            { role: "BIEN_TAP", label: "Biên tập" },
-          ],
-        },
-      },
-      { match: "/api/units/ADS/members", method: "POST", body: {} },
-      {
-        match: "/api/units/ADS/health",
-        body: {
-          unit: "ADS",
-          warnings: [{ code: "no_head", message: "Ban chưa có Trưởng phòng." }],
-        },
-      },
-      { match: "/api/units/PR/health", body: { unit: "PR", warnings: [] } },
-      {
-        match: "/api/units/directory",
-        body: [
-          {
-            user_id: "66666666-6666-6666-6666-666666666666",
-            full_name: "Tuấn",
-            base_role: "EMPLOYEE",
-            base_role_label: "Nhân viên",
-            active: true,
-            units: [],
-          },
-        ],
-      },
-    ]);
-    renderWithQuery(<UnitsAdminPage />);
-    await waitFor(() =>
-      expect(
-        screen.getByRole("tab", { name: "Luồng Order (ORD)" }),
-      ).toBeInTheDocument(),
-    );
-    await userEvent.click(screen.getByRole("tab", { name: "Luồng Order (ORD)" }));
-    await waitFor(() =>
-      expect(screen.getByText("Hiền Lương")).toBeInTheDocument(),
-    );
-    expect(screen.getByText("Ban chưa có Trưởng phòng.")).toBeInTheDocument();
-    // A function's lead is shown as that function's head, in the role picker.
-    expect(screen.getByLabelText("Vai trò của Hiền Lương")).toHaveValue("BIEN_TAP:LEAD");
-    expect(screen.getByText("Nhận việc của luồng để phân công")).toBeInTheDocument();
-
-    await userEvent.selectOptions(
-      screen.getByLabelText("Thêm thành viên"),
-      "66666666-6666-6666-6666-666666666666",
-    );
-    await userEvent.selectOptions(screen.getByLabelText("Vai trò"), "ORDERER");
-    await userEvent.type(screen.getByLabelText("Mã thành viên"), "tuan");
-    await userEvent.click(screen.getByRole("button", { name: "Gắn tag" }));
-    const dialog = await screen.findByRole("dialog");
-    await userEvent.click(
-      within(dialog).getByRole("button", { name: "Gắn tag" }),
-    );
-    await waitFor(() => {
-      const sent = (
-        fetchMock as unknown as {
-          calls: Array<{ url: string; method: string; body: unknown }>;
-        }
-      ).calls.find(
-        (call) =>
-          call.method === "POST" && call.url.includes("/api/units/ADS/members"),
-      );
-      expect(sent?.body).toEqual({
-        user_id: "66666666-6666-6666-6666-666666666666",
-        role: "ORDERER",
-        is_lead: false,
-        member_code: "TUAN",
-      });
-    });
-  });
-
-  it("picks a staff member's own Leader when a ban has several", async () => {
-    pathname = "/admin/units";
-    const fetchMock = stubFetch([
-      { match: "/api/units/me", body: OWNER_OF_BOTH },
-      {
-        match: "/api/units/PR/members",
-        body: { unit: "PR", unit_label: "Luồng PR", members: [], assignable_roles: [] },
-      },
-      {
-        match: "/api/units/ADS/members",
-        method: "GET",
-        body: {
-          unit: "ADS",
-          unit_label: "Luồng Order (ORD)",
-          members: [
-            {
-              user_id: "d-lead-1",
-              full_name: "Lead Dựng 1",
-              base_role: "EMPLOYEE",
-              base_role_label: "Nhân viên",
-              role: "DUNG",
-              role_label: "DUNG",
-              is_lead: true,
-              member_code: null,
-              personal_nas_url: null,
-              joined_at: "2026-10-07T02:00:00Z",
-              left_at: null,
-              active: true,
-              manager_user_id: null,
-            },            {
-              user_id: "d-lead-2",
-              full_name: "Lead Dựng 2",
-              base_role: "EMPLOYEE",
-              base_role_label: "Nhân viên",
-              role: "DUNG",
-              role_label: "DUNG",
-              is_lead: true,
-              member_code: null,
-              personal_nas_url: null,
-              joined_at: "2026-10-07T02:00:00Z",
-              left_at: null,
-              active: true,
-              manager_user_id: null,
-            },            {
-              user_id: "bt-lead",
-              full_name: "Lead Biên kịch",
-              base_role: "EMPLOYEE",
-              base_role_label: "Nhân viên",
-              role: "BIEN_TAP",
-              role_label: "BIEN_TAP",
-              is_lead: true,
-              member_code: null,
-              personal_nas_url: null,
-              joined_at: "2026-10-07T02:00:00Z",
-              left_at: null,
-              active: true,
-              manager_user_id: null,
-            },            {
-              user_id: "d-staff",
-              full_name: "Nhân viên Dựng",
-              base_role: "EMPLOYEE",
-              base_role_label: "Nhân viên",
-              role: "DUNG",
-              role_label: "DUNG",
-              is_lead: false,
-              member_code: null,
-              personal_nas_url: null,
-              joined_at: "2026-10-07T02:00:00Z",
-              left_at: null,
-              active: true,
-              manager_user_id: null,
-            },
-          ],
-          assignable_roles: [{ role: "DUNG", label: "Dựng" }],
-        },
-      },
-      { match: "/api/units/ADS/members/d-staff", method: "PATCH", body: {} },
-      { match: "/api/units/ADS/health", body: { unit: "ADS", warnings: [] } },
-      { match: "/api/units/PR/health", body: { unit: "PR", warnings: [] } },
-      { match: "/api/units/directory", body: [] },
-    ]);
-    renderWithQuery(<UnitsAdminPage />);
-    await userEvent.click(
-      await screen.findByRole("tab", { name: "Luồng Order (ORD)" }),
-    );
-    const picker = await screen.findByLabelText("Trưởng quản lý của Nhân viên Dựng");
-    // Only the Leaders of the member's own ban; Leaders have no picker.
-    expect(within(picker).getAllByRole("option").map((o) => o.textContent)).toEqual([
-      "Mặc định · Mọi trưởng ban",
-      "Lead Dựng 1",
-      "Lead Dựng 2",
-    ]);
-    expect(screen.queryByLabelText("Trưởng quản lý của Lead Dựng 1")).not.toBeInTheDocument();
-    await userEvent.selectOptions(picker, "d-lead-2");
-    await waitFor(() => {
-      const sent = (
-        fetchMock as unknown as {
-          calls: Array<{ url: string; method: string; body: unknown }>;
-        }
-      ).calls.find((call) => call.method === "PATCH" && call.url.includes("d-staff"));
-      expect(sent?.body).toEqual({ manager_user_id: "d-lead-2" });
-    });
-  });
-
+describe("the ORD settings page", () => {
   const ADMIN_COLUMN_SETTINGS = (() => {
     const roles = ["HEAD", "ADMIN", "LEAD", "STAFF", "ORDERER"];
     return {
@@ -858,7 +642,7 @@ describe("the unit admin page", () => {
     await waitFor(() =>
       expect(within(tabs).getAllByRole("link").map((link) => link.getAttribute("href"))).toEqual([
         "/admin/departments",
-        "/admin/units",
+        "/admin/accounts",
         "/admin/settings",
         "/admin/ai",
       ]),
@@ -870,47 +654,6 @@ describe("the unit admin page", () => {
   });
 });
 
-
-describe("the ORD roster has no per-person birthday switch", () => {
-  it("leaves the birthday board to the department grants", async () => {
-    stubFetch([
-      { match: "/api/auth/session", body: { ...SESSION, role: "OWNER" } },
-      { match: "/api/units/me", body: { ...OWNER_OF_BOTH, can_tag: ["PR", "ADS"] } },
-      {
-        match: "/api/units/ADS/members",
-        method: "GET",
-        body: {
-          unit: "ADS",
-          unit_label: "ADS",
-          members: [
-            {
-              user_id: "u-design",
-              full_name: "Diễm My",
-              base_role: "EMPLOYEE",
-              base_role_label: "Nhân viên",
-              role: "THIET_KE",
-              role_label: "Design",
-              is_lead: false,
-              member_code: null,
-              personal_nas_url: null,
-              joined_at: "2026-10-07T02:00:00Z",
-              left_at: null,
-              active: true,
-              manager_user_id: null,
-            },
-          ],
-          assignable_roles: [],
-        },
-      },
-      { match: "/api/units/ADS/health", body: { unit: "ADS", warnings: [] } },
-      { match: "/api/units/directory", body: [] },
-      { match: "/api/units/untagged", body: { users: [] } },
-    ]);
-    renderWithQuery(<UnitPanel code="ADS" />);
-    expect(await screen.findByText("Diễm My")).toBeInTheDocument();
-    expect(screen.queryByText(/Order sinh nhật/)).not.toBeInTheDocument();
-  });
-});
 
 describe("the dashboard", () => {
   it("narrows every figure to one person picked from the dropdown", async () => {

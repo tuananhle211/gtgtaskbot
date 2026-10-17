@@ -30,13 +30,18 @@ import {
   mayChangeAccountStatus,
   mayDeleteAccount,
   UnitTags,
-  UntaggedPanel,
 } from "@/components/unit-panel";
 import { resetMemberPasswordConfirmation } from "@/lib/confirmations";
 import { formatAgo, formatWhen, monthLabel } from "@/lib/labels";
+import {
+  EmploymentStatusField,
+  EmploymentStatusPill,
+  MemberCodeField,
+  PasswordStatus,
+} from "@/components/account-fields";
+import { DepartmentTags } from "@/components/department-tags";
 import { PasswordDialog, PasswordForm } from "./password";
 import { InvitePanel, mayInvite as mayInviteFor } from "./invites";
-import { STREAM_NAMES, byStreamOrder } from "@/lib/units";
 import { formatTokens } from "@/lib/deadline";
 import { dayHeading, useEffortEnabled } from "@/lib/effort";
 
@@ -48,6 +53,9 @@ const QUIET_BUTTON =
   "inline-flex min-h-10 items-center justify-center gap-2 rounded-lg border border-[var(--border)] bg-[var(--surface)] px-3.5 text-sm font-medium shadow-[0_1px_2px_rgb(0_0_0/0.04)] transition-colors hover:bg-[var(--surface-muted)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--accent)] disabled:opacity-50";
 
 type Tab = "hieu-suat" | "tai-khoan" | "thanh-vien" | "moi-thanh-vien";
+
+/** The "Phòng ban" filter's value for people with no seat. */
+const NO_DEPARTMENT = "__none__";
 
 /** `YYYY-MM` of a date, in the browser's own calendar. */
 function monthOf(date: Date): string {
@@ -298,24 +306,7 @@ function ProfileHero({
             <LogoutButton variant="button" />
           </div>
         </div>
-        {me.units.length > 0 ? (
-          <ul aria-label="Luồng của tôi" className="mt-4 flex flex-wrap gap-2">
-            {byStreamOrder(me.units).map((item) => (
-              <li
-                key={item.code}
-                className="inline-flex items-center gap-2 rounded-full border border-[var(--border)] bg-[var(--surface-muted)] py-1 pl-1 pr-3 text-xs"
-              >
-                <UnitTags units={[item.code]} functionTag={item.function_tag} isLead={item.is_lead} />
-                <span className="font-medium">{item.role_label}</span>
-                {item.member_code ? (
-                  <span className="text-[var(--text-muted)]">
-                    Mã <span className="font-semibold text-[var(--text)]">{item.member_code}</span>
-                  </span>
-                ) : null}
-              </li>
-            ))}
-          </ul>
-        ) : null}
+        <MySeats memberCode={me.units.find((item) => item.member_code)?.member_code ?? null} />
       </div>
       <div
         role="tablist"
@@ -466,28 +457,14 @@ function AccountSettings({
           ) : null}
         </SettingRow>
         <SettingRow label="Vai trò">{me.role_label}</SettingRow>
-        <SettingRow label="Luồng">
-          {me.units.length === 0 ? (
-            <span className="text-[var(--text-muted)]">
-              Chưa thuộc luồng nào. Trưởng nhóm sẽ gắn luồng cho bạn.
-            </span>
-          ) : (
-            <ul className="space-y-2">
-              {byStreamOrder(me.units).map((item) => (
-                <li key={item.code} className="flex flex-wrap items-center gap-2">
-                  <UnitTags units={[item.code]} functionTag={item.function_tag} isLead={item.is_lead} />
-                  <span>{item.role_label}</span>
-                  {item.member_code ? (
-                    <span className="text-xs text-[var(--text-muted)]">
-                      Mã: <span className="font-semibold text-[var(--text)]">{item.member_code}</span>
-                    </span>
-                  ) : null}
-                </li>
-              ))}
-            </ul>
-          )}
-        </SettingRow>
         <DepartmentsRow />
+        {me.units.some((item) => item.member_code) ? (
+          <SettingRow label="Mã thành viên" hint="Tiền tố mã order của bạn.">
+            <span className="font-semibold">
+              {me.units.find((item) => item.member_code)?.member_code}
+            </span>
+          </SettingRow>
+        ) : null}
       </SettingsSection>
 
       <SettingsSection id="account-security" title="Bảo mật" description="Mật khẩu đăng nhập APM Management trên web.">
@@ -518,28 +495,50 @@ function AccountSettings({
 
 /**
  * "Phòng ban": the viewer's own seats, from `/api/units/me` `departments`,
- * e.g. "ADS — Trưởng phòng · PR Thương Hiệu — Nhân viên". Not drawn while it
- * loads, if it fails, or for an API that does not send the field.
+ * as chips (★ = Trưởng phòng). Not drawn while it loads, if it fails, or for
+ * an API that does not send the field.
  */
 function DepartmentsRow() {
   const units = useQuery({ queryKey: ["units", "me"], queryFn: api.unitsMe, retry: false });
   const seats = units.data?.departments;
   if (!seats) return null;
   return (
-    <SettingRow label="Phòng ban" hint="Do chủ sở hữu gắn ở màn Phòng ban.">
+    <SettingRow label="Phòng ban" hint="Do chủ sở hữu hoặc trưởng phòng xếp.">
       {seats.length === 0 ? (
-        <span className="text-[var(--text-muted)]">Chưa thuộc phòng ban nào.</span>
+        <span className="text-[var(--text-muted)]">
+          Chưa thuộc phòng ban nào. Trưởng phòng hoặc quản trị viên sẽ xếp bạn vào phòng.
+        </span>
       ) : (
-        <p data-testid="my-departments">
-          {seats
-            .map(
-              (seat) =>
-                `${seat.name} — ${seat.position_label ?? (seat.position === "HEAD" ? "Trưởng phòng" : "Nhân viên")}`,
-            )
-            .join(" · ")}
-        </p>
+        <div data-testid="my-departments" className="flex flex-wrap items-center gap-1.5">
+          <DepartmentTags seats={seats} />
+          <span className="text-xs text-[var(--text-muted)]">
+            {seats
+              .map(
+                (seat) =>
+                  `${seat.name} — ${seat.position_label ?? (seat.position === "HEAD" ? "Trưởng phòng" : "Nhân viên")}`,
+              )
+              .join(" · ")}
+          </span>
+        </div>
       )}
     </SettingRow>
+  );
+}
+
+/** The hero's chips: the viewer's departments (★ = head) and their member code. */
+function MySeats({ memberCode }: { memberCode: string | null }) {
+  const units = useQuery({ queryKey: ["units", "me"], queryFn: api.unitsMe, retry: false });
+  const seats = units.data?.departments;
+  if (!seats && !memberCode) return null;
+  return (
+    <div aria-label="Phòng ban của tôi" className="mt-4 flex flex-wrap items-center gap-2 text-xs">
+      {seats ? <DepartmentTags seats={seats} /> : null}
+      {memberCode ? (
+        <span className="text-[var(--text-muted)]">
+          Mã <span className="font-semibold text-[var(--text)]">{memberCode}</span>
+        </span>
+      ) : null}
+    </div>
   );
 }
 
@@ -902,126 +901,6 @@ function StatCards({ stats, showEffort }: { stats: MemberStats; showEffort: bool
   );
 }
 
-// --- Thành viên ---------------------------------------------------------------
-
-function PasswordStatus({ row }: { row: MemberRow }) {
-  if (row.locked) return <span className="st st-red">Đang khoá</span>;
-  if (row.password_temporary) return <span className="st st-amber">Mật khẩu tạm</span>;
-  return row.has_custom_password ? (
-    <span className="st st-green">Đã đổi</span>
-  ) : (
-    <span className="st st-amber">Mặc định</span>
-  );
-}
-
-/**
- * "Mã thành viên" (0063): the person's code, in a stream or not - the prefix
- * of their order codes. OWNER / ADMIN only (the server refuses anybody else:
- * 403 `member_code_forbidden`); the server folds what is typed (A-Z0-9, at
- * most 12) and a blank clears it.
- */
-function MemberCodeField({
-  row,
-  onSaved,
-}: {
-  row: MemberRow;
-  onSaved: (code: string | null) => void;
-}) {
-  const [value, setValue] = useState(row.member_code ?? "");
-  const save = useMutation({
-    mutationFn: () => api.setMemberCode(row.user_id, value.trim() || null),
-    onSuccess: (result) => {
-      setValue(result.member_code ?? "");
-      onSaved(result.member_code);
-    },
-  });
-  const changed = value.trim() !== (row.member_code ?? "");
-  return (
-    <div className="flex items-center gap-1.5">
-      <input
-        aria-label={`Mã thành viên của ${row.full_name}`}
-        value={value}
-        maxLength={40}
-        placeholder="Chưa có"
-        onChange={(event) => setValue(event.target.value)}
-        onKeyDown={(event) => {
-          if (event.key === "Enter" && changed && !save.isPending) save.mutate();
-        }}
-        className="min-h-9 w-24 rounded-md border border-[var(--border)] bg-[var(--surface)] px-2 font-mono text-xs uppercase"
-      />
-      <button
-        type="button"
-        aria-label={`Lưu mã thành viên của ${row.full_name}`}
-        disabled={!changed || save.isPending}
-        onClick={() => save.mutate()}
-        className="min-h-9 rounded-md border border-[var(--border)] px-2 text-xs font-medium disabled:opacity-40"
-      >
-        Lưu
-      </button>
-      {save.isError ? (
-        <span role="alert" className="text-xs text-[var(--bad)]">
-          {save.error instanceof Error ? save.error.message : "Không lưu được."}
-        </span>
-      ) : null}
-    </div>
-  );
-}
-
-/**
- * "Nhân sự" (0065): the person's employment status - Đang làm / Thử việc /
- * Tạm nghỉ / Chuyển ban / Đã nghỉ việc. OWNER / ADMIN and whoever holds the resources
- * module's HR_STATUS (the Phòng Tài nguyên's head); the server refuses the
- * rest (403 `employment_status_forbidden`). A leaver's resources turn red at once.
- */
-const EMPLOYMENT_STATUSES: ReadonlyArray<[string, string]> = [
-  ["WORKING", "Đang làm"],
-  ["PROBATION", "Thử việc"],
-  ["ON_LEAVE", "Tạm nghỉ"],
-  ["MOVED", "Chuyển ban"],
-  ["LEFT", "Đã nghỉ việc"],
-];
-
-function EmploymentStatusField({
-  row,
-  onSaved,
-}: {
-  row: MemberRow;
-  onSaved: (label: string) => void;
-}) {
-  const save = useMutation({
-    mutationFn: (status: string) => api.setEmploymentStatus(row.user_id, status),
-    onSuccess: (result) => onSaved(result.employment_status_label),
-  });
-  return (
-    <div className="flex flex-col gap-1">
-      <Select
-        aria-label={`Trạng thái nhân sự của ${row.full_name}`}
-        value={row.employment_status ?? "WORKING"}
-        disabled={save.isPending}
-        onChange={(event) => save.mutate(event.target.value)}
-        className="min-h-9 text-xs"
-      >
-        {EMPLOYMENT_STATUSES.map(([value, label]) => (
-          <option key={value} value={value}>
-            {label}
-          </option>
-        ))}
-      </Select>
-      {save.isError ? (
-        <span role="alert" className="text-xs text-[var(--bad)]">
-          {save.error instanceof Error ? save.error.message : "Không lưu được."}
-        </span>
-      ) : null}
-    </div>
-  );
-}
-
-function EmploymentStatusPill({ row }: { row: MemberRow }) {
-  const status = row.employment_status ?? "WORKING";
-  const tone = status === "LEFT" ? "st-red" : status === "WORKING" ? "st-green" : "st-amber";
-  return <span className={`st ${tone}`}>{row.employment_status_label ?? "Đang làm"}</span>;
-}
-
 function Members({
   me,
   month,
@@ -1075,12 +954,26 @@ function Members({
     },
   });
 
+  // "Phòng ban" filter: the departments the listed people sit in (client-side).
+  const [department, setDepartment] = useState("");
+  const departmentOptions = useMemo(() => {
+    const seen = new Map<string, string>();
+    for (const row of query.data?.members ?? []) {
+      for (const seat of row.departments ?? []) seen.set(seat.department_id, seat.name);
+    }
+    return Array.from(seen, ([id, name]) => ({ id, name }));
+  }, [query.data]);
   const rows = useMemo(() => {
-    const list = [...(query.data?.members ?? [])];
+    const list = [...(query.data?.members ?? [])].filter((row) => {
+      if (!department) return true;
+      const seats = row.departments ?? [];
+      if (department === NO_DEPARTMENT) return seats.length === 0;
+      return seats.some((seat) => seat.department_id === department);
+    });
     if (sort === "none") return list;
     const sign = sort === "desc" ? -1 : 1;
     return list.sort((a, b) => sign * (Number(a.stats.points) - Number(b.stats.points)));
-  }, [query.data, sort]);
+  }, [query.data, sort, department]);
 
   const nextSort = () => setSort((was) => (was === "desc" ? "asc" : "desc"));
   const th = "text-right";
@@ -1122,13 +1015,21 @@ function Members({
               ))}
             </div>
           ) : null}
-          {showingTeam ? null : (
+          {showingTeam || departmentOptions.length === 0 ? null : (
             <label className="inline-flex items-center gap-2 text-sm text-[var(--text-muted)]">
-              Luồng
-              <Select value={unit} onChange={(event) => onUnit(event.target.value)} className="min-h-10 text-sm">
-                <option value="ALL">Tất cả</option>
-                <option value="ADS">{STREAM_NAMES.ADS}</option>
-                <option value="PR">{STREAM_NAMES.PR}</option>
+              Phòng ban
+              <Select
+                value={department}
+                onChange={(event) => setDepartment(event.target.value)}
+                className="min-h-10 text-sm"
+              >
+                <option value="">Tất cả</option>
+                {departmentOptions.map((option) => (
+                  <option key={option.id} value={option.id}>
+                    {option.name}
+                  </option>
+                ))}
+                <option value={NO_DEPARTMENT}>Chưa có phòng ban</option>
               </Select>
             </label>
           )}
@@ -1145,8 +1046,6 @@ function Members({
         </div>
       </div>
 
-      <UntaggedPanel />
-
       {notice ? <Notice onDismiss={() => setNotice(null)}>{notice}</Notice> : null}
       {query.isError ? <ErrorBox error={query.error} onRetry={() => query.refetch()} /> : null}
       {query.isPending ? <Loading label="Đang tải thành viên…" /> : null}
@@ -1158,7 +1057,7 @@ function Members({
               <thead>
                 <tr>
                   <th>Thành viên</th>
-                  <th>Luồng</th>
+                  <th>Phòng ban</th>
                   <th>Mã thành viên</th>
                   <th>Nhân sự</th>
                   <th
@@ -1238,11 +1137,7 @@ function Members({
                         </div>
                       </td>
                       <td>
-                        {row.units.length > 0 ? (
-                          <UnitTags units={row.units} functionTag={row.function_tag} isLead={row.is_lead} />
-                        ) : (
-                          <span className="text-xs text-[var(--text-muted)]">Chưa có luồng</span>
-                        )}
+                        <DepartmentTags seats={row.departments ?? []} />
                       </td>
                       <td>
                         {mayReset ? (

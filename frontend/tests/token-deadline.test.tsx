@@ -16,7 +16,6 @@ import TasksPage from "@/app/tasks/page";
 import EffortPage from "@/app/tasks/effort/page";
 import DashboardPage from "@/app/dashboard/page";
 import { Shell } from "@/components/shell";
-import { UnitPanel } from "@/components/unit-panel";
 import OrdSettingsPage from "@/app/admin/settings/page";
 import type { EffortGrid, TaskRow, UnifiedTaskDetail } from "@/lib/api";
 import {
@@ -756,20 +755,7 @@ describe("the ORD token budget settings", () => {
     ]);
   }
 
-  it("saves a member's own Token/ngày, the unit default as the placeholder", async () => {
-    const stub = stubPanel();
-    renderWithQuery(<UnitPanel code="ADS" />);
-    const box = await screen.findByRole("spinbutton", { name: "Token/ngày của Quỳnh Như" });
-    expect(box).toHaveValue(null);
-    await waitFor(() => expect(box).toHaveAttribute("placeholder", "6"));
-    await userEvent.type(box, "4");
-    await userEvent.click(screen.getByRole("button", { name: "Lưu" }));
-    await waitFor(() => {
-      const patch = calls(stub).find((call) => call.method === "PATCH" && call.url.includes("/members/"));
-      // The member code was not touched: not sent (0063: changing it is the admins').
-      expect(patch?.body).toEqual({ personal_nas_url: null, daily_tokens: 4 });
-    });
-  });
+  // A member's own Token/ngày is saved on Quản trị › Quản lý tài khoản (tests/accounts-admin.test.tsx).
 
   it("saves the default budget, the weights and the output benchmark", async () => {
     const stub = stubPanel();

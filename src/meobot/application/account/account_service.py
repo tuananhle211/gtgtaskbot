@@ -35,6 +35,8 @@ from meobot.application.account.member_code import write_member_code
 from meobot.application.account.password_reset_service import PasswordResetService
 from meobot.application.account.stats_service import AccountStatsService, MemberStats, Month
 from meobot.application.audit_service import AuditService
+from meobot.application.org.departments import head_team
+from meobot.application.org.seats import load_seats
 from meobot.application.units.directory import manager_fits
 from meobot.application.web_auth_service import WebAuthService
 from meobot.core.time import ensure_utc, utcnow
@@ -59,6 +61,7 @@ from meobot.domain.audit.models import AuditAction, AuditResult
 from meobot.domain.identity.labels import role_label
 from meobot.domain.identity.models import Actor, Role
 from meobot.domain.orders.models import ACTIVE_NODE_STATUSES, TERMINAL_STAGES
+from meobot.domain.org.models import Position, Seat
 from meobot.domain.units.labels import unit_role_label
 from meobot.domain.units.member_code import normalise_member_code
 from meobot.domain.units.models import FUNCTION_ROLES, UnitCode, UnitMemberRole, UnitMembership
@@ -89,6 +92,8 @@ class MemberView:
     password_temporary: bool = False
     #: 0047: the picture's URL, ``None`` without one.
     avatar_url: str | None = None
+    #: The person's open seats ("Phòng ban"), in the departments' order.
+    seats: tuple[Seat, ...] = ()
 
 
 @dataclass(frozen=True, slots=True)
@@ -107,16 +112,28 @@ class MemberListing:
 class _Visibility:
     everyone: bool
     units: frozenset[UnitCode]
+    #: A department head's own people (``head_team``), plus themselves.
+    people: frozenset[uuid.UUID] = frozenset()
 
 
-def _visibility(actor: Actor, membership: UnitMembership) -> _Visibility | None:
+async def _visibility(
+    session: AsyncSession, actor: Actor, membership: UnitMembership
+) -> _Visibility | None:
+    """OWNER / ADMIN see everyone; the Trưởng phòng ORD the ORD people; a
+    department head (2026-10-17) the members who report to them."""
     if actor.role in (Role.OWNER, Role.ADMIN):
         return _Visibility(everyone=True, units=frozenset(UnitCode))
     units: set[UnitCode] = set()
     ads = membership.entry(UnitCode.ADS)
     if ads is not None and ads.role is UnitMemberRole.HEAD:
         units.add(UnitCode.ADS)
-    return _Visibility(everyone=False, units=frozenset(units)) if units else None
+    heads = any(seat.position is Position.HEAD for seat in membership.seats)
+    if not units and not heads:
+        return None
+    people: frozenset[uuid.UUID] = frozenset()
+    if heads and actor.user_id is not None:
+        people = await head_team(session, actor.user_id) | {actor.user_id}
+    return _Visibility(everyone=False, units=frozenset(units), people=people)
 
 
 def member_role_label(user: User, units: Iterable[MemberUnit]) -> str:
@@ -213,7 +230,7 @@ class AccountService:
         is not shown the full roster. A viewer with no team gets the full
         roster instead, if they may see it.
         """
-        visibility = _visibility(actor, membership)
+        visibility = await _visibility(self._session, actor, membership)
         mine = await self._team_of(actor, membership)
         team = team and mine is not None
         if visibility is None and not team:
@@ -230,6 +247,7 @@ class AccountService:
             statement = statement.where(User.active.is_(True))
         users = (await self._session.scalars(statement)).all()
         units_by_user = await self._units_of([user.id for user in users])
+        seats_by_user = await load_seats(self._session, [user.id for user in users])
 
         listed: list[tuple[User, tuple[MemberUnit, ...]]] = []
         for user in users:
@@ -242,7 +260,11 @@ class AccountService:
             elif wanted is not None:
                 if wanted not in codes:
                     continue
-            elif visibility is None or (not visibility.everyone and not codes & visibility.units):
+            elif visibility is None or (
+                not visibility.everyone
+                and not codes & visibility.units
+                and user.id not in visibility.people
+            ):
                 continue
             listed.append((user, units))
 
@@ -273,6 +295,7 @@ class AccountService:
                     and ensure_utc(user.locked_until) > now,
                     stats=stats[user.id],
                     avatar_url=avatars.get(user.id),
+                    seats=seats_by_user.get(user.id, ()),
                 )
                 for user, units in listed
             ],

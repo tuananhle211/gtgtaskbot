@@ -982,6 +982,8 @@ describe("173. the confirmation policy has a maintainable regression strategy", 
     const exempt: Record<string, string> = {
       "components/notifications.tsx":
         "Đánh dấu đã đọc chỉ đổi trạng thái đọc của chính người đang đăng nhập, không đổi dữ liệu nghiệp vụ.",
+      "components/account-fields.tsx":
+        "Ba ô sửa một trường của một tài khoản trên bảng thành viên (mã thành viên, trạng thái nhân sự), tách ra từ app/account/page.tsx để dùng chung với Quản trị › Quản lý tài khoản. Mỗi lần lưu chỉ đổi một trường mô tả, không đổi quyền hay dữ liệu nghiệp vụ, và sửa lại được ngay; nút Lưu / ô chọn chính là bước xác nhận (policy parameter-modal).",
       "components/shell.tsx":
         "Chỉ có đăng xuất; kết thúc phiên của chính mình, không đổi dữ liệu nghiệp vụ và đăng nhập lại được ngay.",
       "components/pr-create-content.tsx":

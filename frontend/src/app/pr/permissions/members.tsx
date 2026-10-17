@@ -7,6 +7,7 @@ import type {
   GrantScope,
   Member,
   MemberList,
+  MemberSeat,
   MemberResponsibilities,
 } from "@/lib/api";
 import { api } from "@/lib/api";
@@ -19,7 +20,7 @@ import {
 import { Empty, ErrorBox, Loading, Pill } from "@/components/states";
 import { PrimaryButton, SecondaryButton, Select } from "@/components/pr";
 import { ConfirmButton } from "@/components/confirm";
-import { UnitTags } from "@/components/unit-panel";
+import { DepartmentTags } from "@/components/department-tags";
 import { taggableUnits } from "@/lib/units";
 import {
   changeRoleConfirmation,
@@ -48,20 +49,10 @@ import {
  * owned content, contributed work or approved something is history, and
  * history keeps its people.
  */
-/** The two streams' tags, and who may tag into which, for the roster. */
-function useTeams() {
+/** Whether this person may put an existing account into the PR department. */
+function useMayTagPr() {
   const me = useQuery({ queryKey: ["units", "me"], queryFn: api.unitsMe });
-  // The streams this person may tag in (`can_tag`; `can_admin` on an older API).
-  const admins = taggableUnits(me.data);
-  const directory = useQuery({
-    queryKey: ["units", "directory"],
-    queryFn: api.unitDirectory,
-    enabled: admins.length > 0 || (me.data?.can_admin.length ?? 0) > 0,
-  });
-  const tagsOf = new Map(
-    (directory.data ?? []).map((user) => [user.user_id, user.units]),
-  );
-  return { admins, tagsOf, known: directory.isSuccess };
+  return taggableUnits(me.data).includes("PR");
 }
 
 /** The account roster's status counts, as the server words them. */
@@ -99,9 +90,18 @@ export function usePrRoster() {
       (row) => !inPr.has(row.user_id) && row.status !== "revoked",
     );
   }, [roster.data, stream.data]);
+  // Each PR member's seats ("Phòng ban"): the chips on their card.
+  const seatsOf = useMemo(
+    () =>
+      new Map(
+        (stream.data?.members ?? []).map((member) => [member.user_id, member.departments ?? []]),
+      ),
+    [stream.data],
+  );
   return {
     data,
     outsiders,
+    seatsOf,
     /** Who holds an open PR tag, once known. */
     prIds: stream.data ? new Set(stream.data.members.map((member) => member.user_id)) : null,
     isPending: roster.isPending || stream.isPending,
@@ -113,14 +113,9 @@ export function usePrRoster() {
   };
 }
 
-export function MembersTab({
-  onAddToAds,
-}: {
-  /** Open the "Luồng Order (ORD)" tab with this person in its add-member picker. */
-  onAddToAds?: (userId: string) => void;
-} = {}) {
+export function MembersTab() {
   const roster = usePrRoster();
-  const teams = useTeams();
+  const mayTagPr = useMayTagPr();
   const [search, setSearch] = useState("");
   const [roleFilter, setRoleFilter] = useState("");
   const [statusFilter, setStatusFilter] = useState("");
@@ -175,7 +170,7 @@ export function MembersTab({
         <AddMemberForm
           roster={data}
           outsiders={roster.outsiders}
-          mayTagPr={teams.admins.includes("PR") || Boolean(data.may_tag_pr)}
+          mayTagPr={mayTagPr || Boolean(data.may_tag_pr)}
           onDone={() => setAdding(false)}
         />
       ) : null}
@@ -236,9 +231,7 @@ export function MembersTab({
               key={row.user_id}
               member={row}
               roster={data}
-              units={teams.known ? (teams.tagsOf.get(row.user_id) ?? []) : null}
-              admins={teams.admins}
-              onAddToAds={onAddToAds}
+              seats={roster.seatsOf.get(row.user_id) ?? []}
             />
           ))}
         </ul>
@@ -305,7 +298,7 @@ function AddMemberForm({
         role,
         full_name: fullName.trim() || undefined,
       });
-      // A new account has no stream: put it into PR so it shows on this roster.
+      // A new account sits nowhere: seat it in PR so it shows on this roster.
       if (mayTagPr) {
         await api.tagUnitMember("PR", { user_id: created.user_id, role: "MEMBER" });
       }
@@ -334,7 +327,7 @@ function AddMemberForm({
         <h2 className="text-sm font-semibold">Thêm thành viên</h2>
         <AddModeSwitch mode={mode} onMode={setMode} />
         <label className="block text-sm">
-          Thành viên ngoài luồng PR
+          Tài khoản chưa ở phòng PR
           <Select
             required
             value={existingId}
@@ -352,12 +345,12 @@ function AddMemberForm({
         </label>
         {outsiders.length === 0 ? (
           <p className="text-xs text-[var(--text-muted)]">
-            Mọi tài khoản đều đã ở luồng PR. Người chưa có tài khoản: chọn “Tài khoản mới”.
+            Mọi tài khoản đều đã ở phòng PR. Người chưa có tài khoản: chọn “Tài khoản mới”.
           </p>
         ) : (
           <p className="text-xs text-[var(--text-muted)]">
-            Người được thêm vào phòng PR Thương Hiệu với chức vụ Nhân viên; vai trò hệ thống và các
-            luồng khác của họ giữ nguyên.
+            Người được thêm vào phòng PR với chức vụ Nhân viên và nhận quyền mặc định của phòng; vai
+            trò hệ thống và các phòng khác của họ giữ nguyên.
           </p>
         )}
         {bringIn.isError ? <ErrorBox error={bringIn.error} /> : null}
@@ -366,8 +359,8 @@ function AddMemberForm({
             {bringIn.isPending
               ? "Đang thêm…"
               : picked
-                ? `Thêm ${picked.full_name} vào luồng PR`
-                : "Thêm vào luồng PR"}
+                ? `Thêm ${picked.full_name} vào phòng PR`
+                : "Thêm vào phòng PR"}
           </PrimaryButton>
           <SecondaryButton type="button" onClick={onDone}>
             Thôi
@@ -454,7 +447,7 @@ function AddModeSwitch({
     <div role="radiogroup" aria-label="Cách thêm" className="flex flex-wrap gap-4 text-sm">
       {(
         [
-          ["existing", "Thành viên đã có (ngoài luồng PR)"],
+          ["existing", "Thành viên đã có (chưa ở phòng PR)"],
           ["new", "Tài khoản mới (Telegram ID)"],
         ] as const
       ).map(([value, label]) => (
@@ -484,25 +477,14 @@ function statusTone(status: string): "good" | "warn" | "bad" | "neutral" {
 function MemberCard({
   member,
   roster,
-  units,
-  admins,
-  onAddToAds,
+  seats,
 }: {
   member: Member;
   roster: MemberList;
-  /** The person's stream tags; ``null`` while unknown (not a unit admin). */
-  units: string[] | null;
-  admins: string[];
-  onAddToAds?: (userId: string) => void;
+  /** The person's seats ("Phòng ban"), ★ for a department they head. */
+  seats: MemberSeat[];
 }) {
   const invalidate = useInvalidateMembership();
-  const queryClient = useQueryClient();
-  const joinPr = useMutation({
-    mutationFn: () => api.tagUnitMember("PR", { user_id: member.user_id, role: "MEMBER" }),
-    onSuccess: () => {
-      void queryClient.invalidateQueries({ queryKey: ["units"] });
-    },
-  });
   const [panel, setPanel] = useState<Panel>(null);
   const toggle = (next: Panel) => setPanel((current) => (current === next ? null : next));
 
@@ -527,40 +509,8 @@ function MemberCard({
         <div className="min-w-0">
           <p className="flex flex-wrap items-center gap-2 font-medium">
             <span className="truncate">{member.full_name || "(chưa có tên)"}</span>
-            {units && units.length > 0 ? <UnitTags units={units} /> : null}
-            {units && units.length === 0 ? (
-              <span
-                title="Chưa được gắn luồng nào: chưa thấy task của luồng nào."
-                className="unit-tag bg-[var(--surface-muted)] text-[var(--text-muted)]"
-              >
-                Chưa có luồng
-              </span>
-            ) : null}
+            <DepartmentTags seats={seats} empty={null} />
           </p>
-          {units && live && !isOwner ? (
-            <p className="mt-1.5 flex flex-wrap gap-1.5">
-              {admins.includes("PR") && !units.includes("PR") ? (
-                <ConfirmButton
-                  spec={{
-                    title: `Thêm ${member.full_name} vào Luồng PR?`,
-                    description:
-                      "Người này giữ luồng hiện có và có thêm Luồng PR: thấy task và màn hình của PR.",
-                    confirmLabel: "Thêm vào Luồng PR",
-                  }}
-                  onConfirm={() => joinPr.mutate()}
-                  pending={joinPr.isPending}
-                  error={joinPr.error}
-                >
-                  + Luồng PR
-                </ConfirmButton>
-              ) : null}
-              {admins.includes("ADS") && !units.includes("ADS") && onAddToAds ? (
-                <SecondaryButton type="button" onClick={() => onAddToAds(member.user_id)}>
-                  + Luồng ORD
-                </SecondaryButton>
-              ) : null}
-            </p>
-          ) : null}
           <p className="mt-1 flex flex-wrap gap-1.5">
             <Pill tone="neutral">{member.role_label}</Pill>
             <Pill tone={statusTone(member.status)}>{member.status_label}</Pill>

@@ -79,6 +79,7 @@ from meobot.application.orders.design_library_service import (
 )
 from meobot.application.orders.effort_service import EffortService, ban_stats
 from meobot.application.org import departments
+from meobot.application.org.seats import load_seats
 from meobot.application.resources.access import resource_access
 from meobot.application.units.admin import ROLES_BY_UNIT, UnitAdminService
 from meobot.application.units.directory import NOT_VISIBLE, UnitDirectoryService
@@ -254,6 +255,7 @@ async def my_units(
 async def directory_users(actor: CurrentActorDep, admin: AdminDep) -> list[DirectoryUserResponse]:
     """Every account with its tags, for the "add member" picker."""
     rows = await admin.directory(actor=actor)
+    seats = await load_seats(admin.session, [user.id for user, _ in rows])
     return [
         DirectoryUserResponse(
             user_id=user.id,
@@ -262,6 +264,9 @@ async def directory_users(actor: CurrentActorDep, admin: AdminDep) -> list[Direc
             base_role_label=role_label(user.role),
             active=user.active,
             units=[code.value for code in codes],
+            departments=[
+                DepartmentSeatResponse.from_domain(seat) for seat in seats.get(user.id, ())
+            ],
         )
         for user, codes in rows
     ]
@@ -309,12 +314,17 @@ async def unit_members(
         for row in await directory.members(unit.id, active_only=False)
         if row.membership.left_at is None
     ]
-    avatars = await avatar_urls(session, [row.user.id for row in rows])
+    ids = [row.user.id for row in rows]
+    avatars = await avatar_urls(session, ids)
+    seats = await load_seats(session, ids)
     return UnitMemberListResponse(
         unit=unit_code.value,
         unit_label=unit_label(unit_code),
         unit_short_label=unit_short_label(unit_code),
-        members=[UnitMemberResponse.from_row(row, avatars.get(row.user.id)) for row in rows],
+        members=[
+            UnitMemberResponse.from_row(row, avatars.get(row.user.id), seats.get(row.user.id, ()))
+            for row in rows
+        ],
         assignable_roles=_roles_for(unit_code),
     )
 

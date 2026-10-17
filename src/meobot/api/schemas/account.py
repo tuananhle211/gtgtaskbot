@@ -14,6 +14,7 @@ from meobot.application.account.account_service import MemberView
 from meobot.application.account.stats_service import MemberStats
 from meobot.db.models.user import User
 from meobot.domain.identity.labels import RoleInput, role_label
+from meobot.domain.org.models import POSITION_LABELS, Seat
 from meobot.domain.resources.models import EMPLOYMENT_STATUS_LABELS, EmploymentStatus
 from meobot.domain.units.labels import (
     function_tag,
@@ -250,6 +251,32 @@ class AccountMeResponse(BaseModel):
         )
 
 
+class MemberSeatResponse(BaseModel):
+    """One department a member sits in: the chip on every roster
+    ("<tên phòng>", ★ for its head)."""
+
+    department_id: uuid.UUID
+    code: str
+    name: str
+    function: str
+    position: str
+    position_label: str
+    #: The head this member reports to in the department ("Trưởng quản lý").
+    manager_user_id: uuid.UUID | None = None
+
+    @classmethod
+    def from_domain(cls, seat: Seat) -> MemberSeatResponse:
+        return cls(
+            department_id=seat.department_id,
+            code=seat.code,
+            name=seat.name,
+            function=seat.function.value,
+            position=seat.position.value,
+            position_label=POSITION_LABELS[seat.position],
+            manager_user_id=seat.manager_user_id,
+        )
+
+
 class MemberRowResponse(BaseModel):
     user_id: uuid.UUID
     full_name: str
@@ -279,6 +306,9 @@ class MemberRowResponse(BaseModel):
     #: Additive (0065): the person's employment status ("trạng thái nhân sự").
     employment_status: str = EmploymentStatus.WORKING.value
     employment_status_label: str = EMPLOYMENT_STATUS_LABELS[EmploymentStatus.WORKING]
+    #: Additive (2026-10-17): the person's seats - what the rosters show
+    #: instead of stream tags.
+    departments: list[MemberSeatResponse] = []
 
     @classmethod
     def from_view(cls, view: MemberView) -> MemberRowResponse:
@@ -294,6 +324,7 @@ class MemberRowResponse(BaseModel):
             member_code=view.user.member_code,
             employment_status=view.user.employment_status.value,
             employment_status_label=EMPLOYMENT_STATUS_LABELS[view.user.employment_status],
+            departments=[MemberSeatResponse.from_domain(seat) for seat in view.seats],
             active=bool(view.user.active),
             unit_tags=tags,
             function_tag=None if function is None else function.function_tag,
@@ -333,6 +364,7 @@ __all__ = [
     "MemberCodeResponse",
     "MemberListResponse",
     "MemberRowResponse",
+    "MemberSeatResponse",
     "MemberStatsResponse",
     "PasswordLoginRequest",
     "PasswordLoginResponse",

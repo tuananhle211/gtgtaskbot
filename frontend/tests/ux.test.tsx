@@ -396,9 +396,9 @@ describe("the legal pages are reachable from the panel without crowding it", () 
       .map((link) => link.getAttribute("href"));
     // No "/orders/new": an order is created from the board of its own kind
     // ("+ Tạo order" on /tasks), so the strip lost that entry on purpose.
+    // No "/tasks" for a PR-only person: the order board follows the ORD seat / grant.
     expect(destinations).toEqual([
       "/dashboard",
-      "/tasks",
       "/pr/content",
       "/pr/work",
       "/pr/tasks",

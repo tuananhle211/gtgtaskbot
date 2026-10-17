@@ -8,12 +8,12 @@ import { api, type DesignLibraryLink, type UnitsMe } from "@/lib/api";
 import { effortEnabled } from "@/lib/effort";
 import { adminTabsFor } from "@/components/admin-tabs";
 import { roleLabel } from "@/lib/labels";
-import { unitShortLabel, unitTagClass } from "@/lib/units";
 import { resourceScreens } from "@/lib/resources";
 import { ErrorBox, Loading } from "@/components/states";
 import { NotificationBell } from "@/components/notifications";
 import { ThemeToggle } from "@/components/theme-toggle";
 import { Avatar } from "@/components/avatar";
+import { DepartmentTags } from "@/components/department-tags";
 import { Logo, LogoMark } from "@/components/logo";
 import { LibraryIcon, isLibraryUrl } from "@/components/library-icon";
 
@@ -227,8 +227,10 @@ const LEGAL_LINKS = [
  * shared entries are shown: an account with no stream tag is *not* PR any
  * more, so the PR screens wait until the server says the person is in PR (or
  * sees every stream). The shared screens are always there, so the frame never
- * strands anybody on a blank sidebar. The order boards are one branch
- * ("Bảng order"), whose Design entries follow the `design` flags; the PR
+ * strands anybody on a blank sidebar. The modules follow the person's
+ * permissions (2026-10-17): the order boards are one branch ("Bảng order",
+ * for whoever has an ORD seat or grant), whose Design entries follow the
+ * `design` flags; the PR
  * screens are another ("Phòng PR"); the Design team's "Thư viện" is the last,
  * after everything else.
  *
@@ -246,9 +248,12 @@ export function navFor(me: UnitsMe | undefined, sessionRole?: string): NavEntry[
   const effort = seesOrdEffort(me, sessionRole);
   const library = libraryBranch(me);
   const resources = resourcesBranch(me);
+  // "Bảng order" follows the order module's permissions (an ORD seat or grant
+  // gives the ADS entry), like every other branch; it stays while `me` loads.
+  const orders = !me || seesAll || me.units.some((unit) => unit.code === "ADS");
   return [
     DASHBOARD_NAV,
-    orderBoards(me),
+    ...(orders ? [orderBoards(me)] : []),
     ...(effort ? EFFORT_NAV : []),
     ...(resources ? [resources] : []),
     ...(pr ? [PR_GROUP] : []),
@@ -453,7 +458,6 @@ export function Shell({ children }: { children: React.ReactNode }) {
         other.href.startsWith(`${href}/`) &&
         matches(other.href),
     );
-  const tags = me.data?.units ?? [];
   const linkClass = (active: boolean) =>
     `flex min-h-11 shrink-0 items-center gap-2.5 rounded-lg px-3 text-sm ${collapsed ? "lg:justify-center lg:px-0" : ""} transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--accent)] ${
       active
@@ -582,20 +586,11 @@ export function Shell({ children }: { children: React.ReactNode }) {
         </nav>
         {session.data ? (
           <div className={`mt-auto hidden border-t border-[var(--border)] px-4 py-4 ${collapsed ? "" : "lg:block"}`}>
-            <p className="text-xs text-[var(--text-muted)]">Luồng của bạn</p>
+            <p className="text-xs text-[var(--text-muted)]">Phòng ban của bạn</p>
             <div className="mt-1.5 flex flex-wrap gap-1.5">
-              {me.isSuccess && tags.length === 0 ? (
-                <span className="unit-tag bg-[var(--surface-muted)] text-[var(--text-muted)]">
-                  Chưa có luồng
-                </span>
-              ) : (
-                tags.map((tag) => (
-                  <span key={tag.code} className={`unit-tag ${unitTagClass(tag.code)}`}>
-                    {unitShortLabel(tag.code, tag.short_label)}
-                    {tag.function_tag ? ` · ${tag.function_tag}${tag.is_lead ? "★" : ""}` : ""}
-                  </span>
-                ))
-              )}
+              {me.isSuccess ? (
+                <DepartmentTags seats={me.data.departments ?? []} />
+              ) : null}
             </div>
             {me.data?.units.some((tag) => tag.member_code) ? (
               <p className="mt-2 text-xs text-[var(--text-muted)]">

@@ -113,10 +113,10 @@ async def test_01_only_the_owner_shapes_departments(world: World) -> None:
             refused = call()
             assert refused.status_code == 403, refused.json()
             assert error_reason(refused.json()) == "department_forbidden"
-    # An ADMIN reads it; the others do not.
+    # An ADMIN reads it, and so does a head (test_09); a plain member does not.
     world.act_as(admin)
     assert world.client.get("/api/departments").status_code == 200
-    world.act_as(ads.head)
+    world.act_as(ads.writer)
     assert world.client.get("/api/departments").status_code == 403
     # The starting departments, with the order flow's people already seated.
     listed = {
@@ -329,3 +329,90 @@ async def test_08_grants_are_read_whole_and_written_cell_by_cell(world: World) -
     assert [item["value"] for item in catalog["positions"]] == ["HEAD", "MEMBER"]
     approve = next(item for item in catalog["permissions"] if item["key"] == "ORDER_APPROVE")
     assert approve["scopes"] == ["NONE", "OWN", "ALL"]
+
+
+# --- a head and their own department ---------------------------------------------------
+
+
+async def test_09_a_head_seats_the_members_of_their_own_department(world: World) -> None:
+    """2026-10-17: a department's head reads the department list and their own
+    roster, and adds or removes *members* of their own department - never a
+    head, never another department, never an OWNER / ADMIN account, never
+    themselves. Everything else here stays the OWNER's."""
+    ads = await ads_world(world)
+    tk = department(world, "TK")
+    bt = department(world, "BT")
+    newcomer = await person(world, "Designer mới")
+    admin = await person(world, "Quản trị 2", Role.ADMIN)
+
+    world.act_as(ads.lead_tk)  # Trưởng phòng Design = HEAD of TK
+    client = world.client
+    assert client.get("/api/departments").status_code == 200
+    assert client.get("/api/departments/catalog").status_code == 200
+    assert client.get(f"/api/departments/{tk['id']}/members").status_code == 200
+    assert client.get(f"/api/departments/{tk['id']}/grants").status_code == 200
+    assert client.get(f"/api/departments/{bt['id']}/members").status_code == 403
+    # ...and the account directory, to pick people from outside their roster.
+    directory = client.get("/api/units/directory")
+    assert directory.status_code == 200, directory.text
+    assert any(
+        user["full_name"] == newcomer.full_name and user["departments"] == []
+        for user in directory.json()
+    )
+
+    seated = client.put(f"/api/departments/{tk['id']}/members", json={"user_id": str(newcomer.id)})
+    assert seated.status_code == 200, seated.json()
+    assert seated.json()["position"] == "MEMBER"
+    # ...who reports to them from then on.
+    assert seated.json()["manager_user_id"] == str(ads.lead_tk.id)
+    # Somebody already seated elsewhere is the OWNER's to move (one person in
+    # several departments), and a head's directory offers only the unseated.
+    elsewhere = client.put(
+        f"/api/departments/{tk['id']}/members", json={"user_id": str(ads.writer.id)}
+    )
+    assert elsewhere.status_code == 403 and error_reason(elsewhere.json()) == "department_forbidden"
+    assert all(user["departments"] == [] for user in client.get("/api/units/directory").json())
+    # The seat decides the stream tag, as for the OWNER's own seating.
+    tagged = await tag_of(world, newcomer, UnitCode.ADS)
+    assert tagged is not None and tagged[:2] == ("THIET_KE", False)
+
+    for body, target in (
+        ({"user_id": str(newcomer.id), "position": "HEAD"}, tk),
+        ({"user_id": str(newcomer.id)}, bt),
+        ({"user_id": str(admin.id)}, tk),
+        ({"user_id": str(ads.lead_tk.id), "position": "MEMBER"}, tk),
+    ):
+        refused = client.put(f"/api/departments/{target['id']}/members", json=body)
+        assert refused.status_code == 403, (body, refused.json())
+        assert error_reason(refused.json()) == "department_forbidden"
+    for call in (
+        lambda: client.post("/api/departments", json={"code": "X", "name": "X"}),
+        lambda: client.patch(f"/api/departments/{tk['id']}", json={"name": "Y"}),
+        lambda: client.put(f"/api/departments/{tk['id']}/grants", json={"cells": {"HEAD": {}}}),
+    ):
+        refused = call()
+        assert refused.status_code == 403, refused.json()
+
+    gone = client.delete(f"/api/departments/{tk['id']}/members/{newcomer.id}")
+    assert gone.status_code == 204, gone.text
+    assert await tag_of(world, newcomer, UnitCode.ADS) is None
+    # Their own seat, a head's seat, is not theirs to close.
+    assert client.delete(f"/api/departments/{tk['id']}/members/{ads.lead_tk.id}").status_code == 403
+
+    # The head also lists their own people on the account roster - the members
+    # reporting to them (the designer reports to nobody, and TK has one head) -
+    # with the seats every roster now shows instead of stream tags.
+    listed = client.get("/api/account/members")
+    assert listed.status_code == 200, listed.text
+    rows = {row["full_name"]: row for row in listed.json()["members"]}
+    assert ads.designer.full_name in rows and ads.lead_tk.full_name in rows
+    assert ads.writer.full_name not in rows and ads.head.full_name not in rows
+    assert [
+        (seat["code"], seat["position"]) for seat in rows[ads.lead_tk.full_name]["departments"]
+    ] == [("TK", "HEAD")]
+    assert rows[ads.designer.full_name]["departments"][0]["name"]
+
+    # A plain member reads nothing here.
+    world.act_as(ads.designer)
+    assert world.client.get("/api/departments").status_code == 403
+    assert world.client.get("/api/account/members").status_code == 403

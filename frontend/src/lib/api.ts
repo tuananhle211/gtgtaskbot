@@ -3528,6 +3528,8 @@ export interface UnitMember {
   manager_user_id?: Uuid | null;
   /** ORD: own token budget per working day; null = the unit's `default_daily_tokens`. */
   daily_tokens?: number | null;
+  /** The person's seats ("Phòng ban"). Optional: an older API omits it. */
+  departments?: MemberSeat[];
 }
 
 export interface UnitMemberList {
@@ -3546,6 +3548,8 @@ export interface DirectoryUser {
   base_role_label: string;
   active: boolean;
   units: string[];
+  /** The person's seats ("Phòng ban"). Optional: an older API omits it. */
+  departments?: MemberSeat[];
 }
 
 // --- Departments ("Phòng ban") ------------------------------------------------
@@ -4590,7 +4594,21 @@ export interface MemberRow {
   locked: boolean;
   /** The profile picture's URL, or null for initials. Optional: older APIs omit it. */
   avatar_url?: string | null;
+  /** The person's seats ("Phòng ban"), what rosters show instead of stream tags. Optional. */
+  departments?: MemberSeat[];
   stats: MemberStats;
+}
+
+/** One seat on a roster row: the department chip, ★ for its head. */
+export interface MemberSeat {
+  department_id: Uuid;
+  code: string;
+  name: string;
+  function?: DepartmentFunction | string;
+  position: DepartmentPosition | string;
+  position_label?: string;
+  /** The head this member reports to in the department. Optional. */
+  manager_user_id?: Uuid | null;
 }
 
 export interface AccountMembers {
@@ -4701,6 +4719,12 @@ export const api = {
       })}`,
     ),
   /** OWNER / ADMIN. 204; 403 `account_status_forbidden` for self or an OWNER. */
+  /**
+   * *Đổi vai trò hệ thống* of any account (OWNER only, 403
+   * `role_change_forbidden`): `POST /api/account/members/{id}/role`.
+   */
+  setAccountRole: (userId: Uuid, role: string) =>
+    post<void>(`/api/account/members/${userId}/role`, { role }),
   deactivateAccount: (userId: Uuid) =>
     post<void>(`/api/account/members/${userId}/deactivate`),
   reactivateAccount: (userId: Uuid) =>
