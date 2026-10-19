@@ -47,13 +47,9 @@ async def test_02_the_pr_board_shows_content_on_the_five_phases(world: World) ->
     assert row["code"] == item.code and row["unit"] == "PR"
     assert row["phase"] == "ORDER" and row["phase_label"] == "Order"
     assert row["status"] == "IDEA" and row["status_label"] == "Ý tưởng"
-    assert [cell["key"] for cell in row["cells"]] == [
-        "ORDER",
-        "REVIEW",
-        "PRODUCTION",
-        "FINAL_REVIEW",
-        "DONE",
-    ]
+    # 2026-10-19: three phase columns, no review columns - a review folds
+    # into the phase it reviews.
+    assert [cell["key"] for cell in row["cells"]] == ["ORDER", "PRODUCTION", "DONE"]
     assert row["cells"][0]["is_current"] is True and row["cells"][0]["person_name"]
     assert row["detail_path"] == f"/tasks/{item.code}"
     assert [phase["value"] for phase in page["phases"]] == [
@@ -362,8 +358,22 @@ async def test_10_a_pr_review_names_the_granted_reviewer(world: World) -> None:
     assert named["current_person_name"] == world.lead.full_name
     assert named["current_person_user_id"] == str(world.lead.id)
     assert named["status_label"] == f"Chờ {world.lead.full_name} duyệt"
+    # 2026-10-19: the review is drawn in the phase's own column.
     cells = {cell["key"]: cell for cell in named["cells"]}
-    assert cells["REVIEW"]["person_name"] == world.lead.full_name
+    assert cells["ORDER"]["is_current"] and cells["ORDER"]["person_name"] == world.lead.full_name
+    assert cells["ORDER"]["status_label"] == f"Chờ {world.lead.full_name} duyệt"
+    assert cells["PRODUCTION"]["status_label"] == "Chưa tới"
+    # The OWNER may decide the gate too, but sits in no PR department: the
+    # task is the department's, so only the lead is named (2026-10-19).
+    await world.grant(
+        world.owner,
+        PrCapability.PR_TEAM_LEAD_REVIEW,
+        GrantScope(
+            content_type_scope=PrGrantScopeMode.ALL,
+            channel_scope=PrGrantScopeMode.ALL,
+        ),
+    )
+    assert row()["current_person_name"] == world.lead.full_name
 
 
 async def test_11_the_ads_pha_filter_has_four_steps(world: World) -> None:
@@ -424,8 +434,11 @@ async def test_10b_an_approved_pr_piece_names_who_hands_out_production(world: Wo
     world.act_as(world.owner)
     row = next(r for r in tasks(world, unit="PR")["items"] if r["code"] == item.code)
     assert row["status_label"].endswith(" giao sản xuất")
-    assert world.owner.full_name in row["current_person_name"]
     assert row["current_person_name"] != "Chờ giao"
+    # 2026-10-19: only people tagged in PR are named. The OWNER may still
+    # hand it out, but sits in no PR department.
+    assert world.lead.full_name in row["current_person_name"]
+    assert world.owner.full_name not in row["current_person_name"]
 
 
 async def test_09c_two_people_on_a_step_both_hold_it_and_one_decision_is_enough(

@@ -633,6 +633,84 @@ describe("a click on a row", () => {
   });
 });
 
+// --- 3b. The Trưởng phòng PR's checkboxes and "Duyệt task" --------------------------
+
+const PR_HEAD = {
+  ...ME_AS("MEMBER", undefined, "PR"),
+  departments: [
+    { department_id: "d-pr", code: "PR", name: "PR Thương Hiệu", function: "PR", position: "HEAD" },
+  ],
+};
+const prRow = (n: number, status: string): TaskRow => ({
+  ...ROW,
+  unit: "PR",
+  id: `c-${n}`,
+  code: `PR-000${n}`,
+  detail_path: `/tasks/PR-000${n}`,
+  status,
+  design: null,
+});
+const APPROVED = {
+  batch_id: "b-1",
+  gate: "TEAM_LEAD_REVIEW",
+  approved_count: 2,
+  approved: [],
+  requested_count: 2,
+  duplicates_removed: 0,
+};
+
+describe("the Trưởng phòng PR ticks rows and approves them together", () => {
+  it("draws a checkbox on every PR row for a PR head, and none for a member", async () => {
+    tasksPage(PR_HEAD, [prRow(1, "TEAM_LEAD_REVIEW"), prRow(2, "IDEA")]);
+    await screen.findByRole("link", { name: "PR-0001" });
+    expect(screen.getByRole("checkbox", { name: "Chọn PR-0001" })).toBeInTheDocument();
+    expect(screen.getByRole("checkbox", { name: "Chọn PR-0002" })).toBeInTheDocument();
+    expect(screen.getByRole("checkbox", { name: "Chọn tất cả trên trang" })).toBeInTheDocument();
+    expect(screen.queryByRole("region", { name: "Thao tác hàng loạt" })).not.toBeInTheDocument();
+  });
+
+  it("offers no checkbox to an ordinary PR member", async () => {
+    tasksPage(ME_AS("MEMBER", undefined, "PR"), [prRow(1, "TEAM_LEAD_REVIEW")]);
+    await screen.findByRole("link", { name: "PR-0001" });
+    expect(screen.queryByRole("checkbox")).not.toBeInTheDocument();
+  });
+
+  it("approves the ticked rows at a review gate, one request per gate, and skips the rest", async () => {
+    const stub = tasksPage(
+      PR_HEAD,
+      [prRow(1, "TEAM_LEAD_REVIEW"), prRow(2, "IDEA"), prRow(3, "TEAM_LEAD_REVIEW")],
+      [{ match: "/api/pr/reviews/bulk-approve", method: "POST", body: APPROVED }],
+    );
+    await screen.findByRole("link", { name: "PR-0001" });
+    await userEvent.click(screen.getByRole("checkbox", { name: "Chọn tất cả trên trang" }));
+    const bar = screen.getByRole("region", { name: "Thao tác hàng loạt" });
+    expect(bar).toHaveTextContent("Đã chọn 3 task");
+    expect(bar).toHaveTextContent("2 đang chờ duyệt");
+    // Ticking never opened a task.
+    expect(PUSHED).toEqual([]);
+    await userEvent.click(within(bar).getByRole("button", { name: "Duyệt 2 task" }));
+    expect(screen.getByRole("dialog")).toHaveTextContent("1 task đã chọn chưa ở bước duyệt sẽ được bỏ qua");
+    await confirm();
+    await waitFor(() => expect(screen.getByRole("status")).toHaveTextContent("Đã duyệt 2 task."));
+    const sent = calls(stub).filter((call) => call.url.includes("/api/pr/reviews/bulk-approve"));
+    expect(sent).toHaveLength(1);
+    expect(sent[0].body).toEqual({ gate: "TEAM_LEAD_REVIEW", content_ids: ["c-1", "c-3"] });
+    // The selection is gone with the batch.
+    expect(screen.queryByRole("region", { name: "Thao tác hàng loạt" })).not.toBeInTheDocument();
+  });
+
+  it("cannot press Duyệt when nothing ticked is at a gate, and Bỏ chọn clears", async () => {
+    tasksPage(PR_HEAD, [prRow(1, "IDEA")]);
+    await screen.findByRole("link", { name: "PR-0001" });
+    await userEvent.click(screen.getByRole("checkbox", { name: "Chọn PR-0001" }));
+    const bar = screen.getByRole("region", { name: "Thao tác hàng loạt" });
+    expect(within(bar).getByRole("button", { name: "Duyệt 0 task" })).toBeDisabled();
+    await userEvent.click(within(bar).getByRole("button", { name: "Bỏ chọn" }));
+    expect(screen.queryByRole("region", { name: "Thao tác hàng loạt" })).not.toBeInTheDocument();
+    expect(screen.getByRole("checkbox", { name: "Chọn PR-0001" })).not.toBeChecked();
+  });
+});
+
 // --- 4. The page size ---------------------------------------------------------------
 
 describe("the page size", () => {

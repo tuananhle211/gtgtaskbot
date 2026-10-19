@@ -140,13 +140,7 @@ async def test_04_the_pr_page_by_code_task_id_and_content_id(world: World) -> No
     assert summary["stage_label"] == "Ý tưởng" and summary["kind_label"] == "Kịch bản video ngắn"
     assert summary["source"] == {"type": "PR_CONTENT", "id": str(content_id)}
     assert summary["version"] == 1 and summary["owner"]["name"] == world.owner.full_name
-    assert [step["key"] for step in body["steps"]] == [
-        "ORDER",
-        "REVIEW",
-        "PRODUCTION",
-        "FINAL_REVIEW",
-        "DONE",
-    ]
+    assert [step["key"] for step in body["steps"]] == ["ORDER", "PRODUCTION", "DONE"]
     groups = {item["key"]: item["group"] for item in body["fields"]}
     assert groups["content"] == "common" and groups["brand"] == "pr"
     assert not any(group == "ads" for group in groups.values())

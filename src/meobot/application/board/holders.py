@@ -34,7 +34,7 @@ from meobot.application.units.directory import (
     UnitMemberRow,
     manager_fits,
 )
-from meobot.db.models.org_unit import OrgUnit
+from meobot.db.models.org_unit import OrgUnit, OrgUnitMember
 from meobot.db.models.pr import PrContentItem, PrContentTarget
 from meobot.db.models.user import User
 from meobot.domain.identity.models import Actor, Role
@@ -366,6 +366,22 @@ async def ads_approvers(session: AsyncSession, unit_id: uuid.UUID) -> AdsApprove
 # --- PR ----------------------------------------------------------------------------
 
 
+async def pr_member_ids(session: AsyncSession) -> set[uuid.UUID]:
+    """Everybody with an open tag in the PR stream (a seat in a PR department).
+
+    The people a PR task is said to wait on come from here (2026-10-19): an
+    OWNER or ADMIN may still decide any gate or hand a piece out, but they
+    are never *named* as its holder unless they sit in PR themselves - the
+    task belongs to the department.
+    """
+    found = await session.execute(
+        select(OrgUnitMember.user_id)
+        .join(OrgUnit, OrgUnit.id == OrgUnitMember.unit_id)
+        .where(OrgUnit.code == UnitCode.PR, OrgUnitMember.left_at.is_(None))
+    )
+    return {user_id for (user_id,) in found.all()}
+
+
 async def pr_reviewers(
     session: AsyncSession, items: Iterable[PrContentItem]
 ) -> dict[uuid.UUID, People]:
@@ -373,10 +389,12 @@ async def pr_reviewers(
 
     Keyed by item id, for items at a gate only; empty = nobody holds a grant
     that reaches it. Grants are read once per gate, targets once for the page.
+    Only people tagged in PR are named (:func:`pr_member_ids`).
     """
     at_gate = [item for item in items if item.workflow_stage in STAGE_APPROVAL_GATES]
     if not at_gate:
         return {}
+    members = await pr_member_ids(session)
     capabilities = PrCapabilityService(session, AuditService(session))
     grants = {
         stage: await capabilities.users_with(APPROVAL_CAPABILITIES[gate])
@@ -410,7 +428,7 @@ async def pr_reviewers(
         seen: set[uuid.UUID] = set()
         for grant in grants.get(item.workflow_stage, ()):
             user = users.get(grant.user_id)
-            if user is None or user.id in seen:
+            if user is None or user.id in seen or user.id not in members:
                 continue
             # 0066: a legacy ``requires_role_baseline`` grant asks whether the
             # holder holds the gate through the unified layers.
@@ -432,19 +450,22 @@ async def pr_production_assigners(session: AsyncSession) -> People:
     """Everybody in PR who may hand an approved piece to a producer.
 
     Asked of the capability service itself, person by person, so the answer
-    is exactly who the assign write would accept. Users outside PR (Ads only)
-    are left out even when their base role would allow it.
+    is exactly who the assign write would accept. Only people tagged in PR
+    (:func:`pr_member_ids`): an OWNER / ADMIN outside the department may
+    still hand it out, but is not named.
     """
     capabilities = PrCapabilityService(session, AuditService(session))
-    directory = UnitDirectoryService(session)
+    members = await pr_member_ids(session)
     users = (
-        await session.scalars(select(User).where(User.active.is_(True)).order_by(User.full_name))
+        await session.scalars(
+            select(User)
+            .where(User.id.in_(list(members)), User.active.is_(True))
+            .order_by(User.full_name)
+        )
     ).all()
     able: list[Person] = []
     for user in users:
         actor = Actor(user_id=user.id, full_name=user.full_name, role=user.role)
-        if not (await directory.membership_for(actor)).has(UnitCode.PR):
-            continue
         if await capabilities.allows(actor, PrCapability.PR_PRODUCTION_ASSIGN):
             able.append(Person(user.id, user.full_name))
     return tuple(able)
@@ -461,6 +482,7 @@ __all__ = [
     "ads_approvers",
     "format_names",
     "held_by",
+    "pr_member_ids",
     "pr_production_assigners",
     "pr_reviewers",
     "waiting_for",

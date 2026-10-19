@@ -423,19 +423,21 @@ class PrBoardSource:
             local = ensure_utc(item.planned_publish_at).astimezone(self._settings.timezone)
             extras.append(("Lịch đăng", local.strftime("%d/%m")))
 
-        def cell(key: str, phase_of_cell: Phase, person: str | None, label: str) -> TaskCell:
-            reached = _phase_index(phase) >= _phase_index(phase_of_cell)
+        def cell(key: str, phases: tuple[Phase, ...], person: str | None, label: str) -> TaskCell:
+            """One column over one or more phases (2026-10-19: the two review
+            phases fold into the phase they review - a script review is still
+            the order's column, an internal review the production's - so the
+            PR row shows three phase columns and no review columns)."""
+            first = phases[0]
+            current = phase in phases
+            reached = _phase_index(phase) >= _phase_index(first)
             return TaskCell(
                 key=key,
-                label=PHASE_LABELS[phase_of_cell],
+                label=PHASE_LABELS[first],
                 person_name=person,
-                status="DONE"
-                if reached and phase is not phase_of_cell
-                else ("CURRENT" if phase is phase_of_cell else "PENDING"),
-                status_label=label
-                if phase is phase_of_cell
-                else ("Xong" if reached else "Chưa tới"),
-                is_current=phase is phase_of_cell,
+                status="DONE" if reached and not current else ("CURRENT" if current else "PENDING"),
+                status_label=label if current else ("Xong" if reached else "Chưa tới"),
+                is_current=current,
             )
 
         owner_person = Person(item.owner_user_id, owner)
@@ -472,21 +474,19 @@ class PrBoardSource:
             holder = Holder((owner_person,))
         reviewer_name = holder.name if stage in STAGE_APPROVAL_GATES else None
         cells = (
-            cell("ORDER", Phase.ORDER, owner, status_label),
             cell(
-                "REVIEW",
-                Phase.REVIEW,
-                reviewer_name if phase is Phase.REVIEW else None,
+                "ORDER",
+                (Phase.ORDER, Phase.REVIEW),
+                reviewer_name if phase is Phase.REVIEW else owner,
                 status_label,
             ),
-            cell("PRODUCTION", Phase.PRODUCTION, producer, status_label),
             cell(
-                "FINAL_REVIEW",
-                Phase.FINAL_REVIEW,
+                "PRODUCTION",
+                (Phase.PRODUCTION, Phase.FINAL_REVIEW),
                 reviewer_name if phase is Phase.FINAL_REVIEW else producer,
                 status_label,
             ),
-            cell("DONE", Phase.DONE, None, status_label),
+            cell("DONE", (Phase.DONE,), None, status_label),
         )
         return TaskRow(
             unit=UnitCode.PR,

@@ -36,6 +36,7 @@ import {
   designTeam,
 } from "@/components/design-cells";
 import { RowActions } from "@/components/task-actions";
+import { TaskBulkBar } from "@/components/task-bulk-bar";
 import {
   NO_ROW_NAV,
   Pager,
@@ -69,6 +70,9 @@ export default function TasksPage() {
     </Suspense>
   );
 }
+
+/** The PR stages that are review gates: "Duyệt task" applies to rows there. */
+const PR_GATES = new Set(["TEAM_LEAD_REVIEW", "HEAD_REVIEW", "INTERNAL_REVIEW"]);
 
 const QUICK = [
   ["mine", "Task của tôi"],
@@ -135,6 +139,49 @@ function TaskBoard() {
   const size = pageSizeOf(params.get("size"));
   const sort = parseSort(params.get("sort"));
   const dense = read("view") === "compact";
+  /**
+   * The Trưởng phòng PR's ticked rows (2026-10-19), by content id. Held
+   * against the URL: any change of unit, filter, page or sort is a different
+   * set to choose from, so the selection goes with it - reconciled during
+   * render like the PR board's bulk selection.
+   */
+  const [selected, setSelected] = useState<ReadonlySet<string>>(new Set());
+  const selectionContext = params.toString();
+  const [selectionFor, setSelectionFor] = useState(selectionContext);
+  if (selectionFor !== selectionContext) {
+    setSelectionFor(selectionContext);
+    if (selected.size > 0) setSelected(new Set());
+  }
+  const [bulkNotice, setBulkNotice] = useState<string | null>(null);
+  const bulkApprove = useMutation({
+    /**
+     * "Duyệt task" for every ticked row that stands at a review gate: one
+     * PR bulk-approve request per gate (the server refuses a batch that
+     * mixes two), rows elsewhere skipped. The server still checks each
+     * item against the viewer's own grants.
+     */
+    mutationFn: async (rows: TaskRow[]) => {
+      const byGate = new Map<string, string[]>();
+      for (const row of rows) {
+        if (!PR_GATES.has(row.status)) continue;
+        byGate.set(row.status, [...(byGate.get(row.status) ?? []), row.id]);
+      }
+      let approved = 0;
+      for (const [gate, ids] of byGate) {
+        const result = await api.bulkApprove({ gate, content_ids: ids });
+        approved += result.approved_count;
+      }
+      return approved;
+    },
+    onMutate: () => setBulkNotice(null),
+    onSuccess: (approved) => {
+      setBulkNotice(`Đã duyệt ${approved} task.`);
+      setSelected(new Set());
+      void queryClient.invalidateQueries({ queryKey: ["board"] });
+      void queryClient.invalidateQueries({ queryKey: ["counts"] });
+      void queryClient.invalidateQueries({ queryKey: ["dashboard"] });
+    },
+  });
   // The Design ban's own table, on ORD only (never PR or the merged view).
   const designView = unit === "ADS" && Boolean(me.data?.design?.view);
   // The filters the Design ban does not have: read as empty for them.
@@ -241,6 +288,17 @@ function TaskBoard() {
   const entry = unitEntry(me.data, "ADS");
   const decides =
     unit === "ADS" && (me.data.can_view_all || entry?.role === "HEAD");
+  /**
+   * The Trưởng phòng PR (a HEAD seat in a PR department) - or the OWNER /
+   * ADMIN - gets a checkbox on every row of the PR table and the bulk bar
+   * (2026-10-19). PR only: the merged view and ORD have no bulk actions yet.
+   */
+  const selecting =
+    unit === "PR" &&
+    (me.data.can_view_all ||
+      (me.data.departments ?? []).some(
+        (seat) => seat.function === "PR" && seat.position === "HEAD",
+      ));
   const unitLabel =
     unit === "ALL"
       ? "Cả hai luồng"
@@ -290,6 +348,17 @@ function TaskBoard() {
         }),
   };
   const rows = sortRows(board.data?.items ?? [], sort, sortValues);
+  const selectedRows = rows.filter((row) => selected.has(row.id));
+  const allOnPage = rows.length > 0 && rows.every((row) => selected.has(row.id));
+  const toggleRow = (id: string) =>
+    setSelected((current) => {
+      const next = new Set(current);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  const togglePage = () =>
+    setSelected(allOnPage ? new Set() : new Set(rows.map((row) => row.id)));
   // Keeps the page: sorting rearranges the rows on screen, nothing is refetched.
   const onSort = (key: string) =>
     setParams({ sort: nextSort(sort, key), page: read("page") });
@@ -572,6 +641,17 @@ function TaskBoard() {
             <table className="table-dense min-w-[78rem]">
               <thead>
                 <tr>
+                  {selecting ? (
+                    <th scope="col" className="w-8">
+                      <input
+                        type="checkbox"
+                        aria-label="Chọn tất cả trên trang"
+                        checked={allOnPage}
+                        onChange={togglePage}
+                        className="size-4 accent-[var(--accent)]"
+                      />
+                    </th>
+                  ) : null}
                   <SortHeader sortKey="order" sort={sort} onSort={onSort}>
                     Order
                   </SortHeader>
@@ -635,6 +715,11 @@ function TaskBoard() {
                     showTokens={showTokens}
                     design={designView}
                     onChanged={refreshBoard}
+                    selectable={
+                      selecting
+                        ? { checked: selected.has(row.id), onToggle: () => toggleRow(row.id) }
+                        : undefined
+                    }
                   />
                 ))}
               </tbody>
@@ -651,6 +736,25 @@ function TaskBoard() {
             onPage={(next) => setParams({ page: next === 1 ? "" : String(next) })}
           />
         </section>
+      ) : null}
+
+      {bulkNotice ? (
+        <p
+          role="status"
+          className="rounded-lg border border-[var(--border)] bg-[var(--surface-muted)] p-3 text-sm"
+        >
+          {bulkNotice}
+        </p>
+      ) : null}
+      {selecting && selectedRows.length > 0 ? (
+        <TaskBulkBar
+          count={selectedRows.length}
+          approvable={selectedRows.filter((row) => PR_GATES.has(row.status)).length}
+          pending={bulkApprove.isPending}
+          error={bulkApprove.error}
+          onApprove={() => bulkApprove.mutate(selectedRows)}
+          onClear={() => setSelected(new Set())}
+        />
       ) : null}
 
       <p className="flex flex-wrap items-center gap-2 text-xs text-[var(--text-muted)]">
@@ -735,6 +839,7 @@ function TaskTableRow({
   showTokens,
   design = false,
   onChanged,
+  selectable,
 }: {
   row: TaskRow;
   showUnit: boolean;
@@ -752,6 +857,8 @@ function TaskTableRow({
    */
   design?: boolean;
   onChanged: () => void;
+  /** The Trưởng phòng PR's checkbox on this row (2026-10-19). */
+  selectable?: { checked: boolean; onToggle: () => void };
 }) {
   const rowNavigation = useRowNavigation();
   const decide = useMutation({
@@ -774,6 +881,18 @@ function TaskTableRow({
       onClick={opens.onClick}
       className={`${opens.className}${row.is_priority ? " is-priority" : ""}`}
     >
+      {selectable ? (
+        // A click here ticks the row and never opens the task.
+        <td {...NO_ROW_NAV} className="w-8 align-top">
+          <input
+            type="checkbox"
+            aria-label={`Chọn ${row.code}`}
+            checked={selectable.checked}
+            onChange={selectable.onToggle}
+            className="mt-1 size-4 accent-[var(--accent)]"
+          />
+        </td>
+      ) : null}
       <td className="whitespace-nowrap">
         <div className="flex items-center gap-1.5">
           {showUnit ? (
