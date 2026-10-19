@@ -10,6 +10,16 @@ người bị bỏ qua). Tất cả là **cùng một ID Facebook ghi hai lần 
 không biết đó là một tài nguyên ghi lặp hay hai tài nguyên ghi nhầm ID, nên cần người quyết:
 giữ một dòng và xoá dòng kia (hoặc sửa ID) rồi tải lại.
 
+**Cập nhật 19/10/2026 - khớp người giữ theo Mã NV.** Cột "Mã NV" của file là mã thành viên của
+tài khoản; cột tên không còn dùng để khớp. Chạy lại trên local:
+
+- Chủ sở hữu / Quản trị viên nhập, bật "tự tạo tài khoản": 371 dòng hợp lệ, 17 lỗi ID trùng (bảng
+  dưới), 51 tài khoản mới sẽ được tạo theo mã trong file (M062HUY, M061HOANG, M011HUY…).
+- Người khác nhập: 387 dòng lỗi "Mã NV không khớp mã thành viên nào", vì tài khoản trên hệ thống
+  chưa có các mã này. Trước khi nhập thật, Chủ sở hữu phải gán mã thành viên cho các tài khoản
+  đang có đúng theo Mã NV của file, nếu không import sẽ tạo tài khoản trùng người.
+- 167 dòng "Ai đang giữ mã 2 lớp" không khớp tên nhân viên nào: để trống, chỉ cảnh báo.
+
 | Tab | Dòng | Mã | Loại | Tên | Lỗi |
 |---|---|---|---|---|---|
 | ADS | 241 | ADS-236 | TKQC | TKQC | ID '625945281966205' trùng với tab ADS dòng 240. |

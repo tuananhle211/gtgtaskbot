@@ -128,8 +128,8 @@ class DeliveryAlertService:
         message.failure_alert_sent = True
         message.failure_alert_at = moment
 
-        destination = await self._alert_destination(message)
-        if destination is None:
+        destinations = await self._alert_destinations(message)
+        if not destinations:
             logger.info(
                 "delivery_alert_no_recipient",
                 extra={"outbound_message_id": str(message.id)},
@@ -146,16 +146,17 @@ class DeliveryAlertService:
                         "destination_label": message.destination_label or UNKNOWN_DESTINATION,
                         "reason_label": reason_label(message.last_error_category),
                     },
-                    idempotency_key=delivery_failure_key(message.id),
+                    idempotency_key=_per_recipient(delivery_failure_key(message.id), i, chat),
                     aggregate_type="outbound_message",
                     aggregate_id=message.id,
-                    private_chat_id=destination,
+                    private_chat_id=chat,
                     source_chat_id=message.source_chat_id,
                     created_by_user_id=message.created_by_user_id,
                     destination_label="Chat riêng",
                     business_summary="Báo tin chưa gửi được",
                     is_alert=True,
                 )
+                for i, chat in enumerate(destinations)
             ]
         )
         queued = result.queued or result.duplicates
@@ -175,8 +176,8 @@ class DeliveryAlertService:
         if message.is_alert or not message.failure_alert_sent:
             return None
 
-        destination = await self._alert_destination(message)
-        if destination is None:
+        destinations = await self._alert_destinations(message)
+        if not destinations:
             return None
 
         result = await NotificationRouter(self._session, self._settings).route(
@@ -188,36 +189,36 @@ class DeliveryAlertService:
                         "business_summary": message.business_summary or UNKNOWN_SUMMARY,
                         "destination_label": message.destination_label or UNKNOWN_DESTINATION,
                     },
-                    idempotency_key=delivery_recovery_key(message.id),
+                    idempotency_key=_per_recipient(delivery_recovery_key(message.id), i, chat),
                     aggregate_type="outbound_message",
                     aggregate_id=message.id,
-                    private_chat_id=destination,
+                    private_chat_id=chat,
                     source_chat_id=message.source_chat_id,
                     created_by_user_id=message.created_by_user_id,
                     destination_label="Chat riêng",
                     business_summary="Báo tin đã gửi được",
                     is_alert=True,
                 )
+                for i, chat in enumerate(destinations)
             ]
         )
         queued = result.queued or result.duplicates
         return queued[0] if queued else None
 
-    async def _alert_destination(self, message: OutboundMessage) -> int | None:
+    async def _alert_destinations(self, message: OutboundMessage) -> list[int]:
         """Where to send an alert about ``message``.
 
         The person who caused the message, if MeoBot can reach them privately;
-        otherwise the configured owner, who is the one who can fix a broken
-        destination. Never the group that failed - it is the thing that is
-        broken.
+        otherwise the Trưởng phòng PR (the bot's group features serve the PR
+        team), else the configured owner. Never the group that failed - it is
+        the thing that is broken.
         """
         resolver = RecipientResolver(self._session, self._settings)
         if message.created_by_user_id is not None:
             initiator = await resolver.private_destination(user_id=message.created_by_user_id)
-            if initiator.is_resolved:
-                return initiator.telegram_chat_id
-        owner = await resolver.owner()
-        return owner.telegram_chat_id if owner.is_resolved else None
+            if initiator.is_resolved and initiator.telegram_chat_id is not None:
+                return [initiator.telegram_chat_id]
+        return await resolver.system_alert_recipients()
 
     async def pending_failures(self, *, limit: int = 50) -> Sequence[OutboundMessage]:
         """Terminally failed messages nobody has been told about yet.
@@ -240,3 +241,8 @@ class DeliveryAlertService:
 
     async def by_id(self, message_id: uuid.UUID) -> OutboundMessage | None:
         return await self._session.get(OutboundMessage, message_id)
+
+
+def _per_recipient(key: str, index: int, chat_id: int) -> str:
+    """The first recipient keeps the plain key (as before); others get their own."""
+    return key if index == 0 else f"{key}:{chat_id}"

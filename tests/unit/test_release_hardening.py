@@ -1044,3 +1044,52 @@ async def test_a_refused_route_writes_no_row(session, settings: Settings) -> Non
     assert not result.any_queued
     assert result.refusals
     assert (await session.execute(select(OutboundMessage))).scalars().all() == []
+
+
+# --- The bot's own alerts go to the head of PR -----------------------------
+class TestAlertsReachThePrHead:
+    """The group / delivery features serve the PR team: their alerts go to the
+    Trưởng phòng PR (every head of a PR department), the owner only when PR has
+    no reachable head."""
+
+    async def test_an_alert_with_no_initiator_goes_to_every_pr_head(
+        self,
+        session,  # type: ignore[no-untyped-def]
+        settings: Settings,
+    ) -> None:
+        from meobot.application.recipient_resolver import RecipientResolver
+        from tests.unit.streams import tag_pr
+
+        head = await make_user(session, role=Role.TEAM_LEAD, telegram_id=920_101, name="An")
+        second = await make_user(session, role=Role.TEAM_LEAD, telegram_id=920_102, name="Bình")
+        member = await make_user(session, telegram_id=920_103, name="Chi")
+        unreachable = await make_user(
+            session, role=Role.TEAM_LEAD, telegram_id=920_104, name="Dung", private=False
+        )
+        await tag_pr(session, [head, second, member, unreachable])
+        await session.flush()
+        resolver = RecipientResolver(session, settings)
+        assert await resolver.system_alert_recipients() == [920_101, 920_102]
+
+        row = await queue_one(session, settings, key="fail:pr-head")
+        outbox = OutboxService(session, settings)
+        await outbox.claim_batch()
+        await outbox.mark_failed(row, category=FailureCategory.BOT_CANNOT_SEND)
+        await DeliveryAlertService(session, settings).alert_permanent_failure(row)
+        alerted = sorted(
+            item.telegram_chat_id
+            for item in (await session.execute(select(OutboundMessage))).scalars().all()
+            if item.is_alert
+        )
+        assert alerted == [920_101, 920_102]
+
+    async def test_without_a_pr_head_the_owner_is_told(
+        self,
+        session,  # type: ignore[no-untyped-def]
+        settings: Settings,
+    ) -> None:
+        from meobot.application.recipient_resolver import RecipientResolver
+
+        owner = await RecipientResolver(session, settings).owner()
+        expected = [owner.telegram_chat_id] if owner.is_resolved else []
+        assert await RecipientResolver(session, settings).system_alert_recipients() == expected

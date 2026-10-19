@@ -40,6 +40,7 @@ from meobot.application.chat_registry_service import (
 )
 from meobot.core.config import Settings
 from meobot.core.logging import get_logger
+from meobot.db.models.department import Department, DepartmentMember
 from meobot.db.models.notifications import TelegramChat
 from meobot.db.models.user import User
 from meobot.domain.access.models import UserStatus
@@ -49,6 +50,7 @@ from meobot.domain.identity.models import Actor
 from meobot.domain.member.normalization import strip_accents
 from meobot.domain.notifications.models import ChatPurpose, DestinationHealth
 from meobot.domain.notifications.naming import GROUP_WORDS
+from meobot.domain.org.models import DepartmentFunction, Position
 
 logger = get_logger(__name__)
 
@@ -598,6 +600,47 @@ class RecipientResolver:
             # not from a message, so it is authoritative.
             return PrivateResolution(telegram_chat_id=owner_telegram_id, available=True)
         return await self.private_destination(user_id=user.id)
+
+    async def pr_heads(self) -> list[PrivateResolution]:
+        """Every active head of a PR department (Trưởng phòng PR) that can be
+        reached privately, by name."""
+        users = (
+            await self._session.scalars(
+                select(User)
+                .join(DepartmentMember, DepartmentMember.user_id == User.id)
+                .join(Department, Department.id == DepartmentMember.department_id)
+                .where(
+                    Department.function == DepartmentFunction.PR,
+                    Department.active.is_(True),
+                    DepartmentMember.position == Position.HEAD,
+                    DepartmentMember.left_at.is_(None),
+                    User.status == UserStatus.ACTIVE,
+                    User.deleted_at.is_(None),
+                )
+                .order_by(User.full_name)
+                .distinct()
+            )
+        ).all()
+        found: list[PrivateResolution] = []
+        for user in users:
+            resolved = await self.private_destination(user_id=user.id)
+            if resolved.is_resolved:
+                found.append(resolved)
+        return found
+
+    async def system_alert_recipients(self) -> list[int]:
+        """Where the bot's own delivery / destination alerts go: the heads of
+        PR (those features serve the PR team), else the owner. Private chat
+        ids, never empty unless nobody at all is reachable."""
+        chats = [
+            head.telegram_chat_id
+            for head in await self.pr_heads()
+            if head.telegram_chat_id is not None
+        ]
+        if chats:
+            return list(dict.fromkeys(chats))
+        owner = await self.owner()
+        return [owner.telegram_chat_id] if owner.is_resolved and owner.telegram_chat_id else []
 
     @staticmethod
     def _short_name(full_name: str) -> str:

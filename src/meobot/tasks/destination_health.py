@@ -79,14 +79,15 @@ async def _sweep(context: TaskContext) -> dict[str, Any]:
 
 
 async def _alert(session: Any, settings: Any, transitions: list[HealthTransition]) -> None:
-    """Queue one message per health transition, to the owner.
+    """Queue one message per health transition, to each Trưởng phòng PR
+    (the group features serve the PR team) - the owner when there is none.
 
     Bound to ``health_version``, which only moves when the status actually
     changes - so re-running this sweep cannot produce a second alert about a
     problem that has not changed.
     """
-    owner = await RecipientResolver(session, settings).owner()
-    if not owner.is_resolved:
+    recipients = await RecipientResolver(session, settings).system_alert_recipients()
+    if not recipients:
         logger.info("destination_health_alert_no_owner")
         return
 
@@ -109,26 +110,47 @@ async def _alert(session: Any, settings: Any, transitions: list[HealthTransition
                 "health_label": health_label(transition.current),
             }
 
-        requests.append(
-            RouteRequest(
-                event_type=event,
-                template_key=template_key,
-                payload=payload,
-                idempotency_key=destination_health_key(
-                    transition.chat.id,
-                    transition.health_version,
-                    healthy=transition.current.is_healthy,
-                ),
-                aggregate_type="telegram_chat",
-                aggregate_id=transition.chat.id,
-                private_chat_id=owner.telegram_chat_id,
-                destination_label="Chat riêng",
-                business_summary=f"Tình trạng nơi nhận: {transition.chat.display_name}"[:300],
-                # An alert about a broken destination must not itself be able
-                # to produce an alert about a broken destination.
-                is_alert=True,
-            )
+        key = destination_health_key(
+            transition.chat.id,
+            transition.health_version,
+            healthy=transition.current.is_healthy,
         )
+        for index, chat_id in enumerate(recipients):
+            requests.append(
+                _health_request(
+                    event,
+                    template_key,
+                    payload,
+                    transition,
+                    # The first recipient keeps the plain key (as before).
+                    key if index == 0 else f"{key}:{chat_id}",
+                    chat_id,
+                )
+            )
 
     if requests:
         await router.route(requests)
+
+
+def _health_request(
+    event: NotificationEvent,
+    template_key: str,
+    payload: dict[str, Any],
+    transition: HealthTransition,
+    key: str,
+    chat_id: int,
+) -> RouteRequest:
+    return RouteRequest(
+        event_type=event,
+        template_key=template_key,
+        payload=payload,
+        idempotency_key=key,
+        aggregate_type="telegram_chat",
+        aggregate_id=transition.chat.id,
+        private_chat_id=chat_id,
+        destination_label="Chat riêng",
+        business_summary=f"Tình trạng nơi nhận: {transition.chat.display_name}"[:300],
+        # An alert about a broken destination must not itself be able
+        # to produce an alert about a broken destination.
+        is_alert=True,
+    )

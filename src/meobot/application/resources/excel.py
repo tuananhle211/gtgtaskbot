@@ -410,14 +410,17 @@ class ImportPreview:
 
     @property
     def missing_people(self) -> list[tuple[str, str | None]]:
-        """``(name, member code)`` for every named person with no account."""
+        """``(name, member code)`` for every person with a member code the
+        system lacks (people without a code are never created: names are
+        not a key)."""
         found: dict[str, tuple[str, str | None]] = {}
         for person in self.people:
-            if person.user_id is None:
-                found.setdefault(fold(person.name), (person.name, person.code))
+            if person.user_id is None and person.code:
+                found.setdefault(person.code, (person.name, person.code))
         for row in self.rows:
             for _field, name, code in row.missing_people:
-                found.setdefault(fold(name), (name, code))
+                if code:
+                    found.setdefault(code, (name, code))
         return list(found.values())
 
 
@@ -433,6 +436,9 @@ class ImportContext:
     #: the preview then warns instead of refusing.
     create_options: bool = False
     create_people: bool = False
+    #: Whether the importer may give a new account a member code (OWNER /
+    #: ADMIN, 0068): without it an unknown "Mã NV" cannot be created.
+    gives_codes: bool = False
 
 
 def decode_upload(data: str) -> bytes:
@@ -568,7 +574,7 @@ def _read_people(
         person = PersonRow(
             row_no=row_no,
             name=name,
-            code=code.strip().upper() if code else None,
+            code=normalise_member_code(code) if code else None,
             department=_match_department(texts.get("department", ""), context.departments)
             if texts.get("department")
             else None,
@@ -578,28 +584,67 @@ def _read_people(
             else Position.MEMBER,
             status=status,
         )
-        match = _match_person(context, name, person.code)
-        if isinstance(match, User):
-            person.user_id = match.id
+        if person.code:
+            match = _person_by_code(context, person.code)
+            if match is not None:
+                person.user_id = match.id
         found.append(person)
     return found
 
 
-def _match_person(context: ImportContext, name: str, code: str | None) -> User | str | None:
-    """The account a name (or a member code) means: the user, ``None`` when
-    there is none, or an error sentence when several share the name."""
-    if code:
-        by_code = [
-            user for user in context.people if (user.member_code or "").upper() == code.upper()
-        ]
-        if len(by_code) == 1:
-            return by_code[0]
+def _person_by_code(context: ImportContext, code: str) -> User | None:
+    """The account whose member code ("Mã thành viên") is ``code``: the one
+    link between the file and the people (2026-10-19; names are not used)."""
+    wanted = normalise_member_code(code)
+    if wanted is None:
+        return None
+    for user in context.people:
+        if user.member_code == wanted:
+            return user
+    return None
+
+
+def _person_by_name(context: ImportContext, name: str) -> User | str | None:
+    """For the one column that carries no code ("Ai đang giữ mã 2 lớp"): the
+    user, ``None`` when there is none, or an error sentence when several
+    share the name."""
     matches = [user for user in context.people if fold(user.full_name) == fold(name)]
     if len(matches) == 1:
         return matches[0]
     if not matches:
         return None
-    return f"'{name}' trùng tên {len(matches)} nhân viên (ghi Mã NV để phân biệt)."
+    return f"'{name}' trùng tên {len(matches)} nhân viên."
+
+
+def _match_holder(row: ImportRow, context: ImportContext) -> None:
+    """ "Người được bàn giao" is matched by "Mã NV" alone: the name column
+    is informative only. No code = nobody (the resource sits with Phòng Tài
+    nguyên), with a warning; an unknown code = an error, unless accounts
+    are to be created by somebody who may give codes."""
+    code = normalise_member_code(row.raw.get("holder_code") or None)
+    name = " ".join(row.raw.get("holder", "").split())
+    if code is None:
+        if name:
+            row.warnings.append(
+                f"Không có Mã NV: bỏ qua người giữ '{name}' (tài nguyên để ở Phòng Tài nguyên)."
+            )
+        return
+    match = _person_by_code(context, code)
+    if match is not None:
+        row.values["holder_user_id"] = match.id
+        return
+    row.missing_people.append(("holder", name, code))
+    if not context.create_people:
+        row.errors.append(f"Mã NV '{code}' không khớp mã thành viên nào.")
+    elif not name:
+        row.errors.append(f"Mã NV '{code}' chưa có tài khoản và dòng không có tên để tạo.")
+    elif not context.gives_codes:
+        row.errors.append(
+            f"Mã NV '{code}' chưa có tài khoản: chỉ Chủ sở hữu / Quản trị viên mới tạo được "
+            "tài khoản kèm mã thành viên."
+        )
+    else:
+        row.warnings.append(f"Mã NV '{code}' chưa có tài khoản: sẽ tạo '{name}' với mã này.")
 
 
 def _read_row(
@@ -661,22 +706,19 @@ def _read_row(
         else:
             row.missing_options.append((kind, text))
             row.errors.append(f"{_label(key)}: '{text}' không có trong danh sách lựa chọn.")
-    holder_code = row.raw.get("holder_code") or None
-    for key in PEOPLE_FIELDS:
-        text = " ".join(row.raw.get(key, "").split())
-        if not text:
-            continue
-        match = _match_person(context, text, holder_code if key == "holder" else None)
+    _match_holder(row, context)
+    two_factor_holder = " ".join(row.raw.get("two_factor_holder", "").split())
+    if two_factor_holder:
+        match = _person_by_name(context, two_factor_holder)
         if isinstance(match, User):
-            row.values[_id_field(key)] = match.id
+            row.values["two_factor_holder_user_id"] = match.id
         elif isinstance(match, str):
-            row.errors.append(f"{_label(key)}: {match}")
-        elif context.create_people:
-            row.missing_people.append((key, text, holder_code if key == "holder" else None))
-            row.warnings.append(f"{_label(key)}: '{text}' chưa có tài khoản, sẽ được tạo.")
+            row.errors.append(f"{_label('two_factor_holder')}: {match}")
         else:
-            row.missing_people.append((key, text, holder_code if key == "holder" else None))
-            row.errors.append(f"{_label(key)}: '{text}' không khớp danh sách nhân viên.")
+            row.warnings.append(
+                f"{_label('two_factor_holder')}: '{two_factor_holder}' không khớp tên nhân viên "
+                "nào, bỏ trống."
+            )
     for key in ("external_id", "name", "link", "email", "phone", "purpose", "note"):
         text = row.raw.get(key, "")
         if text:
@@ -804,7 +846,11 @@ class ResourceImportService:
         self._session = service.session
 
     async def context(
-        self, *, create_options: bool = False, create_people: bool = False
+        self,
+        *,
+        create_options: bool = False,
+        create_people: bool = False,
+        gives_codes: bool = False,
     ) -> ImportContext:
         departments = (
             await self._session.scalars(
@@ -833,6 +879,7 @@ class ResourceImportService:
             taken_codes=frozenset(code for _type_id, _external_id, code in taken),
             create_options=create_options,
             create_people=create_people,
+            gives_codes=gives_codes,
         )
 
     async def preview(
@@ -840,6 +887,7 @@ class ResourceImportService:
         access: ResourceAccess,
         data: str,
         *,
+        actor: Actor | None = None,
         create_options: bool = False,
         create_people: bool = False,
     ) -> ImportPreview:
@@ -847,7 +895,11 @@ class ResourceImportService:
         await self._service.ensure_seed_options()
         return parse_workbook(
             decode_upload(data),
-            await self.context(create_options=create_options, create_people=create_people),
+            await self.context(
+                create_options=create_options,
+                create_people=create_people,
+                gives_codes=_gives_codes(actor),
+            ),
         )
 
     async def commit(
@@ -867,7 +919,12 @@ class ResourceImportService:
         raw = decode_upload(data)
         await self._service.ensure_seed_options()
         preview = parse_workbook(
-            raw, await self.context(create_options=create_options, create_people=create_people)
+            raw,
+            await self.context(
+                create_options=create_options,
+                create_people=create_people,
+                gives_codes=_gives_codes(actor),
+            ),
         )
         if preview.error_count or not preview.rows:
             raise ResourceValidationError(
@@ -942,44 +999,50 @@ class ResourceImportService:
         return preview
 
     async def _create_people(self, actor: Actor, preview: ImportPreview) -> int:
-        """Accounts for the people the file names and the system lacks: an
-        Employee with the name and member code, seated in their department
-        ("Người sử dụng" tab: Ban, Chức vụ, Trạng thái); somebody named only
-        on a resource row gets an account with no seat."""
-        by_name: dict[str, PersonRow] = {
-            fold(person.name): person for person in preview.people if person.user_id is None
+        """Accounts for the member codes the file carries and the system
+        lacks: an Employee with that code and the file's name, seated in
+        their department ("Người sử dụng" tab: Ban, Chức vụ, Trạng thái);
+        a code met only on a resource row gets an account with no seat."""
+        by_code: dict[str, PersonRow] = {
+            person.code: person
+            for person in preview.people
+            if person.user_id is None and person.code
         }
         created = 0
         seated: list[uuid.UUID] = []
         # 0068: a member code is the OWNER's / ADMIN's to give, and one per
-        # person: anybody else's import creates the account without it, and a
-        # code another account already carries is left off too.
-        gives_codes = actor.role in (Role.OWNER, Role.ADMIN)
+        # person: the preview refuses anybody else's unknown codes, and a
+        # code another account carries meanwhile is left off.
+        if not _gives_codes(actor):
+            return 0
         for name, code in preview.missing_people:
-            wanted = normalise_member_code(code) if code and gives_codes else None
-            if wanted is not None and await member_code_holder(self._session, wanted) is not None:
+            wanted = normalise_member_code(code)
+            if wanted is None:
+                continue
+            if await member_code_holder(self._session, wanted) is not None:
                 wanted = None
+            person = by_code.get(code or "")
             user = User(
                 full_name=name.title() if name.isupper() else name,
                 role=Role.EMPLOYEE,
                 member_code=wanted,
-                employment_status=(
-                    by_name[fold(name)].status
-                    if fold(name) in by_name
-                    else EmploymentStatus.WORKING
-                ),
+                employment_status=person.status if person else EmploymentStatus.WORKING,
                 added_by_user_id=actor.user_id,
             )
             self._session.add(user)
             await self._session.flush()
             created += 1
-            person = by_name.get(fold(name))
             if person is not None and person.department is not None:
                 await seat_person(self._session, person.department.id, user.id, person.position)
                 seated.append(user.id)
         if seated:
             await sync_stream_tags(self._session, seated)
         return created
+
+
+def _gives_codes(actor: Actor | None) -> bool:
+    """Whether this importer may give a new account a member code (0068)."""
+    return actor is not None and actor.role in (Role.OWNER, Role.ADMIN)
 
 
 def _month_start(month: str) -> datetime:

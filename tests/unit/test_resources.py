@@ -636,6 +636,9 @@ def workbook(rows: list[list[Any]], *, sheet: str = "ADS", months: list[str] | N
         "Ghi chú",
         "Bàn giao về Tài nguyên",
         *(months or ["T10/2026", "T11/2026", "T12/2026"]),
+        # The one key between the file and the people (2026-10-19): a row's
+        # 22nd value, after the months.
+        "Mã NV",
     ]
     for column, header in enumerate(headers, start=1):
         first.cell(row=5, column=column, value=header)
@@ -798,7 +801,9 @@ async def test_09_export_keeps_ids_as_text_and_import_previews_then_writes(world
     assert rows[6]["errors"] == ["ID '104000000000000' đã có trong hệ thống ở cùng loại."]
     assert rows[6]["raw"]["external_id"] == "104000000000000" and rows[6]["raw"]["phone"] == "0901"
     assert [item["status"] for item in rows[6]["months"]] == ["Hoạt động", "Checkpoint"]
-    assert any("không khớp danh sách nhân viên" in item for item in rows[7]["errors"])
+    # A holder named without a "Mã NV" is nobody: a warning, not an error.
+    assert rows[7]["errors"] == []
+    assert any("Không có Mã NV: bỏ qua người giữ" in item for item in rows[7]["warnings"])
     assert any("không có trong danh sách lựa chọn" in item for item in rows[8]["errors"])
     # No month filled: the status defaults to "Hoạt động" with a note, not an error.
     assert rows[9]["errors"] == []
@@ -806,14 +811,23 @@ async def test_09_export_keeps_ids_as_text_and_import_previews_then_writes(world
         "Chưa ghi bàn giao: lấy 'Chưa bàn giao'.",
         "Chưa có trạng thái tháng nào: lấy 'Hoạt động'.",
     ]
-    assert body["error_count"] == 3 and body["ok_count"] == 1
+    assert body["error_count"] == 2 and body["ok_count"] == 2
     assert [item["name"] for item in body["missing_options"]] == ["Máy bay"]
-    assert [item["name"] for item in body["missing_people"]] == ["Người Không Có"]
+    assert body["missing_people"] == []
     assert (await world.session.scalar(select(Resource).where(Resource.code == "ADS-010"))) is None
     commit = world.client.post("/api/resources/import/commit", json={"data": bad_file})
     assert commit.status_code == 422 and error_reason(commit.json()) == "import_has_errors"
 
-    # Step 2: a clean file is written whole - codes kept, holders handed, months as history.
+    # Step 2: a clean file is written whole - codes kept, holders handed by
+    # their member code, months as history.
+    world.act_as(world.owner)
+    assert (
+        world.client.put(
+            f"/api/account/members/{ads.writer.id}/member-code", json={"member_code": "WRT"}
+        ).status_code
+        == 200
+    )
+    world.act_as(people.tn_head)
     good_file = workbook(
         [
             [
@@ -838,6 +852,7 @@ async def test_09_export_keeps_ids_as_text_and_import_previews_then_writes(world
                 "Hoạt động",
                 "Checkpoint",
                 "Hoạt động",
+                "wrt",
             ],
             [
                 2,
@@ -904,9 +919,9 @@ async def test_09_export_keeps_ids_as_text_and_import_previews_then_writes(world
 async def test_09b_import_gives_member_codes_only_from_the_owner_or_an_admin(
     world: World,
 ) -> None:
-    """0068: the accounts an import creates get the file's member code only
-    when the importer is the OWNER / an ADMIN; a code already carried points
-    at its person."""
+    """0068: an import creates accounts for unknown member codes only when
+    the importer is the OWNER / an ADMIN; a code already carried points at
+    its person, whatever the row calls them."""
     people = await cast(world)
     taken = await person(world, "Người Có Mã")
     world.act_as(world.owner)
@@ -924,14 +939,16 @@ async def test_09b_import_gives_member_codes_only_from_the_owner_or_an_admin(
         assert found is not None, name
         return found
 
-    # The head of Tài nguyên imports: the account is made, the code is not.
+    # The head of Tài nguyên imports: an unknown code cannot become an
+    # account (only the OWNER / an ADMIN gives codes), so the row is refused.
     world.act_as(people.tn_head)
-    written = world.client.post(
-        "/api/resources/import/commit",
+    refused = world.client.post(
+        "/api/resources/import/preview",
         json={"data": file_naming("Nhân Viên Mới", "NVM", "x1"), "create_people": True},
-    )
-    assert written.status_code == 200, written.json()
-    assert (await account_of("Nhân Viên Mới")).member_code is None
+    ).json()
+    assert refused["error_count"] == 1
+    assert any("chỉ Chủ sở hữu / Quản trị viên" in item for item in refused["rows"][0]["errors"])
+    assert await world.session.scalar(select(User).where(User.full_name == "Nhân Viên Mới")) is None
     # The OWNER imports: the code comes with the account...
     world.act_as(world.owner)
     written = world.client.post(
@@ -955,44 +972,9 @@ async def test_09b_import_gives_member_codes_only_from_the_owner_or_an_admin(
 
 def _with_holder_code(name: str, code: str, external_id: str) -> str:
     """An inventory file whose one row names ``name`` (member code ``code``)
-    as the holder: the header gains a "Mã nhân viên" column."""
-    raw = base64.b64decode(
-        workbook(
-            [
-                [
-                    1,
-                    "",
-                    "Via",
-                    external_id,
-                    "Via X",
-                    "",
-                    name,
-                    "",
-                    "",
-                    "",
-                    "",
-                    "",
-                    "",
-                    "",
-                    "",
-                    "",
-                    "",
-                    "",
-                    "Hoạt động",
-                    "",
-                    "",
-                ]
-            ]
-        )
-    )
-    book = load_workbook(io.BytesIO(raw))
-    sheet = book["ADS"]
-    last = sheet.max_column + 1
-    sheet.cell(row=5, column=last, value="Mã nhân viên")
-    sheet.cell(row=6, column=last, value=code)
-    buffer = io.BytesIO()
-    book.save(buffer)
-    return base64.b64encode(buffer.getvalue()).decode()
+    as the holder."""
+    row = ["", "", "Via", external_id, "Via X", "", name] + [""] * 11 + ["Hoạt động", "", "", code]
+    return workbook([row])
 
 
 async def test_09c_a_resource_without_an_id_takes_its_code(world: World) -> None:
