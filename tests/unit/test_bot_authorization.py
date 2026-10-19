@@ -138,10 +138,10 @@ def test_owner_greeting_matches_the_specified_wording() -> None:
 
 
 def test_non_owner_greeting_states_the_role() -> None:
-    greeting = welcome_for(Role.TEAM_LEAD, "Trưởng nhóm B")
-    assert "Vai trò của bạn: Trưởng nhóm" in greeting
+    greeting = welcome_for(Role.TEAM_LEAD, "Trưởng phòng B")
+    assert "Vai trò của bạn: Trưởng phòng" in greeting
     assert "TEAM_LEAD" not in greeting
-    assert "Trưởng nhóm B" in greeting
+    assert "Trưởng phòng B" in greeting
 
 
 # --- Milestone 2: invite-code onboarding ------------------------------------

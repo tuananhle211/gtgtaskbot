@@ -111,7 +111,7 @@ describe("an account with no stream", () => {
     renderWithQuery(<TasksPage />);
     expect(
       await screen.findByText(
-        "Tài khoản chưa được gắn luồng. Trưởng nhóm sẽ gắn luồng cho bạn.",
+        "Tài khoản chưa thuộc phòng ban nào. Trưởng phòng hoặc quản trị viên sẽ xếp bạn vào phòng.",
       ),
     ).toBeInTheDocument();
     expect(screen.queryByRole("navigation", { name: "Chọn luồng" })).not.toBeInTheDocument();
@@ -126,7 +126,7 @@ describe("an account with no stream", () => {
     pathname = "/dashboard";
     renderWithQuery(<DashboardPage />);
     expect(await screen.findByRole("status", { name: "Chưa có luồng" })).toHaveTextContent(
-      "Trưởng nhóm sẽ gắn luồng cho bạn.",
+      "Trưởng phòng hoặc quản trị viên sẽ xếp bạn vào phòng.",
     );
     expect(callsOf(fetchMock).some((call) => call.url.startsWith("/api/board"))).toBe(false);
   });

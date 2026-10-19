@@ -112,7 +112,14 @@ class UserService:
                     "target_role": role.value,
                 },
             )
-        if not can_invite_role(actor.role, role):
+        # 2026-10-19: the PR head (module-authorised) adds the department's own
+        # two roles, a second Trưởng phòng included; the rank rule is for the rest.
+        allowed = (
+            role in (Role.EMPLOYEE, Role.TEAM_LEAD)
+            if authorized_by_module
+            else can_invite_role(actor.role, role)
+        )
+        if not allowed:
             raise AuthorizationError(
                 f"Vai trò {role_label(actor.role)} không thể thêm "
                 f"thành viên với vai trò {role_label(role)}.",
@@ -212,13 +219,33 @@ class UserService:
         return result.scalars().all()
 
     # --- Lifecycle --------------------------------------------------------
-    def _guard_target(self, actor: Actor, target: User) -> None:
+    def _guard_target(
+        self, actor: Actor, target: User, *, authorized_by_module: bool = False
+    ) -> None:
         """Refuse the operations nobody may perform on anybody.
 
         Two invariants, checked before any lifecycle write:
         the owner is untouchable, and nobody may act on an account at or above
         their own level - which is the same rule that governs invitations.
+
+        ``authorized_by_module`` (2026-10-19): the caller already established
+        that the actor manages this account through the PR module (the PR head
+        over a PR member, ``PrMembershipService.manages_account``), so the
+        system-role checks are skipped; the owner and oneself stay protected,
+        and the target must be one of the department's own roles.
         """
+        if authorized_by_module:
+            if target.role in (Role.OWNER, Role.ADMIN):
+                raise AuthorizationError(
+                    OWNER_IS_PROTECTED,
+                    details={"reason": "owner_protected", "target_role": target.role.value},
+                )
+            if actor.user_id is not None and target.id == actor.user_id:
+                raise AuthorizationError(
+                    "Bạn không thể tự thay đổi trạng thái hoặc vai trò của chính mình.",
+                    details={"reason": "self_change_forbidden", "actor_role": actor.role.value},
+                )
+            return
         if not has_permission(actor.role, Permission.USER_STATUS_MANAGE):
             raise AuthorizationError(
                 f"Chỉ {role_label(Role.OWNER)} được thay đổi trạng thái thành viên.",
@@ -287,6 +314,7 @@ class UserService:
         request_id: uuid.UUID,
         user_id: uuid.UUID,
         reason: str | None = None,
+        authorized_by_module: bool = False,
     ) -> User:
         """Block an account globally, reversibly.
 
@@ -295,7 +323,7 @@ class UserService:
             AuthorizationError: When the actor may not do this to this target.
         """
         user = await self._require(user_id)
-        self._guard_target(actor, user)
+        self._guard_target(actor, user, authorized_by_module=authorized_by_module)
         before = user.status
         now = utcnow()
         user.status = UserStatus.SUSPENDED
@@ -316,14 +344,21 @@ class UserService:
         logger.info("user_suspended", extra={"user_id": str(user.id)})
         return user
 
-    async def enable(self, *, actor: Actor, request_id: uuid.UUID, user_id: uuid.UUID) -> User:
+    async def enable(
+        self,
+        *,
+        actor: Actor,
+        request_id: uuid.UUID,
+        user_id: uuid.UUID,
+        authorized_by_module: bool = False,
+    ) -> User:
         """Put a suspended account back on the air.
 
         A revoked account is *not* reachable from here: revocation is meant to
         be final, and undoing it is a deliberate, separately named act.
         """
         user = await self._require(user_id)
-        self._guard_target(actor, user)
+        self._guard_target(actor, user, authorized_by_module=authorized_by_module)
         if user.status is UserStatus.REVOKED:
             raise ValidationError(
                 "Thành viên này đã bị loại khỏi PR và không thể kích hoạt lại.",
@@ -356,6 +391,7 @@ class UserService:
         request_id: uuid.UUID,
         user_id: uuid.UUID,
         reason: str | None = None,
+        authorized_by_module: bool = False,
     ) -> User:
         """End an account's access for good, without deleting anything.
 
@@ -363,7 +399,7 @@ class UserService:
         user - scripts, approvals, audit entries - keeps pointing at them.
         """
         user = await self._require(user_id)
-        self._guard_target(actor, user)
+        self._guard_target(actor, user, authorized_by_module=authorized_by_module)
         before = user.status
         now = utcnow()
         user.status = UserStatus.REVOKED
@@ -384,10 +420,17 @@ class UserService:
         logger.info("user_revoked", extra={"user_id": str(user.id)})
         return user
 
-    async def restore(self, *, actor: Actor, request_id: uuid.UUID, user_id: uuid.UUID) -> User:
+    async def restore(
+        self,
+        *,
+        actor: Actor,
+        request_id: uuid.UUID,
+        user_id: uuid.UUID,
+        authorized_by_module: bool = False,
+    ) -> User:
         """Undo a revocation. Deliberately separate from :meth:`enable`."""
         user = await self._require(user_id)
-        self._guard_target(actor, user)
+        self._guard_target(actor, user, authorized_by_module=authorized_by_module)
         before = user.status
         now = utcnow()
         user.status = UserStatus.ACTIVE
@@ -416,6 +459,7 @@ class UserService:
         request_id: uuid.UUID,
         user_id: uuid.UUID,
         role: Role,
+        authorized_by_module: bool = False,
     ) -> User:
         """Move somebody to a different authoritative role.
 
@@ -424,13 +468,24 @@ class UserService:
         is not grantable at all.
         """
         user = await self._require(user_id)
-        self._guard_target(actor, user)
-        if not has_permission(actor.role, Permission.USER_ROLE_MANAGE):
+        self._guard_target(actor, user, authorized_by_module=authorized_by_module)
+        if authorized_by_module:
+            # The PR head moves people between the department's two roles only.
+            if role not in (Role.EMPLOYEE, Role.TEAM_LEAD):
+                raise AuthorizationError(
+                    f"Không thể đặt vai trò {role_label(role)}.",
+                    details={
+                        "reason": "invalid_role",
+                        "actor_role": actor.role.value,
+                        "target_role": role.value,
+                    },
+                )
+        elif not has_permission(actor.role, Permission.USER_ROLE_MANAGE):
             raise AuthorizationError(
                 f"Chỉ {role_label(Role.OWNER)} được đổi vai trò thành viên.",
                 details={"reason": "role_change_forbidden", "actor_role": actor.role.value},
             )
-        if not can_invite_role(actor.role, role):
+        elif not can_invite_role(actor.role, role):
             raise AuthorizationError(
                 f"Không thể đặt vai trò {role_label(role)}.",
                 details={

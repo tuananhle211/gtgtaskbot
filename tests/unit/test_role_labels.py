@@ -64,11 +64,11 @@ FIRST_UPDATE_ID = 910_000
 def test_owner_displays_as_chu_so_huu() -> None:
     """OWNER is workspace ownership, not the department head's job title.
 
-    "Trưởng phòng" names an approval gate and the person who holds it; it is
-    never printed for the role, whoever happens to own the workspace.
+    2026-10-19: the department head is the ``TEAM_LEAD`` ("Trưởng phòng");
+    the owner is never printed as one, whoever happens to own the workspace.
     """
     assert role_label(Role.OWNER) == "Chủ sở hữu"
-    assert "Trưởng phòng" not in ROLE_LABELS.values()
+    assert role_label(Role.TEAM_LEAD) == "Trưởng phòng"
 
 
 def test_employee_displays_as_nhan_vien() -> None:
@@ -79,7 +79,7 @@ def test_every_role_has_the_specified_label() -> None:
     assert ROLE_LABELS == {
         Role.OWNER: "Chủ sở hữu",
         Role.ADMIN: "Quản trị viên",
-        Role.TEAM_LEAD: "Trưởng nhóm",
+        Role.TEAM_LEAD: "Trưởng phòng",
         Role.EMPLOYEE: "Nhân viên",
     }
     # No role may go unlabelled, or a message would render an enum by accident.
@@ -107,11 +107,10 @@ def test_a_registered_member_is_not_a_guest(employee_actor: Actor) -> None:
 
 def test_the_welcome_message_uses_labels() -> None:
     assert "Chủ sở hữu" in WELCOME_OWNER
-    assert "Trưởng phòng" not in WELCOME_OWNER
     assert "OWNER" not in WELCOME_OWNER
 
-    greeting = welcome_for(Role.TEAM_LEAD, "Trưởng nhóm B")
-    assert "Vai trò của bạn: Trưởng nhóm" in greeting
+    greeting = welcome_for(Role.TEAM_LEAD, "Trưởng phòng B")
+    assert "Vai trò của bạn: Trưởng phòng" in greeting
     assert "TEAM_LEAD" not in greeting
 
     assert f"Vai trò của bạn: {GUEST_LABEL}" in welcome_for(Role.EMPLOYEE, "Khách", guest=True)
@@ -155,7 +154,7 @@ def test_the_people_commands_document_roles_by_label() -> None:
 
 
 def test_labels_are_listed_least_privileged_first() -> None:
-    assert role_labels(set(Role)) == "Nhân viên, Trưởng nhóm, Quản trị viên, Chủ sở hữu"
+    assert role_labels(set(Role)) == "Nhân viên, Trưởng phòng, Quản trị viên, Chủ sở hữu"
 
 
 # --- 2. What people type ----------------------------------------------------
@@ -163,9 +162,9 @@ def test_labels_are_listed_least_privileged_first() -> None:
     ("written", "expected"),
     [
         ("OWNER", Role.OWNER),
-        ("TRUONG_PHONG", Role.OWNER),
-        ("trưởng phòng", Role.OWNER),
-        ("Trưởng Phòng", Role.OWNER),
+        ("TRUONG_PHONG", Role.TEAM_LEAD),
+        ("trưởng phòng", Role.TEAM_LEAD),
+        ("Trưởng Phòng", Role.TEAM_LEAD),
         ("chủ hệ thống", Role.OWNER),
         ("ADMIN", Role.ADMIN),
         ("quản trị viên", Role.ADMIN),
@@ -282,7 +281,7 @@ def test_an_alias_does_not_promote_the_actor(employee_actor: Actor) -> None:
     """Saying "trưởng phòng" is not becoming one."""
     spoken = parse_role("trưởng phòng")
 
-    assert spoken is Role.OWNER
+    assert spoken is Role.TEAM_LEAD
     # ...and the actor's own role is untouched by anything they typed.
     assert employee_actor.role is Role.EMPLOYEE
     assert not has_permission(employee_actor.role, Permission.USER_MANAGE)
@@ -294,7 +293,7 @@ async def test_an_alias_cannot_be_used_to_grant_a_role_the_actor_lacks(
     """``chủ hệ thống`` folds to OWNER and is refused exactly like OWNER is."""
     service = UserService(session, AuditService(session))
 
-    for written in ("chủ hệ thống", "OWNER", "TRUONG_PHONG"):
+    for written in ("chủ hệ thống", "OWNER", "chủ sở hữu"):
         role = parse_role(written)
         assert role is Role.OWNER
         with pytest.raises(AuthorizationError):
@@ -410,7 +409,7 @@ async def test_add_user_accepts_a_vietnamese_multi_word_role(
     assert len(users) == 1
     assert users[0].role is Role.TEAM_LEAD
     assert users[0].full_name == "Trần Thị B"
-    assert "vai trò Trưởng nhóm" in session.combined_text()
+    assert "vai trò Trưởng phòng" in session.combined_text()
 
 
 async def test_add_user_refuses_an_unknown_role_without_creating_anything(

@@ -121,7 +121,7 @@ def _forbidden(details: Mapping[str, Any]) -> str:
     if reason == "already_produced":
         return (
             "Bạn không thể xóa nội dung đã bước vào sản xuất. "
-            "Trưởng nhóm hoặc trưởng phòng có thể xóa giúp bạn."
+            "Trưởng phòng hoặc quản trị viên có thể xóa giúp bạn."
         )
     if reason == "not_the_producer":
         return "Chỉ người đang nhận sản xuất mới thao tác được với phần sản xuất này."

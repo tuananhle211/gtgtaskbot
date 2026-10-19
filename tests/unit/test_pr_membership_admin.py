@@ -205,12 +205,12 @@ async def test_2a_the_list_shows_every_state_with_counts_and_labels(world: World
     suspended = by_id[str(world.member.id)]
     assert suspended["status"] == "suspended" and suspended["status_label"] == "Tạm khoá"
     lead = by_id[str(world.lead.id)]
-    assert lead["role_label"] == role_label(Role.TEAM_LEAD) == "Trưởng nhóm"
+    assert lead["role_label"] == role_label(Role.TEAM_LEAD) == "Trưởng phòng"
     assert lead["active_grant_count"] == 1
     assert by_id[str(world.owner.id)]["role_label"] == "Chủ sở hữu"
     assert by_id[str(world.member.id)]["role_label"] == "Nhân viên"
-    # "Trưởng phòng" is the approval gate and the person - never the role.
-    assert "Trưởng phòng" not in {row["role_label"] for row in body["members"]}
+    # 2026-10-19: "Trưởng phòng" is the TEAM_LEAD's title; the owner never wears it.
+    assert by_id[str(world.lead.id)]["role_label"] == "Trưởng phòng"
     assert "status_reason" not in revoked and "private_chat_available" not in revoked
 
 
@@ -287,7 +287,7 @@ async def test_3a_the_owner_adds_a_member_by_telegram_id(world: World) -> None:
     )
     assert response.status_code == 201, response.text
     body = response.json()
-    assert body["role"] == "TEAM_LEAD" and body["role_label"] == "Trưởng nhóm"
+    assert body["role"] == "TEAM_LEAD" and body["role_label"] == "Trưởng phòng"
     assert body["status"] == "active" and body["full_name"] == "Người Mới"
     assert body["telegram_user_id"] == 700_010 and body["telegram_linked"] is True
     row = await world.session.get(User, uuid.UUID(body["user_id"]))
@@ -388,11 +388,11 @@ async def test_4b_the_same_role_again_is_a_conflict_not_a_silent_no_op(world: Wo
     assert await audit_rows(world, AuditAction.USER_ROLE_CHANGED) == []
 
 
-async def test_4c_only_the_owner_changes_roles(world: World) -> None:
+async def test_4c_only_the_owner_and_the_pr_head_change_roles(world: World) -> None:
     admin = User(full_name="Quản trị", role=Role.ADMIN)
     world.session.add(admin)
     await world.session.flush()
-    for user in (admin, world.lead, world.member):
+    for user in (admin, world.member):
         world.act_as(user)
         response = world.client.post(
             f"{MEMBERS}/{world.member.id}/role", json={"role": "TEAM_LEAD"}
@@ -403,6 +403,52 @@ async def test_4c_only_the_owner_changes_roles(world: World) -> None:
         assert error_reason(response) == "member_manage_forbidden"
     await world.session.refresh(world.member)
     assert world.member.role is Role.EMPLOYEE
+    # 2026-10-19: the PR head (``PR_MEMBERS_MANAGE``) moves a PR member
+    # between the department's two roles - see test_4f.
+
+
+async def test_4f_the_pr_head_manages_the_accounts_of_pr_members(world: World) -> None:
+    """2026-10-19: the head of PR Thương Hiệu changes a PR member's role
+    (Nhân viên <-> Trưởng phòng only), deactivates, reactivates and revokes
+    them - never a system account, never themselves, never somebody outside PR."""
+    admin = User(full_name="Quản trị", role=Role.ADMIN)
+    outsider = User(full_name="Người ngoài PR", role=Role.EMPLOYEE, telegram_user_id=990001)
+    world.session.add_all([admin, outsider])
+    await world.session.flush()
+    world.act_as(world.lead)
+    listed = world.client.get(MEMBERS).json()
+    assert listed["may_change_role"] is True and listed["may_change_status"] is True
+    assert {option["role"] for option in listed["assignable_roles"]} == {"EMPLOYEE", "TEAM_LEAD"}
+    rows = {row["full_name"]: row for row in listed["members"]}
+    assert rows[world.member.full_name]["can_manage_account"] is True
+    assert rows[world.lead.full_name]["can_manage_account"] is False
+    assert rows[world.owner.full_name]["can_manage_account"] is False
+    assert rows["Quản trị"]["can_manage_account"] is False
+    assert rows["Người ngoài PR"]["can_manage_account"] is False
+
+    promoted = world.client.post(f"{MEMBERS}/{world.member.id}/role", json={"role": "TEAM_LEAD"})
+    assert promoted.status_code == 200, promoted.json()
+    assert promoted.json()["role"] == "TEAM_LEAD"
+    refused = world.client.post(f"{MEMBERS}/{world.member.id}/role", json={"role": "ADMIN"})
+    assert refused.status_code == 403 and error_reason(refused) == "invalid_role"
+    back = world.client.post(f"{MEMBERS}/{world.member.id}/role", json={"role": "EMPLOYEE"})
+    assert back.status_code == 200 and back.json()["role"] == "EMPLOYEE"
+
+    paused = world.client.post(f"{MEMBERS}/{world.member.id}/deactivate", json={"reason": "nghỉ"})
+    assert paused.status_code == 200 and paused.json()["status"] == "suspended"
+    resumed = world.client.post(f"{MEMBERS}/{world.member.id}/reactivate")
+    assert resumed.status_code == 200 and resumed.json()["status"] == "active"
+
+    # Outside the module's reach (a system account, themselves, somebody not
+    # in PR) the system rules answer, and a Trưởng phòng has none of them.
+    for target in (world.owner, admin, world.lead, outsider):
+        response = world.client.post(f"{MEMBERS}/{target.id}/deactivate", json={})
+        assert response.status_code == 403, target.full_name
+        assert error_reason(response) == "member_manage_forbidden", target.full_name
+
+    gone = world.client.post(f"{MEMBERS}/{world.member.id}/revoke", json={"reason": "Đã nghỉ"})
+    assert gone.status_code == 200 and gone.json()["status"] == "revoked"
+    assert len(await audit_rows(world, AuditAction.USER_REVOKED)) == 1
 
 
 async def test_4d_nobody_is_promoted_into_owner_and_nobody_changes_themselves(
@@ -549,6 +595,7 @@ async def test_5e_only_the_owner_deactivates_and_a_revoked_member_cannot_be_reac
     admin = User(full_name="Quản trị", role=Role.ADMIN)
     world.session.add(admin)
     await world.session.flush()
+    # The PR head manages PR members' accounts (2026-10-19), never their own.
     for user in (admin, world.lead, world.member):
         world.act_as(user)
         response = world.client.post(f"{MEMBERS}/{world.lead.id}/deactivate", json={})

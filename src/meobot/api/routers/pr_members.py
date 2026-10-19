@@ -177,7 +177,11 @@ async def change_member_role(
     about the person, and this route does not know it exists.
     """
     user = await users.change_role(
-        actor=actor, request_id=request_id, user_id=user_id, role=_parse_role(body.role)
+        actor=actor,
+        request_id=request_id,
+        user_id=user_id,
+        role=_parse_role(body.role),
+        authorized_by_module=await membership.module_authorises(actor, user_id),
     )
     return await _member_response(membership, actor, user)
 
@@ -193,7 +197,11 @@ async def deactivate_member(
 ) -> MemberResponse:
     """*Vô hiệu hóa thành viên.* ``/suspend_user``, over HTTP. Reversible."""
     user = await users.suspend(
-        actor=actor, request_id=request_id, user_id=user_id, reason=body.reason
+        actor=actor,
+        request_id=request_id,
+        user_id=user_id,
+        reason=body.reason,
+        authorized_by_module=await membership.module_authorises(actor, user_id),
     )
     return await _member_response(membership, actor, user)
 
@@ -207,7 +215,12 @@ async def reactivate_member(
     membership: MembershipDep,
 ) -> MemberResponse:
     """*Kích hoạt lại.* ``/enable_user``, over HTTP. A revoked account is refused."""
-    user = await users.enable(actor=actor, request_id=request_id, user_id=user_id)
+    user = await users.enable(
+        actor=actor,
+        request_id=request_id,
+        user_id=user_id,
+        authorized_by_module=await membership.module_authorises(actor, user_id),
+    )
     return await _member_response(membership, actor, user)
 
 
@@ -222,7 +235,11 @@ async def revoke_member(
 ) -> MemberResponse:
     """*Loại khỏi PR.* ``/revoke_user``, over HTTP. The row stays; history stays."""
     user = await users.revoke(
-        actor=actor, request_id=request_id, user_id=user_id, reason=body.reason
+        actor=actor,
+        request_id=request_id,
+        user_id=user_id,
+        reason=body.reason,
+        authorized_by_module=await membership.module_authorises(actor, user_id),
     )
     return await _member_response(membership, actor, user)
 

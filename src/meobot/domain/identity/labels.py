@@ -45,7 +45,7 @@ from meobot.domain.identity.models import Actor, Role
 ROLE_LABELS: dict[Role, str] = {
     Role.OWNER: "Chủ sở hữu",
     Role.ADMIN: "Quản trị viên",
-    Role.TEAM_LEAD: "Trưởng nhóm",
+    Role.TEAM_LEAD: "Trưởng phòng",
     Role.EMPLOYEE: "Nhân viên",
 }
 
@@ -55,13 +55,20 @@ ROLE_LABELS: dict[Role, str] = {
 GUEST_LABEL = "Guest"
 
 #: Accepted spellings per role. The display label itself is added below, so
-#: "Chủ sở hữu" typed back at MeoBot resolves to ``OWNER``. "Trưởng phòng" is
-#: kept as an *input* alias only - somebody who has typed it for two releases
-#: still gets the same answer - and is never printed for the role.
+#: "Chủ sở hữu" typed back at MeoBot resolves to ``OWNER``. 2026-10-19: the
+#: department head is the ``TEAM_LEAD`` ("Trưởng phòng", the seat's head);
+#: "Trưởng nhóm" stays an *input* alias for whoever still types it.
 ROLE_ALIASES: dict[Role, tuple[str, ...]] = {
-    Role.OWNER: ("OWNER", "TRUONG_PHONG", "trưởng phòng", "chủ hệ thống", "chủ sở hữu"),
+    Role.OWNER: ("OWNER", "chủ hệ thống", "chủ sở hữu"),
     Role.ADMIN: ("ADMIN", "quản trị viên"),
-    Role.TEAM_LEAD: ("TEAM_LEAD", "TRUONG_NHOM", "trưởng nhóm", "team lead"),
+    Role.TEAM_LEAD: (
+        "TEAM_LEAD",
+        "TRUONG_PHONG",
+        "trưởng phòng",
+        "TRUONG_NHOM",
+        "trưởng nhóm",
+        "team lead",
+    ),
     Role.EMPLOYEE: ("EMPLOYEE", "MEMBER", "member", "nhân viên"),
 }
 

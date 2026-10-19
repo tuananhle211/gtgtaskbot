@@ -563,7 +563,7 @@ export const publicationStatusLabel = (code: string) => label(PUBLICATION_STATUS
 const ROLES: Record<string, string> = {
   OWNER: "Chủ sở hữu",
   ADMIN: "Quản trị viên",
-  TEAM_LEAD: "Trưởng nhóm",
+  TEAM_LEAD: "Trưởng phòng",
   EMPLOYEE: "Nhân viên",
 };
 
@@ -729,7 +729,7 @@ const ARTIFACT_REASONS: Record<string, string> = {
   incomplete_unc_path: "Đường dẫn NAS chưa đủ, cần cả tên máy và thư mục chia sẻ.",
   not_responsible: "Nội dung này không phải của bạn nên bạn không xóa được.",
   already_produced:
-    "Bạn không thể xóa nội dung đã bước vào sản xuất. Trưởng nhóm hoặc trưởng phòng có thể xóa giúp bạn.",
+    "Bạn không thể xóa nội dung đã bước vào sản xuất. Trưởng phòng hoặc quản trị viên có thể xóa giúp bạn.",
   not_the_producer: "Chỉ người đang nhận sản xuất mới thao tác được với phần sản xuất này.",
   not_your_action: "Chỉ người vừa thực hiện thao tác đó (hoặc quản lý) mới hoàn tác được.",
   no_producer_assigned: "Bạn cần phân công hoặc nhận người sản xuất trước khi bắt đầu sản xuất.",

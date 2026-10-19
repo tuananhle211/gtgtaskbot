@@ -39,7 +39,7 @@ export function RolesTab() {
         </>
       ) : null}
       <p className="text-sm text-[var(--text-muted)]">
-        Vai trò nền: Chủ sở hữu và Quản trị viên có mọi quyền; Trưởng nhóm và Nhân viên có
+        Vai trò nền: Chủ sở hữu và Quản trị viên có mọi quyền; Trưởng phòng và Nhân viên có
         quyền theo chức vụ trong phòng và quyền được cấp riêng.
       </p>
       <div className="grid gap-4 lg:grid-cols-2">

@@ -347,16 +347,17 @@ async def test_07_the_checklist_saves_one_module_whole(world: World) -> None:
 
 
 async def test_08_the_pr_head_keeps_the_roster(world: World) -> None:
-    """0067: sees the PR roster and the tabs, adds an Employee who lands in
-    PR Thương Hiệu, brings an existing account in - and nothing of the
-    system half: no role change, no deactivation, no Admin added."""
+    """0067: sees the PR roster and the tabs, adds people who land in PR
+    Thương Hiệu, brings an existing account in; 2026-10-19: also manages the
+    PR members' accounts (role between Nhân viên / Trưởng phòng, status,
+    revoke) - never a system account (no Admin added or touched)."""
     world.act_as(world.lead)
     roster = world.client.get("/api/pr/members")
     assert roster.status_code == 200, roster.json()
     body = roster.json()
     assert body["may_add"] is True and body["may_tag_pr"] is True
-    assert body["may_change_role"] is False and body["may_change_status"] is False
-    assert [item["role"] for item in body["assignable_roles"]] == ["EMPLOYEE"]
+    assert body["may_change_role"] is True and body["may_change_status"] is True
+    assert [item["role"] for item in body["assignable_roles"]] == ["EMPLOYEE", "TEAM_LEAD"]
     assert world.client.get("/api/pr/roles").status_code == 200
     assert (
         world.client.get(f"/api/pr/members/{world.member.id}/effective-permissions").status_code
@@ -372,26 +373,32 @@ async def test_08_the_pr_head_keeps_the_roster(world: World) -> None:
     world.act_as(world.owner)
     seats = world.client.get("/api/units/PR/members").json()["members"]
     assert new_id in {item["user_id"] for item in seats}
-    # Not an Admin, not a Trưởng nhóm.
+    # Not an Admin; another Trưởng phòng is fine (2026-10-19).
     world.act_as(world.lead)
-    for role in ("ADMIN", "TEAM_LEAD"):
-        refused = world.client.post(
-            "/api/pr/members", json={"telegram_user_id": 900100300, "role": role}
-        )
-        assert refused.status_code == 403, role
+    refused = world.client.post(
+        "/api/pr/members", json={"telegram_user_id": 900100300, "role": "ADMIN"}
+    )
+    assert refused.status_code == 403
+    second_head = world.client.post(
+        "/api/pr/members", json={"telegram_user_id": 900100301, "role": "TEAM_LEAD"}
+    )
+    assert second_head.status_code == 201, second_head.json()
     # Brings an existing account into PR.
     outsider = await person(world, "Người ngoài PR")
     tagged = world.client.post(
         "/api/units/PR/members", json={"user_id": str(outsider.id), "role": "MEMBER"}
     )
     assert tagged.status_code in (200, 201), tagged.json()
-    # The system half stays the OWNER's / ADMIN's.
-    refused = world.client.post(
+    # A PR member's role is theirs to change (within the department's two);
+    # a system account's is not.
+    changed = world.client.post(
         f"/api/pr/members/{world.member.id}/role", json={"role": "TEAM_LEAD"}
     )
+    assert changed.status_code == 200, changed.json()
+    refused = world.client.post(f"/api/pr/members/{world.owner.id}/role", json={"role": "EMPLOYEE"})
     assert refused.status_code == 403
-    refused = world.client.post(f"/api/pr/members/{world.member.id}/deactivate", json={})
-    assert refused.status_code == 403
+    paused = world.client.post(f"/api/pr/members/{world.member.id}/deactivate", json={})
+    assert paused.status_code == 200 and paused.json()["status"] == "suspended"
     # A plain member sees none of it.
     world.act_as(world.member)
     assert world.client.get("/api/pr/members").status_code == 403

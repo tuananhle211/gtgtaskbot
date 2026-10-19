@@ -6389,6 +6389,8 @@ export interface Member {
   active_grant_count: number;
   /** 0067: the viewer may grant / revoke this person's PR rights. Optional. */
   can_manage_permissions?: boolean;
+  /** The viewer may change this person's role / status / PR membership. Optional. */
+  can_manage_account?: boolean;
   last_status_changed_at: string | null;
   created_at: string | null;
 }

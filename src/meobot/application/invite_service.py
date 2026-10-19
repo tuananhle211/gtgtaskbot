@@ -84,7 +84,7 @@ class InviteForbiddenError(AuthorizationError):
 
     def __init__(self) -> None:
         super().__init__(
-            "Chỉ Trưởng nhóm, Trưởng phòng, Quản trị viên và Chủ sở hữu mới tạo được mã mời.",
+            "Chỉ Trưởng phòng, Quản trị viên và Chủ sở hữu mới tạo được mã mời.",
             details={"reason": self.code},
         )
 

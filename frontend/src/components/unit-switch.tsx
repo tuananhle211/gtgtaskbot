@@ -64,7 +64,7 @@ export function UntaggedState({ title }: { title: string }) {
         className="panel flex flex-col items-start gap-2 p-6"
       >
         <p className="text-base font-semibold">
-          Tài khoản chưa được gắn luồng. Trưởng nhóm sẽ gắn luồng cho bạn.
+          Tài khoản chưa thuộc phòng ban nào. Trưởng phòng hoặc quản trị viên sẽ xếp bạn vào phòng.
         </p>
         <p className="text-sm text-[var(--text-muted)]">
           Sau khi được gắn, task và số liệu của luồng sẽ hiện ở đây.

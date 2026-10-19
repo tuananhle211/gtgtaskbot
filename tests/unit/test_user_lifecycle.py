@@ -249,7 +249,7 @@ async def test_a_role_change_is_audited_with_enum_and_label(
     changes = [row for row in entries if row.action == "user.role_changed"]
     assert len(changes) == 1
     assert changes[0].before_data == {"role": "EMPLOYEE", "role_label": "Nhân viên"}
-    assert changes[0].after_data == {"role": "TEAM_LEAD", "role_label": "Trưởng nhóm"}
+    assert changes[0].after_data == {"role": "TEAM_LEAD", "role_label": "Trưởng phòng"}
 
 
 async def test_status_changes_are_audited_with_the_internal_enum(

@@ -477,7 +477,7 @@ COMMANDS: tuple[CommandSpec, ...] = (
         usage="/change_user_role <vai trò> (reply)",
         category=CommandCategory.PEOPLE,
         permission=Permission.USER_ROLE_MANAGE,
-        example="/change_user_role Trưởng nhóm",
+        example="/change_user_role Trưởng phòng",
     ),
     # --- Chat quota -------------------------------------------------------
     CommandSpec(

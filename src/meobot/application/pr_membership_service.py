@@ -68,6 +68,9 @@ from meobot.domain.pr.work import TERMINAL_WORK_STATUSES
 from meobot.domain.pr.work_quota import PrWorkPlanStatus
 from meobot.domain.pr.workflow import TERMINAL_STAGES, TERMINAL_TASK_STATUSES
 
+#: The department's own roles: what the PR head may hand out or act upon.
+MODULE_ROLES = (Role.EMPLOYEE, Role.TEAM_LEAD)
+
 
 @dataclass(frozen=True, slots=True)
 class MemberRow:
@@ -78,6 +81,9 @@ class MemberRow:
     active_grant_count: int = 0
     #: 0067: the viewer may grant / revoke this person's PR rights.
     can_manage_permissions: bool = False
+    #: 2026-10-19: the viewer may change this person's role / status / PR
+    #: membership - by system role, or as the PR head over a PR member.
+    can_manage_account: bool = False
 
     @property
     def is_active(self) -> bool:
@@ -192,6 +198,10 @@ class PrMembershipService:
         self._session = session
         self._capabilities = capabilities
 
+    @property
+    def session(self) -> AsyncSession:
+        return self._session
+
     # --- who may read the roster (0067) --------------------------------------------
     async def may_read(self, actor: Actor) -> bool:
         """``user.read`` by role (OWNER / ADMIN), or ``PR_MEMBERS_VIEW`` through
@@ -208,13 +218,63 @@ class PrMembershipService:
 
     @staticmethod
     def assignable_roles(actor: Actor) -> tuple[Role, ...]:
-        """The roles this actor may hand out when adding somebody: everything
-        assignable for whoever holds ``user.manage``; anybody else (a PR head
-        with ``PR_MEMBERS_MANAGE``, 0067) adds Employees only."""
+        """The roles this actor may hand out: everything assignable for whoever
+        holds ``user.manage``; anybody else (the PR head with
+        ``PR_MEMBERS_MANAGE``) the department's own two - Nhân viên and
+        Trưởng phòng (2026-10-19) - never a system role."""
         roles = tuple(role for role in ASSIGNABLE_ROLES if can_invite_role(actor.role, role))
         if has_permission(actor.role, Permission.USER_MANAGE):
             return roles
-        return tuple(role for role in roles if role is Role.EMPLOYEE)
+        return tuple(role for role in MODULE_ROLES if role in ASSIGNABLE_ROLES)
+
+    async def may_manage_accounts(self, actor: Actor) -> bool:
+        """The screen's flags: the role's ``user.status.manage`` / ``user.role.manage``,
+        or - for somebody below the system roles - ``PR_MEMBERS_MANAGE`` through
+        the layers (the PR head). An ADMIN keeps the system half's rules."""
+        if has_permission(actor.role, Permission.USER_STATUS_MANAGE):
+            return True
+        if actor.role in (Role.OWNER, Role.ADMIN):
+            return False
+        return await self._capabilities.held(actor, PrCapability.PR_MEMBERS_MANAGE)
+
+    async def manages_account(self, actor: Actor, target: User) -> bool:
+        """Whether ``PR_MEMBERS_MANAGE`` lets this actor act on this account
+        (2026-10-19): the actor is below the system roles, the target a PR
+        member in one of the department's roles, and not themselves. The
+        system roles' own rights are checked by ``UserService`` itself."""
+        if actor.role in (Role.OWNER, Role.ADMIN):
+            return False
+        if target.role not in MODULE_ROLES or target.id == actor.user_id:
+            return False
+        if not await self._capabilities.held(actor, PrCapability.PR_MEMBERS_MANAGE):
+            return False
+        return await self._in_pr(target.id)
+
+    async def module_authorises(self, actor: Actor, user_id: uuid.UUID) -> bool:
+        """For the write routes: whether to call ``UserService`` with
+        ``authorized_by_module``. Somebody whose system role already allows
+        the write needs no module authorisation; an unknown account is left to
+        the service's own 404."""
+        if has_permission(actor.role, Permission.USER_STATUS_MANAGE):
+            return False
+        target = await self._session.get(User, user_id)
+        return target is not None and await self.manages_account(actor, target)
+
+    async def _in_pr(self, user_id: uuid.UUID) -> bool:
+        from meobot.db.models.org_unit import OrgUnit, OrgUnitMember
+
+        return bool(
+            await self._session.scalar(
+                select(OrgUnitMember.id)
+                .join(OrgUnit, OrgUnit.id == OrgUnitMember.unit_id)
+                .where(
+                    OrgUnit.code == "PR",
+                    OrgUnitMember.user_id == user_id,
+                    OrgUnitMember.left_at.is_(None),
+                )
+                .limit(1)
+            )
+        )
 
     async def _require_read(self, actor: Actor) -> None:
         if not await self.may_read(actor):
@@ -243,6 +303,7 @@ class PrMembershipService:
         )
         today = on or utcnow().date()
         grant_counts = await self._active_grant_counts(on=today)
+        by_role = has_permission(actor.role, Permission.USER_STATUS_MANAGE)
         listed: list[MemberRow] = []
         for row in rows:
             listed.append(
@@ -250,6 +311,10 @@ class PrMembershipService:
                     user=row,
                     active_grant_count=grant_counts.get(row.id, 0),
                     can_manage_permissions=await self._capabilities.manages(actor, row),
+                    can_manage_account=(
+                        (by_role and actor.role.outranks(row.role))
+                        or await self.manages_account(actor, row)
+                    ),
                 )
             )
         members = tuple(listed)
@@ -267,8 +332,8 @@ class PrMembershipService:
             ),
             may_add=await self.may_add(actor),
             may_tag_pr=await self.may_add(actor),
-            may_change_status=has_permission(actor.role, Permission.USER_STATUS_MANAGE),
-            may_change_role=has_permission(actor.role, Permission.USER_ROLE_MANAGE),
+            may_change_status=await self.may_manage_accounts(actor),
+            may_change_role=await self.may_manage_accounts(actor),
         )
 
     async def member(self, *, actor: Actor, user_id: uuid.UUID) -> MemberRow:
@@ -278,6 +343,13 @@ class PrMembershipService:
         return MemberRow(
             user=user,
             active_grant_count=counts.get(user.id, 0),
+            can_manage_account=(
+                (
+                    has_permission(actor.role, Permission.USER_STATUS_MANAGE)
+                    and actor.role.outranks(user.role)
+                )
+                or await self.manages_account(actor, user)
+            ),
             can_manage_permissions=await self._capabilities.manages(actor, user),
         )
 

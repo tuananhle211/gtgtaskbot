@@ -207,7 +207,7 @@ async def handle_join(
         + formatting.escape(
             f"Bạn đã được thêm vào {', '.join(joined)}."
             if joined
-            else "Trưởng nhóm sẽ gắn luồng cho bạn."
+            else "Trưởng phòng sẽ xếp bạn vào phòng ban."
         )
         + "\n"
         + formatting.escape("Gõ /help để xem những gì bạn làm được."),

@@ -76,7 +76,7 @@ ACCOUNT_NOT_READY = (
 
 MEMBER_CANNOT_TARGET_OTHERS = (
     "TasksBot chỉ đặt lịch nhắc cho chính bạn. Nếu cần nhắc cả nhóm, bạn nhờ "
-    "Trưởng phòng hoặc Trưởng nhóm phụ trách group đó giúp nhé."
+    "Trưởng phòng phụ trách group đó giúp nhé."
 )
 NOT_YOUR_REMINDER = "Lịch nhắc này không phải của bạn."
 NO_SUCH_REMINDER = "TasksBot không tìm thấy lịch nhắc nào như vậy."

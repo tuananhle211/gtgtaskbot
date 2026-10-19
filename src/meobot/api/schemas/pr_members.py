@@ -69,6 +69,9 @@ class MemberResponse(BaseModel):
     active_grant_count: int
     #: 0067: the viewer may grant / revoke this person's PR rights.
     can_manage_permissions: bool = False
+    #: Additive (2026-10-19): the viewer may change this person's role /
+    #: status / PR membership (the PR head over PR members, OWNER / ADMIN by rank).
+    can_manage_account: bool = False
     last_status_changed_at: datetime | None
     created_at: datetime | None
 
@@ -88,6 +91,7 @@ class MemberResponse(BaseModel):
             is_active=row.is_active,
             active_grant_count=row.active_grant_count,
             can_manage_permissions=row.can_manage_permissions,
+            can_manage_account=row.can_manage_account,
             last_status_changed_at=user.last_status_changed_at,
             created_at=user.created_at,
         )

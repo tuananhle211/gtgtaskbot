@@ -495,10 +495,14 @@ function MemberCard({
 
   const isOwner = member.role === "OWNER";
   const live = member.status === "active" || member.status === "suspended";
-  const mayChangeRole = roster.may_change_role && live && !isOwner;
-  const mayDeactivate = roster.may_change_status && member.status === "active" && !isOwner;
-  const mayReactivate = roster.may_change_status && member.status === "suspended";
-  const mayRevoke = roster.may_change_status && live && !isOwner;
+  // The server says per row whom this viewer may act on (the PR head: PR
+  // members only, never a system account); an older API leaves it to the flags.
+  const manageable = member.can_manage_account ?? true;
+  const mayChangeRole = roster.may_change_role && manageable && live && !isOwner;
+  const mayDeactivate =
+    roster.may_change_status && manageable && member.status === "active" && !isOwner;
+  const mayReactivate = roster.may_change_status && manageable && member.status === "suspended";
+  const mayRevoke = roster.may_change_status && manageable && live && !isOwner;
 
   return (
     <li
