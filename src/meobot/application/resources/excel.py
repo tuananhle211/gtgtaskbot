@@ -16,7 +16,8 @@ only when no row has an error (section 6 of the requirement):
 * each sheet is a department (its name or code, matched without diacritics;
   "Người sử dụng" and "Tổng hợp" are skipped); headers on row 5, data from
   row 6; columns are matched by their header text;
-* the pick-list values are matched by name or code, people by full name
+* the pick-list values are matched by name or code, the holder by member
+* code ("Mã NV") alone
   against the active accounts (an unknown or ambiguous name is an error);
 * the month columns (``T10/2026`` …) become the status history - one line
   per filled cell, dated the first of that month - and the last filled one
@@ -42,8 +43,6 @@ from openpyxl import Workbook, load_workbook
 from openpyxl.utils import get_column_letter
 from sqlalchemy import select
 
-from meobot.application.account.member_code import member_code_holder
-from meobot.application.org.departments import seat_person, sync_stream_tags
 from meobot.application.resources.access import ResourceAccess, ResourceValidationError
 from meobot.application.resources.service import (
     FIELD_LABELS,
@@ -58,13 +57,11 @@ from meobot.db.models.department import Department
 from meobot.db.models.resource import Resource, ResourceOption
 from meobot.db.models.user import User
 from meobot.domain.audit.models import AuditAction
-from meobot.domain.identity.models import Actor, Role
-from meobot.domain.org.models import Position
+from meobot.domain.identity.models import Actor
 from meobot.domain.resources.models import (
     DEFAULT_HANDOVER_CODE,
     DEFAULT_STATUS_CODE,
     EMPLOYMENT_STATUS_LABELS,
-    EmploymentStatus,
     OptionKind,
     is_resource_code,
 )
@@ -239,16 +236,6 @@ HEADER_RULES: tuple[tuple[str, str], ...] = (
     # not a department's tab - the tab's name is its department.
     ("ban", "_aggregate"),
 )
-#: The "Người sử dụng" tab's headers (folded) → field.
-PEOPLE_RULES: tuple[tuple[str, str], ...] = (
-    ("stt", "_skip"),
-    ("ma nhan vien", "code"),
-    ("ma nv", "code"),
-    ("ho ten", "name"),
-    ("ban", "department"),
-    ("chuc vu", "position"),
-    ("trang thai", "status"),
-)
 _MONTH = re.compile(r"^(?:t|thang)?\s*(\d{1,2})\s*[/\-.]\s*(\d{4})$")
 OPTION_FIELDS: Mapping[str, OptionKind] = {
     "type": OptionKind.TYPE,
@@ -277,15 +264,6 @@ REQUIRED: tuple[str, ...] = ()
 FALLBACK_TYPE_CODE = "OTHER"
 #: The rows above which a department tab's header is looked for.
 HEADER_SCAN_ROWS = 8
-#: Words in "Chức vụ" that make somebody a head of their department.
-HEAD_WORDS = ("truong", "leader", "head", "quan ly")
-EMPLOYMENT_WORDS: tuple[tuple[str, EmploymentStatus], ...] = (
-    ("nghi viec", EmploymentStatus.LEFT),
-    ("da nghi", EmploymentStatus.LEFT),
-    ("tam nghi", EmploymentStatus.ON_LEAVE),
-    ("chuyen ban", EmploymentStatus.MOVED),
-    ("thu viec", EmploymentStatus.PROBATION),
-)
 
 
 def header_field(text: Any, rules: tuple[tuple[str, str], ...] = HEADER_RULES) -> str | None:
@@ -351,27 +329,10 @@ class ImportRow:
     warnings: list[str] = field(default_factory=list)
     #: Pick-list entries this row needs that do not exist: ``(kind, text)``.
     missing_options: list[tuple[OptionKind, str]] = field(default_factory=list)
-    #: People this row names that have no account: ``(field, name, member code)``.
-    missing_people: list[tuple[str, str, str | None]] = field(default_factory=list)
 
     @property
     def ok(self) -> bool:
         return not self.errors
-
-
-@dataclass(slots=True)
-class PersonRow:
-    """One line of the "Người sử dụng" tab."""
-
-    row_no: int
-    name: str
-    code: str | None
-    department: Department | None
-    department_text: str
-    position: Position
-    status: EmploymentStatus
-    #: The account it matched, if any.
-    user_id: uuid.UUID | None = None
 
 
 @dataclass(slots=True)
@@ -388,7 +349,6 @@ class SheetSummary:
 class ImportPreview:
     sheets: list[SheetSummary]
     rows: list[ImportRow]
-    people: list[PersonRow] = field(default_factory=list)
     #: Template rows left out: pre-numbered lines with a code and nothing else.
     skipped_rows: int = 0
 
@@ -408,21 +368,6 @@ class ImportPreview:
                 found.setdefault((kind, fold(text)), (kind, text))
         return list(found.values())
 
-    @property
-    def missing_people(self) -> list[tuple[str, str | None]]:
-        """``(name, member code)`` for every person with a member code the
-        system lacks (people without a code are never created: names are
-        not a key)."""
-        found: dict[str, tuple[str, str | None]] = {}
-        for person in self.people:
-            if person.user_id is None and person.code:
-                found.setdefault(person.code, (person.name, person.code))
-        for row in self.rows:
-            for _field, name, code in row.missing_people:
-                if code:
-                    found.setdefault(code, (name, code))
-        return list(found.values())
-
 
 @dataclass(frozen=True, slots=True)
 class ImportContext:
@@ -432,13 +377,9 @@ class ImportContext:
     #: ``(type option id, folded external id)`` already in the database.
     taken_ids: frozenset[tuple[uuid.UUID, str]]
     taken_codes: frozenset[str]
-    #: Whether missing pick-list entries / accounts will be created on commit:
-    #: the preview then warns instead of refusing.
+    #: Whether missing pick-list entries will be created on commit: the
+    #: preview then warns instead of refusing.
     create_options: bool = False
-    create_people: bool = False
-    #: Whether the importer may give a new account a member code (OWNER /
-    #: ADMIN, 0068): without it an unknown "Mã NV" cannot be created.
-    gives_codes: bool = False
 
 
 def decode_upload(data: str) -> bytes:
@@ -466,20 +407,13 @@ def parse_workbook(raw: bytes, context: ImportContext) -> ImportPreview:
         ) from error
     sheets: list[SheetSummary] = []
     rows: list[ImportRow] = []
-    people: list[PersonRow] = []
     seen_ids: dict[tuple[uuid.UUID, str], ImportRow] = {}
     seen_codes: dict[str, ImportRow] = {}
     skipped_rows = 0
     for sheet in book.worksheets:
-        found_people = _find_header(sheet, PEOPLE_RULES, ("name", "department"))
-        if found_people is not None and fold(sheet.title) in SKIPPED_SHEETS:
-            people.extend(_read_people(sheet, found_people[0], found_people[1], context))
-            sheets.append(
-                SheetSummary(
-                    name=sheet.title, department=None, rows=len(people), errors=0, skipped=True
-                )
-            )
-            continue
+        # The "Người sử dụng" tab (and any other non-inventory sheet) has no
+        # Loại / ID / Tên header: it is listed as skipped. People are never
+        # read from the file - the one link to an account is "Mã NV".
         found = _find_header(sheet, HEADER_RULES, ("type", "external_id", "name"))
         if found is None:
             sheets.append(
@@ -520,7 +454,7 @@ def parse_workbook(raw: bytes, context: ImportContext) -> ImportPreview:
         )
         rows.extend(parsed)
     book.close()
-    return ImportPreview(sheets=sheets, rows=rows, people=people, skipped_rows=skipped_rows)
+    return ImportPreview(sheets=sheets, rows=rows, skipped_rows=skipped_rows)
 
 
 def _is_template_row(row: ImportRow) -> bool:
@@ -549,49 +483,6 @@ def _match_department(title: str, departments: Sequence[Department]) -> Departme
     return partial[0] if len(partial) == 1 else None
 
 
-def _read_people(
-    sheet: Any, header_row: int, columns: Mapping[int, str], context: ImportContext
-) -> list[PersonRow]:
-    found: list[PersonRow] = []
-    for row_no, cells in enumerate(
-        sheet.iter_rows(min_row=header_row + 1, values_only=True), start=header_row + 1
-    ):
-        texts = {
-            key: cell_text(cells[index] if index < len(cells) else None)
-            for index, key in columns.items()
-        }
-        name = " ".join(texts.get("name", "").split())
-        if not name:
-            continue
-        position_text = fold(texts.get("position", ""))
-        status = EmploymentStatus.WORKING
-        status_text = fold(texts.get("status", ""))
-        for word, value in EMPLOYMENT_WORDS:
-            if word in status_text:
-                status = value
-                break
-        code = texts.get("code") or None
-        person = PersonRow(
-            row_no=row_no,
-            name=name,
-            code=normalise_member_code(code) if code else None,
-            department=_match_department(texts.get("department", ""), context.departments)
-            if texts.get("department")
-            else None,
-            department_text=texts.get("department", ""),
-            position=Position.HEAD
-            if any(word in position_text for word in HEAD_WORDS)
-            else Position.MEMBER,
-            status=status,
-        )
-        if person.code:
-            match = _person_by_code(context, person.code)
-            if match is not None:
-                person.user_id = match.id
-        found.append(person)
-    return found
-
-
 def _person_by_code(context: ImportContext, code: str) -> User | None:
     """The account whose member code ("Mã thành viên") is ``code``: the one
     link between the file and the people (2026-10-19; names are not used)."""
@@ -617,34 +508,28 @@ def _person_by_name(context: ImportContext, name: str) -> User | str | None:
 
 
 def _match_holder(row: ImportRow, context: ImportContext) -> None:
-    """ "Người được bàn giao" is matched by "Mã NV" alone: the name column
-    is informative only. No code = nobody (the resource sits with Phòng Tài
-    nguyên), with a warning; an unknown code = an error, unless accounts
-    are to be created by somebody who may give codes."""
+    """ "Người được bàn giao" is matched by "Mã NV" alone (2026-10-19): the
+    name column is informative only. No code, or a code no account carries
+    = nobody: the resource comes in unassigned (it sits with Phòng Tài
+    nguyên) with a warning, and no account is ever created from the file -
+    the OWNER / ADMIN gives member codes on the members screen, then the
+    resource is handed over there."""
     code = normalise_member_code(row.raw.get("holder_code") or None)
     name = " ".join(row.raw.get("holder", "").split())
     if code is None:
         if name:
             row.warnings.append(
-                f"Không có Mã NV: bỏ qua người giữ '{name}' (tài nguyên để ở Phòng Tài nguyên)."
+                f"Không có Mã NV: bỏ qua người giữ '{name}' (tài nguyên chưa gắn với ai)."
             )
         return
     match = _person_by_code(context, code)
     if match is not None:
         row.values["holder_user_id"] = match.id
         return
-    row.missing_people.append(("holder", name, code))
-    if not context.create_people:
-        row.errors.append(f"Mã NV '{code}' không khớp mã thành viên nào.")
-    elif not name:
-        row.errors.append(f"Mã NV '{code}' chưa có tài khoản và dòng không có tên để tạo.")
-    elif not context.gives_codes:
-        row.errors.append(
-            f"Mã NV '{code}' chưa có tài khoản: chỉ Chủ sở hữu / Quản trị viên mới tạo được "
-            "tài khoản kèm mã thành viên."
-        )
-    else:
-        row.warnings.append(f"Mã NV '{code}' chưa có tài khoản: sẽ tạo '{name}' với mã này.")
+    row.warnings.append(
+        f"Mã NV '{code}' chưa có trong hệ thống: tài nguyên chưa gắn với ai"
+        + (f" (file ghi '{name}')." if name else ".")
+    )
 
 
 def _read_row(
@@ -845,13 +730,7 @@ class ResourceImportService:
         self._service = service
         self._session = service.session
 
-    async def context(
-        self,
-        *,
-        create_options: bool = False,
-        create_people: bool = False,
-        gives_codes: bool = False,
-    ) -> ImportContext:
+    async def context(self, *, create_options: bool = False) -> ImportContext:
         departments = (
             await self._session.scalars(
                 select(Department)
@@ -878,8 +757,6 @@ class ResourceImportService:
             ),
             taken_codes=frozenset(code for _type_id, _external_id, code in taken),
             create_options=create_options,
-            create_people=create_people,
-            gives_codes=gives_codes,
         )
 
     async def preview(
@@ -887,19 +764,12 @@ class ResourceImportService:
         access: ResourceAccess,
         data: str,
         *,
-        actor: Actor | None = None,
         create_options: bool = False,
-        create_people: bool = False,
     ) -> ImportPreview:
         access.require("import_excel")
         await self._service.ensure_seed_options()
         return parse_workbook(
-            decode_upload(data),
-            await self.context(
-                create_options=create_options,
-                create_people=create_people,
-                gives_codes=_gives_codes(actor),
-            ),
+            decode_upload(data), await self.context(create_options=create_options)
         )
 
     async def commit(
@@ -910,22 +780,14 @@ class ResourceImportService:
         request_id: uuid.UUID,
         data: str,
         create_options: bool = False,
-        create_people: bool = False,
     ) -> ImportPreview:
         """Write every row - only when none has an error (422 ``import_has_errors``).
-        With ``create_options`` / ``create_people`` the missing pick-list
-        entries and accounts are created first (and the file read again)."""
+        With ``create_options`` the missing pick-list entries are created
+        first (and the file read again)."""
         access.require("import_excel")
         raw = decode_upload(data)
         await self._service.ensure_seed_options()
-        preview = parse_workbook(
-            raw,
-            await self.context(
-                create_options=create_options,
-                create_people=create_people,
-                gives_codes=_gives_codes(actor),
-            ),
-        )
+        preview = parse_workbook(raw, await self.context(create_options=create_options))
         if preview.error_count or not preview.rows:
             raise ResourceValidationError(
                 "File còn dòng lỗi (hoặc không có dòng nào). Sửa trong file rồi tải lại."
@@ -937,20 +799,17 @@ class ResourceImportService:
                 },
             )
         created_options = 0
-        created_people = 0
         if create_options:
             for kind, text in preview.missing_options:
                 await self._service.create_option(
                     access=access, actor=actor, request_id=request_id, kind=kind, name=text
                 )
                 created_options += 1
-        if create_people:
-            created_people = await self._create_people(actor, preview)
-        if created_options or created_people:
+        if created_options:
             preview = parse_workbook(raw, await self.context())
             if preview.error_count:
                 raise ResourceValidationError(
-                    "File còn dòng lỗi sau khi tạo lựa chọn / tài khoản. Tải lại để xem.",
+                    "File còn dòng lỗi sau khi tạo lựa chọn. Tải lại để xem.",
                     details={"reason": "import_has_errors", "errors": preview.error_count},
                 )
         now = utcnow()
@@ -993,56 +852,9 @@ class ResourceImportService:
                 "rows": len(preview.rows),
                 "sheets": [sheet.name for sheet in preview.sheets if not sheet.skipped],
                 "created_options": created_options,
-                "created_people": created_people,
             },
         )
         return preview
-
-    async def _create_people(self, actor: Actor, preview: ImportPreview) -> int:
-        """Accounts for the member codes the file carries and the system
-        lacks: an Employee with that code and the file's name, seated in
-        their department ("Người sử dụng" tab: Ban, Chức vụ, Trạng thái);
-        a code met only on a resource row gets an account with no seat."""
-        by_code: dict[str, PersonRow] = {
-            person.code: person
-            for person in preview.people
-            if person.user_id is None and person.code
-        }
-        created = 0
-        seated: list[uuid.UUID] = []
-        # 0068: a member code is the OWNER's / ADMIN's to give, and one per
-        # person: the preview refuses anybody else's unknown codes, and a
-        # code another account carries meanwhile is left off.
-        if not _gives_codes(actor):
-            return 0
-        for name, code in preview.missing_people:
-            wanted = normalise_member_code(code)
-            if wanted is None:
-                continue
-            if await member_code_holder(self._session, wanted) is not None:
-                wanted = None
-            person = by_code.get(code or "")
-            user = User(
-                full_name=name.title() if name.isupper() else name,
-                role=Role.EMPLOYEE,
-                member_code=wanted,
-                employment_status=person.status if person else EmploymentStatus.WORKING,
-                added_by_user_id=actor.user_id,
-            )
-            self._session.add(user)
-            await self._session.flush()
-            created += 1
-            if person is not None and person.department is not None:
-                await seat_person(self._session, person.department.id, user.id, person.position)
-                seated.append(user.id)
-        if seated:
-            await sync_stream_tags(self._session, seated)
-        return created
-
-
-def _gives_codes(actor: Actor | None) -> bool:
-    """Whether this importer may give a new account a member code (0068)."""
-    return actor is not None and actor.role in (Role.OWNER, Role.ADMIN)
 
 
 def _month_start(month: str) -> datetime:
@@ -1059,7 +871,6 @@ __all__ = [
     "ImportContext",
     "ImportPreview",
     "ImportRow",
-    "PersonRow",
     "ResourceImportService",
     "SheetSummary",
     "cell_text",

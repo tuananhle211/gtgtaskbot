@@ -185,6 +185,51 @@ def _design_state(state: str) -> ColumnElement[bool] | None:
     return conditions.get(state)
 
 
+def _task_state(state: str) -> ColumnElement[bool] | None:
+    """Where the whole order stands, as a condition on ``orders`` - the SQL
+    side of the ORD table's "Trạng thái task" filter (2026-10-19,
+    :data:`~meobot.domain.board.models.TASK_STATES`). The step states read
+    the node the order is at (the production stages carry its type).
+    ``None`` = unknown."""
+    if state == "CHO_DUYET":
+        return or_(
+            Order.stage.in_(sorted(ADS_PENDING_REVIEW)),
+            _at_active_node(_design_state(STATE_CHO_DUYET)),
+        )
+    if state == "ORDER_RETURNED":
+        return Order.stage == OrderStage.ORDER_RETURNED
+    if state == "HOAN_THANH":
+        return Order.stage == OrderStage.COMPLETED
+    if state == "DA_HUY":
+        return Order.stage == OrderStage.CANCELLED
+    condition = _design_state(state)
+    return None if condition is None else _at_active_node(condition)
+
+
+def _at_active_node(condition: ColumnElement[bool] | None) -> ColumnElement[bool]:
+    """``condition`` holds on the production node the order is at."""
+    if condition is None:
+        return Order.id.is_(None)
+    return exists(
+        select(OrderNode.id).where(
+            OrderNode.order_id == Order.id,
+            or_(
+                *[
+                    and_(
+                        Order.stage == OrderStage(node_type.value), OrderNode.node_type == node_type
+                    )
+                    for node_type in (
+                        OrderNodeType.BIEN_TAP,
+                        OrderNodeType.THIET_KE,
+                        OrderNodeType.DUNG,
+                    )
+                ]
+            ),
+            condition,
+        )
+    )
+
+
 def awaiting_acceptance(node: OrderNode) -> bool:
     """Handed to somebody who has not pressed "Nhận việc" yet."""
     return (
@@ -423,7 +468,13 @@ class PrBoardSource:
             local = ensure_utc(item.planned_publish_at).astimezone(self._settings.timezone)
             extras.append(("Lịch đăng", local.strftime("%d/%m")))
 
-        def cell(key: str, phases: tuple[Phase, ...], person: str | None, label: str) -> TaskCell:
+        def cell(
+            key: str,
+            phases: tuple[Phase, ...],
+            person: str | None,
+            label: str,
+            person_id: uuid.UUID | None = None,
+        ) -> TaskCell:
             """One column over one or more phases (2026-10-19: the two review
             phases fold into the phase they review - a script review is still
             the order's column, an internal review the production's - so the
@@ -435,6 +486,7 @@ class PrBoardSource:
                 key=key,
                 label=PHASE_LABELS[first],
                 person_name=person,
+                person_user_id=person_id if person else None,
                 status="DONE" if reached and not current else ("CURRENT" if current else "PENDING"),
                 status_label=label if current else ("Xong" if reached else "Chưa tới"),
                 is_current=current,
@@ -479,12 +531,14 @@ class PrBoardSource:
                 (Phase.ORDER, Phase.REVIEW),
                 reviewer_name if phase is Phase.REVIEW else owner,
                 status_label,
+                holder.user_id if phase is Phase.REVIEW else item.owner_user_id,
             ),
             cell(
                 "PRODUCTION",
                 (Phase.PRODUCTION, Phase.FINAL_REVIEW),
                 reviewer_name if phase is Phase.FINAL_REVIEW else producer,
                 status_label,
+                holder.user_id if phase is Phase.FINAL_REVIEW else item.producer_user_id,
             ),
             cell("DONE", (Phase.DONE,), None, status_label),
         )
@@ -599,6 +653,9 @@ class AdsBoardSource:
                 statement = statement.where(Order.stage == OrderStage(query.status))
             except ValueError:
                 statement = statement.where(Order.id.is_(None))
+        if query.state:
+            condition = _task_state(query.state.strip().upper())
+            statement = statement.where(Order.id.is_(None) if condition is None else condition)
         if query.owner_user_id is not None:
             statement = statement.where(Order.owner_user_id == query.owner_user_id)
         if query.assignee_user_id is not None:
@@ -989,6 +1046,9 @@ class AdsBoardSource:
                     key=node_type.value,
                     label=node_type_label(node_type),
                     person_name=self._cell_person(node, names, approvers, order.video_type),
+                    person_user_id=node.assignee_user_id
+                    if node.assignee_user_id in names
+                    else None,
                     status=cell_state,
                     status_label=label,
                     is_current=node.status in ACTIVE_NODE_STATUSES,
@@ -1147,6 +1207,7 @@ class AdsBoardSource:
                 key="FINAL",
                 label="Duyệt final",
                 person_name=orderer.name,
+                person_user_id=orderer.user_id,
                 status=STATE_CHO_DUYET,
                 status_label=waiting_for(orderer, "duyệt final"),
                 is_current=True,
@@ -1157,6 +1218,7 @@ class AdsBoardSource:
                 key="FINAL",
                 label="Duyệt final",
                 person_name=orderer.name,
+                person_user_id=orderer.user_id,
                 status=OrderNodeStatus.HOAN_THANH.value,
                 status_label=node_status_label(OrderNodeStatus.HOAN_THANH),
                 is_current=False,
@@ -1166,6 +1228,7 @@ class AdsBoardSource:
             key="FINAL",
             label="Duyệt final",
             person_name=orderer.name,
+            person_user_id=orderer.user_id,
             status=OrderNodeStatus.CHUA_TOI.value,
             status_label=node_status_label(OrderNodeStatus.CHUA_TOI),
             is_current=False,

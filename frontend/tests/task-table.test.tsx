@@ -572,6 +572,132 @@ describe("the step's actions on a row", () => {
 
 // --- 3. Clicking a row ---------------------------------------------------------------
 
+describe('the ORD table\'s filters (2026-10-19)', () => {
+  const member = (user_id: string, full_name: string, role: string) => ({
+    user_id,
+    full_name,
+    base_role: "EMPLOYEE",
+    base_role_label: "Nhân viên",
+    role,
+    role_label: role,
+    is_lead: false,
+    member_code: null,
+    personal_nas_url: null,
+    joined_at: "2026-01-01T00:00:00Z",
+    left_at: null,
+    active: true,
+  });
+  const optionTexts = (select: HTMLElement) =>
+    within(select)
+      .getAllByRole("option")
+      .map((option) => option.textContent);
+  const seat = (department_id: string, name: string) => ({
+    department_id,
+    code: name.slice(0, 2).toUpperCase(),
+    name,
+    position: "MEMBER",
+  });
+  const roster = [
+    { ...member("u-my", "Diễm My", "THIET_KE"), departments: [seat("d-tk", "Thiết Kế")] },
+    { ...member("u-ha", "Hà Biên Kịch", "BIEN_TAP"), departments: [seat("d-bt", "Biên Tập")] },
+    { ...member("u-nhu", "Quỳnh Như", "DUNG"), departments: [seat("d-d", "Media Dựng")] },
+  ];
+  const page = (me: unknown, extra: Routes = []) =>
+    tasksPage(me, [row({ n: 1 })], [
+      {
+        match: "/api/units/ADS/members",
+        body: { unit: "ADS", unit_label: "ORD", members: roster, assignable_roles: [] },
+      },
+      ...extra,
+    ]);
+  const listRequests = (stub: unknown) =>
+    calls(stub)
+      .filter((call) => call.url.includes("/api/board/tasks"))
+      .map((call) => new URL(call.url, "http://x").searchParams);
+
+  it('offers "Trạng thái task" from the server\'s list, sends state and drops it with "Xoá lọc"', async () => {
+    const stub = page(ME_AS("ORDERER"), [
+      {
+        match: "/api/board/tasks",
+        body: {
+          ...PAGE([row({ n: 1 })]),
+          task_states: [
+            { value: "CHO_DUYET", label: "Chờ duyệt" },
+            { value: "DANG_LAM", label: "Đang làm" },
+          ],
+        },
+      },
+    ]);
+    await screen.findByRole("link", { name: "TUAN-BT-261012-01" });
+    const state = screen.getByRole("combobox", { name: "Trạng thái task" });
+    await waitFor(() => expect(optionTexts(state)).toEqual(["Tất cả", "Chờ duyệt", "Đang làm"]));
+    for (const gone of ["Quy trình", "Loại video", "Marketing"]) {
+      expect(screen.queryByRole("combobox", { name: gone })).not.toBeInTheDocument();
+    }
+    expect(calls(stub).some((call) => call.url.includes("video-kinds"))).toBe(false);
+    await userEvent.selectOptions(state, "DANG_LAM");
+    expect(SEARCH.value.get("state")).toBe("DANG_LAM");
+    await waitFor(() => expect(listRequests(stub).at(-1)!.get("state")).toBe("DANG_LAM"));
+    expect(screen.getByRole("button", { name: "Xoá lọc (1)" })).toBeInTheDocument();
+    await userEvent.click(screen.getByRole("button", { name: /Xoá lọc/ }));
+    expect(SEARCH.value.get("state")).toBeNull();
+  });
+
+  it('narrows "Người làm" to the chosen "Phòng ban", and drops a person outside it', async () => {
+    SEARCH.value = new URLSearchParams("assignee=u-ha");
+    const stub = page(ME_AS("ORDERER"));
+    await screen.findByRole("link", { name: "TUAN-BT-261012-01" });
+    const department = screen.getByRole("combobox", { name: "Phòng ban" });
+    await waitFor(() =>
+      expect(optionTexts(department)).toEqual(["Tất cả phòng", "Thiết Kế", "Biên Tập", "Media Dựng"]),
+    );
+    expect(optionTexts(screen.getByRole("combobox", { name: "Người làm" }))).toEqual([
+      "Tất cả",
+      "Diễm My",
+      "Hà Biên Kịch",
+      "Quỳnh Như",
+    ]);
+    await userEvent.selectOptions(department, "d-tk");
+    expect(SEARCH.value.get("dept")).toBe("d-tk");
+    // Hà is in Biên Tập, not Thiết Kế: the person filter is cleared.
+    expect(SEARCH.value.get("assignee")).toBeNull();
+    await waitFor(() =>
+      expect(optionTexts(screen.getByRole("combobox", { name: "Người làm" }))).toEqual([
+        "Tất cả",
+        "Diễm My",
+      ]),
+    );
+    await userEvent.selectOptions(screen.getByRole("combobox", { name: "Người làm" }), "u-my");
+    await waitFor(() => expect(listRequests(stub).at(-1)!.get("assignee")).toBe("u-my"));
+    // The department alone is never sent: it only narrows the list.
+    expect(listRequests(stub).at(-1)!.get("dept")).toBeNull();
+    expect(screen.getByRole("button", { name: "Xoá lọc (2)" })).toBeInTheDocument();
+  });
+
+  it("links a name to the profile page for whoever may open one, and not for the rest", async () => {
+    page({ ...ME_AS("ORDERER"), can_view_profiles: true });
+    const line = (await screen.findByRole("link", { name: "TUAN-BT-261012-01" })).closest("tr")!;
+    expect(within(line).getByRole("link", { name: "Tuấn" })).toHaveAttribute("href", "/people/u-owner");
+    // A cell's person links too once the server names the account.
+    expect(within(line).queryByRole("link", { name: "Diễm My" })).not.toBeInTheDocument();
+  });
+
+  it("draws plain names for a member, who may open nobody's page", async () => {
+    page(ME_AS("ORDERER"));
+    const line = (await screen.findByRole("link", { name: "TUAN-BT-261012-01" })).closest("tr")!;
+    expect(within(line).queryByRole("link", { name: "Tuấn" })).not.toBeInTheDocument();
+    expect(within(line).getByText("Tuấn")).toBeInTheDocument();
+  });
+
+  it("a cell's person links to their page once the row carries their id", async () => {
+    tasksPage({ ...ME_AS("ORDERER"), can_view_profiles: true }, [
+      row({ n: 1, cells: [{ ...ROW.cells[0], person_user_id: "u-my" }] }),
+    ]);
+    const line = (await screen.findByRole("link", { name: "TUAN-BT-261012-01" })).closest("tr")!;
+    expect(within(line).getByRole("link", { name: "Diễm My" })).toHaveAttribute("href", "/people/u-my");
+  });
+});
+
 describe("a click on a row", () => {
   it("opens the task from anywhere that is not a control", async () => {
     tasksPage(ME_AS("THIET_KE", DESIGNER), [row({ n: 1, actions: ["SUBMIT_WORK"] })]);

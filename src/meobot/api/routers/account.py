@@ -268,6 +268,31 @@ async def members(
     )
 
 
+@router.get(
+    "/members/{user_id}/profile",
+    response_model=MemberRowResponse,
+    responses={403: {"model": ErrorEnvelope, "description": "account_profile_forbidden."}},
+)
+async def member_profile(
+    user_id: uuid.UUID,
+    actor: CurrentActorDep,
+    membership: UnitMembershipDep,
+    accounts: AccountServiceDep,
+    settings: SettingsDep,
+    month: str | None = Query(default=None, max_length=7),
+) -> MemberRowResponse:
+    """One person's page (2026-10-19): their card and the month's figures.
+    The OWNER / ADMIN open anyone's, a department head their own
+    department's people, everybody their own; else 403."""
+    view = await accounts.profile(
+        actor=actor,
+        membership=membership,
+        user_id=user_id,
+        month=resolve_month(month, tz=settings.timezone),
+    )
+    return MemberRowResponse.from_view(view)
+
+
 @router.post(
     "/members/{user_id}/reset-password",
     status_code=status.HTTP_204_NO_CONTENT,

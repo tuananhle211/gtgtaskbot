@@ -645,6 +645,23 @@ async def head_team(session: AsyncSession, head_id: uuid.UUID) -> frozenset[uuid
     return frozenset(team)
 
 
+async def department_people(session: AsyncSession, head_id: uuid.UUID) -> frozenset[uuid.UUID]:
+    """Everybody seated in a department ``head_id`` heads (2026-10-19) - heads
+    and members alike, whoever they report to. What a Trưởng phòng may open
+    the profile of ("Trưởng phòng xem được nhân viên của toàn phòng mình")."""
+    everyone = await load_seats(session)
+    mine = {
+        seat.department_id for seat in everyone.get(head_id, ()) if seat.position is Position.HEAD
+    }
+    if not mine:
+        return frozenset()
+    return frozenset(
+        user_id
+        for user_id, seats in everyone.items()
+        if any(seat.department_id in mine for seat in seats)
+    )
+
+
 # --- the OWNER's screen ---------------------------------------------------------------
 
 

@@ -405,6 +405,59 @@ async def test_11_the_ads_pha_filter_has_four_steps(world: World) -> None:
     assert tasks(world, unit="ALL")["steps"] == []
 
 
+async def test_11b_the_task_state_filter_reads_the_whole_order(world: World) -> None:
+    """2026-10-19: "Trạng thái task" on the ORD table - the order gates and
+    the step the order is at, in one list; the cells name who holds them."""
+    ads = await ads_world(world)
+    pending = create(world, ads, video_type="D", design_link="https://example.com/d")
+    handed = act(
+        world,
+        ads.head,
+        "/approve",
+        create(world, ads, preassigned={"BIEN_TAP": str(ads.writer.id)}),
+    )
+    routed = act(world, ads.head, "/approve", create(world, ads, video_type="TD"))
+    world.act_as(ads.head)
+
+    page = tasks(world, unit="ADS")
+    assert [item["value"] for item in page["task_states"]] == [
+        "CHO_DUYET",
+        "ORDER_RETURNED",
+        "CHO_PHAN_CONG",
+        "DA_GIAO",
+        "DANG_LAM",
+        "DANG_SUA",
+        "HOAN_THANH",
+        "DA_HUY",
+    ]
+
+    def codes(state: str) -> set[str]:
+        return {row["code"] for row in tasks(world, unit="ADS", state=state)["items"]}
+
+    assert codes("CHO_DUYET") == {pending["order"]["code"]}
+    assert codes("DA_GIAO") == {handed["order"]["code"]}
+    assert codes("cho_phan_cong") == {routed["order"]["code"]}
+    assert codes("DANG_LAM") == set() and codes("HOAN_THANH") == set()
+    bad = world.client.get("/api/board/tasks", params={"unit": "ADS", "state": "NOPE"})
+    assert bad.status_code == 422 and error_reason(bad.json()) == "invalid_task_state"
+    # The writer accepts: "Đang làm" now, "Đã giao" no more.
+    bt = node(handed, "BIEN_TAP")["id"]
+    act(world, ads.writer, f"/nodes/{bt}/accept", handed)
+    world.act_as(ads.head)
+    assert codes("DANG_LAM") == {handed["order"]["code"]} and codes("DA_GIAO") == set()
+    # The person on a cell comes with their account id (the profile link).
+    row = next(
+        item
+        for item in tasks(world, unit="ADS")["items"]
+        if item["code"] == handed["order"]["code"]
+    )
+    cell = next(item for item in row["cells"] if item["key"] == "BIEN_TAP")
+    assert cell["person_user_id"] == str(ads.writer.id)
+    # PR and the merged view: no such filter on offer.
+    world.act_as(world.owner)
+    assert tasks(world, unit="PR")["task_states"] == []
+
+
 async def test_09b_several_people_on_one_step_are_all_named(world: World) -> None:
     """Two heads: the order waits for both by name, never for "Trưởng phòng"."""
     ads = await ads_world(world)

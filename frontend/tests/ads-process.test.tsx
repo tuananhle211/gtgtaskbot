@@ -876,7 +876,7 @@ describe("the video kinds manager", () => {
 });
 
 describe("the task table's Ads filters", () => {
-  it("filters by process code and by video kind", async () => {
+  it('no longer offers "Quy trình" or "Loại video" (2026-10-19), and never asks for the kinds', async () => {
     const fetchMock = stubFetch([
       { match: "/api/units/me", body: ORDERER },
       { match: "/api/units/ADS/members", body: MEMBERS },
@@ -886,37 +886,23 @@ describe("the task table's Ads filters", () => {
         body: { unit: "ADS", items: [], total: 0, limit: 10, offset: 0, phases: [] },
       },
     ]);
-    SEARCH.value = new URLSearchParams("unit=ADS");
+    SEARCH.value = new URLSearchParams("unit=ADS&kind=BD&video_kind_id=" + KIND_SHORT);
     renderWithQuery(<TasksPage />);
-    const process = await screen.findByRole("combobox", { name: "Quy trình" });
-    expect(
-      within(process)
-        .getAllByRole("option")
-        .map((option) => option.textContent),
-    ).toEqual([
-      "Tất cả",
-      "B · Biên kịch",
-      "T · Design",
-      "D · Dựng",
-      "BT · Biên kịch › Design",
-      "BD · Biên kịch › Dựng",
-      "TD · Design › Dựng",
-      "BTD · Biên kịch › Design › Dựng",
-    ]);
-    await userEvent.selectOptions(process, "BD");
-    expect(SEARCH.value.get("kind")).toBe("BD");
-    const kind = await screen.findByRole("combobox", { name: "Loại video" });
-    await userEvent.selectOptions(kind, KIND_SHORT);
-    expect(SEARCH.value.get("video_kind_id")).toBe(KIND_SHORT);
+    expect(await screen.findByRole("combobox", { name: "Trạng thái task" })).toBeInTheDocument();
+    for (const gone of ["Quy trình", "Loại video", "Marketing"]) {
+      expect(screen.queryByRole("combobox", { name: gone })).not.toBeInTheDocument();
+    }
     await waitFor(() =>
-      expect(
-        calls(fetchMock).some(
-          (call) =>
-            call.url.includes("/api/board/tasks") &&
-            call.url.includes(`video_kind_id=${KIND_SHORT}`) &&
-            call.url.includes("kind=BD"),
-        ),
-      ).toBe(true),
+      expect(calls(fetchMock).some((call) => call.url.includes("/api/board/tasks"))).toBe(true),
     );
+    // The old params left on the URL are not sent either.
+    expect(
+      calls(fetchMock).some(
+        (call) =>
+          call.url.includes("/api/board/tasks") &&
+          (call.url.includes("video_kind_id=") || call.url.includes("kind=BD")),
+      ),
+    ).toBe(false);
+    expect(calls(fetchMock).some((call) => call.url.includes("video-kinds"))).toBe(false);
   });
 });

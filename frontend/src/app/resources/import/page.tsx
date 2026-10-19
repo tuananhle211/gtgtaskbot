@@ -26,9 +26,8 @@ export default function ImportPage() {
   const [preview, setPreview] = useState<ResourceImportPreview | null>(null);
   // What the file needs and the system lacks may be created on the way in.
   const [createOptions, setCreateOptions] = useState(true);
-  const [createPeople, setCreatePeople] = useState(true);
   const read = useMutation({
-    mutationFn: (body: { filename: string; data: string; create_options: boolean; create_people: boolean }) =>
+    mutationFn: (body: { filename: string; data: string; create_options: boolean }) =>
       api.resourceImportPreview(body),
     onSuccess: setPreview,
   });
@@ -38,7 +37,6 @@ export default function ImportPage() {
         filename: file?.name ?? "",
         data: file?.data ?? "",
         create_options: createOptions,
-        create_people: createPeople,
       }),
     onSuccess: (result) => {
       setPreview(result);
@@ -59,7 +57,7 @@ export default function ImportPage() {
       const result = String(reader.result ?? "");
       const data = result.slice(result.indexOf(",") + 1);
       setFile({ name: chosen.name, data });
-      read.mutate({ filename: chosen.name, data, create_options: createOptions, create_people: createPeople });
+      read.mutate({ filename: chosen.name, data, create_options: createOptions });
     };
     reader.readAsDataURL(chosen);
   };
@@ -89,29 +87,18 @@ export default function ImportPage() {
               checked={createOptions}
               onChange={(event) => {
                 setCreateOptions(event.target.checked);
-                if (file) read.mutate({ filename: file.name, data: file.data, create_options: event.target.checked, create_people: createPeople });
+                if (file) read.mutate({ filename: file.name, data: file.data, create_options: event.target.checked });
               }}
             />
             Tự thêm lựa chọn còn thiếu (loại, quyền, nguồn gốc…)
-          </label>
-          <label className="inline-flex items-center gap-2">
-            <input
-              type="checkbox"
-              checked={createPeople}
-              onChange={(event) => {
-                setCreatePeople(event.target.checked);
-                if (file) read.mutate({ filename: file.name, data: file.data, create_options: createOptions, create_people: event.target.checked });
-              }}
-            />
-            Tự tạo tài khoản cho người chưa có (theo tab &quot;Người sử dụng&quot;)
           </label>
         </div>
         <ul className="list-disc space-y-1 pl-5 text-xs text-[var(--text-muted)]">
           <li>Tên tab = tên hoặc mã ban (ADS, Biên Tập, Thiết Kế, Media Dựng, PR Thương Hiệu). Tab &quot;Người sử dụng&quot; và &quot;Tổng hợp&quot; được bỏ qua.</li>
           <li>Mã tài nguyên trong file được giữ nguyên; dòng không có mã, hoặc trùng mã với dòng trước trong file, được cấp mã mới.</li>
           <li>Dòng thiếu ID, loại hoặc tên vẫn được nhập: ID = mã tài nguyên, loại tạm là &quot;Khác&quot;, tên tạm ghép từ loại + ID. Bổ sung sau trên màn hình.</li>
-          <li>Người được bàn giao khớp theo cột &quot;Mã NV&quot; = mã thành viên của tài khoản (cột tên chỉ để đọc). Không có Mã NV thì tài nguyên để ở Phòng Tài nguyên; Mã NV chưa có tài khoản là lỗi, trừ khi Chủ sở hữu / Quản trị viên bật &quot;tự tạo tài khoản&quot;. Giá trị danh sách (loại, quyền, trạng thái…) phải có trong Cài đặt.</li>
-          <li>Mã thành viên là duy nhất và chỉ Chủ sở hữu / Quản trị viên mới được nhập: tài khoản tự tạo bởi người khác sẽ chưa có mã; một mã đã có trong hệ thống trỏ về đúng người đó.</li>
+          <li>Người được bàn giao khớp theo cột &quot;Mã NV&quot; = mã thành viên của tài khoản; cột tên chỉ để đọc. Không có Mã NV, hoặc mã chưa có trong hệ thống: tài nguyên vẫn được nhập nhưng chưa gắn với ai (chỉ cảnh báo), không tạo tài khoản mới. Giá trị danh sách (loại, quyền, trạng thái…) phải có trong Cài đặt.</li>
+          <li>Mã thành viên do Chủ sở hữu / Quản trị viên gán ở Quản lý tài khoản; gán xong tải lại file là tài nguyên khớp đúng người.</li>
           <li>Mỗi ô tháng (T10/2026…) có giá trị = một dòng lịch sử trạng thái; ô cuối cùng là trạng thái hiện tại.</li>
           <li>Có lỗi thì sửa trong file rồi tải lại - không sửa trên web.</li>
         </ul>
@@ -184,25 +171,6 @@ export default function ImportPage() {
                 {preview.missing_options?.map((item) => `${item.name} (${item.label})`).join(", ")}
                 {createOptions ? " — sẽ được thêm khi ghi." : " — bật ô tự thêm hoặc thêm ở Cài đặt."}
               </p>
-            ) : null}
-            {(preview.missing_people?.length ?? 0) > 0 ? (
-              <details className="mt-2 text-sm">
-                <summary className="cursor-pointer font-medium">
-                  Người chưa có tài khoản ({preview.missing_people?.length})
-                  {createPeople ? " — sẽ được tạo khi ghi" : " — bật ô tự tạo hoặc thêm thủ công"}
-                </summary>
-                <ul className="mt-1 list-disc pl-5 text-xs text-[var(--text-muted)]">
-                  {preview.missing_people?.map((person) => (
-                    <li key={person.name}>
-                      {person.name}
-                      {person.member_code ? ` · ${person.member_code}` : ""}
-                      {person.department ? ` · ${person.department}` : " · chưa rõ phòng"}
-                      {person.position ? ` · ${person.position}` : ""}
-                      {person.employment_status ? ` · ${person.employment_status}` : ""}
-                    </li>
-                  ))}
-                </ul>
-              </details>
             ) : null}
             {(preview.skipped_rows ?? 0) > 0 ? (
               <p className="mt-2 text-xs text-[var(--text-muted)]">

@@ -813,7 +813,6 @@ async def test_09_export_keeps_ids_as_text_and_import_previews_then_writes(world
     ]
     assert body["error_count"] == 2 and body["ok_count"] == 2
     assert [item["name"] for item in body["missing_options"]] == ["Máy bay"]
-    assert body["missing_people"] == []
     assert (await world.session.scalar(select(Resource).where(Resource.code == "ADS-010"))) is None
     commit = world.client.post("/api/resources/import/commit", json={"data": bad_file})
     assert commit.status_code == 422 and error_reason(commit.json()) == "import_has_errors"
@@ -916,12 +915,10 @@ async def test_09_export_keeps_ids_as_text_and_import_previews_then_writes(world
     assert garbage.status_code == 422 and error_reason(garbage.json()) == "import_file_invalid"
 
 
-async def test_09b_import_gives_member_codes_only_from_the_owner_or_an_admin(
-    world: World,
-) -> None:
-    """0068: an import creates accounts for unknown member codes only when
-    the importer is the OWNER / an ADMIN; a code already carried points at
-    its person, whatever the row calls them."""
+async def test_09b_the_holder_is_matched_by_member_code_alone(world: World) -> None:
+    """2026-10-19: "Mã NV" = the account's member code is the only link. A
+    code the system lacks leaves the resource unassigned with a warning -
+    no account is created from the file, whoever imports."""
     people = await cast(world)
     taken = await person(world, "Người Có Mã")
     world.act_as(world.owner)
@@ -931,43 +928,29 @@ async def test_09b_import_gives_member_codes_only_from_the_owner_or_an_admin(
         ).status_code
         == 200
     )
-
-    file_naming = _with_holder_code
-
-    async def account_of(name: str) -> User:
-        found = await world.session.scalar(select(User).where(User.full_name == name))
-        assert found is not None, name
-        return found
-
-    # The head of Tài nguyên imports: an unknown code cannot become an
-    # account (only the OWNER / an ADMIN gives codes), so the row is refused.
-    world.act_as(people.tn_head)
-    refused = world.client.post(
-        "/api/resources/import/preview",
-        json={"data": file_naming("Nhân Viên Mới", "NVM", "x1"), "create_people": True},
-    ).json()
-    assert refused["error_count"] == 1
-    assert any("chỉ Chủ sở hữu / Quản trị viên" in item for item in refused["rows"][0]["errors"])
+    # Unknown code, even for the OWNER: imported, unassigned, warned - no account.
+    unknown = _with_holder_code("Nhân Viên Mới", "NVM", "x1")
+    preview = world.client.post("/api/resources/import/preview", json={"data": unknown}).json()
+    assert preview["error_count"] == 0 and preview["ok_count"] == 1
+    assert (
+        "Mã NV 'NVM' chưa có trong hệ thống: tài nguyên chưa gắn với ai (file ghi 'Nhân Viên Mới')."
+        in preview["rows"][0]["warnings"]
+    )
+    assert "create_people" not in preview
+    written = world.client.post("/api/resources/import/commit", json={"data": unknown})
+    assert written.status_code == 200, written.json()
     assert await world.session.scalar(select(User).where(User.full_name == "Nhân Viên Mới")) is None
-    # The OWNER imports: the code comes with the account...
-    world.act_as(world.owner)
+    listed = world.client.get("/api/resources", params={"q": "x1"}).json()["items"]
+    assert listed[0]["holder"] is None
+    # A known code names its person, whatever the row calls them - the head
+    # of Tài nguyên importing too.
+    world.act_as(people.tn_head)
     written = world.client.post(
-        "/api/resources/import/commit",
-        json={"data": file_naming("Nhân Viên Hai", "NVH", "x2"), "create_people": True},
+        "/api/resources/import/commit", json={"data": _with_holder_code("Ai Đó", "ncm", "x3")}
     )
     assert written.status_code == 200, written.json()
-    assert (await account_of("Nhân Viên Hai")).member_code == "NVH"
-    # A code somebody already carries names *that* person, whatever the row
-    # calls them: no second account, no second holder of the code.
-    written = world.client.post(
-        "/api/resources/import/commit",
-        json={"data": file_naming("Nhân Viên Ba", "ncm", "x3"), "create_people": True},
-    )
-    assert written.status_code == 200, written.json()
-    assert await world.session.scalar(select(User).where(User.full_name == "Nhân Viên Ba")) is None
     listed = world.client.get("/api/resources", params={"q": "x3"}).json()["items"]
     assert listed[0]["holder"]["full_name"] == "Người Có Mã"
-    assert (await account_of("Người Có Mã")).member_code == "NCM"
 
 
 def _with_holder_code(name: str, code: str, external_id: str) -> str:

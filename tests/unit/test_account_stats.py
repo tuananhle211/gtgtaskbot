@@ -554,3 +554,48 @@ def _core(stats: MemberStats) -> MemberStats:
         performance_score=None,
         output_target=None,
     )
+
+
+async def test_08_who_opens_a_profile_page(world: World) -> None:
+    """2026-10-19: ``GET /api/account/members/{id}/profile`` - the OWNER /
+    ADMIN anyone's, a department head everybody in a department they head
+    (reporting to them or not), everybody their own, nobody else's."""
+    team = await build(world)
+
+    def profile(user: User, **params: str) -> Any:
+        return world.client.get(f"/api/account/members/{user.id}/profile", params=params)
+
+    # OWNER and ADMIN: anyone, with the month asked for.
+    for boss in (world.owner, team.admin):
+        world.act_as(boss)
+        body = profile(team.writer, month="2026-09").json()
+        assert body["full_name"] == "Biên tập B" and body["stats"]["month"] == "2026-09"
+        assert body["departments"] and body["departments"][0]["code"] == "BT"
+    # The PR head (a TEAM_LEAD seated in PR): their department's people -
+    # the member who reports to nobody included - not ORD's.
+    world.act_as(world.lead)
+    assert profile(world.member).status_code == 200
+    assert profile(team.admin).status_code == 200  # tagged PR too
+    refused = profile(team.writer)
+    assert refused.status_code == 403
+    assert refused.json()["error"]["details"]["reason"] == "account_profile_forbidden"
+    assert world.client.get("/api/units/me").json()["can_view_profiles"] is True
+    # The ORD head (a HEAD seat in the ADS department): that department's
+    # people - the orderer, not the Biên Tập department's writer.
+    world.act_as(team.head)
+    assert profile(team.orderer).status_code == 200
+    assert profile(team.writer).status_code == 403
+    assert profile(world.member).status_code == 403
+    # A member: their own page only, and no links drawn for them.
+    world.act_as(team.writer)
+    assert profile(team.writer).status_code == 200
+    assert profile(team.editor).status_code == 403
+    assert profile(team.head).status_code == 403
+    assert world.client.get("/api/units/me").json()["can_view_profiles"] is False
+    # A missing account reads as refused for a member, not found for the OWNER.
+    import uuid as _uuid
+
+    ghost = _uuid.uuid4()
+    assert world.client.get(f"/api/account/members/{ghost}/profile").status_code == 403
+    world.act_as(world.owner)
+    assert world.client.get(f"/api/account/members/{ghost}/profile").status_code == 404

@@ -1363,14 +1363,17 @@ describe("the Design ban's own filters", () => {
     expect(calls(stub).some((call) => call.url.includes("video-kinds"))).toBe(false);
   });
 
-  it("keeps all four for everybody else, and gives them no Design status", async () => {
-    filteredTasksPage(ME_AS("ORDERER", ORDERER));
+  it('keeps "Pha" and "Người làm" for everybody else (2026-10-19: "Quy trình", "Loại video", "Marketing" are gone for them too), and gives them "Trạng thái task" instead of the Design status', async () => {
+    const stub = filteredTasksPage(ME_AS("ORDERER", ORDERER));
     await screen.findByText("Banner khai trương");
-    for (const kept of ["Pha", "Quy trình", "Marketing", "Người làm"]) {
+    for (const kept of ["Pha", "Người làm", "Trạng thái task"]) {
       expect(screen.getByRole("combobox", { name: kept })).toBeInTheDocument();
     }
-    expect(await screen.findByRole("combobox", { name: "Loại video" })).toBeInTheDocument();
+    for (const gone of ["Quy trình", "Loại video", "Marketing"]) {
+      expect(screen.queryByRole("combobox", { name: gone })).not.toBeInTheDocument();
+    }
     expect(screen.queryByRole("combobox", { name: "Trạng thái" })).not.toBeInTheDocument();
+    expect(calls(stub).some((call) => call.url.includes("video-kinds"))).toBe(false);
     // Their "Người làm" is the whole stream.
     expect(optionTexts(screen.getByRole("combobox", { name: "Người làm" }))).toEqual([
       "Tất cả",
@@ -1454,14 +1457,17 @@ describe("the Design ban's own filters", () => {
     expect(screen.getByRole("button", { name: "Xoá lọc (2)" })).toBeInTheDocument();
   });
 
-  it("still sends them for everybody else, and never their design_status", async () => {
-    SEARCH.value = new URLSearchParams("step=DUNG&kind=BT&owner=u-tuan&design_status=DANG_LAM");
+  it('still sends "Pha" and "Trạng thái task" for everybody else, never their design_status nor the removed filters', async () => {
+    SEARCH.value = new URLSearchParams(
+      "step=DUNG&kind=BT&owner=u-tuan&state=DANG_LAM&design_status=DANG_LAM",
+    );
     const stub = filteredTasksPage(ME_AS("ORDERER", ORDERER));
     await screen.findByText("Banner khai trương");
     const first = listRequests(stub)[0];
     expect(first.get("step")).toBe("DUNG");
-    expect(first.get("kind")).toBe("BT");
-    expect(first.get("owner")).toBe("u-tuan");
+    expect(first.get("state")).toBe("DANG_LAM");
+    expect(first.get("kind")).toBeNull();
+    expect(first.get("owner")).toBeNull();
     expect(first.get("design_status")).toBeNull();
   });
 });

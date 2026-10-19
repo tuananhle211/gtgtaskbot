@@ -35,7 +35,7 @@ from meobot.application.account.member_code import write_member_code
 from meobot.application.account.password_reset_service import PasswordResetService
 from meobot.application.account.stats_service import AccountStatsService, MemberStats, Month
 from meobot.application.audit_service import AuditService
-from meobot.application.org.departments import head_team
+from meobot.application.org.departments import department_people, head_team
 from meobot.application.org.seats import load_seats
 from meobot.application.units.directory import manager_fits
 from meobot.application.web_auth_service import WebAuthService
@@ -50,6 +50,7 @@ from meobot.domain.access.models import UserStatus
 from meobot.domain.account.errors import (
     AccountMembersForbiddenError,
     AccountNotFoundError,
+    AccountProfileForbiddenError,
     AccountStatusForbiddenError,
     AccountValidationError,
     MemberCodeForbiddenError,
@@ -300,6 +301,53 @@ class AccountService:
                 for user, units in listed
             ],
         )
+
+    async def profile(
+        self, *, actor: Actor, membership: UnitMembership, user_id: uuid.UUID, month: Month
+    ) -> MemberView:
+        """One person's page (2026-10-19): their card and the month's figures.
+
+        Who may open it: the OWNER / an ADMIN anyone's; a department head
+        everybody seated in a department they head (reporting to them or
+        not); everybody their own. Anybody else is refused (403
+        ``account_profile_forbidden``) - and so is a page they may not see,
+        rather than 404, so a link never says whether the account exists.
+        """
+        if not await self.may_view_profile(actor, membership, user_id):
+            raise AccountProfileForbiddenError()
+        user = await self._session.get(User, user_id)
+        if user is None or user.deleted_at is not None:
+            raise AccountNotFoundError()
+        units = (await self._units_of([user.id])).get(user.id, ())
+        seats = (await load_seats(self._session, [user.id])).get(user.id, ())
+        stats = await self._stats.stats_for_one(user.id, month)
+        avatars = await avatar_urls(self._session, [user.id])
+        now = utcnow()
+        return MemberView(
+            user=user,
+            units=units,
+            role_label=member_role_label(user, units),
+            last_login_at=(await self._last_logins([user.id])).get(user.id),
+            has_custom_password=user.password_hash is not None and not user.password_temporary,
+            password_temporary=bool(user.password_temporary),
+            locked=user.locked_until is not None and ensure_utc(user.locked_until) > now,
+            stats=stats,
+            avatar_url=avatars.get(user.id),
+            seats=seats,
+        )
+
+    async def may_view_profile(
+        self, actor: Actor, membership: UnitMembership, user_id: uuid.UUID
+    ) -> bool:
+        if actor.role in (Role.OWNER, Role.ADMIN):
+            return True
+        if actor.user_id is None:
+            return False
+        if user_id == actor.user_id:
+            return True
+        if not any(seat.position is Position.HEAD for seat in membership.seats):
+            return False
+        return user_id in await department_people(self._session, actor.user_id)
 
     async def _team_of(self, actor: Actor, membership: UnitMembership) -> set[uuid.UUID] | None:
         """The viewer's own ORD team: their Leader (an orderer: head) and

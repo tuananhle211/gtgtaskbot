@@ -387,18 +387,11 @@ async def previous(access: ResourceAccessDep) -> dict[str, str]:
 
 @router.post("/import/preview", response_model=ImportPreviewResponse)
 async def import_preview(
-    body: ImportFileRequest,
-    access: ResourceAccessDep,
-    actor: CurrentActorDep,
-    service: ResourceServiceDep,
+    body: ImportFileRequest, access: ResourceAccessDep, service: ResourceServiceDep
 ) -> ImportPreviewResponse:
     """Step 1: read the file, write nothing, report every row and its errors."""
     preview = await ResourceImportService(service).preview(
-        access,
-        body.data,
-        actor=actor,
-        create_options=body.create_options,
-        create_people=body.create_people,
+        access, body.data, create_options=body.create_options
     )
     return ImportPreviewResponse.from_preview(preview)
 
@@ -419,7 +412,6 @@ async def import_commit(
         request_id=request_id,
         data=body.data,
         create_options=body.create_options,
-        create_people=body.create_people,
     )
     return ImportPreviewResponse.from_preview(preview, written=True)
 

@@ -104,6 +104,9 @@ class TaskCell:
     status: str
     status_label: str
     is_current: bool
+    #: The one account behind ``person_name`` (a link to their profile);
+    #: ``None`` when nobody or several people are named.
+    person_user_id: uuid.UUID | None = None
     #: When this cell last changed hands: activated, submitted or approved.
     since: datetime | None = None
     #: How many times the work in this cell was sent back.
@@ -125,6 +128,22 @@ DESIGN_STATES: MappingProxyType[str, str] = MappingProxyType(
         "CHO_DUYET": "Chờ duyệt",
         "DANG_SUA": "Đang sửa",
         "HOAN_THANH": "Hoàn thành",
+    }
+)
+
+#: The "Trạng thái task" filter of the ORD table (2026-10-19): where the
+#: whole order stands - the order gates and the step it is at, as the row's
+#: ``state`` / status read. Sent as ``?state=``; ``task_states`` in the page.
+TASK_STATES: MappingProxyType[str, str] = MappingProxyType(
+    {
+        "CHO_DUYET": "Chờ duyệt",
+        "ORDER_RETURNED": "Order bị trả lại",
+        "CHO_PHAN_CONG": "Chờ phân công",
+        "DA_GIAO": "Đã giao, chưa nhận",
+        "DANG_LAM": "Đang làm",
+        "DANG_SUA": "Đang sửa",
+        "HOAN_THANH": "Hoàn thành",
+        "DA_HUY": "Đã huỷ",
     }
 )
 
@@ -276,6 +295,8 @@ class BoardQuery:
     #: ORD: where the Design step stands, as the Design team's table shows it
     #: (one of :data:`DESIGN_STATES`).
     design_status: str | None = None
+    #: ORD: where the whole order stands (one of :data:`TASK_STATES`).
+    state: str | None = None
     limit: int = 50
     offset: int = 0
 
@@ -339,6 +360,7 @@ __all__ = [
     "PHASE_LABELS",
     "PHASE_ORDER",
     "PR_STAGE_PHASE",
+    "TASK_STATES",
     "BirthdayView",
     "BoardPage",
     "BoardQuery",

@@ -82,6 +82,17 @@ class AccountValidationError(ValidationError):
         self.code = reason
 
 
+class AccountProfileForbiddenError(AuthorizationError):
+    """Somebody's profile page is not for this viewer (2026-10-19): the
+    OWNER / ADMIN open anyone's, a department head their own department's
+    people, everybody their own. 403."""
+
+    code = "account_profile_forbidden"
+
+    def __init__(self) -> None:
+        super().__init__("Bạn không có quyền xem trang cá nhân này.", details={"reason": self.code})
+
+
 class AccountMembersForbiddenError(AuthorizationError):
     """The member list (or a reset) is not for this person. 403."""
 

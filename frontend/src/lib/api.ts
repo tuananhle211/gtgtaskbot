@@ -3440,6 +3440,12 @@ export interface UnitsMe {
   design?: DesignAccess | null;
   /** What this person may do in "Tài nguyên" (0065). Optional: an older API omits it. */
   resources?: ResourcesAccess | null;
+  /**
+   * May open other people's profile pages (`/people/<id>`, 2026-10-19): the
+   * OWNER / ADMIN, or a head of some department. Names are drawn as links
+   * only then (`PersonLink`). Optional: an older API omits it = no.
+   */
+  can_view_profiles?: boolean;
 }
 
 /**
@@ -3922,6 +3928,8 @@ export interface TaskCell {
   key: string;
   label: string;
   person_name: string | null;
+  /** The one account behind `person_name` (profile link), else null. Optional. */
+  person_user_id?: Uuid | null;
   status: string;
   status_label: string;
   is_current: boolean;
@@ -4026,6 +4034,11 @@ export interface TaskPage {
    * older APIs omit it.
    */
   design_states?: Array<{ value: string; label: string }>;
+  /**
+   * ORD only (2026-10-19): where the whole order can stand, for the
+   * "Trạng thái task" filter (`state`). Optional: older APIs omit it.
+   */
+  task_states?: Array<{ value: string; label: string }>;
 }
 
 export interface BoardFilters {
@@ -4049,6 +4062,8 @@ export interface BoardFilters {
    * `design_states` (an unknown one is a 422).
    */
   design_status?: string;
+  /** ORD (2026-10-19): one of the page's `task_states` ("Trạng thái task"). */
+  state?: string;
   mine?: boolean;
   awaiting_me?: boolean;
   /**
@@ -4709,6 +4724,13 @@ export const api = {
       new_password: next,
     }),
   /** 403 `account_members_forbidden` for somebody who may not see the roster. */
+  /**
+   * One person's page (2026-10-19): their card and the month's figures. The
+   * OWNER / ADMIN open anyone's, a department head their own department's
+   * people, everybody their own; else 403 `account_profile_forbidden`.
+   */
+  memberProfile: (userId: Uuid, month?: string) =>
+    get<MemberRow>(`/api/account/members/${userId}/profile${query({ month })}`),
   accountMembers: (month: string, unit: string, includeInactive = false, team = false) =>
     get<AccountMembers>(
       `/api/account/members${query({
@@ -6780,15 +6802,6 @@ export interface ResourceImportPreview {
   skipped_rows?: number;
   /** Pick-list entries the file uses and the lists lack. Optional. */
   missing_options?: Array<{ kind: string; label: string; name: string }>;
-  /** People the file names who have no account yet. Optional. */
-  missing_people?: Array<{
-    name: string;
-    member_code: string | null;
-    department: string | null;
-    position: string | null;
-    employment_status: string | null;
-    exists: boolean;
-  }>;
   written: boolean;
 }
 
@@ -6875,6 +6888,4 @@ export interface ResourceImportBody {
   data: string;
   /** Add missing pick-list entries (type, role, origin...) instead of refusing the row. */
   create_options?: boolean;
-  /** Create accounts for people the file names who have none (from the "Người sử dụng" tab). */
-  create_people?: boolean;
 }

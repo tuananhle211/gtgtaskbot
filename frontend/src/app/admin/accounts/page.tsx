@@ -1,5 +1,6 @@
 "use client";
 
+import { PersonLink } from "@/components/person-link";
 import { useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
@@ -499,7 +500,7 @@ function AccountRow({
           <Avatar name={row.full_name} src={row.avatar_url} size={36} />
           <div className="min-w-0">
             <p className="truncate font-medium leading-tight">
-              {row.full_name}
+              <PersonLink userId={row.user_id} name={row.full_name} />
             </p>
             <p className="mt-0.5 truncate text-xs text-[var(--text-muted)]">
               {row.role_label} · {String(row.telegram_user_id)}

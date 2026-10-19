@@ -20,7 +20,7 @@ from meobot.application.units.directory import UnitMemberRow
 from meobot.db.models.org_unit import UnitDesignCode, UnitDuration, UnitPlatform, UnitVideoKind
 from meobot.domain.identity.labels import role_label
 from meobot.domain.orders.permissions import ROLE_LABELS, SCOPE_LABELS, catalog, normalise_matrix
-from meobot.domain.org.models import POSITION_LABELS, Seat
+from meobot.domain.org.models import POSITION_LABELS, Position, Seat
 from meobot.domain.units.labels import (
     FUNCTION_TAGS,
     function_tag,
@@ -240,6 +240,10 @@ class UnitMeResponse(BaseModel):
     #: 0065: what this caller may do in the resources module (the nav's
     #: "Tài nguyên" branch follows it).
     resources: ResourceAccessResponse = ResourceAccessResponse()
+    #: 2026-10-19: may open other people's profile pages (``/people/<id>``):
+    #: the OWNER / ADMIN, or a head of some department (their own people).
+    #: Names are drawn as links only for them.
+    can_view_profiles: bool = False
 
     @classmethod
     def from_domain(
@@ -255,7 +259,9 @@ class UnitMeResponse(BaseModel):
         resources: ResourceAccessResponse | None = None,
     ) -> UnitMeResponse:
         entries = sorted(entries, key=lambda entry: stream_rank(entry.code))
+        heads = any(seat.position is Position.HEAD for seat in membership.seats)
         return cls(
+            can_view_profiles=membership.sees_all or heads,
             units=entries,
             default_unit=entries[0].code if entries else None,
             can_view_all=membership.sees_all,

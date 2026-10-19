@@ -9,7 +9,6 @@ import { api, type TaskCell, type TaskRow } from "@/lib/api";
 import { UnitSwitch, UntaggedState } from "@/components/unit-switch";
 import { effortEnabled } from "@/lib/effort";
 import { formatAgo, formatShortDay } from "@/lib/labels";
-import { PROCESS_CODES, processCodeLabel } from "@/lib/ads-process";
 import {
   currentUnit,
   isPlainStaff,
@@ -37,6 +36,7 @@ import {
 } from "@/components/design-cells";
 import { RowActions } from "@/components/task-actions";
 import { TaskBulkBar } from "@/components/task-bulk-bar";
+import { PersonLink } from "@/components/person-link";
 import {
   NO_ROW_NAV,
   Pager,
@@ -70,6 +70,18 @@ export default function TasksPage() {
     </Suspense>
   );
 }
+
+/** ORD's "Trạng thái task" (2026-10-19), until the server's own list arrives. */
+const TASK_STATES = [
+  { value: "CHO_DUYET", label: "Chờ duyệt" },
+  { value: "ORDER_RETURNED", label: "Order bị trả lại" },
+  { value: "CHO_PHAN_CONG", label: "Chờ phân công" },
+  { value: "DA_GIAO", label: "Đã giao, chưa nhận" },
+  { value: "DANG_LAM", label: "Đang làm" },
+  { value: "DANG_SUA", label: "Đang sửa" },
+  { value: "HOAN_THANH", label: "Hoàn thành" },
+  { value: "DA_HUY", label: "Đã huỷ" },
+];
 
 /** The PR stages that are review gates: "Duyệt task" applies to rows there. */
 const PR_GATES = new Set(["TEAM_LEAD_REVIEW", "HEAD_REVIEW", "INTERNAL_REVIEW"]);
@@ -194,11 +206,14 @@ function TaskBoard() {
     // PR and the merged view by the five shared phases.
     phase: unit === "ADS" ? undefined : read("phase") || undefined,
     step: unit === "ADS" ? general("step") : undefined,
-    kind: general("kind"),
-    video_kind_id: unit === "ADS" ? general("video_kind_id") : undefined,
-    owner: general("owner"),
+    // 2026-10-19: ORD's "Quy trình", "Loại video" and "Marketing" filters
+    // are gone; PR keeps "Người phụ trách" (the owner).
+    kind: unit === "ADS" ? undefined : general("kind"),
+    owner: unit === "ADS" ? undefined : general("owner"),
     // The Design ban's "Trạng thái": where the Design step stands.
     design_status: designView ? read("design_status") || undefined : undefined,
+    // ORD's "Trạng thái task": where the whole order stands.
+    state: unit === "ADS" ? general("state") : undefined,
     assignee: read("assignee") || undefined,
     person: read("person") || undefined,
     mine,
@@ -244,13 +259,6 @@ function TaskBoard() {
     // Only the list's arrival triggers this; the counts' own state is read as it is.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [listAt]);
-  // The "Loại video" filter: the unit's active kinds, readable by any member.
-  const videoKinds = useQuery({
-    queryKey: ["units", "ADS", "video-kinds"],
-    queryFn: () => api.unitVideoKinds("ADS"),
-    // Not for the Design ban: they have no "Loại video" filter.
-    enabled: me.isSuccess && !untagged && unit === "ADS" && !designView,
-  });
   const [search, setSearch] = useState(read("q"));
 
   const setParams = (changes: Record<string, string>) => {
@@ -277,7 +285,9 @@ function TaskBoard() {
   const activeFilters = (
     designView
       ? ["from", "to", "design_status", "assignee", "person", "q"]
-      : ["from", "to", "phase", "step", "kind", "video_kind_id", "owner", "assignee", "person", "q"]
+      : unit === "ADS"
+        ? ["from", "to", "step", "state", "dept", "assignee", "person", "q"]
+        : ["from", "to", "phase", "kind", "owner", "assignee", "person", "q"]
   ).filter((key) => read(key)).length;
 
   if (me.isPending) return <Loading />;
@@ -306,9 +316,25 @@ function TaskBoard() {
   const first = board.data?.items[0];
   const cellHeads = first?.cells ?? [];
   // "Người làm" for the Design ban: its own people only.
-  const people = designView
+  const everyone = designView
     ? designTeam(members.data?.members)
     : (members.data?.members.filter((member) => member.active) ?? []);
+  // 2026-10-19: "Người làm" is picked in two steps - a department, then one
+  // of its people. The departments on offer are the ones the listed people
+  // sit in (`departments` on every member row); the person list narrows to
+  // the chosen one. The department alone is kept on the URL (`dept`) so the
+  // list stays narrowed; it is not sent to the server.
+  const departments = (() => {
+    const seen = new Map<string, string>();
+    for (const member of everyone) {
+      for (const seat of member.departments ?? []) seen.set(seat.department_id, seat.name);
+    }
+    return [...seen.entries()].map(([id, name]) => ({ id, name }));
+  })();
+  const dept = read("dept");
+  const people = dept
+    ? everyone.filter((member) => (member.departments ?? []).some((seat) => seat.department_id === dept))
+    : everyone;
   // No "(n)" until the first counts arrive (or when they cannot be read).
   const countOf = (key: (typeof QUICK)[number][0]) => {
     const count = counts.data?.[key];
@@ -528,50 +554,31 @@ function TaskBoard() {
                 )}
               </label>
               {unit === "ADS" ? (
-                <>
-                  <label className="flex flex-col gap-1 text-xs text-[var(--text-muted)]">
-                    Quy trình
-                    <Select
-                      value={read("kind")}
-                      onChange={(event) => setParams({ kind: event.target.value })}
-                      className="min-h-10"
-                    >
-                      <option value="">Tất cả</option>
-                      {PROCESS_CODES.map((code) => (
-                        <option key={code} value={code}>
-                          {`${code} · ${processCodeLabel(code)}`}
+                <label className="flex flex-col gap-1 text-xs text-[var(--text-muted)]">
+                  Trạng thái task
+                  <Select
+                    value={read("state")}
+                    onChange={(event) => setParams({ state: event.target.value })}
+                    className="min-h-10"
+                  >
+                    <option value="">Tất cả</option>
+                    {(board.data?.task_states?.length ? board.data.task_states : TASK_STATES).map(
+                      (state) => (
+                        <option key={state.value} value={state.value}>
+                          {state.label}
                         </option>
-                      ))}
-                    </Select>
-                  </label>
-                  {(videoKinds.data?.kinds.length ?? 0) > 0 ? (
-                    <label className="flex flex-col gap-1 text-xs text-[var(--text-muted)]">
-                      Loại video
-                      <Select
-                        value={read("video_kind_id")}
-                        onChange={(event) =>
-                          setParams({ video_kind_id: event.target.value })
-                        }
-                        className="min-h-10"
-                      >
-                        <option value="">Tất cả</option>
-                        {videoKinds.data!.kinds.map((kind) => (
-                          <option key={kind.id} value={kind.id}>
-                            {kind.name}
-                          </option>
-                        ))}
-                      </Select>
-                    </label>
-                  ) : null}
-                </>
+                      ),
+                    )}
+                  </Select>
+                </label>
               ) : null}
             </>
           )}
           {unit !== "ALL" ? (
             <>
-              {designView ? null : (
+              {designView || unit === "ADS" ? null : (
                 <label className="flex flex-col gap-1 text-xs text-[var(--text-muted)]">
-                  {unit === "ADS" ? "Marketing" : "Người phụ trách"}
+                  Người phụ trách
                   <Select
                     value={read("owner")}
                     onChange={(event) => setParams({ owner: event.target.value })}
@@ -586,6 +593,32 @@ function TaskBoard() {
                   </Select>
                 </label>
               )}
+              {departments.length > 0 ? (
+                <label className="flex flex-col gap-1 text-xs text-[var(--text-muted)]">
+                  Phòng ban
+                  <Select
+                    value={dept}
+                    onChange={(event) => {
+                      const next = event.target.value;
+                      const chosen = people.find((member) => member.user_id === read("assignee"));
+                      // A person outside the new department is no longer on offer.
+                      const keep =
+                        chosen &&
+                        (!next ||
+                          (chosen.departments ?? []).some((seat) => seat.department_id === next));
+                      setParams({ dept: next, assignee: keep ? read("assignee") : "" });
+                    }}
+                    className="min-h-10"
+                  >
+                    <option value="">Tất cả phòng</option>
+                    {departments.map((item) => (
+                      <option key={item.id} value={item.id}>
+                        {item.name}
+                      </option>
+                    ))}
+                  </Select>
+                </label>
+              ) : null}
               <label className="flex flex-col gap-1 text-xs text-[var(--text-muted)]">
                 {unit === "ADS" ? "Người làm" : "Người dựng"}
                 <Select
@@ -802,8 +835,15 @@ function Cell({
                 : "text-xs text-[var(--text-muted)]"
           }
         >
-          {cell.person_name ??
-            (skipped ? "—" : cell.is_current ? "Chờ giao" : "–")}
+          {cell.person_name ? (
+            <PersonLink userId={cell.person_user_id} name={cell.person_name} />
+          ) : skipped ? (
+            "—"
+          ) : cell.is_current ? (
+            "Chờ giao"
+          ) : (
+            "–"
+          )}
         </span>
         {cell.status_label === "—" ? null : (
           <StatusBadge color={stepColor(cell.status, stage, cell.status_label)}>
@@ -912,7 +952,9 @@ function TaskTableRow({
             </span>
           ) : null}
         </div>
-        <span className="person block text-xs">{row.owner_name}</span>
+        <span className="block text-xs">
+          <PersonLink userId={row.owner_user_id} name={row.owner_name} className="person" />
+        </span>
         <span className="mt-1 flex flex-wrap items-center gap-1">
           <span className="date-chip" title="Ngày order">
             <CalendarIcon />

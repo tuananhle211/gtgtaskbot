@@ -12,6 +12,7 @@ from meobot.domain.board.models import (
     DESIGN_STATES,
     PHASE_LABELS,
     PHASE_ORDER,
+    TASK_STATES,
     BirthdayView,
     BoardPage,
     DashboardSummary,
@@ -27,6 +28,8 @@ class TaskCellResponse(BaseModel):
     key: str
     label: str
     person_name: str | None
+    #: Additive: the one account behind ``person_name`` (profile link), else null.
+    person_user_id: uuid.UUID | None = None
     status: str
     status_label: str
     is_current: bool
@@ -194,6 +197,7 @@ class TaskRowResponse(BaseModel):
                     key=cell.key,
                     label=cell.label,
                     person_name=cell.person_name,
+                    person_user_id=cell.person_user_id,
                     status=cell.status,
                     status_label=cell.status_label,
                     is_current=cell.is_current,
@@ -259,6 +263,8 @@ class TaskPageResponse(BaseModel):
     steps: list[PhaseOption] = []
     #: Ads only: the Design team's status filter, sent as ``?design_status=``.
     design_states: list[PhaseOption] = []
+    #: Ads only (2026-10-19): the "Trạng thái task" filter, sent as ``?state=``.
+    task_states: list[PhaseOption] = []
 
     @classmethod
     def from_domain(
@@ -279,6 +285,9 @@ class TaskPageResponse(BaseModel):
             design_states=[
                 PhaseOption(value=key, label=label) for key, label in DESIGN_STATES.items()
             ]
+            if ads_steps
+            else [],
+            task_states=[PhaseOption(value=key, label=label) for key, label in TASK_STATES.items()]
             if ads_steps
             else [],
         )
