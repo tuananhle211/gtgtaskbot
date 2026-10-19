@@ -70,9 +70,25 @@ export default function ImportPage() {
         subtitle="File kiểm kê (Apexmed_KhaiBaoTaiNguyen): mỗi tab một ban, tự nhận dòng tiêu đề. Xem trước, báo lỗi từng dòng, rồi mới ghi."
       />
       <div className="panel space-y-3 p-4">
-        <label htmlFor={inputId} className="block text-sm font-medium">
-          Chọn file .xlsx
-        </label>
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <label htmlFor={inputId} className="block text-sm font-medium">
+            Chọn file .xlsx
+          </label>
+          <a
+            href="/api/resources/import/template.xlsx"
+            download
+            className="inline-flex min-h-10 items-center gap-2 rounded-lg border border-[var(--border)] bg-[var(--surface)] px-3 text-sm font-medium hover:bg-[var(--surface-muted)]"
+          >
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+              <path d="M12 4v11M7 10l5 5 5-5M4 19h16" />
+            </svg>
+            Tải file mẫu
+          </a>
+        </div>
+        <p className="text-xs text-[var(--text-muted)]">
+          File mẫu có sẵn một tab cho mỗi ban, đúng cột hệ thống đọc, hai dòng ví dụ cách điền (tự bỏ qua khi
+          nhập) và tab &quot;Danh mục&quot; liệt kê các giá trị hợp lệ. Điền vào rồi tải lên ở đây.
+        </p>
         <input
           id={inputId}
           type="file"
@@ -174,7 +190,7 @@ export default function ImportPage() {
             ) : null}
             {(preview.skipped_rows ?? 0) > 0 ? (
               <p className="mt-2 text-xs text-[var(--text-muted)]">
-                Bỏ qua {preview.skipped_rows} dòng mẫu trống (chỉ có mã, chưa khai gì).
+                Bỏ qua {preview.skipped_rows} dòng mẫu (dòng ví dụ của file mẫu, hoặc chỉ có mã chưa khai gì).
               </p>
             ) : null}
             <ul className="mt-3 flex flex-wrap gap-2 text-xs">

@@ -40,6 +40,7 @@ from datetime import UTC, date, datetime
 from typing import Any
 
 from openpyxl import Workbook, load_workbook
+from openpyxl.styles import Alignment, Font, PatternFill
 from openpyxl.utils import get_column_letter
 from sqlalchemy import select
 
@@ -164,6 +165,191 @@ def export_rows(rows: Sequence[ResourceRow], *, tz: Any) -> bytes:
             for cell in sheet[letter][1:]:
                 cell.number_format = "@"
     sheet.freeze_panes = "A2"
+    buffer = io.BytesIO()
+    book.save(buffer)
+    return buffer.getvalue()
+
+
+#: The template's columns ("Nhập từ Excel" > "Tải file mẫu", 2026-10-19), in
+#: the inventory sheet's order: the same headers the import recognises
+#: (:data:`HEADER_RULES`), one tab per active department, three month
+#: columns after them. ``Mã NV`` is the one link to an account.
+TEMPLATE_COLUMNS: tuple[tuple[str, str], ...] = (
+    ("stt", "STT"),
+    ("code", "Mã tài nguyên"),
+    ("type", "Loại tài nguyên"),
+    ("external_id", "ID tài nguyên"),
+    ("name", "Tên tài nguyên"),
+    ("link", "Link"),
+    ("holder", "Người được bàn giao (đang quản lý)"),
+    ("holder_code", "Mã NV"),
+    ("role", "Quyền đang có"),
+    ("email", "Email"),
+    ("phone", "SĐT"),
+    ("two_factor", "Bảo mật 2 lớp"),
+    ("two_factor_holder", "Ai đang giữ mã 2 lớp"),
+    ("origin", "Nguồn gốc"),
+    ("started_on", "Ngày bắt đầu dùng"),
+    ("purpose", "Mục đích"),
+    ("note", "Ghi chú"),
+    ("handover", "Bàn giao về Tài nguyên"),
+)
+#: Which pick-list fills each template column, for the "Danh mục" sheet.
+TEMPLATE_LISTS: tuple[tuple[str, OptionKind], ...] = (
+    ("Loại tài nguyên", OptionKind.TYPE),
+    ("Quyền đang có", OptionKind.ROLE),
+    ("Bảo mật 2 lớp", OptionKind.TWO_FACTOR),
+    ("Nguồn gốc", OptionKind.ORIGIN),
+    ("Bàn giao về Tài nguyên", OptionKind.HANDOVER),
+    ("Trạng thái (ô tháng)", OptionKind.STATUS),
+)
+#: The note on the template's example lines: a line still carrying it is
+#: skipped by the import (so the template goes through as it came).
+SAMPLE_NOTE = "Dòng ví dụ - xoá hoặc ghi đè trước khi nhập"
+
+
+def _sample_rows(department: Department, months: Sequence[str]) -> list[list[Any]]:
+    """Two example lines for one department's tab, in that department's
+    kind of resource, every column filled the way the import reads it."""
+    by_function = {
+        "BIEN_TAP": (
+            ("Gmail", "bienkich01@gmail.com", "Gmail Biên kịch 01", "https://mail.google.com"),
+            ("AI", "chatgpt-team-01", "ChatGPT Team Biên kịch", "https://chatgpt.com"),
+        ),
+        "THIET_KE": (
+            ("Figma", "figma-design-01", "Figma Design team", "https://figma.com"),
+            ("Adobe", "design01@gmail.com", "Adobe Full Apps 01", "https://adobe.com"),
+        ),
+        "DUNG": (
+            ("CapCut", "capcut-pro-01", "CapCut Pro 01", "https://capcut.com"),
+            ("Adobe", "media01@gmail.com", "Adobe Full Apps Media 01", "https://adobe.com"),
+        ),
+        "PR": (
+            ("Page", "100093582582280", "Page Apexmed Thẩm mỹ", "https://facebook.com/apexmed"),
+            (
+                "Kênh Tiktok",
+                "@apexmed.official",
+                "Kênh Tiktok Apexmed",
+                "https://tiktok.com/@apexmed",
+            ),
+        ),
+    }
+    default = (
+        (
+            "Via",
+            "61577285782640",
+            "Via Nguyễn Văn A",
+            "https://facebook.com/profile.php?id=61577285782640",
+        ),
+        ("TKQC", "625945281966205", "TKQC Apexmed 01", "https://business.facebook.com/adsmanager"),
+    )
+    kinds = (
+        by_function.get(department.function.value, default) if department.code != "ADS" else default
+    )
+    rows: list[list[Any]] = []
+    for index, (kind, external_id, name, link) in enumerate(kinds, start=1):
+        rows.append(
+            [
+                f"VD{index}",
+                "",
+                kind,
+                external_id,
+                name,
+                link,
+                "Nguyễn Văn A" if index == 1 else "",
+                "M001A" if index == 1 else "",
+                "Chủ sở hữu / Admin" if index == 1 else "Thành viên",
+                "vana@gmail.com" if index == 1 else "",
+                "0912000111" if index == 1 else "",
+                "Có" if index == 1 else "Không",
+                "Nguyễn Văn A" if index == 1 else "",
+                "Công ty cấp" if index == 1 else "Tự tạo",
+                "01/09/2026",
+                "Chạy ads" if department.code == "ADS" else "Phục vụ công việc của ban",
+                SAMPLE_NOTE,
+                "Đã bàn giao" if index == 1 else "Chưa bàn giao",
+            ]
+            + ["Hoạt động"] * len(months)
+        )
+    return rows
+
+
+TEMPLATE_GUIDE: tuple[str, ...] = (
+    "Hai dòng VD1, VD2 ở mỗi tab là ví dụ cách điền: chúng được bỏ qua khi nhập chừng nào ô "
+    'Ghi chú còn nguyên chữ "Dòng ví dụ…". Xoá hẳn hoặc ghi đè (và sửa Ghi chú) để dùng.',
+    "Mỗi tab là một ban: tên tab = tên hoặc mã ban. Dòng tiêu đề ở dòng 5, dữ liệu từ dòng 6.",
+    "Mã tài nguyên: để trống, hệ thống tự cấp (ADS-001…). Ghi mã cũ nếu muốn giữ.",
+    "Loại / Quyền / Bảo mật 2 lớp / Nguồn gốc / Bàn giao / Trạng thái: ghi đúng chữ trong tab "
+    '"Danh mục" (bật "Tự thêm lựa chọn còn thiếu" khi nhập nếu muốn thêm loại mới).',
+    "ID tài nguyên: giữ nguyên số 0 đầu, ID dài (cột đã định dạng chữ). "
+    "Trống thì lấy mã tài nguyên.",
+    "Người được bàn giao: khớp theo cột Mã NV = mã thành viên của tài khoản; cột tên chỉ để đọc. "
+    "Mã NV trống hoặc chưa có trong hệ thống: tài nguyên vẫn nhập, chưa gắn với ai.",
+    "Các cột tháng (T10/2026…): ghi trạng thái của tháng đó; "
+    "ô cuối cùng có giá trị là trạng thái hiện tại.",
+    "Ngày bắt đầu dùng: dd/mm/yyyy.",
+    'Tab "Hướng dẫn" và "Danh mục" được bỏ qua khi nhập.',
+)
+
+
+def template_workbook(
+    departments: Sequence[Department], catalog: OptionCatalog, *, months: Sequence[str]
+) -> bytes:
+    """The import template (2026-10-19): a "Hướng dẫn" sheet, one empty
+    inventory sheet per active department (headers on row 5 like the
+    Apexmed file, ids and phones as text, three month columns) and a "Danh
+    mục" sheet with every active pick-list value, so what is typed matches
+    what the import accepts."""
+    book = Workbook()
+    guide = book.active
+    assert guide is not None
+    guide.title = "Hướng dẫn"
+    guide["A1"] = "Hướng dẫn nhập tài nguyên"
+    guide["A1"].font = Font(bold=True, size=14)
+    for row, line in enumerate(TEMPLATE_GUIDE, start=3):
+        guide.cell(row=row, column=1, value=f"{row - 2}. {line}")
+    guide.column_dimensions["A"].width = 120
+    for department in departments:
+        title = department.name[:31] or department.code
+        sheet = book.create_sheet(title)
+        sheet["A1"] = "Apexmed - Khai báo tài nguyên"
+        sheet["A1"].font = Font(bold=True, size=13)
+        sheet["A2"] = f"Ban: {department.name} ({department.code})"
+        headers = [label for _key, label in TEMPLATE_COLUMNS] + [
+            f"T{m[5:].lstrip('0')}/{m[:4]}" for m in months
+        ]
+        for column, header in enumerate(headers, start=1):
+            cell = sheet.cell(row=5, column=column, value=header)
+            cell.font = Font(bold=True)
+            cell.fill = PatternFill("solid", fgColor="DAE3F1")
+            cell.alignment = Alignment(wrap_text=True, vertical="center")
+        for sample in _sample_rows(department, months):
+            sheet.append(sample)
+        for row in range(6, 8):
+            for column in range(1, len(headers) + 1):
+                sheet.cell(row=row, column=column).font = Font(italic=True, color="55627F")
+        for index, (key, _label) in enumerate(TEMPLATE_COLUMNS, start=1):
+            letter = get_column_letter(index)
+            sheet.column_dimensions[letter].width = (
+                34 if key in ("name", "purpose", "note", "holder") else 18
+            )
+            if key in TEXT_COLUMNS or key == "holder_code":
+                for row in range(6, 206):
+                    sheet.cell(row=row, column=index).number_format = "@"
+        for offset in range(len(months)):
+            sheet.column_dimensions[
+                get_column_letter(len(TEMPLATE_COLUMNS) + offset + 1)
+            ].width = 14
+        sheet.row_dimensions[5].height = 32
+        sheet.freeze_panes = "A6"
+    lists = book.create_sheet("Danh mục")
+    for column, (label, kind) in enumerate(TEMPLATE_LISTS, start=1):
+        cell = lists.cell(row=1, column=column, value=label)
+        cell.font = Font(bold=True)
+        cell.fill = PatternFill("solid", fgColor="DAE3F1")
+        for row, option in enumerate(catalog.of_kind(kind), start=2):
+            lists.cell(row=row, column=column, value=option.name)
+        lists.column_dimensions[get_column_letter(column)].width = 30
     buffer = io.BytesIO()
     book.save(buffer)
     return buffer.getvalue()
@@ -460,7 +646,10 @@ def parse_workbook(raw: bytes, context: ImportContext) -> ImportPreview:
 def _is_template_row(row: ImportRow) -> bool:
     """A pre-numbered line of the template: a code, at most a type and the
     name of whoever the line is reserved for, and nothing a resource is
-    made of."""
+    made of. Also one of the template's own example lines (its note is
+    :data:`SAMPLE_NOTE`), left in the file as it came."""
+    if row.raw.get("note", "").strip() == SAMPLE_NOTE:
+        return True
     filled = {
         key
         for key, value in row.raw.items()
@@ -868,6 +1057,8 @@ def employment_label(user: User) -> str:
 
 __all__ = [
     "EXPORT_COLUMNS",
+    "SAMPLE_NOTE",
+    "TEMPLATE_COLUMNS",
     "ImportContext",
     "ImportPreview",
     "ImportRow",
@@ -879,4 +1070,5 @@ __all__ = [
     "fold",
     "header_field",
     "parse_workbook",
+    "template_workbook",
 ]

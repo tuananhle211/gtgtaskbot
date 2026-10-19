@@ -915,6 +915,70 @@ async def test_09_export_keeps_ids_as_text_and_import_previews_then_writes(world
     assert garbage.status_code == 422 and error_reason(garbage.json()) == "import_file_invalid"
 
 
+async def test_09d_the_template_is_what_the_import_reads(world: World) -> None:
+    """2026-10-19 "Tải file mẫu": one tab per active department with the
+    headers the import recognises, text-formatted id columns, a "Danh mục"
+    tab of the current pick-lists - and, filled in, it imports clean."""
+    people = await cast(world)
+    world.act_as(people.tn_staff)
+    assert world.client.get("/api/resources/import/template.xlsx").status_code == 403
+    world.act_as(people.tn_head)
+    response = world.client.get("/api/resources/import/template.xlsx")
+    assert response.status_code == 200
+    assert response.headers["content-disposition"].endswith('"mau-khai-bao-tai-nguyen.xlsx"')
+    book = load_workbook(io.BytesIO(response.content))
+    assert book.sheetnames[0] == "Hướng dẫn" and book.sheetnames[-1] == "Danh mục"
+    assert "ADS" in book.sheetnames and "Biên Tập" in book.sheetnames
+    sheet = book["ADS"]
+    headers = [cell.value for cell in sheet[5]]
+    assert headers[:5] == [
+        "STT",
+        "Mã tài nguyên",
+        "Loại tài nguyên",
+        "ID tài nguyên",
+        "Tên tài nguyên",
+    ]
+    assert "Mã NV" in headers and headers[-3].startswith("T")
+    assert sheet.cell(row=6, column=4).number_format == "@"
+    lists = book["Danh mục"]
+    assert [cell.value for cell in lists[1]][:2] == ["Loại tài nguyên", "Quyền đang có"]
+    assert "Via" in [cell.value for cell in lists["A"]]
+    # Filled in on the template itself, the file goes straight through.
+    sheet.append(
+        [
+            1,
+            "",
+            "Via",
+            "9090",
+            "Via mẫu",
+            "",
+            "",
+            "",
+            "",
+            "",
+            "",
+            "",
+            "",
+            "",
+            "",
+            "",
+            "",
+            "",
+            "Hoạt động",
+        ]
+    )
+    buffer = io.BytesIO()
+    book.save(buffer)
+    data = base64.b64encode(buffer.getvalue()).decode()
+    preview = world.client.post("/api/resources/import/preview", json={"data": data}).json()
+    assert preview["error_count"] == 0 and preview["ok_count"] == 1
+    assert [item["name"] for item in preview["sheets"] if item["skipped"]] == [
+        "Hướng dẫn",
+        "Danh mục",
+    ]
+    assert preview["rows"][0]["raw"]["external_id"] == "9090"
+
+
 async def test_09b_the_holder_is_matched_by_member_code_alone(world: World) -> None:
     """2026-10-19: "Mã NV" = the account's member code is the only link. A
     code the system lacks leaves the resource unassigned with a warning -

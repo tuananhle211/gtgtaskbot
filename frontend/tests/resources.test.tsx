@@ -10,6 +10,7 @@ import userEvent from "@testing-library/user-event";
 import ResourcesPage from "@/app/resources/page";
 import ResourcePage from "@/app/resources/[id]/page";
 import ResourceSettingsPage from "@/app/resources/settings/page";
+import ResourceImportPage from "@/app/resources/import/page";
 import { navFor } from "@/components/shell";
 import { looksLikeSecret, resourceScreens } from "@/lib/resources";
 import type { UnitsMe } from "@/lib/api";
@@ -404,5 +405,19 @@ describe("Cài đặt tài nguyên", () => {
     // A status entry asks for its group.
     const statuses = screen.getByRole("region", { name: "Trạng thái tài nguyên" });
     expect(within(statuses).getByLabelText("Nhóm trạng thái")).toBeInTheDocument();
+  });
+});
+
+describe("the import page", () => {
+  it('offers "Tải file mẫu" as a download of the server\'s template (2026-10-19)', async () => {
+    stubFetch([
+      { match: "/api/auth/session", body: SESSION },
+      { match: "/api/units/me", body: ME },
+    ]);
+    renderWithQuery(<ResourceImportPage />);
+    const link = await screen.findByRole("link", { name: /Tải file mẫu/ });
+    expect(link).toHaveAttribute("href", "/api/resources/import/template.xlsx");
+    expect(link).toHaveAttribute("download");
+    expect(screen.getByText(/một tab cho mỗi ban/)).toBeInTheDocument();
   });
 });
