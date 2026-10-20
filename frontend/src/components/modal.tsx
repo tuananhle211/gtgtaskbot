@@ -22,7 +22,9 @@ import { createPortal } from "react-dom";
  *   under a footer that stays put.
  *
  * The caller lays out the inside with `ModalBody` and `ModalFooter`, so a form
- * can wrap both and its submit button can sit in the footer.
+ * can wrap both and its submit button can sit in the footer. A `<form>` that is
+ * a direct child becomes the flex column itself (`[&>form]:...`), so the body
+ * scrolls and the footer stays in view whatever classes the form carries.
  */
 export function Modal({
   open,
@@ -110,7 +112,7 @@ export function Modal({
         aria-labelledby={titleId}
         aria-describedby={description ? descriptionId : undefined}
         onKeyDown={handleKeyDown}
-        className={`modal-panel flex max-h-[92vh] w-full flex-col overflow-hidden rounded-t-2xl border border-[var(--border)] bg-[var(--surface)] shadow-2xl outline-none md:max-h-[88vh] md:rounded-2xl ${
+        className={`modal-panel flex max-h-[92vh] w-full flex-col overflow-hidden [&>form]:flex [&>form]:min-h-0 [&>form]:flex-1 [&>form]:flex-col rounded-t-2xl border border-[var(--border)] bg-[var(--surface)] shadow-2xl outline-none md:max-h-[88vh] md:rounded-2xl ${
           size === "xl" ? "md:max-w-3xl" : size === "lg" ? "md:max-w-xl" : "md:max-w-md"
         }`}
       >

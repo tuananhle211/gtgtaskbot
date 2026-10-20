@@ -9,6 +9,7 @@ import { effortEnabled } from "@/lib/effort";
 import { adminTabsFor } from "@/components/admin-tabs";
 import { roleLabel } from "@/lib/labels";
 import { resourceScreens } from "@/lib/resources";
+import { seesAdsSalary } from "@/lib/ads-salary";
 import { ErrorBox, Loading } from "@/components/states";
 import { NotificationBell } from "@/components/notifications";
 import { ThemeToggle } from "@/components/theme-toggle";
@@ -70,6 +71,7 @@ type NavIcon =
   | "lookup"
   | "import"
   | "settings"
+  | "salary"
   | "account";
 
 /** The screen every unit shares besides the order boards. */
@@ -95,8 +97,15 @@ const DESIGN_CODES_NAV: NavItem = {
   icon: "codes",
 };
 
+/**
+ * "Tính lương Ads" (2026-10-20): the Ads MKT pay calculator, formulas fixed
+ * in `lib/ads-salary.ts`; for people seated in the ADS department and the
+ * OWNER / ADMIN (`seesAdsSalary`).
+ */
+const ADS_SALARY_NAV: NavItem = { href: "/tasks/salary", label: "Tính lương Ads", icon: "salary" };
+
 /** The order boards this person has, as one branch of the nav. */
-function orderBoards(me: UnitsMe | undefined): NavGroup {
+function orderBoards(me: UnitsMe | undefined, sessionRole?: string): NavGroup {
   return {
     label: "Bảng order",
     icon: "board",
@@ -104,6 +113,7 @@ function orderBoards(me: UnitsMe | undefined): NavGroup {
       ORDER_TOTAL_NAV,
       ...(me?.design?.birthday ? [ORDER_BIRTHDAY_NAV] : []),
       ...(me?.design?.manage_codes ? [DESIGN_CODES_NAV] : []),
+      ...(seesAdsSalary(me, sessionRole) ? [ADS_SALARY_NAV] : []),
     ],
   };
 }
@@ -258,7 +268,7 @@ export function navFor(me: UnitsMe | undefined, sessionRole?: string): NavEntry[
   const orders = !me || seesAll || me.units.some((unit) => unit.code === "ADS");
   return [
     DASHBOARD_NAV,
-    ...(orders ? [orderBoards(me)] : []),
+    ...(orders ? [orderBoards(me, sessionRole)] : []),
     ...(effort ? EFFORT_NAV : []),
     ...(resources ? [resources] : []),
     ...(pr ? [PR_GROUP] : []),
@@ -361,6 +371,13 @@ function Icon({ name }: { name: NavIcon }) {
         <rect x="3" y="4" width="18" height="6" rx="1.5" />
         <rect x="3" y="14" width="18" height="6" rx="1.5" />
         <path d="M7 7h.01M7 17h.01" />
+      </>
+    ),
+    salary: (
+      <>
+        <rect x="4" y="3" width="16" height="18" rx="2" />
+        <path d="M8 7h8" />
+        <path d="M8 11h.01M12 11h.01M16 11h.01M8 15h.01M12 15h.01M16 15v2.5M8 18.5h.01M12 18.5h.01" strokeWidth="2.4" />
       </>
     ),
     // The resources module's screens (2026-10-20), one glyph each.

@@ -21,6 +21,7 @@ import type { EffortGrid, TaskRow, UnifiedTaskDetail } from "@/lib/api";
 import {
   assigneeLoadLabel,
   deadlineStatusLabel,
+  defaultDeadlineInput,
   formatDeadline,
   formatSpan,
   overDesired,
@@ -266,6 +267,13 @@ describe("the deadline helpers", () => {
   });
 });
 
+describe("a deadline box's default", () => {
+  it("is today at 17:30, or 23:59 once 17:30 has passed", () => {
+    expect(defaultDeadlineInput(new Date(2026, 9, 20, 9, 15))).toBe("2026-10-20T17:30");
+    expect(defaultDeadlineInput(new Date(2026, 9, 20, 18, 5))).toBe("2026-10-20T23:59");
+  });
+});
+
 describe("the task page's tokens and deadlines", () => {
   it("shows each step's tokens and deadline coloured by its status", async () => {
     stubDetail();
@@ -307,10 +315,11 @@ describe("the task page's tokens and deadlines", () => {
     await userEvent.selectOptions(picker, NHU_ID);
     expect(within(dialog).getByTestId("assignee-load")).not.toHaveClass("text-[var(--bad)]");
 
-    // Tokens and deadline are both required.
+    // Tokens and deadline are both required; the deadline starts on today.
     expect(confirm).toBeDisabled();
+    expect(within(dialog).getByLabelText("Deadline (bắt buộc)")).toHaveValue(defaultDeadlineInput());
     await userEvent.type(within(dialog).getByRole("spinbutton", { name: "Token (bắt buộc)" }), "2.5");
-    expect(confirm).toBeDisabled();
+    expect(confirm).toBeEnabled();
     expect(
       within(dialog).getByText(`Deadline mong muốn: ${formatDeadline(DESIRED)}`),
     ).toBeInTheDocument();
@@ -337,7 +346,7 @@ describe("the task page's tokens and deadlines", () => {
     });
   });
 
-  it("returns a node with revision tokens and no deadline", async () => {
+  it("returns a node with revision tokens, its deadline starting on today", async () => {
     const stub = stubDetail();
     renderWithQuery(<TaskDetailPage />);
     await userEvent.click(await screen.findByRole("button", { name: "Trả sửa" }));
@@ -359,6 +368,7 @@ describe("the task page's tokens and deadlines", () => {
       version: 3,
       note: "Nhạc chưa khớp",
       tokens: 1,
+      deadline_at: new Date(defaultDeadlineInput()).toISOString(),
     });
   });
 

@@ -13,6 +13,7 @@ import {
   type UnifiedTaskDetail,
 } from "@/lib/api";
 import {
+  defaultDeadlineInput,
   assigneeLoadLabel,
   formatDeadline,
   isOverBudget,
@@ -100,7 +101,9 @@ export function useTaskActionForm({
   const defaultOf = (action: TaskAction, input: string) => {
     if (input === "tokens" && action.defaults?.tokens != null)
       return String(action.defaults.tokens);
-    if (input === "deadline") return toLocalInput(action.defaults?.deadline_at);
+    // Nothing planned yet: today, so only the day needs changing.
+    if (input === "deadline")
+      return toLocalInput(action.defaults?.deadline_at) || defaultDeadlineInput();
     return "";
   };
   const valueOf = (action: TaskAction, input: string) =>

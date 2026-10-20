@@ -39,7 +39,7 @@ import {
   processCode,
   type ProcessNode,
 } from "@/lib/ads-process";
-import { isPast, toIsoFromLocal, toLocalInput } from "@/lib/deadline";
+import { defaultDeadlineInput, isPast, toIsoFromLocal, toLocalInput } from "@/lib/deadline";
 
 /**
  * Points ("điểm hiệu suất") next to the video kinds and durations on the
@@ -296,7 +296,8 @@ function AdsOrderForm({
     reference_link: editing?.reference_link ?? "",
     source_link: editing?.source_link ?? "",
     note: editing?.note ?? "",
-    desired_deadline: toLocalInput(editing?.desired_deadline_at),
+    // A new order starts on today: only the day (or hour) needs changing.
+    desired_deadline: editing ? toLocalInput(editing.desired_deadline_at) : defaultDeadlineInput(),
   });
   const initialDeadline = toLocalInput(editing?.desired_deadline_at);
   // "Quy trình": Order is always on and not part of the list; Dựng starts ticked.

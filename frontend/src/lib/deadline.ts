@@ -49,6 +49,18 @@ export function toIsoFromLocal(value: string | null | undefined): string | null 
   return time === null ? null : new Date(time).toISOString();
 }
 
+/**
+ * What a deadline box starts on when nothing is set yet: today, so only the
+ * day (or the hour) needs changing. 17:30 - the end of the working day -
+ * while that is still ahead, else 23:59, so the default is never in the past.
+ */
+export function defaultDeadlineInput(now: Date = new Date()): string {
+  const day = new Date(now);
+  day.setHours(17, 30, 0, 0);
+  if (day.getTime() <= now.getTime()) day.setHours(23, 59, 0, 0);
+  return toLocalInput(day.toISOString());
+}
+
 /** An ISO datetime as a `datetime-local` value in the browser's clock. */
 export function toLocalInput(value: string | null | undefined): string {
   if (!value) return "";
