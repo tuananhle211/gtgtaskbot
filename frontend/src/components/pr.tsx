@@ -205,6 +205,7 @@ export function ContentCard({
   brand,
   showStage = false,
   selectable,
+  onAssign,
 }: {
   item: ContentSummary;
   assignee?: string;
@@ -217,8 +218,14 @@ export function ContentCard({
    * to tick it. Absent, the card is exactly what it was.
    */
   selectable?: { checked: boolean; onChange: () => void; label: string };
+  /**
+   * "Giao" on the board (2026-10-20): hand the piece to a producer without
+   * opening it. Given only for a card at a hand-off stage, to somebody who may
+   * assign; drawn under the card, outside the link, like the checkbox.
+   */
+  onAssign?: () => void;
 }) {
-  const card = (
+  const link = (
     <Link
       href={`/pr/content/${item.id}`}
       className="block rounded-xl border border-[var(--border)] bg-[var(--surface)] p-3 transition-colors hover:border-[var(--text-muted)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--accent)]"
@@ -265,6 +272,21 @@ export function ContentCard({
         </p>
       ) : null}
     </Link>
+  );
+  const card = onAssign ? (
+    <div className="space-y-1">
+      {link}
+      <button
+        type="button"
+        onClick={onAssign}
+        aria-label={`Giao sản xuất · ${item.title}`}
+        className="min-h-10 w-full rounded-lg border border-[var(--border)] bg-[var(--surface)] px-3 text-xs font-medium text-[var(--accent)] hover:bg-[var(--accent-soft)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--accent)]"
+      >
+        {item.producer_user_id ? "Đổi người sản xuất" : "Giao sản xuất"}
+      </button>
+    </div>
+  ) : (
+    link
   );
 
   if (!selectable) return card;
@@ -410,9 +432,12 @@ export function BoardLane({
   loadingMore = false,
   onLoadMore,
   selection,
+  assignFor,
 }: {
   title: string;
   items: ContentSummary[];
+  /** The card's "Giao" handler, or undefined where it gets none. */
+  assignFor?: (item: ContentSummary) => (() => void) | undefined;
   assignees?: Map<string, string>;
   brands?: Map<string, string>;
   /**
@@ -496,6 +521,7 @@ export function BoardLane({
             item={item}
             assignee={assignees?.get(item.owner_user_id)}
             brand={brands?.get(item.brand_id)}
+            onAssign={assignFor?.(item)}
             selectable={
               selection && item.approvable_by_me
                 ? {

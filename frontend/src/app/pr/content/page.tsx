@@ -16,6 +16,7 @@ import {
   type Uuid,
 } from "@/lib/api";
 import { bulkArchiveConfirmation } from "@/lib/confirmations";
+import { AssignProducerDialog } from "@/components/assign-producer-dialog";
 import { ConfirmButton } from "@/components/confirm";
 import { CreateContentForm } from "@/components/pr-create-content";
 import {
@@ -336,6 +337,20 @@ function ContentWorkspace() {
   const names = new Map(
     (people.data ?? []).map((person) => [person.user_id, person.full_name]),
   );
+  // "Giao" on the cards (2026-10-20): for whoever may assign production
+  // (PR_PRODUCTION_ASSIGN - the server checks it again on the write).
+  const session = useQuery({ queryKey: ["session"], queryFn: api.session, retry: false });
+  const myId = session.data?.user_id ?? null;
+  const mine = useQuery({
+    queryKey: ["effective-permissions", myId],
+    queryFn: () => api.effectivePermissions(myId as Uuid),
+    enabled: Boolean(myId),
+    retry: false,
+  });
+  const mayAssign = (mine.data?.capabilities ?? []).some(
+    (row) => row.capability === "PR_PRODUCTION_ASSIGN" && row.allowed,
+  );
+  const [assigning, setAssigning] = useState<ContentSummary | null>(null);
   // One request for the whole board, not one per card. A brand the list does
   // not carry - a retired one - renders as no chip rather than as a UUID.
   const brandNames = new Map(
@@ -920,6 +935,7 @@ function ContentWorkspace() {
                   onTogglePage={bulk.togglePage}
                   onSelectAll={bulk.selectAll}
                   onItems={noteTitles}
+                  onAssign={mayAssign ? setAssigning : undefined}
                 />
               ))}
             </div>
@@ -927,6 +943,14 @@ function ContentWorkspace() {
         </section>
       ) : null}
 
+      {assigning ? (
+        <AssignProducerDialog
+          item={assigning}
+          people={people.data ?? []}
+          names={names}
+          onClose={() => setAssigning(null)}
+        />
+      ) : null}
       {/* Step 1F.2.8. The result of a batch, in words, above the bar that
           started it. Success is a sentence with the count in it; a refusal is
           the server's own sentence, which already says that nothing at all was
@@ -1064,6 +1088,7 @@ function ContentLane({
   onTogglePage,
   onSelectAll,
   onItems,
+  onAssign,
 }: {
   column: BoardColumn;
   /** Every server-side filter *except* the lane, which this component adds. */
@@ -1086,6 +1111,8 @@ function ContentLane({
   ) => void;
   /** Report loaded titles up, for the confirmation dialog's sample. */
   onItems: (items: ContentSummary[]) => void;
+  /** Open "Giao sản xuất" for a card; absent for somebody who may not assign. */
+  onAssign?: (item: ContentSummary) => void;
 }) {
   const lane = column.key;
   const rows = useInfiniteQuery({
@@ -1189,6 +1216,12 @@ function ContentLane({
       loadingMore={rows.isFetchingNextPage}
       onLoadMore={() => void rows.fetchNextPage()}
       selection={laneSelection}
+      assignFor={(item) =>
+        onAssign && ASSIGN_STAGES.has(item.workflow_stage) ? () => onAssign(item) : undefined
+      }
     />
   );
 }
+
+/** Where a producer is chosen or changed (``HANDOFF_STAGES`` on the server). */
+const ASSIGN_STAGES = new Set(["APPROVED", "PRODUCTION"]);
