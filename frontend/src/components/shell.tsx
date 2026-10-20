@@ -65,6 +65,11 @@ type NavIcon =
   | "department"
   | "effort"
   | "resource"
+  | "inventory"
+  | "mine"
+  | "lookup"
+  | "import"
+  | "settings"
   | "account";
 
 /** The screen every unit shares besides the order boards. */
@@ -144,7 +149,7 @@ function resourcesBranch(me: UnitsMe | undefined): NavGroup | null {
     children: screens.map((screen) => ({
       href: screen.href,
       label: screen.label,
-      icon: "resource" as const,
+      icon: screen.icon,
     })),
   };
 }
@@ -356,6 +361,40 @@ function Icon({ name }: { name: NavIcon }) {
         <rect x="3" y="4" width="18" height="6" rx="1.5" />
         <rect x="3" y="14" width="18" height="6" rx="1.5" />
         <path d="M7 7h.01M7 17h.01" />
+      </>
+    ),
+    // The resources module's screens (2026-10-20), one glyph each.
+    inventory: (
+      <>
+        <path d="M4 6h16M4 12h16M4 18h16" />
+        <path d="M8 6h.01M8 12h.01M8 18h.01" strokeWidth="2.6" />
+      </>
+    ),
+    mine: (
+      <>
+        <circle cx="12" cy="8" r="3.5" />
+        <path d="M5 20a7 7 0 0 1 14 0" />
+        <path d="M15.5 3.5l1.2 2.4 2.6.4-1.9 1.8.5 2.6-2.4-1.2-2.3 1.2.4-2.6-1.9-1.8 2.6-.4z" />
+      </>
+    ),
+    lookup: (
+      <>
+        <circle cx="10.5" cy="10.5" r="6" />
+        <path d="M15 15l5.5 5.5" />
+        <circle cx="10.5" cy="9" r="1.8" />
+        <path d="M7.5 14a3.5 3.5 0 0 1 6 0" />
+      </>
+    ),
+    import: (
+      <>
+        <path d="M12 3v11M7.5 9.5L12 14l4.5-4.5" />
+        <path d="M4 17v2.5A1.5 1.5 0 0 0 5.5 21h13a1.5 1.5 0 0 0 1.5-1.5V17" />
+      </>
+    ),
+    settings: (
+      <>
+        <circle cx="12" cy="12" r="3" />
+        <path d="M12 2.5v3M12 18.5v3M2.5 12h3M18.5 12h3M5.3 5.3l2.1 2.1M16.6 16.6l2.1 2.1M5.3 18.7l2.1-2.1M16.6 7.4l2.1-2.1" />
       </>
     ),
     department: (

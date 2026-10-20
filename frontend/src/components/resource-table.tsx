@@ -10,6 +10,7 @@ import {
   formatResourceDay,
   rowTone,
   statusTone,
+  isWebLink,
 } from "@/lib/resources";
 
 /**
@@ -105,7 +106,7 @@ export function ResourceTable({
                   <span className="block truncate font-medium" title={row.name}>
                     {row.name}
                   </span>
-                  {row.link ? (
+                  {row.link && isWebLink(row.link) ? (
                     <a
                       href={row.link}
                       target="_blank"
@@ -114,6 +115,10 @@ export function ResourceTable({
                     >
                       {row.link}
                     </a>
+                  ) : row.link ? (
+                    <span className="block truncate text-xs text-[var(--text-muted)]" title={row.link}>
+                      {row.link}
+                    </span>
                   ) : null}
                 </td>
                 {compact ? null : <td className="whitespace-nowrap">{row.department.name}</td>}

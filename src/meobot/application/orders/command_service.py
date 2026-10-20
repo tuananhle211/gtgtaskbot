@@ -100,7 +100,6 @@ from meobot.domain.orders.models import (
 )
 from meobot.domain.orders.permissions import AdsPermission
 from meobot.domain.orders.pipeline import (
-    BIRTHDAY_CODE_LABEL,
     NodeView,
     OrderActionKind,
     OrderActorContext,
@@ -325,17 +324,13 @@ class OrderCommandService:
             # Design-only order's "Nội dung" is a plain brief: not read.
             ai_note = await self._review_script(settings, command.title, command.order_content)
 
-        member_code = None if entry is None else entry.member_code
-        if member_code is None:
-            member_code = await self._assign_member_code(unit.id, actor, tagged=entry is not None)
+        if entry is None or entry.member_code is None:
+            # The order code no longer carries it (2026-10-20), but a person
+            # who orders still gets one, as before.
+            await self._assign_member_code(unit.id, actor, tagged=entry is not None)
 
         now = utcnow()
-        code = await self._codes.allocate(
-            unit_id=unit.id,
-            member_code=member_code,
-            video_type=command.video_type,
-            at=now,
-        )
+        code = await self._codes.allocate()
         order = Order(
             unit_id=unit.id,
             code=code,
@@ -432,17 +427,10 @@ class OrderCommandService:
                 details={"reason": "birthday_date_required", "field": "birthday_on"},
             )
         note = _blank_to_none(command.note)
-        member_code = None if entry is None else entry.member_code
-        if member_code is None:
-            member_code = await self._assign_member_code(unit.id, actor, tagged=entry is not None)
+        if entry is None or entry.member_code is None:
+            await self._assign_member_code(unit.id, actor, tagged=entry is not None)
         now = utcnow()
-        code = await self._codes.allocate(
-            unit_id=unit.id,
-            member_code=member_code,
-            video_type=OrderVideoType.T,
-            at=now,
-            label=BIRTHDAY_CODE_LABEL,
-        )
+        code = await self._codes.allocate()
         order = Order(
             unit_id=unit.id,
             code=code,

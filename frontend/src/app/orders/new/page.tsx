@@ -106,7 +106,6 @@ export default function NewOrderPage() {
         />
         <AdsOrderForm
           key={`${order.id}:${order.version}`}
-          memberCode={unitEntry(me.data, "ADS")?.member_code ?? null}
           isHead={unitEntry(me.data, "ADS")?.role === "HEAD"}
           aiReview={unitEntry(me.data, "ADS")?.settings?.script_ai_review === true}
           designCodes={unitEntry(me.data, "ADS")?.settings?.design_codes_enabled !== false}
@@ -177,7 +176,6 @@ export default function NewOrderPage() {
       ) : null}
       {chosen === "ADS" ? (
         <AdsOrderForm
-          memberCode={unitEntry(me.data, "ADS")?.member_code ?? null}
           isHead={unitEntry(me.data, "ADS")?.role === "HEAD"}
           aiReview={unitEntry(me.data, "ADS")?.settings?.script_ai_review === true}
           designCodes={unitEntry(me.data, "ADS")?.settings?.design_codes_enabled !== false}
@@ -224,13 +222,11 @@ function PrCreateSection({ onCreated }: { onCreated: () => void }) {
 }
 
 function AdsOrderForm({
-  memberCode,
   isHead = false,
   aiReview = false,
   designCodes = true,
   editing,
 }: {
-  memberCode: string | null;
   /** A Trưởng phòng ADS's own order needs no approval: no approver to pick. */
   isHead?: boolean;
   /**
@@ -474,14 +470,9 @@ function AdsOrderForm({
             ) : null}
           </div>
         ) : (
-          <p className="text-xs text-[var(--text-muted)]">
-            Mã order:{" "}
-            <span className="font-mono" data-testid="order-code-preview">
-              {`${memberCode ?? "MÃ"}-${code || "?"}-yymmdd-nn`}
-            </span>
-            {memberCode
-              ? null
-              : " — bạn chưa có mã thành viên, hệ thống sẽ lấy từ tên của bạn (quản trị đổi được ở Quản trị › Thành viên luồng)."}
+          <p className="text-xs text-[var(--text-muted)]" data-testid="order-code-preview">
+            Mã order: 5 ký tự chữ và số, hệ thống tự sinh khi gửi (ví dụ{" "}
+            <span className="font-mono">K7Q2M</span>).
           </p>
         )}
         <label className="block text-sm font-medium">

@@ -103,23 +103,6 @@ def is_urgent(
     return now - submitted_at > timedelta(days=urgent_days)
 
 
-#: What a birthday order carries in its code where the process letters go.
-BIRTHDAY_CODE_LABEL = "SN"
-
-
-def format_order_code(
-    member_code: str,
-    video_type: OrderVideoType,
-    day: datetime,
-    number: int,
-    *,
-    label: str | None = None,
-) -> str:
-    """``TUAN-D-261003-01``: who ordered, what kind, which day, which of that
-    day. ``label`` replaces the process letters (``TUAN-SN-261003-01``)."""
-    return f"{member_code}-{label or video_type.value}-{day:%y%m%d}-{number:02d}"
-
-
 # --- the actions ----------------------------------------------------------------
 
 
@@ -512,7 +495,6 @@ def assert_allowed(
 __all__ = [
     "ACTION_LABELS",
     "ACTION_STAGES",
-    "BIRTHDAY_CODE_LABEL",
     "NOTE_REQUIRED",
     "ROLE_NODES",
     "NodeView",
@@ -526,7 +508,6 @@ __all__ = [
     "available_actions",
     "find_node",
     "first_node",
-    "format_order_code",
     "function_node",
     "hands_in_product",
     "initial_node_statuses",

@@ -292,11 +292,6 @@ def _text(value: str | None, *, field_name: str, required: bool = False) -> str 
             f"{FIELD_LABELS[field_name]} tối đa {limit} ký tự.",
             details={"reason": f"resource_{field_name}_too_long", "field": field_name},
         )
-    if field_name == "link" and not cleaned.lower().startswith(("http://", "https://")):
-        raise ResourceValidationError(
-            "Link phải bắt đầu bằng http:// hoặc https://.",
-            details={"reason": "resource_link_invalid", "field": "link"},
-        )
     return cleaned
 
 

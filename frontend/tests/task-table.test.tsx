@@ -16,12 +16,13 @@
  */
 
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { fireEvent, screen, waitFor, within } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import TasksPage from "@/app/tasks/page";
 import BirthdayOrdersPage from "@/app/tasks/birthday/page";
 import {
   nextSort,
+  Pager,
   pageSizeOf,
   parseSort,
   sortRows,
@@ -1129,5 +1130,55 @@ describe("a double click on a column header", () => {
     expect(ids(sortRows(list, { key: "at", desc: true }, columns))).toBe("adbc");
     expect(ids(sortRows(list, null, columns))).toBe("abcd");
     expect(ids(list)).toBe("abcd");
+  });
+});
+
+describe("the docked pager", () => {
+  /** A panel holding a table area of the given widths and the pager under it. */
+  function dockedPanel(scroll: number, client: number) {
+    const view = render(
+      <section className="panel">
+        <div className="table-scroll-x" data-testid="area">
+          <table>
+            <tbody>
+              <tr>
+                <td>row</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+        <Pager page={1} total={30} shown={10} onPage={() => undefined} />
+      </section>,
+    );
+    const area = screen.getByTestId("area");
+    Object.defineProperty(area, "scrollWidth", { configurable: true, value: scroll });
+    Object.defineProperty(area, "clientWidth", { configurable: true, value: client });
+    fireEvent(window, new Event("resize"));
+    return { ...view, area, bar: screen.getByTestId("pager-scrollbar") };
+  }
+
+  it("sticks to the screen's bottom and takes over the table's sideways bar", () => {
+    const { area, bar } = dockedPanel(2000, 900);
+    expect(screen.getByRole("navigation", { name: "Phân trang" })).toHaveClass("pager-dock");
+    expect(area).toHaveClass("is-docked");
+    expect(bar).not.toHaveClass("hidden");
+    expect(bar.firstElementChild).toHaveStyle({ width: "2000px" });
+  });
+
+  it("scrolls the table and the stand-in bar together, both ways", () => {
+    const { area, bar } = dockedPanel(2000, 900);
+    bar.scrollLeft = 300;
+    fireEvent.scroll(bar);
+    expect(area.scrollLeft).toBe(300);
+    area.scrollLeft = 120;
+    fireEvent.scroll(area);
+    expect(bar.scrollLeft).toBe(120);
+  });
+
+  it("shows no stand-in bar when the table fits, and gives the table its bar back when gone", () => {
+    const { area, bar, unmount } = dockedPanel(900, 900);
+    expect(bar).toHaveClass("hidden");
+    unmount();
+    expect(area).not.toHaveClass("is-docked");
   });
 });

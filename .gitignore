@@ -58,3 +58,6 @@ tmp/
 # --- Local-only: production dump, encryption key, host overrides
 /handover/
 docker-compose.override.yml
+
+# Playwright MCP snapshots/screenshots
+.playwright-mcp/

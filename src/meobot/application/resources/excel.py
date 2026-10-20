@@ -42,8 +42,10 @@ from typing import Any
 from openpyxl import Workbook, load_workbook
 from openpyxl.styles import Alignment, Font, PatternFill
 from openpyxl.utils import get_column_letter
+from openpyxl.worksheet.datavalidation import DataValidation
 from sqlalchemy import select
 
+from meobot.application.org.seats import load_seats
 from meobot.application.resources.access import ResourceAccess, ResourceValidationError
 from meobot.application.resources.service import (
     FIELD_LABELS,
@@ -59,6 +61,7 @@ from meobot.db.models.resource import Resource, ResourceOption
 from meobot.db.models.user import User
 from meobot.domain.audit.models import AuditAction
 from meobot.domain.identity.models import Actor
+from meobot.domain.org.models import Seat
 from meobot.domain.resources.models import (
     DEFAULT_HANDOVER_CODE,
     DEFAULT_STATUS_CODE,
@@ -170,186 +173,77 @@ def export_rows(rows: Sequence[ResourceRow], *, tz: Any) -> bytes:
     return buffer.getvalue()
 
 
-#: The template's columns ("Nhập từ Excel" > "Tải file mẫu", 2026-10-19), in
-#: the inventory sheet's order: the same headers the import recognises
-#: (:data:`HEADER_RULES`), one tab per active department, three month
-#: columns after them. ``Mã NV`` is the one link to an account.
+#: The import template (2026-10-20): ONE sheet, only what a line needs.
+#: The department is a column ("Ban quản lý"), not a tab; the holder is the
+#: member code alone ("Mã NV"). Everything else the system fills or the
+#: screen completes later.
 TEMPLATE_COLUMNS: tuple[tuple[str, str], ...] = (
-    ("stt", "STT"),
-    ("code", "Mã tài nguyên"),
+    ("holder_code", "Mã NV"),
     ("type", "Loại tài nguyên"),
     ("external_id", "ID tài nguyên"),
     ("name", "Tên tài nguyên"),
+    ("status", "Trạng thái"),
     ("link", "Link"),
-    ("holder", "Người được bàn giao (đang quản lý)"),
-    ("holder_code", "Mã NV"),
-    ("role", "Quyền đang có"),
-    ("email", "Email"),
-    ("phone", "SĐT"),
-    ("two_factor", "Bảo mật 2 lớp"),
-    ("two_factor_holder", "Ai đang giữ mã 2 lớp"),
-    ("origin", "Nguồn gốc"),
-    ("started_on", "Ngày bắt đầu dùng"),
-    ("purpose", "Mục đích"),
     ("note", "Ghi chú"),
-    ("handover", "Bàn giao về Tài nguyên"),
-)
-#: Which pick-list fills each template column, for the "Danh mục" sheet.
-TEMPLATE_LISTS: tuple[tuple[str, OptionKind], ...] = (
-    ("Loại tài nguyên", OptionKind.TYPE),
-    ("Quyền đang có", OptionKind.ROLE),
-    ("Bảo mật 2 lớp", OptionKind.TWO_FACTOR),
-    ("Nguồn gốc", OptionKind.ORIGIN),
-    ("Bàn giao về Tài nguyên", OptionKind.HANDOVER),
-    ("Trạng thái (ô tháng)", OptionKind.STATUS),
 )
 #: The note on the template's example lines: a line still carrying it is
 #: skipped by the import (so the template goes through as it came).
 SAMPLE_NOTE = "Dòng ví dụ - xoá hoặc ghi đè trước khi nhập"
+TEMPLATE_SHEET = "Mẫu nhập"
 
 
-def _sample_rows(department: Department, months: Sequence[str]) -> list[list[Any]]:
-    """Two example lines for one department's tab, in that department's
-    kind of resource, every column filled the way the import reads it."""
-    by_function = {
-        "BIEN_TAP": (
-            ("Gmail", "bienkich01@gmail.com", "Gmail Biên kịch 01", "https://mail.google.com"),
-            ("AI", "chatgpt-team-01", "ChatGPT Team Biên kịch", "https://chatgpt.com"),
-        ),
-        "THIET_KE": (
-            ("Figma", "figma-design-01", "Figma Design team", "https://figma.com"),
-            ("Adobe", "design01@gmail.com", "Adobe Full Apps 01", "https://adobe.com"),
-        ),
-        "DUNG": (
-            ("CapCut", "capcut-pro-01", "CapCut Pro 01", "https://capcut.com"),
-            ("Adobe", "media01@gmail.com", "Adobe Full Apps Media 01", "https://adobe.com"),
-        ),
-        "PR": (
-            ("Page", "100093582582280", "Page Apexmed Thẩm mỹ", "https://facebook.com/apexmed"),
-            (
-                "Kênh Tiktok",
-                "@apexmed.official",
-                "Kênh Tiktok Apexmed",
-                "https://tiktok.com/@apexmed",
-            ),
-        ),
-    }
-    default = (
-        (
+def _sample_rows() -> list[list[Any]]:
+    return [
+        [
+            "M001A",
             "Via",
             "61577285782640",
             "Via Nguyễn Văn A",
+            "Hoạt động",
             "https://facebook.com/profile.php?id=61577285782640",
-        ),
-        ("TKQC", "625945281966205", "TKQC Apexmed 01", "https://business.facebook.com/adsmanager"),
-    )
-    kinds = (
-        by_function.get(department.function.value, default) if department.code != "ADS" else default
-    )
-    rows: list[list[Any]] = []
-    for index, (kind, external_id, name, link) in enumerate(kinds, start=1):
-        rows.append(
-            [
-                f"VD{index}",
-                "",
-                kind,
-                external_id,
-                name,
-                link,
-                "Nguyễn Văn A" if index == 1 else "",
-                "M001A" if index == 1 else "",
-                "Chủ sở hữu / Admin" if index == 1 else "Thành viên",
-                "vana@gmail.com" if index == 1 else "",
-                "0912000111" if index == 1 else "",
-                "Có" if index == 1 else "Không",
-                "Nguyễn Văn A" if index == 1 else "",
-                "Công ty cấp" if index == 1 else "Tự tạo",
-                "01/09/2026",
-                "Chạy ads" if department.code == "ADS" else "Phục vụ công việc của ban",
-                SAMPLE_NOTE,
-                "Đã bàn giao" if index == 1 else "Chưa bàn giao",
-            ]
-            + ["Hoạt động"] * len(months)
-        )
-    return rows
+            SAMPLE_NOTE,
+        ],
+        ["M002B", "Gmail", "", "Gmail Biên tập 01", "Hoạt động", "", SAMPLE_NOTE],
+    ]
 
 
-TEMPLATE_GUIDE: tuple[str, ...] = (
-    "Hai dòng VD1, VD2 ở mỗi tab là ví dụ cách điền: chúng được bỏ qua khi nhập chừng nào ô "
-    'Ghi chú còn nguyên chữ "Dòng ví dụ…". Xoá hẳn hoặc ghi đè (và sửa Ghi chú) để dùng.',
-    "Mỗi tab là một ban: tên tab = tên hoặc mã ban. Dòng tiêu đề ở dòng 5, dữ liệu từ dòng 6.",
-    "Mã tài nguyên: để trống, hệ thống tự cấp (ADS-001…). Ghi mã cũ nếu muốn giữ.",
-    "Loại / Quyền / Bảo mật 2 lớp / Nguồn gốc / Bàn giao / Trạng thái: ghi đúng chữ trong tab "
-    '"Danh mục" (bật "Tự thêm lựa chọn còn thiếu" khi nhập nếu muốn thêm loại mới).',
-    "ID tài nguyên: giữ nguyên số 0 đầu, ID dài (cột đã định dạng chữ). "
-    "Trống thì lấy mã tài nguyên.",
-    "Người được bàn giao: khớp theo cột Mã NV = mã thành viên của tài khoản; cột tên chỉ để đọc. "
-    "Mã NV trống hoặc chưa có trong hệ thống: tài nguyên vẫn nhập, chưa gắn với ai.",
-    "Các cột tháng (T10/2026…): ghi trạng thái của tháng đó; "
-    "ô cuối cùng có giá trị là trạng thái hiện tại.",
-    "Ngày bắt đầu dùng: dd/mm/yyyy.",
-    'Tab "Hướng dẫn" và "Danh mục" được bỏ qua khi nhập.',
-)
-
-
-def template_workbook(
-    departments: Sequence[Department], catalog: OptionCatalog, *, months: Sequence[str]
-) -> bytes:
-    """The import template (2026-10-19): a "Hướng dẫn" sheet, one empty
-    inventory sheet per active department (headers on row 5 like the
-    Apexmed file, ids and phones as text, three month columns) and a "Danh
-    mục" sheet with every active pick-list value, so what is typed matches
-    what the import accepts."""
+def template_workbook(catalog: OptionCatalog) -> bytes:
+    """The import template: a single "Tài nguyên" sheet - header on row 1,
+    two example lines (skipped while their note is untouched), id and member
+    code columns as text, drop-downs for ban / loại / trạng thái."""
     book = Workbook()
-    guide = book.active
-    assert guide is not None
-    guide.title = "Hướng dẫn"
-    guide["A1"] = "Hướng dẫn nhập tài nguyên"
-    guide["A1"].font = Font(bold=True, size=14)
-    for row, line in enumerate(TEMPLATE_GUIDE, start=3):
-        guide.cell(row=row, column=1, value=f"{row - 2}. {line}")
-    guide.column_dimensions["A"].width = 120
-    for department in departments:
-        title = department.name[:31] or department.code
-        sheet = book.create_sheet(title)
-        sheet["A1"] = "Apexmed - Khai báo tài nguyên"
-        sheet["A1"].font = Font(bold=True, size=13)
-        sheet["A2"] = f"Ban: {department.name} ({department.code})"
-        headers = [label for _key, label in TEMPLATE_COLUMNS] + [
-            f"T{m[5:].lstrip('0')}/{m[:4]}" for m in months
-        ]
-        for column, header in enumerate(headers, start=1):
-            cell = sheet.cell(row=5, column=column, value=header)
-            cell.font = Font(bold=True)
-            cell.fill = PatternFill("solid", fgColor="DAE3F1")
-            cell.alignment = Alignment(wrap_text=True, vertical="center")
-        for sample in _sample_rows(department, months):
-            sheet.append(sample)
-        for row in range(6, 8):
-            for column in range(1, len(headers) + 1):
-                sheet.cell(row=row, column=column).font = Font(italic=True, color="55627F")
-        for index, (key, _label) in enumerate(TEMPLATE_COLUMNS, start=1):
-            letter = get_column_letter(index)
-            sheet.column_dimensions[letter].width = (
-                34 if key in ("name", "purpose", "note", "holder") else 18
-            )
-            if key in TEXT_COLUMNS or key == "holder_code":
-                for row in range(6, 206):
-                    sheet.cell(row=row, column=index).number_format = "@"
-        for offset in range(len(months)):
-            sheet.column_dimensions[
-                get_column_letter(len(TEMPLATE_COLUMNS) + offset + 1)
-            ].width = 14
-        sheet.row_dimensions[5].height = 32
-        sheet.freeze_panes = "A6"
-    lists = book.create_sheet("Danh mục")
-    for column, (label, kind) in enumerate(TEMPLATE_LISTS, start=1):
-        cell = lists.cell(row=1, column=column, value=label)
+    sheet = book.active
+    assert sheet is not None
+    sheet.title = TEMPLATE_SHEET
+    for column, (_key, label) in enumerate(TEMPLATE_COLUMNS, start=1):
+        cell = sheet.cell(row=1, column=column, value=label)
         cell.font = Font(bold=True)
         cell.fill = PatternFill("solid", fgColor="DAE3F1")
-        for row, option in enumerate(catalog.of_kind(kind), start=2):
-            lists.cell(row=row, column=column, value=option.name)
-        lists.column_dimensions[get_column_letter(column)].width = 30
+        cell.alignment = Alignment(wrap_text=True, vertical="center")
+    for sample in _sample_rows():
+        sheet.append(sample)
+    for row in (2, 3):
+        for column in range(1, len(TEMPLATE_COLUMNS) + 1):
+            sheet.cell(row=row, column=column).font = Font(italic=True, color="55627F")
+    lists = {
+        "type": [o.name for o in catalog.of_kind(OptionKind.TYPE)],
+        "status": [o.name for o in catalog.of_kind(OptionKind.STATUS)],
+    }
+    for index, (key, _label) in enumerate(TEMPLATE_COLUMNS, start=1):
+        letter = get_column_letter(index)
+        sheet.column_dimensions[letter].width = 38 if key in ("name", "link", "note") else 20
+        if key in ("external_id", "holder_code"):
+            for row in range(2, 502):
+                sheet.cell(row=row, column=index).number_format = "@"
+        names = lists.get(key)
+        # An inline list is limited to 255 characters and cannot hold commas.
+        if names and all("," not in n for n in names) and len(",".join(names)) <= 255:
+            validation = DataValidation(
+                type="list", formula1='"' + ",".join(names) + '"', allow_blank=True
+            )
+            validation.add(f"{letter}2:{letter}501")
+            sheet.add_data_validation(validation)
+    sheet.freeze_panes = "A2"
     buffer = io.BytesIO()
     book.save(buffer)
     return buffer.getvalue()
@@ -392,6 +286,7 @@ HEADER_RULES: tuple[tuple[str, str], ...] = (
     ("stt", "_skip"),
     ("trang thai nguoi dung", "_skip"),
     ("ma tai nguyen", "code"),
+    ("ban quan ly", "department"),
     ("ma nv", "holder_code"),
     ("ma nhan vien", "holder_code"),
     ("loai", "type"),
@@ -563,6 +458,8 @@ class ImportContext:
     #: ``(type option id, folded external id)`` already in the database.
     taken_ids: frozenset[tuple[uuid.UUID, str]]
     taken_codes: frozenset[str]
+    #: Every open seat by person, for "the holder's ban".
+    seats: Mapping[uuid.UUID, tuple[Seat, ...]] = field(default_factory=dict)
     #: Whether missing pick-list entries will be created on commit: the
     #: preview then warns instead of refusing.
     create_options: bool = False
@@ -607,13 +504,22 @@ def parse_workbook(raw: bytes, context: ImportContext) -> ImportPreview:
             )
             continue
         header_row, columns, unknown = found
-        if "_aggregate" in columns.values():
+        per_row = "department" in columns.values()
+        if "_aggregate" in columns.values() and not per_row:
             # A roll-up of the department tabs: every row is already in its tab.
             sheets.append(
                 SheetSummary(name=sheet.title, department=None, rows=0, errors=0, skipped=True)
             )
             continue
-        department = _match_department(sheet.title, context.departments)
+        # The template's own sheet names no department: the ban follows the holder.
+        department = (
+            None
+            if fold(sheet.title) == fold(TEMPLATE_SHEET)
+            else _match_department(sheet.title, context.departments)
+        )
+        department_column = next(
+            (index for index, key in columns.items() if key == "department"), None
+        )
         parsed: list[ImportRow] = []
         for row_no, cells in enumerate(
             sheet.iter_rows(min_row=header_row + 1, values_only=True), start=header_row + 1
@@ -621,8 +527,15 @@ def parse_workbook(raw: bytes, context: ImportContext) -> ImportPreview:
             if not any(cell_text(cell) for cell in cells):
                 continue
             row = ImportRow(sheet=sheet.title, row_no=row_no, department=department)
-            if department is None:
-                row.errors.append("Tên tab không khớp phòng ban nào.")
+            if department_column is not None:
+                # An explicit "Ban quản lý" column (older files): it wins.
+                text = cell_text(
+                    cells[department_column] if department_column < len(cells) else None
+                )
+                if text:
+                    row.department = _match_department(text, context.departments)
+                    if row.department is None:
+                        row.errors.append(f"Ban quản lý '{text}' không khớp phòng ban nào.")
             _read_row(row, cells, columns, context)
             if _is_template_row(row):
                 skipped_rows += 1
@@ -632,7 +545,7 @@ def parse_workbook(raw: bytes, context: ImportContext) -> ImportPreview:
         sheets.append(
             SheetSummary(
                 name=sheet.title,
-                department=department,
+                department=None if department_column is not None else department,
                 rows=len(parsed),
                 errors=sum(1 for row in parsed if row.errors),
                 unknown_headers=unknown,
@@ -653,7 +566,7 @@ def _is_template_row(row: ImportRow) -> bool:
     filled = {
         key
         for key, value in row.raw.items()
-        if value and key not in ("code", "type", "holder", "holder_code")
+        if value and key not in ("code", "type", "holder", "holder_code", "department")
     }
     return not filled and not row.months
 
@@ -697,12 +610,11 @@ def _person_by_name(context: ImportContext, name: str) -> User | str | None:
 
 
 def _match_holder(row: ImportRow, context: ImportContext) -> None:
-    """ "Người được bàn giao" is matched by "Mã NV" alone (2026-10-19): the
-    name column is informative only. No code, or a code no account carries
-    = nobody: the resource comes in unassigned (it sits with Phòng Tài
-    nguyên) with a warning, and no account is ever created from the file -
-    the OWNER / ADMIN gives member codes on the members screen, then the
-    resource is handed over there."""
+    """ "Người được bàn giao" is matched by "Mã NV" alone: the name column is
+    informative only. No code = nobody (a warning, when the line has a ban
+    of its own); a code no account carries = an ERROR (2026-10-20) - the
+    file is not written until the OWNER / ADMIN gives that member code on
+    the members screen. No account is ever created from the file."""
     code = normalise_member_code(row.raw.get("holder_code") or None)
     name = " ".join(row.raw.get("holder", "").split())
     if code is None:
@@ -715,10 +627,56 @@ def _match_holder(row: ImportRow, context: ImportContext) -> None:
     if match is not None:
         row.values["holder_user_id"] = match.id
         return
-    row.warnings.append(
-        f"Mã NV '{code}' chưa có trong hệ thống: tài nguyên chưa gắn với ai"
-        + (f" (file ghi '{name}')." if name else ".")
+    # An unknown code is an error, whatever else the line says: nothing is
+    # written until the account carries that member code.
+    row.errors.append(
+        f"Mã NV '{code}' chưa có trong hệ thống." + (f" (file ghi '{name}')" if name else "")
     )
+
+
+#: The order a person's several departments are tried in (2026-10-20): ADS,
+#: then Dựng, Thiết kế, Biên tập; any other department after them, the one
+#: listed first winning.
+_DEPARTMENT_PRIORITY: tuple[str, ...] = ("ADS", "DUNG", "THIET_KE", "BIEN_TAP")
+
+
+def department_of_seats(seats: Sequence[Seat]) -> uuid.UUID | None:
+    """The department a resource follows when its holder sits in several."""
+    if not seats:
+        return None
+
+    def rank(seat: Seat) -> int:
+        if seat.code.upper() == "ADS":
+            return 0
+        try:
+            return 1 + _DEPARTMENT_PRIORITY.index(seat.function.value)
+        except ValueError:
+            return len(_DEPARTMENT_PRIORITY) + 1
+
+    # ``min`` keeps the first of equals: the seats come in the departments' order.
+    return min(seats, key=rank).department_id
+
+
+def _resolve_department(row: ImportRow, context: ImportContext) -> None:
+    """The ban of a line without one of its own: the holder's (2026-10-20).
+    "Mã NV" is then required - no code, an unknown code or a person with no
+    seat leaves the line without a ban, which is an error."""
+    if row.department is not None:
+        return
+    # What _match_holder said about a missing holder is now an error, not a warning.
+    row.warnings = [w for w in row.warnings if "Mã NV" not in w]
+    holder_id = row.values.get("holder_user_id")
+    if holder_id is None:
+        # An unknown code was already refused by ``_match_holder``.
+        if normalise_member_code(row.raw.get("holder_code") or None) is None:
+            row.errors.append("Thiếu Mã NV: cần mã nhân viên để biết tài nguyên thuộc ban nào.")
+        return
+    wanted = department_of_seats(context.seats.get(holder_id, ()))
+    row.department = next((d for d in context.departments if d.id == wanted), None)
+    if row.department is None:
+        row.errors.append("Nhân viên này chưa thuộc ban nào: gán ban cho họ trước.")
+    else:
+        row.warnings.append(f"Ban lấy theo người giữ: {row.department.name}.")
 
 
 def _read_row(
@@ -781,6 +739,7 @@ def _read_row(
             row.missing_options.append((kind, text))
             row.errors.append(f"{_label(key)}: '{text}' không có trong danh sách lựa chọn.")
     _match_holder(row, context)
+    _resolve_department(row, context)
     two_factor_holder = " ".join(row.raw.get("two_factor_holder", "").split())
     if two_factor_holder:
         match = _person_by_name(context, two_factor_holder)
@@ -803,10 +762,6 @@ def _read_row(
         made = f"{stem} {row.values['external_id']}" if row.values.get("external_id") else stem
         row.values["name"] = made[: LIMITS["name"]]
         row.warnings.append(f"Thiếu tên: tạm đặt '{row.values['name']}', bổ sung sau.")
-    link = row.values.get("link")
-    if link and not link.lower().startswith(("http://", "https://")):
-        row.values["link"] = f"https://{link}"
-        row.warnings.append(f"Link '{link}' được thêm https://.")
     started = texts.get("started_on")
     if started not in (None, ""):
         day = parse_day(started)
@@ -941,6 +896,7 @@ class ResourceImportService:
             departments=departments,
             catalog=await self._service.catalog(),
             people=people,
+            seats=await load_seats(self._session, [user.id for user in people]),
             taken_ids=frozenset(
                 (type_id, fold(external_id)) for type_id, external_id, _code in taken
             ),

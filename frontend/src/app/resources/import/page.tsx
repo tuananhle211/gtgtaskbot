@@ -86,8 +86,8 @@ export default function ImportPage() {
           </a>
         </div>
         <p className="text-xs text-[var(--text-muted)]">
-          File mẫu có sẵn một tab cho mỗi ban, đúng cột hệ thống đọc, hai dòng ví dụ cách điền (tự bỏ qua khi
-          nhập) và tab &quot;Danh mục&quot; liệt kê các giá trị hợp lệ. Điền vào rồi tải lên ở đây.
+          File mẫu chỉ có một sheet, mỗi dòng một tài nguyên: Mã NV (bắt buộc), Loại, ID, Tên, Trạng thái, Link,
+          Ghi chú. Ban của tài nguyên lấy theo người giữ. Hai dòng ví dụ tự bỏ qua khi nhập.
         </p>
         <input
           id={inputId}
@@ -110,11 +110,10 @@ export default function ImportPage() {
           </label>
         </div>
         <ul className="list-disc space-y-1 pl-5 text-xs text-[var(--text-muted)]">
-          <li>Tên tab = tên hoặc mã ban (ADS, Biên Tập, Thiết Kế, Media Dựng, PR Thương Hiệu). Tab &quot;Người sử dụng&quot; và &quot;Tổng hợp&quot; được bỏ qua.</li>
+          <li>File mẫu không có cột ban: ban lấy theo ban của người giữ (Mã NV). Người ở nhiều ban thì ưu tiên ADS, Dựng, Thiết kế, Biên tập, còn lại lấy ban đứng trước. Thiếu Mã NV, mã lạ hoặc người chưa thuộc ban nào thì dòng báo lỗi. File kiểm kê cũ (mỗi tab một ban) vẫn nhập được, ban theo tên tab.</li>
           <li>Mã tài nguyên trong file được giữ nguyên; dòng không có mã, hoặc trùng mã với dòng trước trong file, được cấp mã mới.</li>
           <li>Dòng thiếu ID, loại hoặc tên vẫn được nhập: ID = mã tài nguyên, loại tạm là &quot;Khác&quot;, tên tạm ghép từ loại + ID. Bổ sung sau trên màn hình.</li>
-          <li>Người được bàn giao khớp theo cột &quot;Mã NV&quot; = mã thành viên của tài khoản; cột tên chỉ để đọc. Không có Mã NV, hoặc mã chưa có trong hệ thống: tài nguyên vẫn được nhập nhưng chưa gắn với ai (chỉ cảnh báo), không tạo tài khoản mới. Giá trị danh sách (loại, quyền, trạng thái…) phải có trong Cài đặt.</li>
-          <li>Mã thành viên do Chủ sở hữu / Quản trị viên gán ở Quản lý tài khoản; gán xong tải lại file là tài nguyên khớp đúng người.</li>
+          <li>Người được bàn giao khớp theo cột &quot;Mã NV&quot; = mã thành viên của tài khoản; cột tên chỉ để đọc. Mã NV chưa có trong hệ thống thì dòng báo đỏ và không ghi được: nhờ Chủ sở hữu / Quản trị viên gán mã thành viên cho tài khoản trước, rồi tải lại file. Giá trị danh sách (loại, quyền, trạng thái…) phải có trong Cài đặt.</li>
           <li>Mỗi ô tháng (T10/2026…) có giá trị = một dòng lịch sử trạng thái; ô cuối cùng là trạng thái hiện tại.</li>
           <li>Có lỗi thì sửa trong file rồi tải lại - không sửa trên web.</li>
         </ul>

@@ -16,6 +16,7 @@ import {
   formatResourceDay,
   formatResourceWhen,
   statusTone,
+  isWebLink,
 } from "@/lib/resources";
 
 /**
@@ -139,10 +140,14 @@ function Fields({ row }: { row: ResourceRow }) {
     ["Tên tài nguyên", row.name],
     [
       "Link",
-      row.link ? (
+      row.link && isWebLink(row.link) ? (
         <a key="link" href={row.link} target="_blank" rel="noopener noreferrer" className="text-[var(--accent)] underline break-all">
           {row.link}
         </a>
+      ) : row.link ? (
+        <span key="link" className="break-all">
+          {row.link}
+        </span>
       ) : (
         "—"
       ),

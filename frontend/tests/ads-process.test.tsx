@@ -113,6 +113,16 @@ function stubCreateForm(kinds: unknown = KINDS) {
 
 const route = () => screen.getByTestId("process-route").textContent;
 const codePreview = () => screen.getByTestId("order-code-preview").textContent;
+
+describe("the order code", () => {
+  it("is five characters the server picks", async () => {
+    stubCreateForm();
+    renderWithQuery(<NewOrderPage />);
+    await screen.findByRole("checkbox", { name: "Dựng" });
+    expect(codePreview()).toContain("5 ký tự");
+    expect(codePreview()).not.toContain("yymmdd");
+  });
+});
 const submit = () => screen.getByRole("button", { name: "Gửi order" });
 
 /** The "Deadline mong muốn" box (datetime-local: jsdom takes a change event). */
@@ -209,25 +219,21 @@ describe("the create form's Quy trình", () => {
     expect(screen.getByRole("checkbox", { name: "Biên kịch" })).not.toBeChecked();
     expect(screen.getByRole("checkbox", { name: "Design" })).not.toBeChecked();
     expect(route()).toBe("Order › Dựng › Người order duyệt final");
-    expect(codePreview()).toBe("TUAN-D-yymmdd-nn");
   });
 
-  it("changes the route and the code preview as boxes are ticked", async () => {
+  it("changes the route as boxes are ticked", async () => {
     stubCreateForm();
     renderWithQuery(<NewOrderPage />);
     await userEvent.click(await screen.findByRole("checkbox", { name: "Biên kịch" }));
     expect(route()).toBe(
       "Order › Biên kịch › Dựng › Người order duyệt final",
     );
-    expect(codePreview()).toBe("TUAN-BD-yymmdd-nn");
 
     await userEvent.click(screen.getByRole("checkbox", { name: "Design" }));
-    expect(codePreview()).toBe("TUAN-BTD-yymmdd-nn");
     expect(route()).toBe(
       "Order › Biên kịch › Design › Dựng › Người order duyệt final",
     );
     await userEvent.click(screen.getByRole("checkbox", { name: "Dựng" }));
-    expect(codePreview()).toBe("TUAN-BT-yymmdd-nn");
     // The side panel names the orderer as the final reviewer.
     expect(screen.getByText("Bạn (người order) duyệt final")).toBeInTheDocument();
   });
@@ -306,7 +312,6 @@ describe("the create form's Quy trình", () => {
     expect(
       screen.getByText("Chọn ít nhất một công đoạn: Biên kịch, Design hoặc Dựng."),
     ).toBeInTheDocument();
-    expect(codePreview()).toBe("TUAN-?-yymmdd-nn");
   });
 
   // "Người duyệt order" comes from GET /api/orders/approvers: who approves

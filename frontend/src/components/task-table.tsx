@@ -1,6 +1,7 @@
 "use client";
 
 import { useRouter } from "next/navigation";
+import { useEffect, useRef, useState } from "react";
 import { DeadlineBadge } from "@/components/deadline-badge";
 import { Pill } from "@/components/states";
 import type { TaskRow } from "@/lib/api";
@@ -284,6 +285,14 @@ export function RowDeadlineCell({ row }: { row: TaskRow }) {
  * With `onPageSize` it also offers the page size ("Số dòng"), and with
  * `sorted` it says that the sort covers this page only - the server pages the
  * list in its own order, so a sorted page is not a sorted list.
+ *
+ * It is docked: it sticks to the bottom of the screen while its panel is in
+ * view, and carries the table's sideways scrollbar with it. A wide table's own
+ * scrollbar sits under its last row, so reaching the columns on the right of
+ * the first rows meant scrolling all the way down first. The docked bar is a
+ * stand-in: it mirrors the `.table-scroll-x` in the same panel (found in the
+ * DOM, so the pages need no wiring), both scroll together, and the table's own
+ * bar is hidden (`.is-docked`) while the stand-in is there.
  */
 export function Pager({
   page,
@@ -318,11 +327,49 @@ export function Pager({
   }
   const button =
     "inline-flex min-h-9 min-w-9 items-center justify-center rounded-lg border border-[var(--border)] px-2.5 text-xs disabled:opacity-40";
+  const dockRef = useRef<HTMLElement>(null);
+  const barRef = useRef<HTMLDivElement>(null);
+  const [span, setSpan] = useState<{ scroll: number; client: number } | null>(null);
+  useEffect(() => {
+    const bar = barRef.current;
+    const area = dockRef.current?.parentElement?.querySelector<HTMLElement>(".table-scroll-x");
+    if (!bar || !area) return;
+    area.classList.add("is-docked");
+    const measure = () => setSpan({ scroll: area.scrollWidth, client: area.clientWidth });
+    // Setting the same value fires no scroll event, so the pair cannot loop.
+    const fromArea = () => {
+      if (bar.scrollLeft !== area.scrollLeft) bar.scrollLeft = area.scrollLeft;
+    };
+    const fromBar = () => {
+      if (area.scrollLeft !== bar.scrollLeft) area.scrollLeft = bar.scrollLeft;
+    };
+    measure();
+    area.addEventListener("scroll", fromArea, { passive: true });
+    bar.addEventListener("scroll", fromBar, { passive: true });
+    window.addEventListener("resize", measure);
+    const watcher = typeof ResizeObserver === "function" ? new ResizeObserver(measure) : null;
+    watcher?.observe(area);
+    if (area.firstElementChild) watcher?.observe(area.firstElementChild);
+    return () => {
+      area.classList.remove("is-docked");
+      area.removeEventListener("scroll", fromArea);
+      bar.removeEventListener("scroll", fromBar);
+      window.removeEventListener("resize", measure);
+      watcher?.disconnect();
+    };
+  }, []);
+  const overflows = span !== null && span.scroll > span.client + 1;
   return (
-    <nav
-      aria-label="Phân trang"
-      className="flex flex-wrap items-center justify-between gap-2 border-t border-[var(--border)] px-3 py-2 text-xs text-[var(--text-muted)]"
-    >
+    <nav ref={dockRef} aria-label="Phân trang" className="pager-dock text-xs text-[var(--text-muted)]">
+      <div
+        ref={barRef}
+        aria-hidden="true"
+        data-testid="pager-scrollbar"
+        className={`table-dock-bar ${overflows ? "" : "hidden"}`}
+      >
+        <div className="h-px" style={{ width: span?.scroll ?? 0 }} />
+      </div>
+      <div className="flex flex-wrap items-center justify-between gap-2 px-3 py-2">
       <span className="flex flex-wrap items-center gap-x-3 gap-y-1">
         <span>
           {first}–{last} / {total} {noun} · {pageSize} dòng mỗi trang
@@ -383,6 +430,7 @@ export function Pager({
         <button type="button" className={button} disabled={page >= pages} onClick={() => onPage(pages)} aria-label="Trang cuối">
           »
         </button>
+      </div>
       </div>
     </nav>
   );

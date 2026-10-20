@@ -915,68 +915,62 @@ async def test_09_export_keeps_ids_as_text_and_import_previews_then_writes(world
     assert garbage.status_code == 422 and error_reason(garbage.json()) == "import_file_invalid"
 
 
-async def test_09d_the_template_is_what_the_import_reads(world: World) -> None:
-    """2026-10-19 "Tải file mẫu": one tab per active department with the
-    headers the import recognises, text-formatted id columns, a "Danh mục"
-    tab of the current pick-lists - and, filled in, it imports clean."""
+async def test_09d_the_template_is_one_sheet_and_the_ban_follows_the_holder(
+    world: World,
+) -> None:
+    """One sheet (Mã NV, loại, ID, tên, trạng thái, link, ghi chú), no ban
+    column: Mã NV is required and the resource takes the holder's ban - ADS,
+    then Dựng, Thiết kế, Biên tập, then the first of any other."""
     people = await cast(world)
+    ads = people.ads
     world.act_as(people.tn_staff)
     assert world.client.get("/api/resources/import/template.xlsx").status_code == 403
     world.act_as(people.tn_head)
     response = world.client.get("/api/resources/import/template.xlsx")
     assert response.status_code == 200
-    assert response.headers["content-disposition"].endswith('"mau-khai-bao-tai-nguyen.xlsx"')
     book = load_workbook(io.BytesIO(response.content))
-    assert book.sheetnames[0] == "Hướng dẫn" and book.sheetnames[-1] == "Danh mục"
-    assert "ADS" in book.sheetnames and "Biên Tập" in book.sheetnames
-    sheet = book["ADS"]
-    headers = [cell.value for cell in sheet[5]]
-    assert headers[:5] == [
-        "STT",
-        "Mã tài nguyên",
+    assert book.sheetnames == ["Mẫu nhập"]
+    sheet = book["Mẫu nhập"]
+    assert [c.value for c in sheet[1]] == [
+        "Mã NV",
         "Loại tài nguyên",
         "ID tài nguyên",
         "Tên tài nguyên",
+        "Trạng thái",
+        "Link",
+        "Ghi chú",
     ]
-    assert "Mã NV" in headers and headers[-3].startswith("T")
-    assert sheet.cell(row=6, column=4).number_format == "@"
-    lists = book["Danh mục"]
-    assert [cell.value for cell in lists[1]][:2] == ["Loại tài nguyên", "Quyền đang có"]
-    assert "Via" in [cell.value for cell in lists["A"]]
-    # Filled in on the template itself, the file goes straight through.
-    sheet.append(
-        [
-            1,
-            "",
-            "Via",
-            "9090",
-            "Via mẫu",
-            "",
-            "",
-            "",
-            "",
-            "",
-            "",
-            "",
-            "",
-            "",
-            "",
-            "",
-            "",
-            "",
-            "Hoạt động",
-        ]
-    )
+    assert sheet.cell(row=2, column=3).number_format == "@"
+    untouched = base64.b64encode(response.content).decode()
+    empty = world.client.post("/api/resources/import/preview", json={"data": untouched}).json()
+    assert empty["rows"] == [] and empty["skipped_rows"] == 2
+
+    # Member codes, and a second seat for two of the people.
+    world.act_as(world.owner)
+    for user, code in ((ads.orderer, "ORD"), (ads.editor, "EDT"), (ads.writer, "WRT")):
+        r = world.client.put(
+            f"/api/account/members/{user.id}/member-code", json={"member_code": code}
+        )
+        assert r.status_code == 200
+    assert seat(world, "BT", ads.editor).status_code == 200  # Dựng + Biên Tập -> Dựng
+    assert seat(world, "D", ads.orderer).status_code == 200  # ADS + Dựng -> ADS
+    world.act_as(people.tn_head)
+    sheet.append(["ORD", "Via", "1", "Của ADS", "Hoạt động", "https://a", ""])
+    sheet.append(["edt", "Gmail", "2", "Của Dựng", "Hoạt động", "tuỳ ý, không phải link", ""])
+    sheet.append(["WRT", "Gmail", "3", "Của Biên Tập", "Hoạt động", "", ""])
+    sheet.append(["", "Via", "4", "Thiếu mã", "Hoạt động", "", ""])
+    sheet.append(["NOPE", "Via", "5", "Mã lạ", "Hoạt động", "", ""])
     buffer = io.BytesIO()
     book.save(buffer)
     data = base64.b64encode(buffer.getvalue()).decode()
     preview = world.client.post("/api/resources/import/preview", json={"data": data}).json()
-    assert preview["error_count"] == 0 and preview["ok_count"] == 1
-    assert [item["name"] for item in preview["sheets"] if item["skipped"]] == [
-        "Hướng dẫn",
-        "Danh mục",
-    ]
-    assert preview["rows"][0]["raw"]["external_id"] == "9090"
+    rows = {row["raw"]["external_id"]: row for row in preview["rows"]}
+    assert rows["1"]["department"]["code"] == "ADS"
+    assert rows["2"]["department"]["code"] == "D"
+    assert rows["3"]["department"]["code"] == "BT"
+    assert "Thiếu Mã NV" in rows["4"]["errors"][0]
+    assert "chưa có trong hệ thống" in rows["5"]["errors"][0]
+    assert preview["ok_count"] == 3 and preview["error_count"] == 2
 
 
 async def test_09b_the_holder_is_matched_by_member_code_alone(world: World) -> None:
@@ -992,20 +986,18 @@ async def test_09b_the_holder_is_matched_by_member_code_alone(world: World) -> N
         ).status_code
         == 200
     )
-    # Unknown code, even for the OWNER: imported, unassigned, warned - no account.
+    # Unknown code: a red line and nothing is written, even for the OWNER.
     unknown = _with_holder_code("Nhân Viên Mới", "NVM", "x1")
     preview = world.client.post("/api/resources/import/preview", json={"data": unknown}).json()
-    assert preview["error_count"] == 0 and preview["ok_count"] == 1
+    assert preview["error_count"] == 1 and preview["ok_count"] == 0
     assert (
-        "Mã NV 'NVM' chưa có trong hệ thống: tài nguyên chưa gắn với ai (file ghi 'Nhân Viên Mới')."
-        in preview["rows"][0]["warnings"]
+        "Mã NV 'NVM' chưa có trong hệ thống. (file ghi 'Nhân Viên Mới')"
+        in preview["rows"][0]["errors"]
     )
-    assert "create_people" not in preview
-    written = world.client.post("/api/resources/import/commit", json={"data": unknown})
-    assert written.status_code == 200, written.json()
+    refused = world.client.post("/api/resources/import/commit", json={"data": unknown})
+    assert refused.status_code == 422 and error_reason(refused.json()) == "import_has_errors"
     assert await world.session.scalar(select(User).where(User.full_name == "Nhân Viên Mới")) is None
-    listed = world.client.get("/api/resources", params={"q": "x1"}).json()["items"]
-    assert listed[0]["holder"] is None
+    assert world.client.get("/api/resources", params={"q": "x1"}).json()["items"] == []
     # A known code names its person, whatever the row calls them - the head
     # of Tài nguyên importing too.
     world.act_as(people.tn_head)

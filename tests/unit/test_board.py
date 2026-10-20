@@ -239,7 +239,7 @@ async def test_07_the_dashboard_counts_what_the_table_shows(world: World) -> Non
         params={"unit": "ADS", "date_from": "2020-01-01", "date_to": "2020-01-31"},
     ).json()
     assert empty["total"] == 0 and empty["progress_percent"] is None
-    assert pending["order"]["code"].startswith("TUAN-D-")
+    assert len(pending["order"]["code"]) == 5
     assert today.year >= 2026
 
 

@@ -8,17 +8,27 @@ import type { ResourceAlert, ResourceOptions, ResourceRow, UnitsMe } from "@/lib
  */
 
 /** The screens of the module, in menu order, and the access flag each needs. */
+export type ResourceScreenIcon =
+  | "inventory"
+  | "mine"
+  | "lookup"
+  | "report"
+  | "import"
+  | "settings";
+
 export const RESOURCE_SCREENS: ReadonlyArray<{
   href: string;
   label: string;
   flag: "view" | "edit" | "import_excel" | "settings" | "report";
+  /** The sidebar glyph (`Icon` in `components/shell.tsx`), one per screen. */
+  icon: ResourceScreenIcon;
 }> = [
-  { href: "/resources", label: "Danh sách tài nguyên", flag: "view" },
-  { href: "/resources/mine", label: "Tài nguyên của tôi", flag: "view" },
-  { href: "/resources/people", label: "Tra cứu nhân viên", flag: "report" },
-  { href: "/resources/reports", label: "Báo cáo tài nguyên", flag: "report" },
-  { href: "/resources/import", label: "Nhập Excel", flag: "import_excel" },
-  { href: "/resources/settings", label: "Cài đặt tài nguyên", flag: "settings" },
+  { href: "/resources", label: "Danh sách tài nguyên", flag: "view", icon: "inventory" },
+  { href: "/resources/mine", label: "Tài nguyên của tôi", flag: "view", icon: "mine" },
+  { href: "/resources/people", label: "Tra cứu nhân viên", flag: "report", icon: "lookup" },
+  { href: "/resources/reports", label: "Báo cáo tài nguyên", flag: "report", icon: "report" },
+  { href: "/resources/import", label: "Nhập Excel", flag: "import_excel", icon: "import" },
+  { href: "/resources/settings", label: "Cài đặt tài nguyên", flag: "settings", icon: "settings" },
 ];
 
 /** The module's screens this person may open. */
@@ -131,4 +141,9 @@ export function cleanFilters<T extends Record<string, unknown>>(filters: T): Par
     }
   }
   return out;
+}
+
+/** The "Link" column is free text (2026-10-20): an anchor only when it is a web address. */
+export function isWebLink(value: string | null | undefined): boolean {
+  return /^https?:\/\//i.test((value ?? "").trim());
 }

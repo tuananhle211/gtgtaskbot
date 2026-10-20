@@ -9,7 +9,7 @@ a write they may not make a 403 ``resource_forbidden``.
 from __future__ import annotations
 
 import uuid
-from datetime import date, datetime
+from datetime import date
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, Query, Response, status
@@ -390,28 +390,13 @@ async def previous(access: ResourceAccessDep) -> dict[str, str]:
 
 
 @router.get("/import/template.xlsx")
-async def import_template(
-    access: ResourceAccessDep, service: ResourceServiceDep, app_settings: SettingsDep
-) -> Response:
-    """The empty file to fill in ("Tải file mẫu", 2026-10-19): one tab per
-    active department, the headers the import reads, the current pick-lists
-    on a "Danh mục" tab. For whoever may import."""
+async def import_template(access: ResourceAccessDep, service: ResourceServiceDep) -> Response:
+    """The empty file to fill in ("Tải file mẫu"): one sheet, a column per
+    thing a line needs (ban, loại, ID, tên, Mã NV, trạng thái, link, ghi
+    chú), drop-downs from the current pick-lists. For whoever may import."""
     access.require("import_excel")
     await service.ensure_seed_options()
-    departments = (
-        await service.session.scalars(
-            select(Department).where(Department.active.is_(True)).order_by(Department.sort_order)
-        )
-    ).all()
-    today = datetime.now(app_settings.timezone).date()
-    months = []
-    year, month = today.year, today.month
-    for _ in range(3):
-        months.append(f"{year:04d}-{month:02d}")
-        month += 1
-        if month > 12:
-            month, year = 1, year + 1
-    content = template_workbook(departments, await service.catalog(), months=months)
+    content = template_workbook(await service.catalog())
     return Response(
         content=content,
         media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",

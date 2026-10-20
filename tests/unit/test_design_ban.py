@@ -461,7 +461,7 @@ async def test_10_a_birthday_order_goes_straight_to_design_and_ends_there(world:
     made = birthday(world, ads.orderer)
     assert made.status_code == 201, made.json()
     code = made.json()["code"]
-    assert code.startswith("TUAN-SN-")
+    assert len(code) == 5 and "-" not in code  # the short code, birthday too
     page = task(world, ads.orderer, code)
     assert page["category"] == "BIRTHDAY"
     assert page["birthday"] == {

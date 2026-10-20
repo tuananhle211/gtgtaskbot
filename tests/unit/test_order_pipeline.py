@@ -26,7 +26,6 @@ from meobot.domain.orders.pipeline import (
     assert_allowed,
     available_actions,
     first_node,
-    format_order_code,
     initial_node_statuses,
     is_urgent,
     next_node,
@@ -121,10 +120,14 @@ def test_04_urgency_is_seven_days_and_never_for_a_finished_order() -> None:
     )
 
 
-def test_05_the_code_reads_who_what_when_and_which() -> None:
-    day = datetime(2026, 10, 3, 9, 0, tzinfo=UTC)
-    assert format_order_code("TUAN", OrderVideoType.D, day, 1) == "TUAN-D-261003-01"
-    assert format_order_code("LAN", OrderVideoType.BTD, day, 12) == "LAN-BTD-261003-12"
+def test_05_the_code_is_five_mixed_characters_without_look_alikes() -> None:
+    from meobot.application.orders.code_service import CODE_ALPHABET, random_order_code
+
+    assert not set("01OIL") & set(CODE_ALPHABET)
+    for _ in range(500):
+        code = random_order_code()
+        assert len(code) == 5 and set(code) <= set(CODE_ALPHABET)
+        assert any(c.isdigit() for c in code) and any(c.isalpha() for c in code)
 
 
 # --- policy -------------------------------------------------------------------
@@ -368,8 +371,6 @@ def test_12_every_process_plans_exactly_its_ticked_nodes_in_pipeline_order() -> 
     assert process_code([]) is None
     with pytest.raises(ValueError):
         process_code([OrderNodeType.GAN_LINK])
-    day = datetime(2026, 10, 8, 9, 0, tzinfo=UTC)
-    assert format_order_code("TUAN", OrderVideoType.BD, day, 1) == "TUAN-BD-261008-01"
 
 
 def test_13_the_last_production_node_hands_in_the_product_on_every_process() -> None:

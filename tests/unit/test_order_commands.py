@@ -43,7 +43,6 @@ from meobot.domain.orders.labels import PROCESS_SEPARATOR as SEP
 from meobot.domain.orders.models import OrderNodeType, OrderStage
 from meobot.domain.pr.work import PrWorkCategory
 from meobot.domain.pr.work_results import PrWorkResultSource
-from meobot.domain.units.member_code import derive_member_code
 from meobot.domain.units.models import UnitCode, UnitMemberRole, unit_seed_id
 from meobot.integrations.llm.fake import FakeLLMProvider
 from tests.unit.pr_world import World
@@ -145,6 +144,13 @@ def create(world: World, ads: Ads, *, by: User | None = None, **overrides: Any) 
     return response.json()
 
 
+def short_code(code: str) -> bool:
+    """The order code since 2026-10-20: five random letters and digits."""
+    from meobot.application.orders.code_service import CODE_ALPHABET
+
+    return len(code) == 5 and set(code) <= set(CODE_ALPHABET)
+
+
 #: A desired / node deadline no test clock reaches (0053 makes them required).
 FAR_DEADLINE = "2030-01-01T00:00:00+00:00"
 
@@ -201,7 +207,7 @@ async def test_01_an_order_is_submitted_with_its_code_and_three_nodes(world: Wor
     ads = await ads_world(world)
     detail = create(world, ads)
     order = detail["order"]
-    assert order["code"].startswith("TUAN-BTD-") and order["code"].endswith("-01")
+    assert short_code(order["code"])
     assert order["stage"] == "ORDER_PENDING" and order["stage_label"] == "Chờ duyệt"
     assert order["version"] == 1 and order["urgent"] is False
     assert order["owner_name"] == ads.orderer.full_name
@@ -213,9 +219,9 @@ async def test_01_an_order_is_submitted_with_its_code_and_three_nodes(world: Wor
     assert [event["kind"] for event in detail["events"]] == ["SUBMITTED"]
     assert {action["kind"] for action in detail["available_actions"]} == {"CANCEL"}
     assert await inbox(world, ads.head) == [("order_submitted", "Có order mới cần duyệt")]
-    # The second order of the day gets the next number; another type too.
+    # Every order gets its own code.
     second = create(world, ads, video_type="D", design_link="https://example.com/design")
-    assert second["order"]["code"].endswith("-02")
+    assert short_code(second["order"]["code"]) and second["order"]["code"] != order["code"]
     assert statuses(second) == {
         "BIEN_TAP": "BO_QUA",
         "THIET_KE": "BO_QUA",
@@ -603,22 +609,23 @@ async def test_10_every_order_write_is_audited(world: World) -> None:
 async def test_11_a_head_without_a_member_code_gets_one_from_their_name(world: World) -> None:
     ads = await ads_world(world)
     # The head was tagged with no code: the first order derives one and keeps it.
+    # The order code no longer carries it, but ordering still derives it.
     first = create(world, ads, by=ads.head)
-    assert first["order"]["code"].startswith("TRUONG-BTD-") and first["order"]["code"].endswith(
-        "-01"
-    )
-    assert create(world, ads, by=ads.head)["order"]["code"].endswith("-02")
-    members = world.client.get("/api/units/ADS/members").json()["members"]
-    assert next(m["member_code"] for m in members if m["user_id"] == str(ads.head.id)) == "TRUONG"
+    assert short_code(first["order"]["code"])
+
+    def code_of(user: User) -> str | None:
+        world.act_as(ads.head)
+        members = world.client.get("/api/units/ADS/members").json()["members"]
+        return next(m["member_code"] for m in members if m["user_id"] == str(user.id))
+
+    assert code_of(ads.head) == "TRUONG"
     # A name that folds to a code somebody already holds gets a numeric suffix.
     other = await person(world, "Trương Văn B")
     await tag(world, ads.unit, other, UnitMemberRole.ORDERER)
-    assert create(world, ads, by=other)["order"]["code"].startswith("TRUONG2-BTD-")
-    # The owner acts without a tag: there is no row to keep the code on, so it
-    # is derived the same way each time.
-    prefix = derive_member_code(world.owner.full_name)
-    assert create(world, ads, by=world.owner)["order"]["code"].startswith(f"{prefix}-BTD-")
-    assert create(world, ads, by=world.owner)["order"]["code"].startswith(f"{prefix}-BTD-")
+    assert short_code(create(world, ads, by=other)["order"]["code"])
+    assert code_of(other) == "TRUONG2"
+    # The owner acts without a tag: still a short code.
+    assert short_code(create(world, ads, by=world.owner)["order"]["code"])
 
 
 # --- the flexible process and the video kinds (0044) ------------------------------
@@ -646,7 +653,7 @@ PROCESS_NODES = {
 
 async def test_12_every_process_combination_plans_its_nodes_and_its_code(world: World) -> None:
     ads = await ads_world(world)
-    for number, (code, nodes) in enumerate(PROCESS_NODES.items(), start=1):
+    for code, nodes in PROCESS_NODES.items():
         # Ticked in reverse: the server puts them in pipeline order.
         detail = create(
             world,
@@ -657,9 +664,7 @@ async def test_12_every_process_combination_plans_its_nodes_and_its_code(world: 
         )
         order = detail["order"]
         assert order["video_type"] == code
-        assert order["code"].startswith(f"TUAN-{code}-") and order["code"].endswith(
-            f"-{number:02d}"
-        )
+        assert short_code(order["code"])
         assert order["process"] == nodes
         if nodes == ["THIET_KE"]:
             # Design only: no ORD approval, it starts at Design at once.

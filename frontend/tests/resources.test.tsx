@@ -418,6 +418,6 @@ describe("the import page", () => {
     const link = await screen.findByRole("link", { name: /Tải file mẫu/ });
     expect(link).toHaveAttribute("href", "/api/resources/import/template.xlsx");
     expect(link).toHaveAttribute("download");
-    expect(screen.getByText(/một tab cho mỗi ban/)).toBeInTheDocument();
+    expect(screen.getByText(/chỉ có một sheet/)).toBeInTheDocument();
   });
 });

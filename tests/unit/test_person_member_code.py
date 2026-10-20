@@ -133,12 +133,16 @@ async def test_04_the_stream_roster_leaves_the_code_to_the_admins(world: World) 
     assert await tag_code(world, ads.designer, UnitCode.ADS) == "DIEM"
 
 
-async def test_05_an_order_opens_with_the_persons_code(world: World) -> None:
+async def test_05_an_order_no_longer_carries_the_persons_code(world: World) -> None:
+    """Since 2026-10-20 an order code is five random characters; the person's
+    code stays theirs."""
     ads = await ads_world(world)
     assert put_code(world, world.owner, ads.orderer, "Order1").status_code == 200
     made = order(world, ads.orderer)
     assert made.status_code == 201, made.json()
-    assert made.json()["order"]["code"].startswith("ORDER1-D-")
+    code = made.json()["order"]["code"]
+    assert len(code) == 5 and "ORDER1" not in code
+    assert await account_code(world, ads.orderer) == "ORDER1"
 
 
 async def test_06_a_code_made_from_the_name_is_kept_on_the_account(world: World) -> None:
@@ -148,8 +152,6 @@ async def test_06_a_code_made_from_the_name_is_kept_on_the_account(world: World)
     assert await account_code(world, newcomer) is None
     made = order(world, newcomer)
     assert made.status_code == 201, made.json()
-    prefix = made.json()["order"]["code"].split("-")[0]
-    assert prefix == "NGOC"
     assert await account_code(world, newcomer) == "NGOC"
     assert await tag_code(world, newcomer, UnitCode.ADS) == "NGOC"
 
@@ -186,5 +188,4 @@ async def test_07_a_code_is_one_persons_and_the_derived_one_steps_aside(world: W
     assert seat(world, "ADS", newcomer).status_code == 200
     made = order(world, newcomer)
     assert made.status_code == 201, made.json()
-    assert made.json()["order"]["code"].split("-")[0] == "NGOC2"
     assert await account_code(world, newcomer) == "NGOC2"

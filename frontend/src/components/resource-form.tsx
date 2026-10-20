@@ -316,7 +316,7 @@ export function ResourceFormDialog({
             placeholder: "Để trống: hệ thống lấy mã tài nguyên làm ID",
           })}
           {text(ids.name, "Tên tài nguyên", "name", { required: true })}
-          {text(ids.link, "Link", "link", { type: "url", placeholder: "https://…" })}
+          {text(ids.link, "Link", "link", { placeholder: "Nhập tuỳ ý: đường dẫn, ghi chú…" })}
           {editing ? null : personSelect(ids.holder, "Người được bàn giao", "holder_user_id", "— Phòng Tài nguyên giữ —")}
           {select(ids.role, "Quyền đang có", "role_id", "ROLE", { keep: resource?.role?.id })}
           {text(ids.email, "Email đăng ký", "email", { type: "email" })}
