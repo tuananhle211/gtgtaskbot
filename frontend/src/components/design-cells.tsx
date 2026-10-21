@@ -9,7 +9,8 @@ import {
   boldNames,
 } from "@/components/task-table";
 import type { DesignCodeItem, TaskCell, TaskRow, UnitMember } from "@/lib/api";
-import { formatAgo, formatShortDay, formatWhen } from "@/lib/labels";
+import { formatShortDateTime } from "@/lib/datetime";
+import { formatAgo, formatWhen } from "@/lib/labels";
 import { stepColor } from "@/lib/status-colors";
 
 /**
@@ -238,7 +239,7 @@ export function DesignerCell({ row }: { row: TaskRow }) {
           className="date-chip date-chip-done mt-1"
           title={`Nộp link thiết kế ${formatWhen(design.design_submitted_at)}`}
         >
-          Nộp {formatShortDay(design.design_submitted_at)}
+          Nộp {formatShortDateTime(design.design_submitted_at)}
         </span>
       ) : null}
     </td>

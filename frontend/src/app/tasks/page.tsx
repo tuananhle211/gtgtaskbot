@@ -8,7 +8,8 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api, type TaskCell, type TaskRow } from "@/lib/api";
 import { UnitSwitch, UntaggedState } from "@/components/unit-switch";
 import { effortEnabled } from "@/lib/effort";
-import { formatAgo, formatShortDay } from "@/lib/labels";
+import { formatDateTime, formatShortDateTime } from "@/lib/datetime";
+import { formatAgo } from "@/lib/labels";
 import {
   currentUnit,
   isPlainStaff,
@@ -852,7 +853,7 @@ function Cell({
         {!dense && (tokens != null || cell.deadline_at) ? (
           <span className="flex flex-wrap items-center gap-1 text-[11px] text-[var(--text-muted)]">
             <TokenBadge value={tokens} size="sm" />
-            <DeadlineBadge at={cell.deadline_at} status={cell.deadline_status} />
+            <DeadlineBadge at={cell.deadline_at} status={cell.deadline_status} short />
           </span>
         ) : null}
         {!dense && (cell.since || cell.revisions > 0) ? (
@@ -955,9 +956,9 @@ function TaskTableRow({
           <PersonLink userId={row.owner_user_id} name={row.owner_name} className="person" />
         </span>
         <span className="mt-1 flex flex-wrap items-center gap-1">
-          <span className="date-chip" title="Ngày order">
+          <span className="date-chip" title={`Ngày order ${formatDateTime(row.created_at)}`}>
             <CalendarIcon />
-            {formatShortDay(row.created_at)}
+            {formatShortDateTime(row.created_at)}
           </span>
           {!dense ? (
             <span className="text-[11px] text-[var(--text-muted)]">
@@ -1083,9 +1084,12 @@ function ResultCells({
       ))}
       <td className="whitespace-nowrap text-xs">
         {row.delivered_at ? (
-          <span className="date-chip date-chip-done mb-1" title="Ngày giao link hoàn thành">
+          <span
+            className="date-chip date-chip-done mb-1"
+            title={`Ngày giao link hoàn thành ${formatDateTime(row.delivered_at)}`}
+          >
             <LinkIcon />
-            Giao link {formatShortDay(row.delivered_at)}
+            Giao link {formatShortDateTime(row.delivered_at)}
           </span>
         ) : null}
         {row.product_link ? (
@@ -1117,8 +1121,11 @@ function ResultCells({
           )}
         </span>
         {row.returned_at ? (
-          <span className="block text-[11px] text-[var(--text-muted)]">
-            Hoàn thành {formatShortDay(row.returned_at)}
+          <span
+            className="block text-[11px] text-[var(--text-muted)]"
+            title={formatDateTime(row.returned_at)}
+          >
+            Hoàn thành {formatShortDateTime(row.returned_at)}
           </span>
         ) : null}
       </td>

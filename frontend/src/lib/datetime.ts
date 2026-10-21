@@ -46,6 +46,26 @@ export function formatDateTime(value: string | Date | null | undefined): string 
   return `${p.day}/${p.month}/${p.year} ${p.hour}:${p.minute}`;
 }
 
+/**
+ * `dd/mm HH:mm` - no year, for tight table cells (the order board); the full
+ * {@link formatDateTime} goes in the tooltip.
+ */
+export function formatShortDateTime(value: string | Date | null | undefined): string {
+  if (!value) return "—";
+  if (typeof value === "string" && dayOnly(value)) return formatShortDate(value);
+  const parsed = read(value);
+  if (!parsed) return String(value);
+  const p = parts(DATE_TIME, parsed);
+  return `${p.day}/${p.month} ${p.hour}:${p.minute}`;
+}
+
+/** `dd/mm` - a day with no year, for tight table cells. */
+export function formatShortDate(value: string | Date | null | undefined): string {
+  const full = formatDate(value);
+  const match = /^(\d{2}\/\d{2})\/\d{4}$/.exec(full);
+  return match ? match[1] : full;
+}
+
 /** `dd/mm/yyyy` (the Vietnam calendar day of an instant, or a bare day as is). */
 export function formatDate(value: string | Date | null | undefined): string {
   if (!value) return "—";

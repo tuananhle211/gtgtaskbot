@@ -257,7 +257,7 @@ export function RowDeadlineCell({ row }: { row: TaskRow }) {
     <td className="whitespace-nowrap text-xs" data-testid="row-deadline">
       {row.deadline_at ? (
         <span className="flex flex-col items-start gap-1">
-          <DeadlineBadge at={row.deadline_at} status={row.deadline_status} />
+          <DeadlineBadge at={row.deadline_at} status={row.deadline_status} short />
           {row.deadline_status === "OVERDUE" ? (
             <Pill tone="critical">Quá hạn</Pill>
           ) : null}

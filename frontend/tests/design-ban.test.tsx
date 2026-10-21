@@ -1539,14 +1539,14 @@ describe("the Design step's status and deadline on the Design table", () => {
     await screen.findAllByTestId("design-status");
     const [own, fallback] = screen.getAllByTestId("row-deadline");
     // 18/10 17:00 Việt Nam time: the step's deadline, and how it ended.
-    expect(own).toHaveTextContent("Hạn 18/10/2026 17:00");
+    expect(own).toHaveTextContent("Hạn 18/10 17:00");
     expect(own.querySelector("[data-deadline-status]")).toHaveAttribute(
       "data-deadline-status",
       "MET",
     );
     expect(own).not.toHaveTextContent("25/10");
     // No deadline on the step: the row's.
-    expect(fallback).toHaveTextContent("Hạn 22/10/2026 10:00");
+    expect(fallback).toHaveTextContent("Hạn 22/10 10:00");
   });
 
   it("falls back to the row's status when it has no Design step", async () => {
@@ -1556,7 +1556,7 @@ describe("the Design step's status and deadline on the Design table", () => {
     await screen.findByRole("link", { name: "TUAN-BT-261012-01" });
     expect(screen.queryByTestId("design-status")).not.toBeInTheDocument();
     expect(screen.getByText("Dựng · Đang làm")).toBeInTheDocument();
-    expect(screen.getByTestId("row-deadline")).toHaveTextContent("Hạn 25/10/2026 10:00");
+    expect(screen.getByTestId("row-deadline")).toHaveTextContent("Hạn 25/10 10:00");
   });
 
   it("leaves everybody else on the order's own status and deadline", async () => {
@@ -1564,7 +1564,7 @@ describe("the Design step's status and deadline on the Design table", () => {
     await screen.findByText("Banner khai trương");
     expect(screen.queryByTestId("design-status")).not.toBeInTheDocument();
     expect(screen.getByText("Dựng · Đang làm")).toBeInTheDocument();
-    expect(screen.getByTestId("row-deadline")).toHaveTextContent("Hạn 25/10/2026 10:00");
+    expect(screen.getByTestId("row-deadline")).toHaveTextContent("Hạn 25/10 10:00");
   });
 
   it("sorts those two columns by what they draw", async () => {
@@ -1679,6 +1679,6 @@ describe("the birthday board's Design status", () => {
     expect(status.querySelector(".st")).toHaveTextContent(/^Chờ Lan Leader duyệt$/);
     expect(status.querySelector(".st")).toHaveClass("st-amber");
     expect(status).toHaveTextContent(/Người làm:\s*Diễm My/);
-    expect(screen.getByTestId("row-deadline")).toHaveTextContent("Hạn 18/10/2026 17:00");
+    expect(screen.getByTestId("row-deadline")).toHaveTextContent("Hạn 18/10 17:00");
   });
 });

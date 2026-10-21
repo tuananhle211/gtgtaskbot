@@ -18,6 +18,7 @@ import DashboardPage from "@/app/dashboard/page";
 import { Shell } from "@/components/shell";
 import OrdSettingsPage from "@/app/admin/settings/page";
 import type { EffortGrid, TaskRow, UnifiedTaskDetail } from "@/lib/api";
+import { formatShortDateTime } from "@/lib/datetime";
 import {
   assigneeLoadLabel,
   deadlineStatusLabel,
@@ -488,7 +489,7 @@ describe("the task table's deadlines", () => {
     await screen.findByText("Video serum mùa đông");
     expect(screen.getByRole("columnheader", { name: "Deadline" })).toBeInTheDocument();
     const cell = screen.getByTestId("row-deadline");
-    expect(within(cell).getByText(new RegExp(`Hạn ${formatDeadline(STEP_DEADLINE)}`)).closest(".st")).toHaveClass("st-red");
+    expect(within(cell).getByText(new RegExp(`Hạn ${formatShortDateTime(STEP_DEADLINE)}`)).closest(".st")).toHaveClass("st-red");
     expect(within(cell).getByText("Quá hạn")).toBeInTheDocument();
     expect(within(cell).getByText("Vượt mong muốn 2 lần")).toBeInTheDocument();
 

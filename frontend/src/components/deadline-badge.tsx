@@ -1,3 +1,4 @@
+import { formatShortDateTime } from "@/lib/datetime";
 import { deadlineStatusLabel, formatDeadline } from "@/lib/deadline";
 import { deadlineColor } from "@/lib/status-colors";
 
@@ -9,21 +10,27 @@ export function DeadlineBadge({
   at,
   status,
   prefix = "Hạn",
+  short = false,
 }: {
   at: string | null | undefined;
   status?: string | null;
   prefix?: string;
+  /** Table cells: "dd/mm HH:mm" (no year), the full date on hover. */
+  short?: boolean;
 }) {
   if (!at) return null;
   const words = deadlineStatusLabel(status);
+  const title = short
+    ? [formatDeadline(at), words].filter(Boolean).join(" · ")
+    : words || undefined;
   return (
     <span
       className={`st st-nowrap st-${deadlineColor(status)}`}
-      title={words || undefined}
+      title={title}
       data-deadline-status={status ?? undefined}
     >
       <span>
-        {prefix} {formatDeadline(at)}
+        {prefix} {short ? formatShortDateTime(at) : formatDeadline(at)}
         {words ? <span className="sr-only"> · {words}</span> : null}
       </span>
     </span>

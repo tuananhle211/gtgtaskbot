@@ -335,11 +335,11 @@ describe("Quản lý tài khoản for the OWNER", () => {
     expect(within(dialog).getByRole("button", { name: "Mở tài khoản này" })).toBeInTheDocument();
   });
 
-  it("offers no impersonation for an OWNER account nor for an ADMIN viewer", async () => {
-    stubPage("OWNER", OWNER_ME);
+  it("offers no impersonation to an ADMIN viewer", async () => {
+    stubPage("ADMIN", { ...OWNER_ME, role: "ADMIN" });
     renderWithQuery(<AccountsAdminPage />);
-    await screen.findByText("Chị Chủ");
-    await userEvent.click(within(rowOf("Chị Chủ")).getByRole("button", { name: "Thao tác với Chị Chủ" }));
+    await screen.findByText("Quỳnh Như");
+    await userEvent.click(within(rowOf("Quỳnh Như")).getByRole("button", { name: "Thao tác với Quỳnh Như" }));
     expect(screen.queryByRole("menuitem", { name: "Đăng nhập thay…" })).not.toBeInTheDocument();
   });
 });

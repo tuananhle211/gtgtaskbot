@@ -366,7 +366,7 @@ describe('the hand-in date in "Thiết kế"', () => {
     const cell = await screen.findByTestId("design-designer");
     // The app's short day (`formatShortDay`, Việt Nam time): "12/10" or "12-10" by the ICU at hand.
     const chip = within(cell).getByTestId("design-submitted");
-    expect(chip).toHaveTextContent(/^Nộp 12\/10\/2026$/);
+    expect(chip).toHaveTextContent(/^Nộp 12\/10 10:30$/);
     expect(chip).toHaveAttribute("title", expect.stringContaining("Nộp link thiết kế"));
   });
 
@@ -387,7 +387,7 @@ describe('the hand-in date in "Thiết kế"', () => {
     ]);
     await screen.findByRole("link", { name: "MY-T-261012-01" });
     const [first, second] = screen.getAllByTestId("design-designer");
-    expect(within(first).getByTestId("design-submitted")).toHaveTextContent(/^Nộp 11\/10\/2026$/);
+    expect(within(first).getByTestId("design-submitted")).toHaveTextContent(/^Nộp 11\/10 16:00$/);
     expect(within(second).queryByTestId("design-submitted")).not.toBeInTheDocument();
   });
 });
