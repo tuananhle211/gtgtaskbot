@@ -319,9 +319,8 @@ function ProfileHero({
               role="tab"
               aria-selected={selected}
               onClick={() => onTab(item.key)}
-              className={`relative min-h-12 shrink-0 rounded-md px-3 text-sm font-medium transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-[var(--accent)] ${
-                selected ? "text-[var(--text)]" : "text-[var(--text-muted)] hover:text-[var(--text)]"
-              }`}
+              className={`relative min-h-12 shrink-0 rounded-md px-3 text-sm font-medium transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-[var(--accent)] ${selected ? "text-[var(--text)]" : "text-[var(--text-muted)] hover:text-[var(--text)]"
+                }`}
             >
               {item.label}
               {selected ? (
@@ -456,7 +455,7 @@ function AccountSettings({
         <SettingRow label="Vai trò">{me.role_label}</SettingRow>
         <DepartmentsRow />
         {me.units.some((item) => item.member_code) ? (
-          <SettingRow label="Mã thành viên" hint="Tiền tố mã order của bạn.">
+          <SettingRow label="Mã nhân viên" hint="Tiền tố mã order của bạn.">
             <span className="font-semibold">
               {me.units.find((item) => item.member_code)?.member_code}
             </span>
@@ -819,11 +818,10 @@ function Members({
                   role="tab"
                   aria-selected={teamOnly === item.team}
                   onClick={() => onTeamOnly(item.team)}
-                  className={`min-h-10 rounded-lg border px-3 text-sm font-medium ${
-                    teamOnly === item.team
-                      ? "border-[var(--accent)] bg-[var(--accent-soft)] text-[var(--accent-strong)]"
-                      : "border-[var(--border)] hover:bg-[var(--surface-muted)]"
-                  }`}
+                  className={`min-h-10 rounded-lg border px-3 text-sm font-medium ${teamOnly === item.team
+                    ? "border-[var(--accent)] bg-[var(--accent-soft)] text-[var(--accent-strong)]"
+                    : "border-[var(--border)] hover:bg-[var(--surface-muted)]"
+                    }`}
                 >
                   {item.label}
                 </button>
@@ -873,7 +871,7 @@ function Members({
                 <tr>
                   <th>Thành viên</th>
                   <th>Phòng ban</th>
-                  <th>Mã thành viên</th>
+                  <th>Mã nhân viên</th>
                   <th>Nhân sự</th>
                   <th
                     className={th}
@@ -962,8 +960,8 @@ function Members({
                             onSaved={(code) => {
                               setNotice(
                                 code
-                                  ? `Đã đặt mã thành viên ${code} cho ${row.full_name}.`
-                                  : `Đã xoá mã thành viên của ${row.full_name}.`,
+                                  ? `Đã đặt mã nhân viên ${code} cho ${row.full_name}.`
+                                  : `Đã xoá mã nhân viên của ${row.full_name}.`,
                               );
                               refreshMembers();
                             }}
@@ -1003,9 +1001,8 @@ function Members({
                       <td className="text-right tabular-nums">{formatRate(row.stats.first_pass_rate ?? null)}</td>
                       {effortOn ? (
                         <td
-                          className={`text-right tabular-nums ${
-                            (row.stats.effort_rate ?? 0) > 1 ? "text-[var(--bad)]" : ""
-                          }`}
+                          className={`text-right tabular-nums ${(row.stats.effort_rate ?? 0) > 1 ? "text-[var(--bad)]" : ""
+                            }`}
                         >
                           {row.stats.tokens_used === undefined
                             ? "–"

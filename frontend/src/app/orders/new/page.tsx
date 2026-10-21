@@ -40,6 +40,7 @@ import {
   type ProcessNode,
 } from "@/lib/ads-process";
 import { defaultDeadlineInput, isPast, toIsoFromLocal, toLocalInput } from "@/lib/deadline";
+import { DateTimeInput } from "@/components/date-input";
 
 /**
  * Points ("điểm hiệu suất") next to the video kinds and durations on the
@@ -262,7 +263,13 @@ function AdsOrderForm({
     candidates.some((person) => person.user_id === editing.approver_user_id)
       ? editing.approver_user_id
       : "";
-  const approver = pickedApprover ?? editedApprover;
+  // "Mặc định là trưởng phòng của mình": one own head among the choices is
+  // picked from the start (several heads stay on "Tự động").
+  const ownHead =
+    defaults.length === 1 && candidates.some((person) => person.user_id === defaults[0].user_id)
+      ? defaults[0].user_id
+      : "";
+  const approver = pickedApprover ?? (editedApprover || ownHead);
   const offersApprover = !ownGate && (candidates.length > 0 || approverRequired);
   const defaultNames = defaults.map((person) => person.name).join(", ");
   const approverName =
@@ -611,10 +618,11 @@ function AdsOrderForm({
         </div>
         <label className="block text-sm font-medium">
           Deadline mong muốn
-          <input
-            type="datetime-local"
+          <DateTimeInput
             value={form.desired_deadline}
-            onChange={set("desired_deadline")}
+            onChange={(event) =>
+              setForm((current) => ({ ...current, desired_deadline: event.target.value }))
+            }
             className={`mt-1 ${field} sm:max-w-xs`}
           />
           {deadlinePast ? (
@@ -654,7 +662,7 @@ function AdsOrderForm({
                 <option value="" disabled>
                   Chọn người duyệt…
                 </option>
-              ) : defaults.length > 0 ? (
+              ) : defaults.length > 0 && !ownHead ? (
                 <option value="">{`Tự động: ${defaultNames}`}</option>
               ) : null}
               {candidates.map((person) => (
@@ -669,7 +677,7 @@ function AdsOrderForm({
               </span>
             ) : (
               <span className="block text-xs font-normal text-[var(--text-muted)]">
-                Không bắt buộc · không chọn thì order tự chuyển tới trưởng phòng của bạn
+                Mặc định là trưởng phòng của bạn · có thể chọn trưởng phòng khác
               </span>
             )}
           </label>

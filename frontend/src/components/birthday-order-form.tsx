@@ -7,6 +7,7 @@ import { GENDERS } from "@/lib/birthday";
 import { Modal, ModalBody, ModalFooter } from "@/components/modal";
 import { PrimaryButton, SecondaryButton, Select } from "@/components/pr";
 import { NoticeBox } from "@/components/states";
+import { DateInput } from "@/components/date-input";
 
 /**
  * "Order sinh nhật": the form that creates one, and edits one already on the
@@ -277,9 +278,9 @@ function BirthdayOrderForm({
               <label htmlFor={ids.birthday_on} className="block text-sm font-medium">
                 Ngày sinh
               </label>
-              <input
+              <DateInput
                 id={ids.birthday_on}
-                type="date"
+               
                 value={draft.birthday_on}
                 onChange={(event) => set("birthday_on", event.target.value)}
                 aria-invalid={invalid("birthday_on") || undefined}

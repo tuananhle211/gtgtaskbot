@@ -41,6 +41,7 @@ import {
   disconnectChannelConfirmation,
   replaceConnectionConfirmation,
 } from "@/lib/confirmations";
+import { DateInput, DateTimeInput } from "@/components/date-input";
 
 /**
  * How loudly to draw a data-status badge.
@@ -732,9 +733,9 @@ function ChannelDetail({ channelId }: { channelId: string }) {
           </label>
           <label className="text-sm">
             Từ ngày
-            <input
+            <DateInput
               required
-              type="date"
+             
               value={from}
               onChange={(event) => setFrom(event.target.value)}
               className="mt-1 w-full rounded border border-[var(--border)] bg-transparent px-2 py-1.5"
@@ -742,8 +743,7 @@ function ChannelDetail({ channelId }: { channelId: string }) {
           </label>
           <label className="text-sm">
             Đến ngày (bao gồm ngày này)
-            <input
-              type="date"
+            <DateInput
               value={to}
               onChange={(event) => setTo(event.target.value)}
               className="mt-1 w-full rounded border border-[var(--border)] bg-transparent px-2 py-1.5"
@@ -783,8 +783,7 @@ function CloseButton({
   const [day, setDay] = useState("");
   return (
     <span className="flex items-center gap-1">
-      <input
-        type="date"
+      <DateInput
         value={day}
         onChange={(event) => setDay(event.target.value)}
         className="rounded border border-[var(--border)] bg-transparent px-2 py-1 text-xs"
@@ -1951,9 +1950,9 @@ function RecordMetricsForm({
     >
       <label className="block text-sm">
         Thời điểm *
-        <input
+        <DateTimeInput
           required
-          type="datetime-local"
+         
           value={capturedAt}
           onChange={(event) => setCapturedAt(event.target.value)}
           className="mt-1 w-full rounded border border-[var(--border)] bg-transparent px-2 py-1.5"

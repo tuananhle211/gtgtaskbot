@@ -157,6 +157,15 @@ class AdsApprovers:
     seats: dict[uuid.UUID, tuple[Seat, ...]] = field(default_factory=dict)
     approving_departments: frozenset[uuid.UUID] = frozenset()
     department_heads: dict[uuid.UUID, People] = field(default_factory=dict)
+    #: Every Trưởng phòng in the order flow (a HEAD seat in any department):
+    #: whom the orderer may pick as the approver.
+    department_head_people: People = ()
+
+    @property
+    def approver_choices(self) -> People:
+        """Who may be picked on the form: every Trưởng phòng, else (nobody
+        seated) whoever approves orders."""
+        return self.department_head_people or self.head
 
     def lead(self, node_type: OrderNodeType) -> People:
         return self.leads.get(node_type, ())
@@ -176,7 +185,7 @@ class AdsApprovers:
         (0056) while they still decide orders, else the orderer's own
         approvers (:meth:`default_approvers`)."""
         if chosen is not None:
-            for person in self.head:
+            for person in (*self.approver_choices, *self.head):
                 if person.user_id == chosen:
                     return (person,)
         return self.default_approvers(owner_user_id)
@@ -318,12 +327,8 @@ async def ads_approvers(session: AsyncSession, unit_id: uuid.UUID) -> AdsApprove
         boss = None if boss_id is None else by_user.get(boss_id)
         if boss is not None and manager_fits(boss.membership, row.membership):
             managers[row.user.id] = Person(boss.user.id, boss.user.full_name)
-    approving = frozenset(
-        department_id
-        for (department_id, position), cells in table.items()
-        if position == Position.HEAD.value
-        and any(permission == AdsPermission.ORDER_APPROVE.value for permission, _ in cells)
-    )
+    # Every department's heads approve orders (built in, ``HEAD_ORDER_GRANT``).
+    approving = frozenset(seat.department_id for held in seats.values() for seat in held)
     active = {
         user.id: user
         for user in (
@@ -344,8 +349,19 @@ async def ads_approvers(session: AsyncSession, unit_id: uuid.UUID) -> AdsApprove
                 department_heads.setdefault(seat.department_id, []).append(
                     Person(user.id, user.full_name)
                 )
+    in_flow = {row.user.id for row in rows}
+    head_people = sorted(
+        (
+            Person(user.id, user.full_name)
+            for user_id, user in active.items()
+            if user_id in in_flow
+            and any(seat.position is Position.HEAD for seat in seats.get(user_id, ()))
+        ),
+        key=lambda person: person.name,
+    )
     return AdsApprovers(
         seats=seats,
+        department_head_people=tuple(head_people),
         approving_departments=approving,
         department_heads={
             key: tuple(sorted(value, key=lambda person: person.name))

@@ -118,7 +118,7 @@ def _day(moment: datetime | None, tz: ZoneInfo) -> str:
 
 
 def _day_time(moment: datetime | None, tz: ZoneInfo) -> str:
-    return to_local(moment, tz).strftime("%d/%m %H:%M") if moment else "—"
+    return to_local(moment, tz).strftime("%d/%m/%Y %H:%M") if moment else "—"
 
 
 def format_content_summary(

@@ -54,19 +54,19 @@ class OrderNotificationService:
 
     async def order_submitted(self, *, actor: Actor, order: Order, unit: UnitSettings) -> None:
         heads = [row.user.id for row in await self._directory.heads(order.unit_id)]
-        # The approver chosen on the form (0056), else the orderer's own head:
-        # only that one is told.
-        own = (
-            order.approver_user_id
-            if order.approver_user_id in heads
-            else await self._directory.manager_of(order.unit_id, order.owner_user_id)
-        )
+        # The approver chosen on the form (0056; any Trưởng phòng), else the
+        # orderer's own head: only that one is told.
+        if order.approver_user_id is not None:
+            recipients = [order.approver_user_id]
+        else:
+            own = await self._directory.manager_of(order.unit_id, order.owner_user_id)
+            recipients = [own] if own in heads else heads
         await self._tell(
             actor=actor,
             order=order,
             unit=unit,
             event=NotificationEvent.ORDER_SUBMITTED,
-            recipients=[own] if own in heads else heads,
+            recipients=recipients,
             body=f"“{order.title}” ({order.code}) đang chờ bạn duyệt order.",
             suffix=f"round{order.version}",
         )

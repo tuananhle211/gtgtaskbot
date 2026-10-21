@@ -227,10 +227,13 @@ async def test_04_another_department_orders_once_granted_and_its_head_approves(
     assert own.status_code == 201 and own.json()["order"]["stage"] == "DUNG"
 
 
-async def test_05_with_no_head_of_theirs_approving_the_orderer_must_choose(world: World) -> None:
+async def test_05_every_head_approves_and_may_be_chosen(world: World) -> None:
+    """Every Trưởng phòng approves the orders sent to them (built in, no grant
+    needed): the orderer's own head is the default, any head may be chosen,
+    and a head's own order needs no approval."""
     ads = await ads_world(world)
     _, head, staff = await hcns(world, ads)
-    # HCNS may order, but its head does not approve orders.
+    # HCNS may order; its head holds no ORDER_APPROVE grant.
     assert (
         grant(
             world,
@@ -241,16 +244,28 @@ async def test_05_with_no_head_of_theirs_approving_the_orderer_must_choose(world
     )
     world.act_as(staff)
     routes = world.client.get("/api/orders/approvers").json()
-    assert routes["required"] is True and routes["default"] == []
-    assert ads.head.full_name in [item["name"] for item in routes["candidates"]]
-    assert head.full_name not in [item["name"] for item in routes["candidates"]]
-    refused = order(world, staff)
-    assert refused.status_code == 422 and error_reason(refused.json()) == "approver_required"
-    wrong = order(world, staff, approver_user_id=str(head.id))
+    assert routes["required"] is False and routes["own_gate"] is False
+    assert [item["name"] for item in routes["default"]] == [head.full_name]
+    names = [item["name"] for item in routes["candidates"]]
+    for chosen in (head, ads.head, ads.lead_bt, ads.lead_tk, ads.lead_dung):
+        assert chosen.full_name in names
+    assert ads.designer.full_name not in names and staff.full_name not in names
+    wrong = order(world, staff, approver_user_id=str(ads.designer.id))
     assert wrong.status_code == 422 and error_reason(wrong.json()) == "approver_invalid"
-    placed = order(world, staff, approver_user_id=str(ads.head.id))
+    # Sent by default: the HCNS head approves it.
+    placed = order(world, staff)
     assert placed.status_code == 201, placed.json()
-    act(world, ads.head, "/approve", placed.json())
+    act(world, head, "/approve", placed.json())
+    # Sent to the Trưởng phòng Dựng: they approve it.
+    chosen = order(world, staff, approver_user_id=str(ads.lead_dung.id))
+    assert chosen.status_code == 201, chosen.json()
+    act(world, ads.lead_dung, "/approve", chosen.json())
+    # A head's own order needs no approval.
+    world.act_as(head)
+    assert world.client.get("/api/orders/approvers").json()["own_gate"] is True
+    own = order(world, head)
+    assert own.status_code == 201, own.json()
+    assert own.json()["order"]["stage"] != "ORDER_PENDING"
 
 
 async def test_06_several_heads_each_approve_the_staff_who_report_to_them(world: World) -> None:

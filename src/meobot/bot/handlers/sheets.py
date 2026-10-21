@@ -81,7 +81,7 @@ async def handle_sheets(
     lines = ["📊 *Google Sheet đã cấu hình:*"]
     for profile in profiles:
         synced = (
-            format_local(profile.last_synced_at, settings.timezone, "%d/%m %H:%M")
+            format_local(profile.last_synced_at, settings.timezone, "%d/%m/%Y %H:%M")
             if profile.last_synced_at
             else "chưa đồng bộ"
         )

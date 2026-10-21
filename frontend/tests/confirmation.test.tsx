@@ -415,52 +415,52 @@ const detailRoutes = (
   content: Record<string, unknown> = CONTENT,
   extra: Route[] = [],
 ): Route[] => [
-  ...extra,
-  {
-    match: `/api/pr/contents/${CONTENT.id}/available-actions`,
-    body: {
-      content_id: CONTENT.id,
-      workflow_stage: content.workflow_stage,
-      available_actions: actions,
+    ...extra,
+    {
+      match: `/api/pr/contents/${CONTENT.id}/available-actions`,
+      body: {
+        content_id: CONTENT.id,
+        workflow_stage: content.workflow_stage,
+        available_actions: actions,
+      },
     },
-  },
-  { match: `/api/pr/contents/${CONTENT.id}/resources`, body: [] },
-  { match: `/api/pr/contents/${CONTENT.id}/approvals`, body: [] },
-  {
-    match: `/api/pr/contents/${CONTENT.id}/review-context`,
-    body: { content, current_version: VERSION, approvals: [], tasks: [] },
-  },
-  { match: `/api/pr/contents/${CONTENT.id}/versions`, body: [VERSION] },
-  {
-    match: `/api/pr/contents/${CONTENT.id}/history`,
-    body: { transitions: [] },
-  },
-  {
-    match: `/api/pr/contents/${CONTENT.id}/production`,
-    body: {
-      content_id: CONTENT.id,
-      workflow_stage: content.workflow_stage,
-      producer_user_id: content.producer_user_id ?? null,
-      production_state: content.production_state ?? null,
-      submissions: [],
+    { match: `/api/pr/contents/${CONTENT.id}/resources`, body: [] },
+    { match: `/api/pr/contents/${CONTENT.id}/approvals`, body: [] },
+    {
+      match: `/api/pr/contents/${CONTENT.id}/review-context`,
+      body: { content, current_version: VERSION, approvals: [], tasks: [] },
     },
-  },
-  {
-    match: `/api/pr/contents/${CONTENT.id}/ai-review`,
-    body: { active: false, runs: [] },
-  },
-  {
-    match: `/api/pr/contents/${CONTENT.id}`,
-    body: { content, current_version: VERSION, targets: [], brand: BRAND },
-  },
-  {
-    match: "/api/pr/people",
-    body: [
-      { user_id: SESSION.user_id, full_name: SESSION.full_name },
-      PRODUCER,
-    ],
-  },
-];
+    { match: `/api/pr/contents/${CONTENT.id}/versions`, body: [VERSION] },
+    {
+      match: `/api/pr/contents/${CONTENT.id}/history`,
+      body: { transitions: [] },
+    },
+    {
+      match: `/api/pr/contents/${CONTENT.id}/production`,
+      body: {
+        content_id: CONTENT.id,
+        workflow_stage: content.workflow_stage,
+        producer_user_id: content.producer_user_id ?? null,
+        production_state: content.production_state ?? null,
+        submissions: [],
+      },
+    },
+    {
+      match: `/api/pr/contents/${CONTENT.id}/ai-review`,
+      body: { active: false, runs: [] },
+    },
+    {
+      match: `/api/pr/contents/${CONTENT.id}`,
+      body: { content, current_version: VERSION, targets: [], brand: BRAND },
+    },
+    {
+      match: "/api/pr/people",
+      body: [
+        { user_id: SESSION.user_id, full_name: SESSION.full_name },
+        PRODUCER,
+      ],
+    },
+  ];
 
 const posts = (stub: ReturnType<typeof stubFetch>) =>
   (
@@ -980,10 +980,12 @@ describe("173. the confirmation policy has a maintainable regression strategy", 
     // the shared confirmation is either bypassing the policy or has a reason
     // that belongs in the exemption list below, in writing.
     const exempt: Record<string, string> = {
+      "app/resources/requests/new/page.tsx":
+        "Tạo đề xuất tài nguyên: nút Gửi chỉ tạo đề xuất ở bước đầu, chưa chi tiền hay quyết định gì cho tới khi trưởng phòng duyệt, và người đề xuất huỷ lại được.",
       "components/notifications.tsx":
         "Đánh dấu đã đọc chỉ đổi trạng thái đọc của chính người đang đăng nhập, không đổi dữ liệu nghiệp vụ.",
       "components/account-fields.tsx":
-        "Ba ô sửa một trường của một tài khoản trên bảng thành viên (mã thành viên, trạng thái nhân sự), tách ra từ app/account/page.tsx để dùng chung với Quản trị › Quản lý tài khoản. Mỗi lần lưu chỉ đổi một trường mô tả, không đổi quyền hay dữ liệu nghiệp vụ, và sửa lại được ngay; nút Lưu / ô chọn chính là bước xác nhận (policy parameter-modal).",
+        "Ba ô sửa một trường của một tài khoản trên bảng thành viên (mã nhân viên, trạng thái nhân sự), tách ra từ app/account/page.tsx để dùng chung với Quản trị › Quản lý tài khoản. Mỗi lần lưu chỉ đổi một trường mô tả, không đổi quyền hay dữ liệu nghiệp vụ, và sửa lại được ngay; nút Lưu / ô chọn chính là bước xác nhận (policy parameter-modal).",
       "components/shell.tsx":
         "Chỉ có đăng xuất; kết thúc phiên của chính mình, không đổi dữ liệu nghiệp vụ và đăng nhập lại được ngay.",
       "components/pr-create-content.tsx":
@@ -1016,7 +1018,7 @@ describe("173. the confirmation policy has a maintainable regression strategy", 
       // directly would be a second implementation of the same bar.
       expect(
         source.includes("@/components/confirm") ||
-          source.includes("@/components/bulk-approval"),
+        source.includes("@/components/bulk-approval"),
         relative,
       ).toBe(true);
     }

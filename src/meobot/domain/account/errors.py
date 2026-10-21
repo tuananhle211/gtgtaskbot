@@ -123,12 +123,12 @@ class AccountStatusForbiddenError(AuthorizationError):
 
 
 class MemberCodeForbiddenError(AuthorizationError):
-    """Changing somebody's member code ("mã thành viên"): the OWNER and the
+    """Changing somebody's member code ("mã nhân viên"): the OWNER and the
     ADMIN only. 403."""
 
     code = "member_code_forbidden"
 
-    def __init__(self, message: str = "Chỉ quản trị viên mới sửa được mã thành viên.") -> None:
+    def __init__(self, message: str = "Chỉ quản trị viên mới sửa được mã nhân viên.") -> None:
         super().__init__(message, details={"reason": self.code})
 
 
@@ -139,7 +139,7 @@ class MemberCodeTakenError(ValidationError):
 
     def __init__(self, code: str, holder: str) -> None:
         super().__init__(
-            f"Mã thành viên {code} đã thuộc về {holder}. Mỗi người một mã riêng.",
+            f"Mã nhân viên {code} đã thuộc về {holder}. Mỗi người một mã riêng.",
             details={"reason": self.code, "field": "member_code", "member_code": code},
         )
 
@@ -151,6 +151,18 @@ class MemberDeleteForbiddenError(AuthorizationError):
     code = "member_delete_forbidden"
 
     def __init__(self, message: str = "Chỉ chủ sở hữu mới xoá được thành viên.") -> None:
+        super().__init__(message, details={"reason": self.code})
+
+
+class ImpersonationForbiddenError(AuthorizationError):
+    """ "Đăng nhập thay" (2026-10-21) is the OWNER's alone, never into another
+    OWNER account nor their own. 403."""
+
+    code = "impersonation_forbidden"
+
+    def __init__(
+        self, message: str = "Chỉ chủ sở hữu mới tạo được liên kết đăng nhập thay."
+    ) -> None:
         super().__init__(message, details={"reason": self.code})
 
 
@@ -214,6 +226,7 @@ __all__ = [
     "AccountValidationError",
     "AvatarNotFoundError",
     "AvatarRejectedError",
+    "ImpersonationForbiddenError",
     "LoginFailedError",
     "LoginLockedError",
     "MemberCodeForbiddenError",

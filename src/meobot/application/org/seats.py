@@ -15,7 +15,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from meobot.db.models.department import Department, DepartmentMember, DepartmentPermission
-from meobot.domain.org.models import DepartmentFunction, Grant, Seat
+from meobot.domain.org.models import DepartmentFunction, Grant, Position, Seat
 
 
 async def load_seats(
@@ -74,17 +74,26 @@ async def load_grants(
     return {key: tuple(value) for key, value in found.items()}
 
 
+#: Every Trưởng phòng (any department) may be picked as an order's approver
+#: and approves what is sent to them (OWN); their own orders need no approval.
+HEAD_ORDER_GRANT: tuple[str, str] = ("ORDER_APPROVE", "OWN")
+
+
 def grants_of(
     seats: Sequence[Seat], table: dict[tuple[uuid.UUID, str], tuple[tuple[str, str], ...]]
 ) -> tuple[Grant, ...]:
-    """What a person's seats grant. Ban Giám đốc sees everything, built in."""
+    """What a person's seats grant. Built in: Ban Giám đốc sees everything,
+    and every department head approves the orders sent to them
+    (:data:`HEAD_ORDER_GRANT`)."""
     grants: list[Grant] = []
     for seat in seats:
         for permission, scope in table.get((seat.department_id, seat.position.value), ()):
             grants.append(Grant(permission, scope, seat.function))
         if seat.function is DepartmentFunction.BOARD:
             grants.append(Grant("VIEW", "ALL", seat.function))
+        if seat.position is Position.HEAD:
+            grants.append(Grant(HEAD_ORDER_GRANT[0], HEAD_ORDER_GRANT[1], seat.function))
     return tuple(grants)
 
 
-__all__ = ["grants_of", "load_grants", "load_seats"]
+__all__ = ["HEAD_ORDER_GRANT", "grants_of", "load_grants", "load_seats"]

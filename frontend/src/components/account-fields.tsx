@@ -22,7 +22,7 @@ export function PasswordStatus({ row }: { row: MemberRow }) {
 }
 
 /**
- * "Mã thành viên" (0063): the person's code, in a stream or not - the prefix
+ * "Mã nhân viên" (0063): the person's code, in a stream or not - the prefix
  * of their order codes. OWNER / ADMIN only (the server refuses anybody else:
  * 403 `member_code_forbidden`); the server folds what is typed (A-Z0-9, at
  * most 12) and a blank clears it.
@@ -46,7 +46,7 @@ export function MemberCodeField({
   return (
     <div className="flex items-center gap-1.5">
       <input
-        aria-label={`Mã thành viên của ${row.full_name}`}
+        aria-label={`Mã nhân viên của ${row.full_name}`}
         value={value}
         maxLength={40}
         placeholder="Chưa có"
@@ -58,7 +58,7 @@ export function MemberCodeField({
       />
       <button
         type="button"
-        aria-label={`Lưu mã thành viên của ${row.full_name}`}
+        aria-label={`Lưu mã nhân viên của ${row.full_name}`}
         disabled={!changed || save.isPending}
         onClick={() => save.mutate()}
         className="min-h-9 rounded-md border border-[var(--border)] px-2 text-xs font-medium disabled:opacity-40"

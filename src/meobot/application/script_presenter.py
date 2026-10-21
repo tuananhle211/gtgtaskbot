@@ -102,7 +102,7 @@ def format_script_detail(detail: ScriptDetail, *, timezone: ZoneInfo) -> str:
         )
         lines.append(detail.review.summary[:400])
         lines.append(
-            f"_Chấm lúc {format_local(detail.review.created_at, timezone, '%d/%m %H:%M')}_"
+            f"_Chấm lúc {format_local(detail.review.created_at, timezone, '%d/%m/%Y %H:%M')}_"
         )
         if not detail.review_matches_version:
             lines.append("⚠️ Review này thuộc phiên bản cũ. Nội dung đã thay đổi — cần review lại.")

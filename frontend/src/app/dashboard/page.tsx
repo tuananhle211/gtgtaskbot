@@ -14,6 +14,7 @@ import { ErrorBox, Loading, Pill } from "@/components/states";
 import { BanStatsPanel } from "@/components/ban-stats";
 import { formatTokens } from "@/lib/deadline";
 import { BoltIcon } from "@/components/token-badge";
+import { DateInput } from "@/components/date-input";
 
 export default function DashboardPage() {
   return (
@@ -138,11 +139,11 @@ function Dashboard() {
         <form className="flex flex-wrap items-end gap-2" onSubmit={(event) => event.preventDefault()}>
           <label className="flex flex-col gap-1 text-xs text-[var(--text-muted)]">
             Từ ngày
-            <input type="date" value={dateFrom} onChange={(event) => setParams({ from: event.target.value })} className={field} />
+            <DateInput value={dateFrom} onChange={(event) => setParams({ from: event.target.value })} className={field} />
           </label>
           <label className="flex flex-col gap-1 text-xs text-[var(--text-muted)]">
             Đến ngày
-            <input type="date" value={dateTo} onChange={(event) => setParams({ to: event.target.value })} className={field} />
+            <DateInput value={dateTo} onChange={(event) => setParams({ to: event.target.value })} className={field} />
           </label>
           {me.data.units.length > 1 || me.data.can_view_all ? (
             <label className="flex flex-col gap-1 text-xs text-[var(--text-muted)]">

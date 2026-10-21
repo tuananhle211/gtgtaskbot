@@ -466,7 +466,7 @@ class PrBoardSource:
             extras.append(("Brand", brand))
         if item.planned_publish_at is not None:
             local = ensure_utc(item.planned_publish_at).astimezone(self._settings.timezone)
-            extras.append(("Lịch đăng", local.strftime("%d/%m")))
+            extras.append(("Lịch đăng", local.strftime("%d/%m/%Y")))
 
         def cell(
             key: str,

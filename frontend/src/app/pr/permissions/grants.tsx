@@ -21,6 +21,7 @@ import { Empty, ErrorBox, Loading, Pill } from "@/components/states";
 import { ScopeMultiSelect, Select, type ScopeOption } from "@/components/pr";
 import { ConfirmButton } from "@/components/confirm";
 import { revokeCapabilityConfirmation } from "@/lib/confirmations";
+import { DateInput } from "@/components/date-input";
 
 /**
  * *Quyền duyệt cấp thêm.* Who may approve what, over which content and which
@@ -366,8 +367,7 @@ export function GrantsTab() {
           {expiry === "CUSTOM" ? (
             <label className="text-sm">
               Ngày hết hạn
-              <input
-                type="date"
+              <DateInput
                 required
                 value={customDay}
                 onChange={(event) => setCustomDay(event.target.value)}

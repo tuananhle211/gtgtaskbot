@@ -230,7 +230,10 @@ class ResourceDetail:
     handovers: list[HandoverLine]
     statuses: list[StatusLine]
     changes: list[ChangeLine]
+    #: Edit, update the status, review (``ResourceAccess.may_manage``).
     can_edit: bool
+    #: Change the holder ("Đổi người được bàn giao"): edits every resource.
+    can_handover: bool = False
 
 
 @dataclass(frozen=True, slots=True)
@@ -511,10 +514,10 @@ class ResourceService:
         if access.view_all:
             return None
         clauses: list[Any] = []
-        if access.view_departments:
-            clauses.append(Resource.department_id.in_(list(access.view_departments)))
         if access.view_held and access.user_id is not None:
             clauses.append(Resource.holder_user_id == access.user_id)
+        if access.managed_people:
+            clauses.append(Resource.holder_user_id.in_(list(access.managed_people)))
         if not clauses:
             raise ResourceForbiddenError("Bạn chưa được xem mục Tài nguyên.")
         return or_(*clauses)
@@ -700,8 +703,22 @@ class ResourceService:
                 for line in statuses
             ],
             changes=[ChangeLine(row=line, actor=person(line.actor_user_id)) for line in changes],
-            can_edit=access.edit,
+            can_edit=access.may_manage(
+                holder_user_id=resource.holder_user_id,
+                department_id=resource.department_id,
+            ),
+            can_handover=access.edit,
         )
+
+    async def _managed(self, access: ResourceAccess, resource_id: uuid.UUID) -> Resource:
+        """A resource this person may edit / update: visible, and theirs to
+        manage - else 403 (they can see it, so 404 would lie)."""
+        row = await self._visible(access, resource_id)
+        if not access.may_manage(
+            holder_user_id=row.holder_user_id, department_id=row.department_id
+        ):
+            raise ResourceForbiddenError()
+        return row
 
     async def _visible(self, access: ResourceAccess, resource_id: uuid.UUID) -> Resource:
         scope = self._scope(access)
@@ -854,7 +871,7 @@ class ResourceService:
         a tool account has none. ``status_line``
         off = the caller writes the status history itself (the import's
         month columns)."""
-        access.require("edit")
+        access.require("create")
         catalog = await self.catalog()
         values = await self._validate(data, catalog, exclude=None)
         department = values.pop("_department")
@@ -937,9 +954,16 @@ class ResourceService:
         changes: Mapping[str, Any],
     ) -> Resource:
         """Edit the fields of a resource. The holder and the status have their
-        own doors (they write their own histories); the code never changes."""
-        access.require("edit")
-        row = await self._visible(access, resource_id)
+        own doors (they write their own histories); the code never changes.
+        Whoever may manage the resource (``ResourceAccess.may_manage``); only
+        somebody who edits every resource moves it to another department."""
+        row = await self._managed(access, resource_id)
+        if (
+            not access.edit
+            and "department_id" in changes
+            and changes["department_id"] != row.department_id
+        ):
+            raise ResourceForbiddenError("Chỉ Phòng Tài nguyên đổi được ban quản lý.")
         catalog = await self.catalog()
         current = ResourceInput(
             **{item.name: getattr(row, item.name) for item in fields(ResourceInput)}
@@ -1088,8 +1112,7 @@ class ResourceService:
     ) -> Resource:
         """ "Cập nhật trạng thái": one line in the status history, and the
         review date moves to now."""
-        access.require("edit")
-        row = await self._visible(access, resource_id)
+        row = await self._managed(access, resource_id)
         catalog = await self.catalog()
         option = self._option(catalog, status_id, OptionKind.STATUS, "status_id")
         before = await self._snap(row)
@@ -1138,8 +1161,7 @@ class ResourceService:
         note: str | None = None,
     ) -> Resource:
         """ "Đánh dấu đã rà soát": a line saying so, status unchanged."""
-        access.require("edit")
-        row = await self._visible(access, resource_id)
+        row = await self._managed(access, resource_id)
         before = await self._snap(row)
         row.reviewed_at = utcnow()
         self._session.add(

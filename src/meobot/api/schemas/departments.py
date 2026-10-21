@@ -112,6 +112,9 @@ class PermissionEntry(BaseModel):
     label: str
     scopes: list[str]
     own_meaning: str | None = None
+    #: 2026-10-21: this permission's own words for its scopes, over the
+    #: catalog's ``scope_labels`` (null = the catalog's).
+    scope_labels: dict[str, str] | None = None
     #: 0066: held per person over a scope (the PR review gates) - not a
     #: department cell; the personal layer's screen lists it instead.
     personal_only: bool = False
@@ -135,6 +138,7 @@ class ModuleEntry(BaseModel):
                     label=spec.label_of(key),
                     scopes=sorted(spec.allowed(key), key=("NONE", "OWN", "ALL").index),
                     own_meaning=spec.own_meaning_of(key),
+                    scope_labels=spec.scope_labels_of(key),
                     personal_only=key in spec.personal_only,
                 )
                 for key in spec.permission_keys()

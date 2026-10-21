@@ -1,3 +1,4 @@
+import { formatDate, formatDateTime } from "@/lib/datetime";
 import type { ResourceAlert, ResourceOptions, ResourceRow, UnitsMe } from "@/lib/api";
 
 /**
@@ -11,6 +12,7 @@ import type { ResourceAlert, ResourceOptions, ResourceRow, UnitsMe } from "@/lib
 export type ResourceScreenIcon =
   | "inventory"
   | "mine"
+  | "request"
   | "lookup"
   | "report"
   | "import"
@@ -25,6 +27,7 @@ export const RESOURCE_SCREENS: ReadonlyArray<{
 }> = [
   { href: "/resources", label: "Danh sách tài nguyên", flag: "view", icon: "inventory" },
   { href: "/resources/mine", label: "Tài nguyên của tôi", flag: "view", icon: "mine" },
+  { href: "/resources/requests", label: "Đề xuất tài nguyên", flag: "view", icon: "request" },
   { href: "/resources/people", label: "Tra cứu nhân viên", flag: "report", icon: "lookup" },
   { href: "/resources/reports", label: "Báo cáo tài nguyên", flag: "report", icon: "report" },
   { href: "/resources/import", label: "Nhập Excel", flag: "import_excel", icon: "import" },
@@ -108,23 +111,11 @@ export const SECRET_WARNING =
 
 /** `2026-10-15T...` → `15/10/2026`; a bare day the same; nothing → "—". */
 export function formatResourceDay(value: string | null | undefined): string {
-  if (!value) return "—";
-  const parsed = new Date(value.length === 10 ? `${value}T00:00:00` : value);
-  if (Number.isNaN(parsed.getTime())) return value;
-  return parsed.toLocaleDateString("vi-VN", { day: "2-digit", month: "2-digit", year: "numeric" });
+  return formatDate(value);
 }
 
 export function formatResourceWhen(value: string | null | undefined): string {
-  if (!value) return "—";
-  const parsed = new Date(value);
-  if (Number.isNaN(parsed.getTime())) return value;
-  return parsed.toLocaleString("vi-VN", {
-    day: "2-digit",
-    month: "2-digit",
-    year: "numeric",
-    hour: "2-digit",
-    minute: "2-digit",
-  });
+  return formatDateTime(value);
 }
 
 /** `YYYY-MM` of a date, in local time. */
@@ -146,4 +137,17 @@ export function cleanFilters<T extends Record<string, unknown>>(filters: T): Par
 /** The "Link" column is free text (2026-10-20): an anchor only when it is a web address. */
 export function isWebLink(value: string | null | undefined): boolean {
   return /^https?:\/\//i.test((value ?? "").trim());
+}
+
+/** A request stage's pill tone. */
+export function requestTone(stage: string): "good" | "warn" | "bad" | "neutral" {
+  if (stage === "COMPLETED") return "good";
+  if (stage === "REJECTED") return "bad";
+  if (stage === "CANCELLED") return "neutral";
+  return "warn";
+}
+
+/** "6.000.000 đ". */
+export function formatVnd(value: number | null | undefined): string {
+  return value === null || value === undefined ? "–" : `${Math.round(value).toLocaleString("vi-VN")} đ`;
 }

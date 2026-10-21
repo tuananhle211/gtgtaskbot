@@ -579,12 +579,12 @@ class OrderCommandService:
         self, unit_id: uuid.UUID, chosen: uuid.UUID | None, orderer: uuid.UUID | None
     ) -> uuid.UUID | None:
         """The approver picked on the form: somebody active who approves
-        orders (0061: any department's head granted it), not the orderer."""
+        orders (any Trưởng phòng, or whoever holds ORDER_APPROVE), not the
+        orderer."""
         if chosen is None:
             return None
-        approvers = {
-            person.user_id for person in (await ads_approvers(self._session, unit_id)).head
-        }
+        routes = await ads_approvers(self._session, unit_id)
+        approvers = {person.user_id for person in (*routes.approver_choices, *routes.head)}
         if chosen not in approvers or chosen == orderer:
             raise OrderValidationError(
                 "Người duyệt order phải là người đang có quyền duyệt order.",
@@ -2027,7 +2027,7 @@ def _format_tokens(tokens: Decimal) -> str:
 
 
 def _format_when(at: datetime) -> str:
-    return f"{at.astimezone(WORK_TIMEZONE):%H:%M %d/%m/%Y}"
+    return f"{at.astimezone(WORK_TIMEZONE):%d/%m/%Y %H:%M}"
 
 
 def _design_codes_required() -> OrderValidationError:

@@ -341,16 +341,15 @@ describe("the create form's Quy trình", () => {
   const postedOrder = (stub: unknown) =>
     calls(stub).find((call) => call.method === "POST" && call.url.includes("/api/orders"));
 
-  it("lets the orderer pick who approves the order, or leave it to the default route", async () => {
-    // Optional: left on "Tự động", no approver is sent - the server routes it.
+  it("starts on the orderer's own Trưởng phòng and lets them pick another", async () => {
+    // Every Trưởng phòng is listed; their own one is picked from the start.
     const first = stubFetch(approverRoutes(APPROVERS));
     const { unmount } = renderWithQuery(<NewOrderPage />);
     await fillBasics();
     await userEvent.click(screen.getByRole("checkbox", { name: "Design" }));
     const picker = await screen.findByLabelText(/Người duyệt order/);
-    expect(picker).toHaveValue("");
+    await waitFor(() => expect(picker).toHaveValue("h-1"));
     expect(within(picker).getAllByRole("option").map((option) => option.textContent)).toEqual([
-      "Tự động: Trưởng A",
       "Trưởng A",
       "Trưởng B",
     ]);
@@ -359,7 +358,7 @@ describe("the create form's Quy trình", () => {
     expect(submit()).toBeEnabled();
     await sendOrder();
     await waitFor(() => expect(postedOrder(first)).toBeDefined());
-    expect(postedOrder(first)?.body).not.toHaveProperty("approver_user_id");
+    expect(postedOrder(first)?.body).toMatchObject({ approver_user_id: "h-1" });
     unmount();
 
     // Picked: that person is sent.

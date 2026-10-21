@@ -1,3 +1,4 @@
+import { formatDateTime } from "@/lib/datetime";
 /**
  * ORD deadlines: the status words, how a deadline is written, and the
  * conversions an `<input type="datetime-local">` needs.
@@ -22,22 +23,9 @@ export function deadlineStatusLabel(status: string | null | undefined): string {
   return DEADLINE_STATUS_LABELS[status] ?? status;
 }
 
-/** A deadline as "dd/MM HH:mm", Vietnam time; "—" when there is none. */
+/** A deadline as "dd/mm/yyyy HH:mm", Vietnam time; "—" when there is none. */
 export function formatDeadline(value: string | null | undefined): string {
-  if (!value) return "—";
-  const parsed = new Date(value);
-  if (Number.isNaN(parsed.getTime())) return value;
-  const parts = new Intl.DateTimeFormat("en-GB", {
-    timeZone: "Asia/Ho_Chi_Minh",
-    day: "2-digit",
-    month: "2-digit",
-    hour: "2-digit",
-    minute: "2-digit",
-    hourCycle: "h23",
-  }).formatToParts(parsed);
-  const part = (type: string) =>
-    parts.find((item) => item.type === type)?.value ?? "";
-  return `${part("day")}/${part("month")} ${part("hour")}:${part("minute")}`;
+  return formatDateTime(value);
 }
 
 /**

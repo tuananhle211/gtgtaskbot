@@ -24,7 +24,7 @@ cells: they are held per person, over a content-type and channel scope, in
 from __future__ import annotations
 
 from collections.abc import Callable, Mapping, Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from enum import StrEnum
 from types import MappingProxyType
 from typing import Any
@@ -43,6 +43,7 @@ from meobot.domain.resources.models import (
     MODULE_RESOURCES,
     RESOURCE_OWN_MEANING,
     RESOURCE_PERMISSION_LABELS,
+    RESOURCE_SCOPE_LABELS,
     ResourcePermission,
     default_resource_grants,
     resource_allowed_scopes,
@@ -84,6 +85,8 @@ class ModuleSpec:
     personal_only: frozenset[str] = frozenset()
     #: What a department starts with in this module, by function and position.
     defaults: Callable[[DepartmentFunction], dict[Position, dict[str, str]]] | None = None
+    #: A permission's own words for its scopes, where the generic ones mislead.
+    scope_labels: Mapping[Any, Mapping[str, str]] = field(default_factory=dict)
 
     def permission(self, key: str) -> str:
         """The permission named ``key`` (the module's own, or a common one);
@@ -109,6 +112,12 @@ class ModuleSpec:
         if permission in {item.value for item in CommonPermission}:
             return COMMON_OWN_MEANING.get(CommonPermission(permission))
         return self.own_meaning.get(self.permissions(permission))
+
+    def scope_labels_of(self, permission: str) -> dict[str, str] | None:
+        if permission in {item.value for item in CommonPermission}:
+            return None
+        labels = self.scope_labels.get(self.permissions(permission))
+        return dict(labels) if labels else None
 
     def permission_keys(self) -> list[str]:
         """Every permission of the module, the common ones last."""
@@ -174,6 +183,7 @@ MODULES: Mapping[str, ModuleSpec] = MappingProxyType(
             labels=RESOURCE_PERMISSION_LABELS,
             own_meaning=RESOURCE_OWN_MEANING,
             scopes=resource_allowed_scopes,
+            scope_labels=RESOURCE_SCOPE_LABELS,
             defaults=default_resource_grants,
         ),
     }

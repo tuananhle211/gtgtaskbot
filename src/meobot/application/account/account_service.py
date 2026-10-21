@@ -38,7 +38,7 @@ from meobot.application.audit_service import AuditService
 from meobot.application.org.departments import department_people, head_team
 from meobot.application.org.seats import load_seats
 from meobot.application.units.directory import manager_fits
-from meobot.application.web_auth_service import WebAuthService
+from meobot.application.web_auth_service import IssuedLogin, WebAuthService
 from meobot.core.time import ensure_utc, utcnow
 from meobot.db.models.department import DepartmentMember
 from meobot.db.models.order import Order, OrderNode
@@ -53,6 +53,7 @@ from meobot.domain.account.errors import (
     AccountProfileForbiddenError,
     AccountStatusForbiddenError,
     AccountValidationError,
+    ImpersonationForbiddenError,
     MemberCodeForbiddenError,
     MemberDeleteForbiddenError,
     PasswordResetForbiddenError,
@@ -467,6 +468,75 @@ class AccountService:
         )
         return revoked
 
+    # --- impersonation ("đăng nhập thay", 2026-10-21) --------------------------------
+
+    async def issue_login_link_for(
+        self,
+        *,
+        actor: Actor,
+        request_id: uuid.UUID,
+        user_id: uuid.UUID | None = None,
+        telegram_user_id: int | None = None,
+    ) -> IssuedLogin:
+        """Mint a single-use login link **for another account**, so the OWNER
+        can sign in as that person to help or fix something.
+
+        The target is named by its ``users`` id or - what the OWNER actually
+        has to hand - the person's Telegram id (exactly one of the two).
+
+        The same single-use, minutes-long link ``/web`` gives a person
+        themselves (:meth:`WebAuthService.issue_login_link`) - not a hidden
+        back door: OWNER only, audited every time (who, into whom, when; never
+        the URL or token), and it mints an ordinary session that the usual
+        rules and the audit trail still apply to.
+
+        Raises:
+            ImpersonationForbiddenError: the caller is not the OWNER, or the
+                target is themselves or another OWNER account.
+            AccountValidationError: neither a user id nor a Telegram id, or both.
+            AccountNotFoundError: no such account, or a deleted one.
+            AuthorizationError: the target cannot sign in (deactivated).
+            ConfigurationError: ``WEB_BASE_URL`` is unset.
+        """
+        if actor.role is not Role.OWNER:
+            raise ImpersonationForbiddenError()
+        if (user_id is None) == (telegram_user_id is None):
+            raise AccountValidationError(
+                "target_required",
+                "Cần đúng một trong hai: id tài khoản hoặc id Telegram.",
+                details={"field": "telegram_user_id"},
+            )
+        if user_id is not None:
+            target = await self._session.get(User, user_id)
+        else:
+            target = await self._session.scalar(
+                select(User).where(User.telegram_user_id == telegram_user_id)
+            )
+        if target is None or target.deleted_at is not None:
+            raise AccountNotFoundError()
+        if actor.user_id == target.id:
+            raise ImpersonationForbiddenError("Đăng nhập tài khoản của bạn thì dùng /web trên bot.")
+        if target.role is Role.OWNER:
+            raise ImpersonationForbiddenError(
+                "Không tạo được liên kết đăng nhập thay cho tài khoản chủ sở hữu."
+            )
+        issued = await self._auth.issue_login_link(user_id=target.id)
+        await self._audit.record_action(
+            request_id=request_id,
+            actor=actor,
+            action=AuditAction.WEB_LOGIN_LINK_ISSUED_FOR.value,
+            result=AuditResult.SUCCESS,
+            entity_type="web_session",
+            entity_id=str(target.id),
+            # The URL is a working credential; the audit row only records that
+            # one was minted, for whom, and when it expires - never the token.
+            after_data={
+                "target_user_id": str(target.id),
+                "expires_at": issued.expires_at.isoformat(),
+            },
+        )
+        return issued
+
     # --- status ---------------------------------------------------------------------
 
     async def set_active(
@@ -555,7 +625,7 @@ class AccountService:
         user_id: uuid.UUID,
         member_code: str | None,
     ) -> str | None:
-        """*Mã thành viên* of any account, in a stream or not (0063). The
+        """*Mã nhân viên* of any account, in a stream or not (0063). The
         OWNER and the ADMIN only. Folded like every code (A-Z0-9, at most 12;
         blank clears it) and written on the account and every open tag.
         Returns the code as stored.

@@ -5,10 +5,12 @@ The departments grant the module's permissions per position
 grants once per request and answers every question the service asks:
 
 * ``view_all`` - every resource (``VIEW: ALL``, Ban Giám đốc, OWNER, ADMIN);
-* ``view_departments`` - the departments whose resources a head with
-  ``VIEW: OWN`` sees;
-* ``view_held`` - what the person holds themselves (any ``VIEW: OWN``);
-* ``edit`` / ``import_excel`` / ``settings`` / ``report`` / ``hr`` - the
+* ``view_held`` - what the person holds themselves (everybody, 2026-10-21);
+* ``managed_people`` - the people attached to a head ("Trưởng quản lý"),
+  whose resources they see, edit and update (``may_manage``);
+* ``create`` - add a resource (the Phòng Tài nguyên);
+* ``edit`` - edit EVERY resource and change any holder;
+* ``import_excel`` / ``settings`` / ``report`` / ``hr`` - the
   module's other permissions, yes or no.
 
 Somebody with no seat has nothing here (the OWNER and the ADMIN excepted).
@@ -22,6 +24,7 @@ from dataclasses import dataclass, replace
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from meobot.application.org.access import Access, load_access
+from meobot.application.org.departments import reports_of
 from meobot.core.errors import AuthorizationError, NotFoundError, ValidationError
 from meobot.domain.identity.models import Role
 from meobot.domain.org.models import DepartmentFunction, Position
@@ -54,8 +57,14 @@ class ResourceValidationError(ValidationError):
 class ResourceAccess:
     user_id: uuid.UUID | None
     view_all: bool = False
-    view_departments: frozenset[uuid.UUID] = frozenset()
     view_held: bool = False
+    #: 2026-10-21: the people attached to this head (seated in a department
+    #: they head, with them as "Trưởng quản lý") - whose resources they see,
+    #: edit and update.
+    managed_people: frozenset[uuid.UUID] = frozenset()
+    #: Add a resource ("Thêm tài nguyên"): the Phòng Tài nguyên.
+    create: bool = False
+    #: Edit EVERY resource, and change any holder.
     edit: bool = False
     import_excel: bool = False
     settings: bool = False
@@ -64,7 +73,7 @@ class ResourceAccess:
 
     @property
     def any_view(self) -> bool:
-        return self.view_all or self.view_held or bool(self.view_departments)
+        return self.view_all or self.view_held
 
     def require_view(self) -> None:
         if not self.any_view:
@@ -74,11 +83,22 @@ class ResourceAccess:
         if not getattr(self, flag):
             raise ResourceForbiddenError()
 
+    def may_manage(self, *, holder_user_id: uuid.UUID | None, department_id: uuid.UUID) -> bool:
+        """Edit, update the status of and review this resource: whoever may
+        edit every one; anybody what they hold; a head what the people
+        attached to them hold."""
+        if self.edit:
+            return True
+        return holder_user_id is not None and (
+            holder_user_id == self.user_id or holder_user_id in self.managed_people
+        )
+
 
 EVERYTHING = ResourceAccess(
     user_id=None,
     view_all=True,
     view_held=True,
+    create=True,
     edit=True,
     import_excel=True,
     settings=True,
@@ -87,6 +107,7 @@ EVERYTHING = ResourceAccess(
 )
 
 _FLAGS: tuple[tuple[ResourcePermission, str], ...] = (
+    (ResourcePermission.CREATE, "create"),
     (ResourcePermission.EDIT, "edit"),
     (ResourcePermission.IMPORT, "import_excel"),
     (ResourcePermission.SETTINGS, "settings"),
@@ -108,8 +129,8 @@ async def resource_access(session: AsyncSession, membership: UnitMembership) -> 
         else await load_access(session, user_id=membership.user_id, role=Role.EMPLOYEE)
     )
     view_all = False
-    departments: set[uuid.UUID] = set()
-    held = False
+    # 2026-10-21: everybody sees (and edits, updates) what they hold.
+    held = True
     flags: dict[str, bool] = {attr: False for _permission, attr in _FLAGS}
     if any(seat.function is DepartmentFunction.BOARD for seat in access.seats):
         view_all = True
@@ -118,19 +139,19 @@ async def resource_access(session: AsyncSession, membership: UnitMembership) -> 
         if grant.permission == ResourcePermission.VIEW.value:
             if grant.scope == "ALL":
                 view_all = True
-            else:
-                held = True
-                if grant.seat is not None and grant.seat.position is Position.HEAD:
-                    departments.add(grant.seat.department_id)
             continue
         for permission, attr in _FLAGS:
             if grant.permission == permission.value and grant.scope == "ALL":
                 flags[attr] = True
+    # A head: only what the people attached to them hold ("Trưởng quản lý" =
+    # them) - not their department's other resources, not unattached members'.
+    heads = any(seat.position is Position.HEAD for seat in access.seats)
+    managed = await reports_of(session, membership.user_id) if heads else frozenset()
     return ResourceAccess(
         user_id=membership.user_id,
         view_all=view_all,
-        view_departments=frozenset(departments),
         view_held=held,
+        managed_people=managed,
         **flags,
     )
 

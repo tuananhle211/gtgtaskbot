@@ -24,12 +24,12 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from meobot.application.org.access import Access, load_access
-from meobot.application.org.seats import load_seats
+from meobot.application.org.seats import HEAD_ORDER_GRANT, load_seats
 from meobot.db.models.org_unit import OrgUnit, OrgUnitMember
 from meobot.db.models.user import User
 from meobot.domain.identity.models import Actor, Role
 from meobot.domain.orders.models import OrderNodeType
-from meobot.domain.org.models import MODULE_ORDER, DepartmentFunction, Grant
+from meobot.domain.org.models import MODULE_ORDER, DepartmentFunction, Grant, Position
 from meobot.domain.units.errors import UnitNotFoundError
 from meobot.domain.units.models import (
     FUNCTION_ROLES,
@@ -60,12 +60,16 @@ ROLE_FOR_NODE: dict[OrderNodeType, UnitMemberRole] = {
 def order_grants(access: Access) -> tuple[Grant, ...]:
     """The order flow's view of a person's access: ``(permission, scope,
     function)`` per grant - a seat's function for a department grant, none
-    for a personal one. Ban Giám đốc sees every order, built in."""
+    for a personal one. Built in: Ban Giám đốc sees every order, every
+    department head approves the orders sent to them."""
     grants = [
         Grant(grant.permission, grant.scope, grant.function) for grant in access.of(MODULE_ORDER)
     ]
     if any(seat.function is DepartmentFunction.BOARD for seat in access.seats):
         grants.append(Grant("VIEW", "ALL", DepartmentFunction.BOARD))
+    for seat in access.seats:
+        if seat.position is Position.HEAD:
+            grants.append(Grant(HEAD_ORDER_GRANT[0], HEAD_ORDER_GRANT[1], seat.function))
     return tuple(grants)
 
 

@@ -162,12 +162,12 @@ Vào **Quản trị đơn vị → Phòng Ads**:
 1. **Gắn thành viên Ads** và vai trò: Trưởng phòng (HEAD), Marketing (người order), Biên kịch,
    Thiết kế, Dựng; đánh dấu **Leader** cho trưởng mỗi bộ phận. Một người có thể ở cả hai phòng.
    Người chỉ làm Ads thì gỡ tag PR.
-2. **Mã thành viên** cho người order (ví dụ `TUAN`) — dùng làm đầu mã order `TUAN-BD-261015-01`.
+2. **Mã nhân viên** cho người order (ví dụ `TUAN`) — dùng làm đầu mã order `TUAN-BD-261015-01`.
    Không đặt thì hệ thống tự lấy từ tên.
 3. **Loại video & điểm hiệu suất**: chỉnh điểm từng loại (mặc định đều 1), tắt loại không dùng.
 4. **Thiết lập ban**: số ngày coi là "Gấp" (mặc định 7), duyệt bài nộp theo bộ phận (mặc định chỉ
    Dựng có Leader duyệt), có gửi thông báo qua Telegram không.
-5. Kiểm tra **Sức khoẻ ban** (cảnh báo nếu thiếu Trưởng phòng, Leader, mã thành viên).
+5. Kiểm tra **Sức khoẻ ban** (cảnh báo nếu thiếu Trưởng phòng, Leader, mã nhân viên).
 
 Thử một vòng: tạo 1 order Ads thử → Trưởng phòng duyệt → giao việc → nộp → duyệt final → huỷ
 order thử đó.
@@ -251,7 +251,7 @@ deploy lại bản mới.
 - [ ] Dashboard / Tasks / chi tiết task PR cũ / bot `/start` hoạt động
 
 **Sau**
-- [ ] Gắn thành viên Ads, Trưởng phòng, Leader, mã thành viên
+- [ ] Gắn thành viên Ads, Trưởng phòng, Leader, mã nhân viên
 - [ ] Chỉnh điểm loại video, thiết lập ban
 - [ ] Chạy thử 1 order Ads trọn vòng rồi huỷ
 - [ ] BotFather: tên, ảnh, mô tả

@@ -54,6 +54,7 @@ import {
   useRowNavigation,
 } from "@/components/task-table";
 import { STEP_LEGEND, stepColor } from "@/lib/status-colors";
+import { DateInput } from "@/components/date-input";
 
 /** The ORD "Pha" filter, until the server's own list arrives. */
 const ADS_STEPS = [
@@ -490,11 +491,10 @@ function TaskBoard() {
             </button>
           </form>
         </div>
-        <div className="mt-3 grid gap-2 sm:grid-cols-2 lg:grid-cols-4 xl:grid-cols-8">
+        <div className="mt-3 grid gap-2 sm:grid-cols-2 lg:grid-cols-4 xl:grid-cols-[repeat(2,minmax(9.5rem,1.2fr))_repeat(6,minmax(0,1fr))]">
           <label className="flex flex-col gap-1 text-xs text-[var(--text-muted)]">
             Từ ngày
-            <input
-              type="date"
+            <DateInput
               value={read("from")}
               onChange={(event) => setParams({ from: event.target.value })}
               className={field}
@@ -502,8 +502,7 @@ function TaskBoard() {
           </label>
           <label className="flex flex-col gap-1 text-xs text-[var(--text-muted)]">
             Đến ngày
-            <input
-              type="date"
+            <DateInput
               value={read("to")}
               onChange={(event) => setParams({ to: event.target.value })}
               className={field}

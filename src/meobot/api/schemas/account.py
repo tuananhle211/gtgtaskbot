@@ -88,6 +88,21 @@ class MemberCodeResponse(BaseModel):
     member_code: str | None
 
 
+class LoginLinkRequest(BaseModel):
+    """Who to mint a "đăng nhập thay" link for: a Telegram id, or a user id.
+    Exactly one (422 ``target_required`` otherwise)."""
+
+    telegram_user_id: int | None = Field(default=None, ge=1)
+    user_id: uuid.UUID | None = None
+
+
+class LoginLinkResponse(BaseModel):
+    """A single-use "đăng nhập thay" link (2026-10-21). Shown once, then gone."""
+
+    url: str
+    expires_at: datetime
+
+
 class ChangeRoleRequest(BaseModel):
     """The member's system role. "ADMIN" (Quản trị viên) sees both streams."""
 
@@ -360,6 +375,8 @@ __all__ = [
     "AvatarResponse",
     "AvatarUploadRequest",
     "ChangePasswordRequest",
+    "LoginLinkRequest",
+    "LoginLinkResponse",
     "MemberCodeRequest",
     "MemberCodeResponse",
     "MemberListResponse",

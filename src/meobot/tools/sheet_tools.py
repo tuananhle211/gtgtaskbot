@@ -85,7 +85,7 @@ async def _list_handler(context: ToolContext, arguments: NoArguments) -> ToolRes
     lines: list[str] = ["📊 Sheet profile đang hoạt động:"]
     for item in profiles:
         synced = (
-            format_local(item.last_synced_at, timezone, "%d/%m %H:%M")
+            format_local(item.last_synced_at, timezone, "%d/%m/%Y %H:%M")
             if item.last_synced_at
             else "chưa đồng bộ"
         )

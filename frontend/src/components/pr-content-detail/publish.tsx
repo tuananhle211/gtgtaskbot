@@ -18,6 +18,7 @@ import {
 } from "@/lib/confirmations";
 import { PrimaryButton, SecondaryButton, Select } from "@/components/pr";
 import { AssetLocation, masterLabel } from "./product";
+import { DateTimeInput } from "@/components/date-input";
 
 /**
  * "Sản phẩm / đích đến" - where this content sends people.
@@ -670,9 +671,9 @@ function PublicationEditForm({
         </label>
         <label className="text-sm">
           Thời gian đăng
-          <input
+          <DateTimeInput
             required
-            type="datetime-local"
+           
             value={publishedAt}
             onChange={(event) => setPublishedAt(event.target.value)}
             className="mt-1 min-h-11 w-full rounded-lg border border-[var(--border)] bg-transparent px-3"
@@ -816,9 +817,9 @@ function PublicationForm({
         </label>
         <label className="text-sm">
           Thời gian đăng
-          <input
+          <DateTimeInput
             required
-            type="datetime-local"
+           
             value={publishedAt}
             onChange={(event) => setPublishedAt(event.target.value)}
             className="mt-1 min-h-11 w-full rounded-lg border border-[var(--border)] bg-transparent px-3"

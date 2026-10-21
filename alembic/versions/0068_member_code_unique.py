@@ -4,7 +4,7 @@ Revision ID: 0068
 Revises: 0067
 Create Date: 2026-10-16
 
-The member code ("mã thành viên") is the one key that ties people to the
+The member code ("mã nhân viên") is the one key that ties people to the
 resources inventory and to their order codes, so no two living accounts may
 share one. Any duplicate found is cleared from every account but the oldest
 (the OWNER / ADMIN gives the others a code of their own on the members

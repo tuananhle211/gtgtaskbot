@@ -1,7 +1,7 @@
 "use client";
 
 import { PersonLink } from "@/components/person-link";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   api,
@@ -188,7 +188,7 @@ export default function AccountsAdminPage() {
         className="panel flex flex-wrap items-end gap-3 p-3 sm:p-4"
       >
         <label className="flex min-w-[14rem] flex-1 flex-col gap-1 text-xs text-[var(--text-muted)]">
-          Tìm theo tên, Telegram ID hoặc mã thành viên
+          Tìm theo tên, Telegram ID hoặc mã nhân viên
           <input
             value={search}
             onChange={(event) => setSearch(event.target.value)}
@@ -269,7 +269,7 @@ export default function AccountsAdminPage() {
               <tr>
                 <th className="w-[18rem]">Tài khoản</th>
                 <th className="w-[16rem]">Phòng ban</th>
-                <th className="w-[9rem]">Mã thành viên</th>
+                <th className="w-[9rem]">Mã nhân viên</th>
                 <th className="w-[9rem]">Nhân sự</th>
                 {showOrd ? (
                   <th className="w-[16rem]">
@@ -373,7 +373,7 @@ function placeableDepartments(
 type Viewer = { role?: string; userId: string | null };
 
 /** What the "⋯" menu may open for this row, besides the links. */
-type RowAction = "reset" | "status" | "delete" | "role" | null;
+type RowAction = "reset" | "status" | "delete" | "role" | "impersonate" | null;
 
 function AccountRow({
   row,
@@ -458,6 +458,14 @@ function AccountRow({
       onSelect: () => setAction("reset"),
     });
   }
+  // "Đăng nhập thay": OWNER only, into an active non-OWNER account.
+  if (viewer.role === "OWNER" && active && !isSelf && row.role !== "OWNER") {
+    items.push({
+      key: "impersonate",
+      label: "Đăng nhập thay…",
+      onSelect: () => setAction("impersonate"),
+    });
+  }
   if (
     mayChangeAccountStatus(viewer, { user_id: row.user_id, role: row.role })
   ) {
@@ -481,11 +489,11 @@ function AccountRow({
       ? { spec: resetMemberPasswordConfirmation(row.full_name), run: reset }
       : action === "status"
         ? {
-            spec: active
-              ? deactivateAccountConfirmation(row.full_name)
-              : reactivateAccountConfirmation(row.full_name),
-            run: status,
-          }
+          spec: active
+            ? deactivateAccountConfirmation(row.full_name)
+            : reactivateAccountConfirmation(row.full_name),
+          run: status,
+        }
         : action === "delete"
           ? { spec: deleteAccountConfirmation(row.full_name), run: remove }
           : null;
@@ -529,8 +537,8 @@ function AccountRow({
             onSaved={(code) => {
               onNotice(
                 code
-                  ? `Đã đặt mã thành viên ${code} cho ${row.full_name}.`
-                  : `Đã xoá mã thành viên của ${row.full_name}.`,
+                  ? `Đã đặt mã nhân viên ${code} cho ${row.full_name}.`
+                  : `Đã xoá mã nhân viên của ${row.full_name}.`,
               );
               refresh();
             }}
@@ -594,6 +602,9 @@ function AccountRow({
               setAction(null);
             }}
           />
+        ) : null}
+        {action === "impersonate" ? (
+          <LoginLinkDialog row={row} onClose={() => setAction(null)} />
         ) : null}
         <RoleDialog
           open={action === "role"}
@@ -757,11 +768,11 @@ function AddToDepartmentDialog({
       user.user_id !== viewer.userId &&
       (viewer.role === "OWNER"
         ? !(user.departments ?? []).some(
-            (seat) => seat.department_id === chosen?.id,
-          )
+          (seat) => seat.department_id === chosen?.id,
+        )
         : user.base_role !== "OWNER" &&
-          user.base_role !== "ADMIN" &&
-          (user.departments ?? []).length === 0),
+        user.base_role !== "ADMIN" &&
+        (user.departments ?? []).length === 0),
   );
   const picked = candidates.find((user) => user.user_id === person);
   const picksPosition = Boolean(chosen && chosen.positions.length > 1);
@@ -1056,6 +1067,85 @@ function RoleDialog({
           </PrimaryButton>
         </ModalFooter>
       </form>
+    </Modal>
+  );
+}
+
+/**
+ * "Đăng nhập thay" (2026-10-21): the OWNER mints a single-use link to sign in
+ * as this member, to support or fix something on their behalf. The link is
+ * fetched when the dialog opens; "Mở tài khoản này" opens it in a new tab,
+ * "Sao chép liên kết" copies it. Open it in a private window so it does not
+ * replace the OWNER's own session.
+ */
+function LoginLinkDialog({ row, onClose }: { row: MemberRow; onClose: () => void }) {
+  const link = useMutation({ mutationFn: () => api.issueLoginLink(row.user_id) });
+  const run = link.mutate;
+  useEffect(() => {
+    run();
+  }, [run]);
+  const url = link.data?.url ?? null;
+  const [copied, setCopied] = useState(false);
+  const copy = () => {
+    if (!url) return;
+    void navigator.clipboard?.writeText(url).then(
+      () => {
+        setCopied(true);
+        window.setTimeout(() => setCopied(false), 1500);
+      },
+      () => undefined,
+    );
+  };
+  return (
+    <Modal
+      open
+      onClose={onClose}
+      busy={link.isPending}
+      title={`Đăng nhập thay ${row.full_name}`}
+      description="Liên kết đăng nhập một lần vào tài khoản này, để bạn hỗ trợ hoặc sửa giúp họ. Mỗi lần tạo đều được ghi lại."
+    >
+      <ModalBody className="space-y-3">
+        {link.isPending ? (
+          <p className="text-sm text-[var(--text-muted)]">Đang tạo liên kết…</p>
+        ) : link.isError ? (
+          <NoticeBox error={link.error} />
+        ) : url ? (
+          <>
+            <p className="rounded-lg border border-[var(--warn)]/30 bg-[var(--warn-soft)] p-3 text-xs text-[var(--text)]">
+              Nên mở ở <b>cửa sổ ẩn danh</b> để không ghi đè phiên đăng nhập của bạn. Liên kết chỉ
+              dùng được <b>một lần</b> và hết hạn sau vài phút.
+            </p>
+            <label className="block text-xs text-[var(--text-muted)]">
+              Liên kết
+              <input
+                readOnly
+                value={url}
+                onFocus={(event) => event.currentTarget.select()}
+                aria-label={`Liên kết đăng nhập thay ${row.full_name}`}
+                className="mt-1 w-full rounded-lg border border-[var(--border)] bg-[var(--surface)] px-3 py-2 font-mono text-xs"
+              />
+            </label>
+          </>
+        ) : null}
+      </ModalBody>
+      <ModalFooter>
+        <SecondaryButton type="button" onClick={onClose}>
+          Đóng
+        </SecondaryButton>
+        {url ? (
+          <>
+            <SecondaryButton type="button" onClick={copy}>
+              {copied ? "Đã sao chép" : "Sao chép liên kết"}
+            </SecondaryButton>
+            <PrimaryButton
+              type="button"
+              onClick={() => window.open(url, "_blank", "noopener")}
+            >
+              Mở tài khoản này
+            </PrimaryButton>
+          </>
+        ) : null}
+      </ModalFooter>
     </Modal>
   );
 }

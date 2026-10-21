@@ -24,6 +24,8 @@ from datetime import date, datetime
 from typing import cast
 
 from sqlalchemy import (
+    JSON,
+    BigInteger,
     Boolean,
     CheckConstraint,
     Date,
@@ -47,6 +49,7 @@ from meobot.db.base import Base, TimestampMixin, UUIDPrimaryKeyMixin, value_enum
 from meobot.db.models.department import DEPARTMENTS
 from meobot.db.models.pr import RESTRICT, USERS_TABLE
 from meobot.domain.resources.models import HandoverReason, OptionKind, StatusGroup
+from meobot.domain.resources.requests import RequestEventKind, RequestSite, RequestStage
 
 RESOURCE_OPTIONS = "resource_options"
 RESOURCES = "resources"
@@ -54,6 +57,8 @@ RESOURCE_CODE_COUNTERS = "resource_code_counters"
 RESOURCE_HANDOVERS = "resource_handovers"
 RESOURCE_STATUS_HISTORY = "resource_status_history"
 RESOURCE_CHANGES = "resource_changes"
+RESOURCE_REQUESTS = "resource_requests"
+RESOURCE_REQUEST_EVENTS = "resource_request_events"
 
 #: The tables no row of which is ever updated or deleted.
 APPEND_ONLY_TABLES = (RESOURCE_HANDOVERS, RESOURCE_STATUS_HISTORY, RESOURCE_CHANGES)
@@ -152,6 +157,71 @@ class Resource(Base, UUIDPrimaryKeyMixin, TimestampMixin):
     note: Mapped[str | None] = mapped_column(Text, nullable=True)
     created_by_user_id: Mapped[uuid.UUID | None] = mapped_column(
         ForeignKey(f"{USERS_TABLE}.id", ondelete=RESTRICT), nullable=True
+    )
+    #: The "Đề xuất tài nguyên" this resource was bought for (0070).
+    request_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey(f"{RESOURCE_REQUESTS}.id", ondelete=RESTRICT), nullable=True, index=True
+    )
+
+
+class ResourceRequest(Base, UUIDPrimaryKeyMixin, TimestampMixin):
+    """One "Đề xuất tài nguyên" (0070). Its stages: :class:`RequestStage`."""
+
+    __tablename__ = RESOURCE_REQUESTS
+    __table_args__ = (
+        CheckConstraint("quantity > 0", name="quantity_positive"),
+        CheckConstraint("budget >= 0", name="budget_not_negative"),
+    )
+
+    code: Mapped[str] = mapped_column(String(16), nullable=False, unique=True)
+    requester_user_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey(f"{USERS_TABLE}.id", ondelete=RESTRICT), nullable=False, index=True
+    )
+    type_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey(f"{RESOURCE_OPTIONS}.id", ondelete=RESTRICT), nullable=False
+    )
+    quantity: Mapped[int] = mapped_column(Integer, nullable=False)
+    site: Mapped[RequestSite] = mapped_column(
+        value_enum(RequestSite, name="resource_request_site", length=12), nullable=False
+    )
+    purpose: Mapped[str] = mapped_column(Text, nullable=False)
+    requirements: Mapped[str | None] = mapped_column(Text, nullable=True)
+    reason: Mapped[str] = mapped_column(Text, nullable=False)
+    replaces: Mapped[str | None] = mapped_column(String(200), nullable=True)
+    #: "Dự toán tối đa", in đồng.
+    budget: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    needed_by: Mapped[date] = mapped_column(Date, nullable=False)
+    stage: Mapped[RequestStage] = mapped_column(
+        value_enum(RequestStage, name="resource_request_stage", length=20), nullable=False
+    )
+    #: The head(s) who may decide the head step, fixed when it was sent.
+    head_approver_ids: Mapped[list[str]] = mapped_column(JSON, nullable=False, default=list)
+    #: "Tổng tiền mua thực tế" and "Nguồn mua", from the purchase step.
+    actual_cost: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
+    supplier: Mapped[str | None] = mapped_column(String(200), nullable=True)
+    closed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    version: Mapped[int] = mapped_column(
+        Integer, nullable=False, default=1, server_default=text("1")
+    )
+
+
+class ResourceRequestEvent(Base, UUIDPrimaryKeyMixin):
+    """One line of a request's history: who did what, when. Never edited."""
+
+    __tablename__ = RESOURCE_REQUEST_EVENTS
+
+    request_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey(f"{RESOURCE_REQUESTS}.id", ondelete=RESTRICT), nullable=False, index=True
+    )
+    kind: Mapped[RequestEventKind] = mapped_column(
+        value_enum(RequestEventKind, name="resource_request_event_kind", length=20), nullable=False
+    )
+    actor_user_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey(f"{USERS_TABLE}.id", ondelete=RESTRICT), nullable=True
+    )
+    note: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utcnow, server_default=func.now(), nullable=False
     )
 
 

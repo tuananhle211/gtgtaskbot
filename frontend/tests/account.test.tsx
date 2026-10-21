@@ -907,11 +907,11 @@ describe("the account page", () => {
     renderWithQuery(<AccountPage />);
     const user = userEvent.setup();
     await user.click(await screen.findByRole("tab", { name: "Thành viên" }));
-    expect(screen.getByRole("columnheader", { name: "Mã thành viên" })).toBeInTheDocument();
-    expect(screen.getByRole("textbox", { name: "Mã thành viên của Minh Đức" })).toHaveValue("DUC");
-    const save = screen.getByRole("button", { name: "Lưu mã thành viên của Hà Chi" });
+    expect(screen.getByRole("columnheader", { name: "Mã nhân viên" })).toBeInTheDocument();
+    expect(screen.getByRole("textbox", { name: "Mã nhân viên của Minh Đức" })).toHaveValue("DUC");
+    const save = screen.getByRole("button", { name: "Lưu mã nhân viên của Hà Chi" });
     expect(save).toBeDisabled();
-    await user.type(screen.getByRole("textbox", { name: "Mã thành viên của Hà Chi" }), "hà chi");
+    await user.type(screen.getByRole("textbox", { name: "Mã nhân viên của Hà Chi" }), "hà chi");
     await user.click(save);
     await waitFor(() =>
       expect(callsOf(fetchMock).find((call) => call.method === "PUT")?.body).toEqual({
@@ -919,8 +919,8 @@ describe("the account page", () => {
       }),
     );
     // The server's folded code is what is shown back.
-    expect(await screen.findByText("Đã đặt mã thành viên HACHI cho Hà Chi.")).toBeInTheDocument();
-    expect(screen.getByRole("textbox", { name: "Mã thành viên của Hà Chi" })).toHaveValue("HACHI");
+    expect(await screen.findByText("Đã đặt mã nhân viên HACHI cho Hà Chi.")).toBeInTheDocument();
+    expect(screen.getByRole("textbox", { name: "Mã nhân viên của Hà Chi" })).toHaveValue("HACHI");
   });
 
   it("shows the member code, read-only, to everybody else", async () => {
@@ -936,7 +936,7 @@ describe("the account page", () => {
     ]);
     renderWithQuery(<AccountPage />);
     await userEvent.setup().click(await screen.findByRole("tab", { name: "Thành viên" }));
-    expect(screen.queryByRole("textbox", { name: /Mã thành viên của/ })).not.toBeInTheDocument();
+    expect(screen.queryByRole("textbox", { name: /Mã nhân viên của/ })).not.toBeInTheDocument();
     const row = screen.getByText("Minh Đức").closest("tr") as HTMLElement;
     expect(within(row).getByText("DUC")).toBeInTheDocument();
   });
@@ -1039,7 +1039,7 @@ describe("changing the avatar", () => {
         : type === "image/jpeg"
           ? "data:image/jpeg;base64,/9j/4AAQ"
           : // What a browser that cannot encode the type hands back.
-            "data:image/png;base64,iVBORw0K",
+          "data:image/png;base64,iVBORw0K",
     );
   };
 

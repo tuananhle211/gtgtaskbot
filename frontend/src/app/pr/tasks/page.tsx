@@ -8,6 +8,7 @@ import { Empty, ErrorBox, Loading, Pill } from "@/components/states";
 import { Select } from "@/components/pr";
 import { ConfirmButton } from "@/components/confirm";
 import { assignTaskConfirmation, taskStatusConfirmation } from "@/lib/confirmations";
+import { DateTimeInput } from "@/components/date-input";
 
 /** The canonical `PrTaskStatus` codes, in the order the enum declares them. */
 const STATUSES = TASK_STATUS_ORDER;
@@ -254,8 +255,7 @@ function CreateTaskForm({ onCreated }: { onCreated: () => void }) {
         </label>
         <label className="text-sm">
           Hạn
-          <input
-            type="datetime-local"
+          <DateTimeInput
             value={deadline}
             onChange={(event) => setDeadline(event.target.value)}
             className="mt-1 w-full rounded border border-[var(--border)] bg-transparent px-2 py-1.5"

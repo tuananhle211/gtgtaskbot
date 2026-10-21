@@ -34,7 +34,7 @@ from typing import Any
 from sqlalchemy import Select, and_, exists, false, or_, select
 from sqlalchemy.orm import aliased
 
-from meobot.db.models.department import Department, DepartmentMember, DepartmentPermission
+from meobot.db.models.department import Department, DepartmentMember
 from meobot.db.models.order import Order, OrderNode
 from meobot.db.models.org_unit import OrgUnitMember
 from meobot.db.models.user import User
@@ -42,7 +42,7 @@ from meobot.domain.orders.errors import OrderNotFoundError
 from meobot.domain.orders.models import OrderCategory, OrderNodeStatus, OrderNodeType
 from meobot.domain.orders.permissions import AdsPermission
 from meobot.domain.orders.pipeline import OrderActorContext
-from meobot.domain.org.models import MODULE_ORDER, Position
+from meobot.domain.org.models import Position
 from meobot.domain.units.models import UnitCode, UnitMemberRole, UnitMembership, UnitSettings
 
 NOT_VISIBLE = "Không tìm thấy."
@@ -161,7 +161,6 @@ def approval_reaches(user_id: uuid.UUID) -> Any:
     at all is read the old way (their own head, else every approver)."""
     owner_seat = aliased(DepartmentMember)
     department = aliased(Department)
-    grant = aliased(DepartmentPermission)
     my_seat = aliased(DepartmentMember)
     boss_seat = aliased(DepartmentMember)
     boss_user = aliased(User)
@@ -188,16 +187,6 @@ def approval_reaches(user_id: uuid.UUID) -> Any:
     by_department = exists(
         select(owner_seat.id)
         .join(department, department.id == owner_seat.department_id)
-        .join(
-            grant,
-            and_(
-                grant.department_id == owner_seat.department_id,
-                grant.position == Position.HEAD,
-                grant.module == MODULE_ORDER,
-                grant.permission == AdsPermission.ORDER_APPROVE.value,
-                grant.scope != "NONE",
-            ),
-        )
         .where(
             owner_seat.user_id == Order.owner_user_id,
             owner_seat.left_at.is_(None),

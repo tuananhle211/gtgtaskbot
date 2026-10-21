@@ -113,7 +113,7 @@ export default function ImportPage() {
           <li>File mẫu không có cột ban: ban lấy theo ban của người giữ (Mã NV). Người ở nhiều ban thì ưu tiên ADS, Dựng, Thiết kế, Biên tập, còn lại lấy ban đứng trước. Thiếu Mã NV, mã lạ hoặc người chưa thuộc ban nào thì dòng báo lỗi. File kiểm kê cũ (mỗi tab một ban) vẫn nhập được, ban theo tên tab.</li>
           <li>Mã tài nguyên trong file được giữ nguyên; dòng không có mã, hoặc trùng mã với dòng trước trong file, được cấp mã mới.</li>
           <li>Dòng thiếu ID, loại hoặc tên vẫn được nhập: ID = mã tài nguyên, loại tạm là &quot;Khác&quot;, tên tạm ghép từ loại + ID. Bổ sung sau trên màn hình.</li>
-          <li>Người được bàn giao khớp theo cột &quot;Mã NV&quot; = mã thành viên của tài khoản; cột tên chỉ để đọc. Mã NV chưa có trong hệ thống thì dòng báo đỏ và không ghi được: nhờ Chủ sở hữu / Quản trị viên gán mã thành viên cho tài khoản trước, rồi tải lại file. Giá trị danh sách (loại, quyền, trạng thái…) phải có trong Cài đặt.</li>
+          <li>Người được bàn giao khớp theo cột &quot;Mã NV&quot; = mã nhân viên của tài khoản; cột tên chỉ để đọc. Mã NV chưa có trong hệ thống thì dòng báo đỏ và không ghi được: nhờ Chủ sở hữu / Quản trị viên gán mã nhân viên cho tài khoản trước, rồi tải lại file. Giá trị danh sách (loại, quyền, trạng thái…) phải có trong Cài đặt.</li>
           <li>Mỗi ô tháng (T10/2026…) có giá trị = một dòng lịch sử trạng thái; ô cuối cùng là trạng thái hiện tại.</li>
           <li>Có lỗi thì sửa trong file rồi tải lại - không sửa trên web.</li>
         </ul>

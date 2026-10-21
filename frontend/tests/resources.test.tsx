@@ -152,11 +152,12 @@ describe("the Tài nguyên nav branch", () => {
       ...ME,
       resources: { ...ACCESS, import_excel: false, settings: false, report: false },
     }).map((screen) => screen.href);
-    expect(staff).toEqual(["/resources", "/resources/mine"]);
+    expect(staff).toEqual(["/resources", "/resources/mine", "/resources/requests"]);
     const all = resourceScreens(ME).map((screen) => screen.href);
     expect(all).toEqual([
       "/resources",
       "/resources/mine",
+      "/resources/requests",
       "/resources/people",
       "/resources/reports",
       "/resources/import",
@@ -308,6 +309,7 @@ describe("Hồ sơ tài nguyên", () => {
       },
     ],
     can_edit: true,
+    can_handover: true,
   };
 
   it("draws the fields, the alert, both timelines and the change log, with the buttons", async () => {
@@ -347,6 +349,25 @@ describe("Hồ sơ tài nguyên", () => {
     renderWithQuery(<ResourcePage />);
     await screen.findByRole("heading", { name: /ADS-002/ });
     expect(screen.queryByRole("button", { name: "Đổi người được bàn giao" })).not.toBeInTheDocument();
+  });
+
+  it("lets the holder edit and update but not hand over, nor move the ban (2026-10-21)", async () => {
+    stubFetch([
+      { match: "/api/auth/session", body: SESSION },
+      { match: "/api/units/me", body: ME },
+      { match: "/api/resources/options", body: OPTIONS },
+      { match: "/api/resources/people", body: { people: [PERSON()] } },
+      { match: "/api/resources/r-1", body: { ...DETAIL, can_edit: true, can_handover: false } },
+    ]);
+    renderWithQuery(<ResourcePage />);
+    await screen.findByRole("heading", { name: /ADS-002/ });
+    for (const name of ["Sửa", "Cập nhật trạng thái", "Đã rà soát"]) {
+      expect(screen.getByRole("button", { name })).toBeInTheDocument();
+    }
+    expect(screen.queryByRole("button", { name: "Đổi người được bàn giao" })).not.toBeInTheDocument();
+    await userEvent.click(screen.getByRole("button", { name: "Sửa" }));
+    expect(await screen.findByLabelText(/Ban quản lý/)).toBeDisabled();
+    expect(screen.getByText("Chỉ Phòng Tài nguyên đổi được ban quản lý.")).toBeInTheDocument();
   });
 
   it("sends a status update from its dialog", async () => {

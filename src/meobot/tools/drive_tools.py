@@ -357,7 +357,7 @@ def build_drive_tools(*, drive: DriveClient, sheets: SheetsClient) -> list[ToolD
         lines = ["📄 Sheet TasksBot đã tạo:"]
         for record in records:
             when = (
-                format_local(record.created_at, timezone, "%d/%m %H:%M")
+                format_local(record.created_at, timezone, "%d/%m/%Y %H:%M")
                 if record.created_at
                 else "—"
             )

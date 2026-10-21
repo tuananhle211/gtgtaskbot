@@ -308,7 +308,7 @@ async def approvers(actor: CurrentActorDep, services: ServicesDep) -> ApproversR
         default=[ApproverPerson(user_id=person.user_id, name=person.name) for person in default],
         candidates=[
             ApproverPerson(user_id=person.user_id, name=person.name)
-            for person in sorted(routes.head, key=lambda item: item.name)
+            for person in sorted(routes.approver_choices, key=lambda item: item.name)
             if person.user_id != actor.user_id
         ],
     )

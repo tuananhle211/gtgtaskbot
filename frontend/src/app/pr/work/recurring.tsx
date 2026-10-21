@@ -28,6 +28,7 @@ import {
   deleteRecurringTemplateConfirmation,
   endRecurringTemplateConfirmation,
 } from "@/lib/confirmations";
+import { DateInput } from "@/components/date-input";
 
 /**
  * Việc định kỳ. **M4B, re-homed by the post-M4 UX consolidation.**
@@ -588,8 +589,7 @@ export function RecurringScheduleFields({
         </label>
         <label className="text-xs">
           Ngày bắt đầu
-          <input
-            type="date"
+          <DateInput
             value={schedule.startDate}
             onChange={(event) => onChange({ startDate: event.target.value })}
             className="mt-1 w-full rounded border border-[var(--border)] bg-[var(--surface)] px-2 py-1.5 text-sm"
@@ -597,8 +597,7 @@ export function RecurringScheduleFields({
         </label>
         <label className="text-xs">
           Ngày kết thúc (không bắt buộc)
-          <input
-            type="date"
+          <DateInput
             value={schedule.endDate}
             onChange={(event) => onChange({ endDate: event.target.value })}
             className="mt-1 w-full rounded border border-[var(--border)] bg-[var(--surface)] px-2 py-1.5 text-sm"

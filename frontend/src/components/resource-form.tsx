@@ -112,6 +112,7 @@ export function ResourceFormDialog({
   options,
   resource = null,
   onSaved,
+  lockDepartment = false,
 }: {
   open: boolean;
   onClose: () => void;
@@ -119,6 +120,11 @@ export function ResourceFormDialog({
   /** The resource being edited; null = a new one. */
   resource?: ResourceRow | null;
   onSaved: (detail: ResourceDetail) => void;
+  /**
+   * The editor is the holder or their head, not the Phòng Tài nguyên: the
+   * "Ban quản lý" cannot move (the server refuses a change, 2026-10-21).
+   */
+  lockDepartment?: boolean;
 }) {
   const queryClient = useQueryClient();
   const ids = {
@@ -302,6 +308,7 @@ export function ResourceFormDialog({
               onChange={(event) => set("department_id", event.target.value)}
               className="mt-1 w-full text-sm"
               aria-invalid={field === "department_id" || undefined}
+              disabled={lockDepartment}
             >
               {(options?.departments ?? []).map((department) => (
                 <option key={department.id} value={department.id}>
@@ -309,6 +316,9 @@ export function ResourceFormDialog({
                 </option>
               ))}
             </Select>
+            {lockDepartment ? (
+              <span className="mt-1 block text-[11px]">Chỉ Phòng Tài nguyên đổi được ban quản lý.</span>
+            ) : null}
           </label>
           {select(ids.type, "Loại", "type_id", "TYPE", { required: true, keep: resource?.type.id })}
           {text(ids.external, "ID tài nguyên", "external_id", {

@@ -71,6 +71,7 @@ import {
   reopenWorkConfirmation,
   startWorkConfirmation,
 } from "@/lib/confirmations";
+import { DateTimeInput } from "@/components/date-input";
 
 /**
  * Công việc - the Work Ledger. M1.
@@ -3295,8 +3296,7 @@ function WorkForm({
         {recurring ? null : (
           <label className="text-xs">
             Hạn
-            <input
-              type="datetime-local"
+            <DateTimeInput
               value={dueAt}
               onChange={(event) => setDueAt(event.target.value)}
               className="mt-1 w-full rounded border border-[var(--border)] bg-[var(--surface)] px-2 py-1.5 text-sm"

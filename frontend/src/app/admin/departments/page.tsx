@@ -895,12 +895,17 @@ function Grants({
                     {permission.label}
                     {permission.own_meaning && permission.scopes.includes("OWN") ? (
                       <span className="block text-[11px] font-normal text-[var(--text-muted)]">
-                        {labels.OWN ?? "Của mình"}: {permission.own_meaning}
+                        {(permission.scope_labels ?? labels).OWN ?? "Của mình"}: {permission.own_meaning}
                       </span>
                     ) : null}
                   </th>
                   {catalog.positions.map((position) => {
-                    const scope = scopeOf(position.value, permission.key);
+                    // A permission whose lowest scope is not "Không" (Tài nguyên's
+                    // VIEW: everybody's floor) reads an empty cell as that floor.
+                    const stored = scopeOf(position.value, permission.key);
+                    const scope = permission.scopes.includes(stored) ? stored : permission.scopes[0];
+                    const wordOf = (value: string) =>
+                      permission.scope_labels?.[value] ?? labels[value] ?? value;
                     const edited = draft[position.value]?.[permission.key] !== undefined;
                     return (
                       <td key={position.value}>
@@ -918,7 +923,7 @@ function Grants({
                           >
                             {permission.scopes.map((option) => (
                               <option key={option} value={option}>
-                                {labels[option] ?? option}
+                                {wordOf(option)}
                               </option>
                             ))}
                           </select>
@@ -926,7 +931,7 @@ function Grants({
                           <span
                             className={`inline-block rounded-md px-2 py-1 text-xs font-medium ${tone(scope)}`}
                           >
-                            {labels[scope] ?? scope}
+                            {wordOf(scope)}
                           </span>
                         )}
                       </td>

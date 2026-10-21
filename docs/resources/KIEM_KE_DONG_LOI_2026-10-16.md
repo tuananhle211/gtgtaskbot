@@ -10,11 +10,11 @@ người bị bỏ qua). Tất cả là **cùng một ID Facebook ghi hai lần 
 không biết đó là một tài nguyên ghi lặp hay hai tài nguyên ghi nhầm ID, nên cần người quyết:
 giữ một dòng và xoá dòng kia (hoặc sửa ID) rồi tải lại.
 
-**Cập nhật 19/10/2026 - khớp người giữ theo Mã NV.** Cột "Mã NV" của file là mã thành viên của
+**Cập nhật 19/10/2026 - khớp người giữ theo Mã NV.** Cột "Mã NV" của file là mã nhân viên của
 tài khoản; cột tên không dùng để khớp. Mã chưa có trong hệ thống thì tài nguyên vẫn được nhập nhưng
 chưa gắn với ai (chỉ cảnh báo); file không bao giờ tạo tài khoản mới. Chạy lại trên local:
 371 dòng hợp lệ, 17 lỗi ID trùng (bảng dưới). 387 dòng có Mã NV chưa có trong hệ thống (32 mã
-khác nhau, kiểu M001DUNG) sẽ vào với người giữ trống; Chủ sở hữu / Quản trị viên gán mã thành viên
+khác nhau, kiểu M001DUNG) sẽ vào với người giữ trống; Chủ sở hữu / Quản trị viên gán mã nhân viên
 cho tài khoản ở Quản lý tài khoản rồi tải lại file, hoặc bàn giao sau trên màn hình. 167 dòng
 "Ai đang giữ mã 2 lớp" không khớp tên nhân viên nào: để trống, chỉ cảnh báo.
 

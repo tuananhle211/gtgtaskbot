@@ -45,6 +45,10 @@ class ResourceAccessResponse(BaseModel):
 
     view: bool = False
     view_all: bool = False
+    #: "Thêm tài nguyên" (2026-10-21: the Phòng Tài nguyên).
+    create: bool = False
+    #: Edit EVERY resource and change any holder; one's own (and a head's
+    #: department's people's) are editable without it - see ``can_edit``.
     edit: bool = False
     import_excel: bool = False
     settings: bool = False
@@ -56,6 +60,7 @@ class ResourceAccessResponse(BaseModel):
         return cls(
             view=access.any_view,
             view_all=access.view_all,
+            create=access.create,
             edit=access.edit,
             import_excel=access.import_excel,
             settings=access.settings,
@@ -393,6 +398,8 @@ class ResourceDetailResponse(BaseModel):
     statuses: list[StatusLineResponse]
     changes: list[ChangeResponse]
     can_edit: bool
+    #: "Đổi người được bàn giao" (whoever edits every resource).
+    can_handover: bool = False
 
     @classmethod
     def from_detail(cls, detail: ResourceDetail) -> ResourceDetailResponse:
@@ -402,6 +409,7 @@ class ResourceDetailResponse(BaseModel):
             statuses=[StatusLineResponse.from_line(line) for line in detail.statuses],
             changes=[ChangeResponse.from_line(line) for line in detail.changes],
             can_edit=detail.can_edit,
+            can_handover=detail.can_handover,
         )
 
 

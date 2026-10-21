@@ -1032,23 +1032,36 @@ def test_40_docs_are_off_in_production() -> None:
     assert dev.openapi_url == "/openapi.json"
 
 
-def test_41_there_is_no_http_endpoint_that_issues_a_login_link() -> None:
-    """Issuing a link is proving identity. Only ``/web`` in the bot does it.
+def test_41_only_the_owner_only_impersonation_route_issues_a_login_link() -> None:
+    """Issuing a link is proving identity, so the raw mint
+    (``WebAuthService.issue_login_link``) is reachable from the bot's ``/web``
+    and nowhere in the HTTP layer.
 
-    An HTTP endpoint for it would hand a credential to whoever asked, whatever
-    body validation sat in front.
+    The one HTTP path that hands out a link - "đăng nhập thay" (2026-10-21) -
+    does it only through ``AccountService.issue_login_link_for``, which is the
+    OWNER's alone and audits every call. No router calls the raw mint itself,
+    where there would be no such guard.
     """
-    for fact in route_inventory(internal_enabled=True):
-        assert "issue" not in fact.path, fact.path
     router_dir = SRC / "api" / "routers"
     for path in router_dir.glob("*.py"):
-        assert "issue_login_link" not in path.read_text(encoding="utf-8"), path.name
-    # The bot handler is the only caller, and it takes the resolved Actor's id.
+        # The raw single-argument mint is never called from a router; the one
+        # endpoint goes through the guarded, audited service method instead.
+        # The raw mint ``issue_login_link(`` is absent; the account router
+        # calls ``accounts.issue_login_link_for(`` (a different name), which
+        # the service guards. A router may still hold ``WebAuthService`` for
+        # redeeming / resolving / revoking sessions - that is not minting.
+        text = path.read_text(encoding="utf-8")
+        assert ".issue_login_link(" not in text, path.name
+
+    # The bot handler takes the resolved Actor's own id.
     handler = (SRC / "bot" / "handlers" / "web.py").read_text(encoding="utf-8")
-    assert "issue_login_link(\n                user_id=actor.user_id" in handler.replace(
-        "issue_login_link(user_id=actor.user_id",
-        "issue_login_link(\n                user_id=actor.user_id",
-    )
+    assert "issue_login_link(user_id=actor.user_id" in handler
+
+    # The service method that an HTTP caller reaches is OWNER-gated and audited.
+    service = (SRC / "application" / "account" / "account_service.py").read_text(encoding="utf-8")
+    body = service.split("async def issue_login_link_for", 1)[1].split("async def ", 1)[0]
+    assert "ImpersonationForbiddenError" in body and "actor.role is not Role.OWNER" in body
+    assert "WEB_LOGIN_LINK_ISSUED_FOR" in body
 
 
 @pytest.mark.asyncio

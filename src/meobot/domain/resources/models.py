@@ -37,7 +37,11 @@ class ResourcePermission(StrEnum):
     #: See resources: ``OWN`` = what one holds (and, as a head, one's
     #: department's); ``ALL`` = every resource.
     VIEW = "VIEW"
-    #: Add and edit resources, change the holder, update the status, review.
+    #: Add a resource (2026-10-21: its own permission - the Phòng Tài nguyên).
+    CREATE = "CREATE"
+    #: Edit EVERY resource, change the holder, update the status, review.
+    #: Without it a person still edits / updates / reviews what they hold,
+    #: and a department head what their department's people hold.
     EDIT = "EDIT"
     #: Import the Excel inventory.
     IMPORT = "IMPORT"
@@ -58,7 +62,8 @@ class ResourceScope(StrEnum):
 RESOURCE_PERMISSION_LABELS: Mapping[ResourcePermission, str] = MappingProxyType(
     {
         ResourcePermission.VIEW: "Xem tài nguyên",
-        ResourcePermission.EDIT: "Thêm / sửa, đổi người giữ, cập nhật trạng thái, rà soát",
+        ResourcePermission.CREATE: "Thêm tài nguyên",
+        ResourcePermission.EDIT: "Sửa mọi tài nguyên, đổi người giữ, cập nhật trạng thái, rà soát",
         ResourcePermission.IMPORT: "Nhập từ Excel",
         ResourcePermission.SETTINGS: "Cài đặt danh sách lựa chọn, ngưỡng rà soát",
         ResourcePermission.REPORT: "Báo cáo tổng hợp, tra cứu theo nhân viên",
@@ -69,7 +74,19 @@ RESOURCE_PERMISSION_LABELS: Mapping[ResourcePermission, str] = MappingProxyType(
 RESOURCE_OWN_MEANING: Mapping[ResourcePermission, str] = MappingProxyType(
     {
         ResourcePermission.VIEW: (
-            "Nhân viên: tài nguyên mình đang giữ; Trưởng phòng: tài nguyên của phòng mình"
+            "ai cũng xem, sửa, cập nhật trạng thái tài nguyên mình đang giữ; trưởng phòng"
+            " thêm tài nguyên của các thành viên được gắn với mình (Trưởng quản lý)."
+            ' Chọn "Toàn bộ" để xem mọi tài nguyên của công ty.'
+        ),
+    }
+)
+
+#: The words of a scope where the generic ones mislead (2026-10-21): VIEW's
+#: OWN is the floor everybody has, not a grant one may withhold.
+RESOURCE_SCOPE_LABELS: Mapping[ResourcePermission, Mapping[str, str]] = MappingProxyType(
+    {
+        ResourcePermission.VIEW: MappingProxyType(
+            {"OWN": "Mặc định (của mình, người gắn với mình)", "ALL": "Toàn bộ"}
         ),
     }
 )
@@ -77,7 +94,9 @@ RESOURCE_OWN_MEANING: Mapping[ResourcePermission, str] = MappingProxyType(
 
 def resource_allowed_scopes(permission: ResourcePermission) -> tuple[ResourceScope, ...]:
     if permission is ResourcePermission.VIEW:
-        return (ResourceScope.NONE, ResourceScope.OWN, ResourceScope.ALL)
+        # One's own (and, as a head, one's department's) is everybody's floor:
+        # there is nothing below it to choose.
+        return (ResourceScope.OWN, ResourceScope.ALL)
     return (ResourceScope.NONE, ResourceScope.ALL)
 
 
@@ -96,6 +115,7 @@ def default_resource_grants(function: DepartmentFunction) -> dict[Position, dict
             Position.HEAD: {permission.value: _ALL for permission in ResourcePermission},
             Position.MEMBER: {
                 ResourcePermission.VIEW.value: _ALL,
+                ResourcePermission.CREATE.value: _ALL,
                 ResourcePermission.EDIT.value: _ALL,
                 ResourcePermission.REPORT.value: _ALL,
             },
@@ -343,6 +363,7 @@ __all__ = [
     "RED_ALERTS",
     "RESOURCE_OWN_MEANING",
     "RESOURCE_PERMISSION_LABELS",
+    "RESOURCE_SCOPE_LABELS",
     "SEED_OPTIONS",
     "STATUS_GROUP_LABELS",
     "AlertKind",

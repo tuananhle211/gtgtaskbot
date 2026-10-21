@@ -353,7 +353,7 @@ describe("84. every filter is still there, and still asked of the server", () =>
 
     const filters = screen.getByRole("region", { name: "Bộ lọc" });
     expect(within(filters).getByRole("combobox", { name: "Mốc ngày" })).toBeInTheDocument();
-    expect(within(filters).getByLabelText("Từ ngày")).toHaveValue("2026-08-01");
+    expect(within(filters).getByLabelText("Từ ngày")).toHaveValue("01/08/2026");
     expect(within(filters).getByLabelText("Đến ngày")).toBeInTheDocument();
   });
 

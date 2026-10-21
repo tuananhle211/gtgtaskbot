@@ -1,3 +1,4 @@
+import { formatDate, formatDateTime } from "@/lib/datetime";
 /**
  * Vietnamese labels for the codes the API returns, and the board's grouping.
  *
@@ -1521,17 +1522,7 @@ export const UNASSIGNED_CHANNEL_SCOPE_LABEL = "Chưa gán kênh";
 
 /** A timestamp as somebody in Vietnam reads it. Missing values render as "—". */
 export function formatWhen(value: string | null | undefined): string {
-  if (!value) return "—";
-  const parsed = new Date(value);
-  if (Number.isNaN(parsed.getTime())) return value;
-  return parsed.toLocaleString("vi-VN", {
-    timeZone: "Asia/Ho_Chi_Minh",
-    day: "2-digit",
-    month: "2-digit",
-    year: "numeric",
-    hour: "2-digit",
-    minute: "2-digit",
-  });
+  return formatDateTime(value);
 }
 
 /**
@@ -1676,24 +1667,10 @@ export function formatComparisonBasis(
 
 /** A date-only value, for assignment intervals. */
 export function formatDay(value: string | null | undefined): string {
-  if (!value) return "—";
-  const parsed = new Date(`${value}T00:00:00`);
-  if (Number.isNaN(parsed.getTime())) return value;
-  return parsed.toLocaleDateString("vi-VN", {
-    day: "2-digit",
-    month: "2-digit",
-    year: "numeric",
-  });
+  return formatDate(value);
 }
 
-/** A timestamp with no clock, for a deadline shown on a card. */
+/** A timestamp with no clock (dd/mm/yyyy), for a deadline shown on a card. */
 export function formatShortDay(value: string | null | undefined): string {
-  if (!value) return "—";
-  const parsed = new Date(value);
-  if (Number.isNaN(parsed.getTime())) return value;
-  return parsed.toLocaleDateString("vi-VN", {
-    timeZone: "Asia/Ho_Chi_Minh",
-    day: "2-digit",
-    month: "2-digit",
-  });
+  return formatDate(value);
 }

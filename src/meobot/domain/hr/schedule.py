@@ -295,9 +295,8 @@ def format_local_time(value: datetime, schedule: WorkSchedule) -> str:
 
 
 def format_local_datetime(value: datetime, schedule: WorkSchedule) -> str:
-    """``15:42 ngày 30/07/2026``."""
-    local = value.astimezone(schedule.zone)
-    return f"{local.strftime('%H:%M')} ngày {local.strftime('%d/%m/%Y')}"
+    """``30/07/2026 15:42`` - the app's one date format (dd/mm/yyyy HH:mm)."""
+    return value.astimezone(schedule.zone).strftime("%d/%m/%Y %H:%M")
 
 
 def describe_period(request_type: HrRequestType, *, day: date, end_day: date | None = None) -> str:

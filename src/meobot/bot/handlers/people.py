@@ -244,7 +244,7 @@ async def handle_mute_user(
             muted_until=until,
         )
         await _audit_policy(session, actor, request_id, row.id, target, "mute_until")
-        local = format_local(until, settings.timezone, fmt="%H:%M %d/%m/%Y")
+        local = format_local(until, settings.timezone, fmt="%d/%m/%Y %H:%M")
         return f"🔇 Im lặng với {target.label} trong group này tới {local}."
 
     await _run(

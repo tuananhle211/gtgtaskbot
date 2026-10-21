@@ -68,6 +68,7 @@ type NavIcon =
   | "resource"
   | "inventory"
   | "mine"
+  | "request"
   | "lookup"
   | "import"
   | "settings"
@@ -392,6 +393,13 @@ function Icon({ name }: { name: NavIcon }) {
         <circle cx="12" cy="8" r="3.5" />
         <path d="M5 20a7 7 0 0 1 14 0" />
         <path d="M15.5 3.5l1.2 2.4 2.6.4-1.9 1.8.5 2.6-2.4-1.2-2.3 1.2.4-2.6-1.9-1.8 2.6-.4z" />
+      </>
+    ),
+    request: (
+      <>
+        <path d="M6 3h9l4 4v14H6z" />
+        <path d="M14 3v5h5" />
+        <path d="M12 11v6M9 14h6" />
       </>
     ),
     lookup: (

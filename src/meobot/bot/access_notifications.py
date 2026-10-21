@@ -186,10 +186,10 @@ def render_access_request(request: PendingGuestAccessRequest, *, settings: Setti
             formatting.escape(f"Telegram ID: {short_telegram_id(request.requester_telegram_id)}"),
             formatting.escape(f"Group: {request.chat_title or request.telegram_chat_id}"),
             formatting.escape(
-                f"Thời điểm hỏi: {format_local(request.created_at, tz, fmt='%H:%M %d/%m/%Y')}"
+                f"Thời điểm hỏi: {format_local(request.created_at, tz, fmt='%d/%m/%Y %H:%M')}"
             ),
             formatting.escape(
-                f"Yêu cầu hết hạn: {format_local(request.expires_at, tz, fmt='%H:%M %d/%m/%Y')}"
+                f"Yêu cầu hết hạn: {format_local(request.expires_at, tz, fmt='%d/%m/%Y %H:%M')}"
             ),
             "",
             formatting.bold("Nội dung"),

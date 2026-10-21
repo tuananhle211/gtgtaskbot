@@ -136,7 +136,7 @@ function ResourceList() {
             >
               Xuất Excel
             </a>
-            {access.edit ? (
+            {(access.create ?? access.edit) ? (
               <PrimaryButton type="button" onClick={() => setAdding(true)}>
                 + Thêm tài nguyên
               </PrimaryButton>

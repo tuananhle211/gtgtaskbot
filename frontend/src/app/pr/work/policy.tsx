@@ -14,6 +14,7 @@ import { Empty, ErrorBox, Loading, Pill } from "@/components/states";
 import { PrimaryButton, SecondaryButton } from "@/components/pr";
 import { ConfirmButton } from "@/components/confirm";
 import { approvePerformancePolicyConfirmation } from "@/lib/confirmations";
+import { DateInput } from "@/components/date-input";
 
 /**
  * *Chính sách hiệu suất* - the weights, caps, barems, gate and bands. **M6.**
@@ -279,8 +280,7 @@ function PolicyDraftForm({ onDone, onCancel }: { onDone: () => void; onCancel: (
       <div className="grid gap-2 sm:grid-cols-2">
         <label className="block text-xs">
           Hiệu lực từ
-          <input
-            type="date"
+          <DateInput
             value={effectiveFrom}
             onChange={(event) => setEffectiveFrom(event.target.value)}
             aria-label="Hiệu lực từ"

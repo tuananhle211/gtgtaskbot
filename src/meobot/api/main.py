@@ -33,6 +33,7 @@ from meobot.api.routers import (
     pr_work_maintenance,
     pr_work_quota,
     pr_work_recurring,
+    resource_requests,
     resources,
     script_types,
     scripts,
@@ -208,6 +209,8 @@ def _include_web_facing_routers(app: FastAPI) -> None:
     app.include_router(ai.router)
     # Resources ("Quản lý tài nguyên", 0065). Not behind a unit gate: who
     # sees what is the departments' grants, checked inside the service.
+    # Đề xuất tài nguyên: before the resources router (its ``/{resource_id}``).
+    app.include_router(resource_requests.router)
     app.include_router(resources.router)
     # The personal permission layer (0066): who holds what, and grants on top.
     app.include_router(permissions.router)

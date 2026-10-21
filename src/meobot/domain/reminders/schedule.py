@@ -130,11 +130,10 @@ def describe(schedule: ReminderSchedule) -> str:
         assert schedule.weekday is not None
         return f"{clock} mỗi {weekday_label(schedule.weekday)}"
     assert schedule.run_date is not None
-    return f"{clock} ngày {schedule.run_date.strftime('%d/%m/%Y')}"
+    return f"{schedule.run_date.strftime('%d/%m/%Y')} {clock}"
 
 
 def describe_instant(moment: datetime, *, tz: ZoneInfo) -> str:
     """One instant as a Vietnamese wall-clock phrase."""
     local = moment.astimezone(tz)
-    clock = local.strftime("%H:%M")
-    return f"{clock} {weekday_label(local.weekday())}, ngày {local.strftime('%d/%m/%Y')}"
+    return f"{weekday_label(local.weekday())}, {local.strftime('%d/%m/%Y %H:%M')}"

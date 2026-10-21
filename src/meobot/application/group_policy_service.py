@@ -64,7 +64,7 @@ def guest_deadline_text(row: GroupMemberResponsePolicy, timezone: ZoneInfo) -> s
     """
     if row.guest_expires_at is None:
         return "không rõ"
-    return format_local(row.guest_expires_at, timezone, fmt="%H:%M %d/%m")
+    return format_local(row.guest_expires_at, timezone, fmt="%d/%m/%Y %H:%M")
 
 
 def parse_duration(text: str | None) -> timedelta | None:

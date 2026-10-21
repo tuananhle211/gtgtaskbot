@@ -324,7 +324,7 @@ class UnitAdminService:
                 # 0063: the person's code, everywhere - the OWNER's and the ADMIN's.
                 if actor.role not in (Role.OWNER, Role.ADMIN):
                     raise UnitAccessDeniedError(
-                        "Chỉ quản trị viên mới sửa được mã thành viên.",
+                        "Chỉ quản trị viên mới sửa được mã nhân viên.",
                         details={"reason": "member_code_forbidden"},
                     )
                 person = await self._session.get(User, user_id)

@@ -1,5 +1,6 @@
 "use client";
 
+import { formatDateTime } from "@/lib/datetime";
 import { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
@@ -340,7 +341,7 @@ function PerformanceDetail({
         <p className="rounded border border-[var(--border)] bg-[var(--surface-muted)] p-2 text-xs">
           <strong>Đã chốt.</strong> Kết quả tháng này đã được ghi lại và không tự
           động tính lại nữa.
-          {data.finalized_at ? ` Chốt lúc ${data.finalized_at.slice(0, 16).replace("T", " ")}.` : ""}
+          {data.finalized_at ? ` Chốt lúc ${formatDateTime(data.finalized_at)}.` : ""}
         </p>
       ) : null}
 

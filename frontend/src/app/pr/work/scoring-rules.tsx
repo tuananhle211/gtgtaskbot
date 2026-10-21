@@ -13,6 +13,7 @@ import { Empty, ErrorBox, Loading, Pill } from "@/components/states";
 import { PrimaryButton, SecondaryButton, Select } from "@/components/pr";
 import { ConfirmButton } from "@/components/confirm";
 import { approveScoringRuleConfirmation } from "@/lib/confirmations";
+import { DateInput } from "@/components/date-input";
 
 /**
  * *Quy tắc workload* - what a kind of work is worth in standard minutes. **M6.**
@@ -364,8 +365,7 @@ function ScoringRuleForm({
 
       <label className="block text-xs">
         Hiệu lực từ
-        <input
-          type="date"
+        <DateInput
           value={effectiveFrom}
           onChange={(event) => setEffectiveFrom(event.target.value)}
           aria-label="Hiệu lực từ"

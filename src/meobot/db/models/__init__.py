@@ -149,6 +149,8 @@ from meobot.db.models.resource import (
     ResourceCodeCounter,
     ResourceHandover,
     ResourceOption,
+    ResourceRequest,
+    ResourceRequestEvent,
     ResourceStatusHistory,
 )
 from meobot.db.models.script import Script, ScriptVersion
@@ -278,6 +280,8 @@ __all__ = [
     "ResourceCodeCounter",
     "ResourceHandover",
     "ResourceOption",
+    "ResourceRequest",
+    "ResourceRequestEvent",
     "ResourceStatusHistory",
     "Script",
     "ScriptApproval",

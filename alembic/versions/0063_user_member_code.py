@@ -4,7 +4,7 @@ Revision ID: 0063
 Revises: 0062
 Create Date: 2026-10-14
 
-The member code ("mã thành viên", the ``TUAN`` of ``TUAN-D-261014-01``) was
+The member code ("mã nhân viên", the ``TUAN`` of ``TUAN-D-261014-01``) was
 kept on each stream tag (``org_unit_members.member_code``): somebody in both
 streams could carry two codes, and somebody in no stream had nowhere to keep
 one. It is now the person's (``users.member_code``), edited by the OWNER and

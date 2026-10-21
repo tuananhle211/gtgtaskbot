@@ -354,7 +354,7 @@ describe("48. a partial reading is accepted, and blanks stay blank", () => {
     // Only the time and one number. Everything else is left alone.
     await userEvent.type(
       within(form).getByLabelText("Thời điểm *"),
-      "2026-08-20T09:00",
+      "20/08/2026 09:00",
     );
     await userEvent.type(within(form).getByRole("spinbutton", { name: "Followers" }), "124812");
     await userEvent.click(within(form).getByRole("button", { name: "Lưu chỉ số" }));

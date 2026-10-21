@@ -123,7 +123,7 @@ class User(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     #: 0054: deleted for good by the OWNER. The row stays for the history it
     #: is named in; the account cannot sign in and is listed nowhere.
     deleted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
-    #: 0063: the person's member code ("mã thành viên", ``TUAN`` in
+    #: 0063: the person's member code ("mã nhân viên", ``TUAN`` in
     #: ``TUAN-D-261014-01``), edited by the OWNER / ADMIN only and copied onto
     #: every open stream tag (``org_unit_members.member_code``).
     member_code: Mapped[str | None] = mapped_column(String(20), nullable=True)

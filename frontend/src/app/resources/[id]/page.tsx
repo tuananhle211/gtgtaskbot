@@ -54,9 +54,11 @@ export default function ResourcePage() {
               <SecondaryButton type="button" onClick={() => setDialog("edit")}>
                 Sửa
               </SecondaryButton>
-              <SecondaryButton type="button" onClick={() => setDialog("holder")}>
-                Đổi người được bàn giao
-              </SecondaryButton>
+              {data.can_handover ? (
+                <SecondaryButton type="button" onClick={() => setDialog("holder")}>
+                  Đổi người được bàn giao
+                </SecondaryButton>
+              ) : null}
               <SecondaryButton type="button" onClick={() => setDialog("status")}>
                 Cập nhật trạng thái
               </SecondaryButton>
@@ -108,7 +110,7 @@ export default function ResourcePage() {
       <Changes detail={data} />
 
       {dialog === "edit" ? (
-        <ResourceFormDialog open onClose={() => setDialog(null)} options={options.data} resource={row} onSaved={saved} />
+        <ResourceFormDialog open onClose={() => setDialog(null)} options={options.data} resource={row} onSaved={saved} lockDepartment={!data.can_handover} />
       ) : null}
       {dialog === "holder" ? (
         <ChangeHolderDialog open onClose={() => setDialog(null)} resource={row} options={options.data} onSaved={saved} />

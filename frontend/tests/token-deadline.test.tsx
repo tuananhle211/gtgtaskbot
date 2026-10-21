@@ -29,6 +29,7 @@ import {
   toIsoFromLocal,
   toLocalInput,
 } from "@/lib/deadline";
+import { displayDate } from "@/components/date-input";
 import { addDays, dayHeading, mondayOf } from "@/lib/effort";
 import { deadlineColor } from "@/lib/status-colors";
 import { renderWithQuery, SESSION, stubFetch, urlStore } from "./helpers";
@@ -207,8 +208,8 @@ describe("the deadline helpers", () => {
   });
 
   it("writes a deadline in Vietnam time, dd/MM HH:mm", () => {
-    expect(formatDeadline("2026-10-12T10:00:00Z")).toBe("12/10 17:00");
-    expect(formatDeadline("2026-10-12T20:30:00+00:00")).toBe("13/10 03:30");
+    expect(formatDeadline("2026-10-12T10:00:00Z")).toBe("12/10/2026 17:00");
+    expect(formatDeadline("2026-10-12T20:30:00+00:00")).toBe("13/10/2026 03:30");
     expect(formatDeadline(null)).toBe("—");
   });
 
@@ -317,7 +318,7 @@ describe("the task page's tokens and deadlines", () => {
 
     // Tokens and deadline are both required; the deadline starts on today.
     expect(confirm).toBeDisabled();
-    expect(within(dialog).getByLabelText("Deadline (bắt buộc)")).toHaveValue(defaultDeadlineInput());
+    expect(within(dialog).getByLabelText("Deadline (bắt buộc)")).toHaveValue(displayDate(defaultDeadlineInput(), "datetime"));
     await userEvent.type(within(dialog).getByRole("spinbutton", { name: "Token (bắt buộc)" }), "2.5");
     expect(confirm).toBeEnabled();
     expect(
@@ -390,7 +391,7 @@ describe("the task page's tokens and deadlines", () => {
     );
     const dialog = await screen.findByRole("dialog");
     expect(within(dialog).getByRole("spinbutton", { name: "Token (bắt buộc)" })).toHaveValue(3.5);
-    expect(within(dialog).getByLabelText("Deadline")).toHaveValue(DESIRED_LOCAL);
+    expect(within(dialog).getByLabelText("Deadline")).toHaveValue(displayDate(DESIRED_LOCAL, "datetime"));
     await userEvent.click(
       within(dialog).getByRole("button", { name: "Sửa token/deadline · Dựng" }),
     );

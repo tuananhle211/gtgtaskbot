@@ -35,7 +35,7 @@ import re
 import unicodedata
 import uuid
 from collections.abc import Iterable, Mapping, Sequence
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from datetime import UTC, date, datetime
 from typing import Any
 
@@ -586,7 +586,7 @@ def _match_department(title: str, departments: Sequence[Department]) -> Departme
 
 
 def _person_by_code(context: ImportContext, code: str) -> User | None:
-    """The account whose member code ("Mã thành viên") is ``code``: the one
+    """The account whose member code ("Mã nhân viên") is ``code``: the one
     link between the file and the people (2026-10-19; names are not used)."""
     wanted = normalise_member_code(code)
     if wanted is None:
@@ -963,7 +963,8 @@ class ResourceImportService:
             last_month = row.months[-1][0] if row.months else None
             reviewed_at = min(_month_start(last_month), now) if last_month else now
             resource = await self._service.create(
-                access=access,
+                # Importing a file adds its lines: IMPORT carries CREATE.
+                access=replace(access, create=True),
                 actor=actor,
                 request_id=request_id,
                 data=data_in,

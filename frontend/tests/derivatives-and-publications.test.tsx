@@ -1086,10 +1086,11 @@ describe("120. the publication form", () => {
     );
 
     const when = screen.getByLabelText(/Thời gian đăng/) as HTMLInputElement;
-    expect(when.value).toMatch(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/);
+    expect(when.value).toMatch(/^\d{2}\/\d{2}\/\d{4} \d{2}:\d{2}$/);
 
     await userEvent.clear(when);
-    await userEvent.type(when, "2026-10-18T20:10");
+    // Typed the way the box shows it: dd/mm/yyyy HH:mm.
+    await userEvent.type(when, "18/10/2026 20:10");
     await userEvent.selectOptions(
       screen.getByRole("combobox", { name: /^Kênh/ }),
       CHANNELS[1].id,

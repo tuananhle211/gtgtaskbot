@@ -442,6 +442,9 @@ class AuditAction(StrEnum):
     #: the person making the decision - which is the question asked after an
     #: approval nobody remembers making.
     WEB_LOGIN_LINK_ISSUED = "web.login.link_issued"
+    #: The OWNER minted a login link for *another* account ("đăng nhập thay",
+    #: 2026-10-21). ``entity_id`` is the target; never the URL or the token.
+    WEB_LOGIN_LINK_ISSUED_FOR = "web.login.link_issued_for"
     WEB_LOGIN_REDEEMED = "web.login.redeemed"
     WEB_LOGIN_REJECTED = "web.login.rejected"
     WEB_SESSION_REVOKED = "web.session.revoked"
@@ -488,6 +491,9 @@ class AuditAction(StrEnum):
     RESOURCE_HOLDER_CHANGED = "resource.holder.changed"
     RESOURCE_STATUS_UPDATED = "resource.status.updated"
     RESOURCE_REVIEWED = "resource.reviewed"
+    RESOURCE_REQUEST_CREATED = "resource.request.created"
+    RESOURCE_REQUEST_DECIDED = "resource.request.decided"
+    RESOURCE_REQUEST_DELIVERED = "resource.request.delivered"
     RESOURCE_OPTION_CREATED = "resource.option.created"
     RESOURCE_OPTION_UPDATED = "resource.option.updated"
     RESOURCE_SETTINGS_UPDATED = "resource.settings.updated"

@@ -30,6 +30,7 @@ import {
   toDesignCodePicks,
 } from "@/components/design-codes-picker";
 import { Select } from "@/components/pr";
+import { DateTimeInput } from "@/components/date-input";
 
 /**
  * A task's workflow actions: the one dialog that asks, collects and sends.
@@ -240,8 +241,7 @@ export function useTaskActionForm({
         <div key="deadline" className="space-y-1">
           <label className="block text-xs text-[var(--text)]">
             {required(action, "deadline") ? `${label} (bắt buộc)` : label}
-            <input
-              type="datetime-local"
+            <DateTimeInput
               value={chosen}
               onChange={(event) =>
                 setValue(action, "deadline", event.target.value)

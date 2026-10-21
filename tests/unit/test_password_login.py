@@ -846,3 +846,70 @@ async def test_20_the_message_and_what_never_keeps_the_password(
                 json.dumps([str(value) for value in item], ensure_ascii=False) for item in rows
             )
     assert temporary not in "\n".join(dump)
+
+
+# --- "đăng nhập thay" (impersonation, 2026-10-21) ------------------------------------
+
+
+def _impersonate(world: World, **body: Any) -> Response:
+    return world.client.post("/api/account/login-link", json=body)
+
+
+async def test_15_the_owner_mints_a_login_link_for_a_member_and_it_signs_in(
+    world: World,
+) -> None:
+    await world.telegram_link_login(world.owner)  # signed in as the OWNER
+    # By the Telegram id, which is what the OWNER actually has to hand.
+    response = _impersonate(world, telegram_user_id=9003)
+    assert response.status_code == 200, response.json()
+    url = response.json()["url"]
+    assert url.startswith("https://pr.example.com/auth/login?t=")
+
+    # The link signs the browser in as the member, not the owner.
+    token = url.split("t=")[1]
+    world.client.cookies.clear()
+    redeemed = world.client.get(f"/auth/login?t={token}", follow_redirects=False)
+    assert redeemed.status_code in (302, 303)
+    session = world.client.get("/api/auth/session").json()
+    assert session["user_id"] == str(world.member)
+
+    # It is single-use.
+    world.client.cookies.clear()
+    assert world.client.get(f"/auth/login?t={token}", follow_redirects=False).status_code in (
+        302,
+        303,
+    )
+    session2 = world.client.get("/api/auth/session")
+    assert session2.status_code == 401
+
+    # Audited, for whom, without the URL or token.
+    row = next(r for r in await world.audit() if r.action == "web.login.link_issued_for")
+    assert row.actor_user_id == world.owner
+    assert row.entity_id == str(world.member)
+    dumped = json.dumps(row.after_data or {}, ensure_ascii=False)
+    assert str(world.member) in dumped and token not in dumped and "t=" not in dumped
+
+
+async def test_16_impersonation_is_the_owners_alone(world: World) -> None:
+    # An ADMIN may not.
+    await world.telegram_link_login(world.admin)
+    denied = _impersonate(world, telegram_user_id=9003)
+    assert denied.status_code == 403 and _reason(denied) == "impersonation_forbidden"
+
+    # A plain member may not.
+    await world.telegram_link_login(world.member)
+    assert _impersonate(world, telegram_user_id=9006).status_code == 403
+
+    # The OWNER: not themselves, not another OWNER, not a deleted/absent account.
+    await world.telegram_link_login(world.owner)
+    assert _reason(_impersonate(world, telegram_user_id=9001)) == "impersonation_forbidden"
+    await world.set_user(world.admin, role=Role.OWNER)
+    second_owner = _impersonate(world, telegram_user_id=9002)
+    assert second_owner.status_code == 403 and _reason(second_owner) == "impersonation_forbidden"
+    missing = _impersonate(world, telegram_user_id=999999)
+    assert missing.status_code == 404 and _reason(missing) == "account_not_found"
+    # Exactly one of the two selectors.
+    neither = _impersonate(world)
+    assert neither.status_code == 422 and _reason(neither) == "target_required"
+    both = _impersonate(world, telegram_user_id=9003, user_id=str(world.member))
+    assert both.status_code == 422 and _reason(both) == "target_required"

@@ -76,6 +76,7 @@ import {
   resourceDraftProblems,
   serverResourceProblem,
 } from "@/components/resource-drafts";
+import { DateInput } from "@/components/date-input";
 
 /**
  * The content workspace. The screen people live in.
@@ -680,8 +681,7 @@ function ContentWorkspace() {
             <>
               <label className="min-w-0 text-xs text-[var(--text-muted)]">
                 <span className="sr-only">Từ ngày</span>
-                <input
-                  type="date"
+                <DateInput
                   value={customFrom}
                   onChange={(event) => setParams({ from: event.target.value })}
                   aria-label="Từ ngày"
@@ -690,8 +690,7 @@ function ContentWorkspace() {
               </label>
               <label className="min-w-0 text-xs text-[var(--text-muted)]">
                 <span className="sr-only">Đến ngày</span>
-                <input
-                  type="date"
+                <DateInput
                   value={customTo}
                   onChange={(event) => setParams({ to: event.target.value })}
                   aria-label="Đến ngày"

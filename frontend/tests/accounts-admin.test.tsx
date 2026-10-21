@@ -153,8 +153,11 @@ const ORD_ROWS = {
   ],
 };
 
-function stubPage(role: string, me: Record<string, unknown>, rows = ROWS) {
+type Route = Parameters<typeof stubFetch>[0][number];
+
+function stubPage(role: string, me: Record<string, unknown>, rows = ROWS, extra: Route[] = []) {
   return stubFetch([
+    ...extra,
     { match: "/api/departments/", method: "PUT", body: { user_id: NEW, full_name: "Người Mới", position: "MEMBER" } },
     { match: `/api/account/members/${NHU}/deactivate`, method: "POST", status: 204 },
     { match: "/api/departments/", method: "DELETE", status: 204 },
@@ -277,13 +280,14 @@ describe("Quản lý tài khoản for the OWNER", () => {
     renderWithQuery(<AccountsAdminPage />);
     await screen.findByText("Quỳnh Như");
     const nhu = rowOf("Quỳnh Như");
-    expect(within(nhu).getByRole("textbox", { name: "Mã thành viên của Quỳnh Như" })).toHaveValue("NHU");
+    expect(within(nhu).getByRole("textbox", { name: "Mã nhân viên của Quỳnh Như" })).toHaveValue("NHU");
     await userEvent.click(within(nhu).getByRole("button", { name: "Thao tác với Quỳnh Như" }));
     const menu = screen.getByRole("menu", { name: "Thao tác với Quỳnh Như" });
     expect(within(menu).getAllByRole("menuitem").map((item) => item.textContent)).toEqual([
       "Quyền",
       "Đổi vai trò hệ thống…",
       "Đặt lại mật khẩu…",
+      "Đăng nhập thay…",
       "Vô hiệu hoá…",
       "Xoá tài khoản…",
     ]);
@@ -305,6 +309,38 @@ describe("Quản lý tài khoản for the OWNER", () => {
     await userEvent.click(within(rowOf("Quỳnh Như")).getByRole("button", { name: "Thao tác với Quỳnh Như" }));
     await userEvent.click(screen.getByRole("menuitem", { name: "Đổi vai trò hệ thống…" }));
     expect(screen.getByRole("combobox", { name: "Vai trò hệ thống của Quỳnh Như" })).toBeInTheDocument();
+  });
+
+  it("mints an impersonation link from the menu and shows it", async () => {
+    const stub = stubPage("OWNER", OWNER_ME, ROWS, [
+      {
+        match: "/api/account/login-link",
+        method: "POST",
+        body: { url: "https://pr.example.com/auth/login?t=TOK", expires_at: "2026-10-21T10:05:00Z" },
+      },
+    ]);
+    renderWithQuery(<AccountsAdminPage />);
+    await screen.findByText("Quỳnh Như");
+    await userEvent.click(within(rowOf("Quỳnh Như")).getByRole("button", { name: "Thao tác với Quỳnh Như" }));
+    await userEvent.click(screen.getByRole("menuitem", { name: "Đăng nhập thay…" }));
+    const dialog = await screen.findByRole("dialog");
+    expect(dialog).toHaveTextContent("Đăng nhập thay Quỳnh Như");
+    await waitFor(() =>
+      expect(
+        within(dialog).getByRole("textbox", { name: "Liên kết đăng nhập thay Quỳnh Như" }),
+      ).toHaveValue("https://pr.example.com/auth/login?t=TOK"),
+    );
+    const sent = calls(stub).find((call) => call.url.endsWith("/api/account/login-link"));
+    expect(sent?.body).toEqual({ user_id: NHU });
+    expect(within(dialog).getByRole("button", { name: "Mở tài khoản này" })).toBeInTheDocument();
+  });
+
+  it("offers no impersonation for an OWNER account nor for an ADMIN viewer", async () => {
+    stubPage("OWNER", OWNER_ME);
+    renderWithQuery(<AccountsAdminPage />);
+    await screen.findByText("Chị Chủ");
+    await userEvent.click(within(rowOf("Chị Chủ")).getByRole("button", { name: "Thao tác với Chị Chủ" }));
+    expect(screen.queryByRole("menuitem", { name: "Đăng nhập thay…" })).not.toBeInTheDocument();
   });
 });
 

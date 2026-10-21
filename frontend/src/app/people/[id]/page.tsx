@@ -142,7 +142,7 @@ function ProfileHero({
                       •
                     </span>
                     <span>
-                      Mã thành viên{" "}
+                      Mã nhân viên{" "}
                       <span className="font-mono font-medium text-[var(--text)]">{person.member_code}</span>
                     </span>
                   </>
@@ -181,9 +181,8 @@ function ProfileHero({
               role="tab"
               aria-selected={selected}
               onClick={() => onTab(item.key)}
-              className={`relative min-h-12 shrink-0 rounded-md px-3 text-sm font-medium transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-[var(--accent)] ${
-                selected ? "text-[var(--text)]" : "text-[var(--text-muted)] hover:text-[var(--text)]"
-              }`}
+              className={`relative min-h-12 shrink-0 rounded-md px-3 text-sm font-medium transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-[var(--accent)] ${selected ? "text-[var(--text)]" : "text-[var(--text-muted)] hover:text-[var(--text)]"
+                }`}
             >
               {item.label}
               {selected ? (
@@ -203,7 +202,7 @@ function AccountInfo({ person }: { person: MemberRow }) {
     { label: "Họ tên", value: person.full_name },
     { label: "Vai trò", value: person.role_label },
     { label: "ID Telegram", value: <span className="tabular-nums">{String(person.telegram_user_id)}</span> },
-    { label: "Mã thành viên", value: person.member_code ? <span className="font-mono">{person.member_code}</span> : "–" },
+    { label: "Mã nhân viên", value: person.member_code ? <span className="font-mono">{person.member_code}</span> : "–" },
     { label: "Trạng thái nhân sự", value: person.employment_status_label ?? "–" },
     {
       label: "Phòng ban",

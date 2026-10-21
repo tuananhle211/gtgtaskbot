@@ -746,8 +746,8 @@ describe("74. the pickers show names, never UUIDs", () => {
     renderWithQuery(<ContentBoardPage />);
     await waitFor(() => expect(screen.getByText("Chăm sóc sau sinh")).toBeInTheDocument());
 
-    expect(screen.getByLabelText("Từ ngày")).toHaveValue("2026-08-01");
-    expect(screen.getByLabelText("Đến ngày")).toHaveValue("2026-08-10");
+    expect(screen.getByLabelText("Từ ngày")).toHaveValue("01/08/2026");
+    expect(screen.getByLabelText("Đến ngày")).toHaveValue("10/08/2026");
     const [request] = boardRequests(stub);
     expect(request.get("date_from")).toBe("2026-08-01");
     expect(request.get("date_to")).toBe("2026-08-10");

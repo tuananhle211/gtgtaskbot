@@ -113,6 +113,7 @@ async def test_01_access_follows_the_departments(world: World) -> None:
     assert me(world, people.tn_head) == {
         "view": True,
         "view_all": True,
+        "create": True,
         "edit": True,
         "import_excel": True,
         "settings": True,
@@ -120,22 +121,21 @@ async def test_01_access_follows_the_departments(world: World) -> None:
         "hr": True,
     }
     staff = me(world, people.tn_staff)
-    assert staff["view_all"] and staff["edit"] and staff["report"]
+    assert staff["view_all"] and staff["create"] and staff["edit"] and staff["report"]
     assert not staff["import_excel"] and not staff["settings"] and not staff["hr"]
     # Ban Giám đốc: sees everything and the reports, edits nothing.
     director = me(world, people.director)
     assert director["view_all"] and director["report"] and not director["edit"]
     # A head of another department: their own department; a member: what they hold.
     head = me(world, ads.head)
-    assert head["view"] and not head["view_all"] and not head["edit"]
+    assert head["view"] and not head["view_all"] and not head["edit"] and not head["create"]
     orderer = me(world, ads.orderer)
     assert orderer["view"] and not orderer["view_all"]
-    # Somebody with no seat: nothing, and the listing is refused.
+    # Somebody with no seat (2026-10-21): still sees what they hold - nothing yet.
     nobody = await person(world, "Người ngoài")
-    assert me(world, nobody)["view"] is False
+    assert me(world, nobody)["view"] is True and me(world, nobody)["create"] is False
     world.act_as(nobody)
-    refused = world.client.get("/api/resources")
-    assert refused.status_code == 403 and error_reason(refused.json()) == "resource_forbidden"
+    assert world.client.get("/api/resources").json()["items"] == []
     # The OWNER sees and does everything without a seat.
     assert me(world, world.owner)["settings"] is True
 
@@ -259,8 +259,11 @@ async def test_04_everyone_sees_exactly_their_share(world: World) -> None:
 
     assert codes(people.tn_staff) == [held["code"], other_ads["code"], bt["code"]]
     assert codes(people.director) == [held["code"], other_ads["code"], bt["code"]]
-    # The ADS head: ADS's resources only.
-    assert codes(ads.head) == [held["code"], other_ads["code"]]
+    # The ADS head: only what the people attached to them hold (2026-10-21).
+    assert seat(world, "ADS", ads.orderer, manager_user_id=None).status_code == 200
+    assert codes(ads.head) == []
+    assert seat(world, "ADS", ads.orderer, manager_user_id=str(ads.head.id)).status_code == 200
+    assert codes(ads.head) == [held["code"]]
     # The orderer: what they hold - "Tài nguyên của tôi" says the same.
     assert codes(ads.orderer) == [held["code"]]
     assert codes(ads.orderer, mine="true") == [held["code"]]
@@ -665,6 +668,7 @@ async def test_09_export_keeps_ids_as_text_and_import_previews_then_writes(world
         holder_user_id=str(ads.orderer.id),
     )
     # Export: the id and the phone are text cells.
+    assert seat(world, "ADS", ads.orderer, manager_user_id=str(ads.head.id)).status_code == 200
     world.act_as(ads.head)
     exported = world.client.get("/api/resources/export.xlsx")
     assert exported.status_code == 200
@@ -681,12 +685,13 @@ async def test_09_export_keeps_ids_as_text_and_import_previews_then_writes(world
         sheet.cell(row=2, column=headers.index("Người được bàn giao") + 1).value
         == ads.orderer.full_name
     )
-    # The orderer's export holds only what they hold; an outsider gets nothing.
+    # The orderer's export holds only what they hold; an outsider's is empty.
     world.act_as(ads.orderer)
     assert world.client.get("/api/resources/export.xlsx").status_code == 200
     nobody = await person(world, "Người ngoài")
     world.act_as(nobody)
-    assert world.client.get("/api/resources/export.xlsx").status_code == 403
+    empty = load_workbook(io.BytesIO(world.client.get("/api/resources/export.xlsx").content)).active
+    assert empty is not None and empty.max_row == 1
 
     # Import, step 1: the preview reports every row's errors and writes nothing.
     bad_file = workbook(
@@ -1089,3 +1094,88 @@ async def test_10_the_owner_and_an_admin_need_no_seat(world: World) -> None:
     with pytest.raises(DBAPIError):
         await world.session.execute(text("DELETE FROM resource_status_history"))
     await world.session.rollback()
+
+
+async def test_12_holders_and_heads_manage_their_own(world: World) -> None:
+    """2026-10-21: everybody edits, updates the status of and reviews what
+    they hold; a department head does the same for what the people attached
+    to them hold (and nothing else of their department); adding a resource
+    and changing the holder stay with the Phòng Tài nguyên (CREATE / EDIT)."""
+    people = await cast(world)
+    ads = people.ads
+    catalog = options(world, people.tn_head)
+    by_writer = create(
+        world,
+        people.tn_staff,
+        catalog,
+        department="BT",
+        external_id="w-1",
+        holder_user_id=str(ads.writer.id),
+    )["resource"]
+    by_orderer = create(
+        world, people.tn_staff, catalog, external_id="o-1", holder_user_id=str(ads.orderer.id)
+    )["resource"]
+    checkpoint = option_id(catalog, "STATUS", "CHECKPOINT")
+
+    def detail(user: User, resource: dict[str, Any]) -> Any:
+        world.act_as(user)
+        return world.client.get(f"/api/resources/{resource['id']}")
+
+    def manage(user: User, resource: dict[str, Any]) -> list[int]:
+        world.act_as(user)
+        rid = resource["id"]
+        return [
+            world.client.patch(
+                f"/api/resources/{rid}", json={"name": f"Sửa bởi {user.full_name}"}
+            ).status_code,
+            world.client.post(
+                f"/api/resources/{rid}/status", json={"status_id": checkpoint}
+            ).status_code,
+            world.client.post(f"/api/resources/{rid}/review", json={}).status_code,
+        ]
+
+    # The holder: their own, yes; somebody else's is not even visible.
+    assert manage(ads.writer, by_writer) == [200, 200, 200]
+    mine = detail(ads.writer, by_writer).json()
+    assert mine["can_edit"] is True and mine["can_handover"] is False
+    assert detail(ads.writer, by_orderer).status_code == 404
+    world.act_as(ads.writer)
+    moved = world.client.patch(
+        f"/api/resources/{by_writer['id']}", json={"department_id": department_id(catalog, "ADS")}
+    )
+    assert moved.status_code == 403
+    handed = world.client.post(
+        f"/api/resources/{by_writer['id']}/holder",
+        json={"holder_user_id": str(ads.orderer.id), "reason": "TRANSFER"},
+    )
+    assert handed.status_code == 403
+    added = world.client.post(
+        "/api/resources",
+        json={
+            "department_id": department_id(catalog, "BT"),
+            "type_id": option_id(catalog, "TYPE", "VIA"),
+            "name": "Tự thêm",
+        },
+    )
+    assert added.status_code == 403
+    # A head sees only the people attached to them ("Trưởng quản lý" = the head).
+    assert seat(world, "BT", ads.writer, manager_user_id=str(ads.lead_bt.id)).status_code == 200
+    assert manage(ads.lead_bt, by_writer) == [200, 200, 200]
+    assert detail(ads.lead_bt, by_orderer).status_code == 404
+    # The ADS head: not the orderer's while the orderer reports to nobody...
+    assert seat(world, "ADS", ads.orderer, manager_user_id=None).status_code == 200
+    assert detail(ads.head, by_orderer).status_code == 404
+    # ...nor an unheld resource of the ADS department...
+    loose = create(world, people.tn_staff, catalog, external_id="ads-loose")["resource"]
+    assert detail(ads.head, loose).status_code == 404
+    # ...but yes once the orderer is attached to them.
+    assert seat(world, "ADS", ads.orderer, manager_user_id=str(ads.head.id)).status_code == 200
+    assert manage(ads.head, by_orderer) == [200, 200, 200]
+    assert detail(ads.head, by_writer).status_code == 404
+    # Ban Giám đốc sees everything, manages nothing.
+    seen = detail(people.director, by_writer).json()
+    assert seen["can_edit"] is False
+    assert manage(people.director, by_writer) == [403, 403, 403]
+    # The Phòng Tài nguyên: everything, the holder included.
+    staff = detail(people.tn_staff, by_writer).json()
+    assert staff["can_edit"] is True and staff["can_handover"] is True

@@ -47,7 +47,7 @@ Phạm vi: chỉ luồng ORD. PR vẫn đóng băng, không đụng vào sổ KP
 
 ---
 
-## Thiết kế dữ liệu: migration `0053_order_tokens_deadlines.py` (0050–0052 đã dùng: trưởng quản lý, invite, bỏ unique mã thành viên)
+## Thiết kế dữ liệu: migration `0053_order_tokens_deadlines.py` (0050–0052 đã dùng: trưởng quản lý, invite, bỏ unique mã nhân viên)
 
 - `orders.desired_deadline_at` (timestamptz, nullable vì order cũ không có). Bắt buộc với order mới qua API.
 - `orders.over_deadline_count` int, mặc định 0: số lần quá deadline mong muốn. Hiện trên trang chi tiết và có thể lọc trên bảng task.

@@ -199,8 +199,8 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
       // Prefer the server's Vietnamese sentence. `detail` covers the 401 raised
       // by the FastAPI dependency, which uses the framework's own shape.
       envelope?.error?.message ??
-        detail ??
-        `Yêu cầu thất bại (${response.status}).`,
+      detail ??
+      `Yêu cầu thất bại (${response.status}).`,
       envelope?.error?.details ?? {},
     );
   }
@@ -329,11 +329,11 @@ export interface ContentSummary {
    * same stage and different things to do, and which is which is a rule.
    */
   production_state:
-    | "WAITING_FOR_PRODUCER"
-    | "READY_FOR_PRODUCTION"
-    | "IN_PRODUCTION"
-    | "IN_INTERNAL_REVIEW"
-    | null;
+  | "WAITING_FOR_PRODUCER"
+  | "READY_FOR_PRODUCTION"
+  | "IN_PRODUCTION"
+  | "IN_INTERNAL_REVIEW"
+  | null;
   /**
    * Step 1F.2.8. Whether **this session** could record an approval for this
    * item right now - it is at a review gate and a grant of the actor's covers
@@ -504,11 +504,11 @@ export interface ProductionState {
    * same stage and different things to do, and which is which is a rule.
    */
   production_state:
-    | "WAITING_FOR_PRODUCER"
-    | "READY_FOR_PRODUCTION"
-    | "IN_PRODUCTION"
-    | "IN_INTERNAL_REVIEW"
-    | null;
+  | "WAITING_FOR_PRODUCER"
+  | "READY_FOR_PRODUCTION"
+  | "IN_PRODUCTION"
+  | "IN_INTERNAL_REVIEW"
+  | null;
   submissions: ProductionSubmission[];
 }
 
@@ -2860,79 +2860,79 @@ export interface ContentDestinationInput {
  */
 export interface AvailableAction {
   action:
-    | "TRANSITION"
-    | "APPROVAL"
-    | "EDIT_CONTENT"
-    /**
-     * Step 1F.2.3d. Separate from `EDIT_CONTENT`: that one means "write a new
-     * script version" and disappears once the content leaves the editable
-     * stages, while this stays available through review and production - which
-     * is where escalating a piece is the whole point.
-     */
-    | "SET_PRIORITY"
-    /** Step 1F.2.3e. Classify the piece, or correct its format. */
-    | "SET_CONTENT_TYPE"
-    /** Step 1F.2.3e. Attach, correct or remove review material. */
-    | "MANAGE_CONTENT_RESOURCES"
-    /**
-     * Step 1F.2.3f. You are **production management** on this piece: the
-     * producer, or whoever assigns production.
-     *
-     * Since Step 1F.2.3g it no longer decides who may *add* a derivative - see
-     * `ADD_CONTENT_DERIVATIVE` - and it never decided who may correct or remove
-     * one, which is per row on `ContentDerivative.can_edit`/`can_delete`.
-     */
-    | "MANAGE_CONTENT_DERIVATIVES"
-    /**
-     * Step 1F.2.3g. **Record** a derivative production output.
-     *
-     * Offered to anybody who may view the piece - not the producer, not the
-     * owner, not a role - because recording a cut is not a handover: nothing
-     * reviews it, no stage moves and nobody is waiting on it. No stage
-     * condition either, which is the point: a piece is re-cut after it is
-     * finished.
-     *
-     * Correcting and removing are deliberately not action kinds: the answer
-     * differs down the list, so it travels on each row.
-     */
-    | "ADD_CONTENT_DERIVATIVE"
-    /**
-     * Step 1F.2.3g. Say something on this item's comment thread.
-     *
-     * The same rule as the derivative above, and at every stage including
-     * `ARCHIVED`. Here at all so the panel never concludes "there is a session,
-     * therefore there is a composer"; editing and deleting a comment are per
-     * row and travel on the comment.
-     */
-    | "ADD_CONTENT_COMMENT"
-    /** Step 1F.2.3f. Attach, correct or remove a commercial destination link. */
-    | "MANAGE_CONTENT_DESTINATIONS"
-    /**
-     * Step 1F.2.3f.2. There is at least one handed-in production file this
-     * session could correct. Which one is per row, on
-     * `ProductionSubmission.can_correct`.
-     */
-    | "CORRECT_PRODUCTION_OUTPUT"
-    /** Step 1F.2.3f. Record that a produced file went out on a channel. */
-    | "RECORD_PUBLICATION"
-    /**
-     * Step 1F.2.3f.1, renamed by 1F.2.3f.2. Correct **anybody's** publication -
-     * the management half. Correcting your own is per row, on
-     * `Publication.can_edit`, because it depends on which row is being looked
-     * at.
-     */
-    | "EDIT_ANY_PUBLICATION"
-    /**
-     * Step 1F.2.3f.1. Take a publication back as entered in error. Narrower
-     * than the edit: only while the content is `PUBLISHED`.
-     */
-    | "REVERSE_PUBLICATION"
-    | "DELETE_CONTENT"
-    | "ASSIGN_PRODUCER"
-    | "CLAIM_PRODUCTION"
-    | "START_PRODUCTION"
-    | "SUBMIT_PRODUCTION"
-    | "UNDO_LAST_ACTION";
+  | "TRANSITION"
+  | "APPROVAL"
+  | "EDIT_CONTENT"
+  /**
+   * Step 1F.2.3d. Separate from `EDIT_CONTENT`: that one means "write a new
+   * script version" and disappears once the content leaves the editable
+   * stages, while this stays available through review and production - which
+   * is where escalating a piece is the whole point.
+   */
+  | "SET_PRIORITY"
+  /** Step 1F.2.3e. Classify the piece, or correct its format. */
+  | "SET_CONTENT_TYPE"
+  /** Step 1F.2.3e. Attach, correct or remove review material. */
+  | "MANAGE_CONTENT_RESOURCES"
+  /**
+   * Step 1F.2.3f. You are **production management** on this piece: the
+   * producer, or whoever assigns production.
+   *
+   * Since Step 1F.2.3g it no longer decides who may *add* a derivative - see
+   * `ADD_CONTENT_DERIVATIVE` - and it never decided who may correct or remove
+   * one, which is per row on `ContentDerivative.can_edit`/`can_delete`.
+   */
+  | "MANAGE_CONTENT_DERIVATIVES"
+  /**
+   * Step 1F.2.3g. **Record** a derivative production output.
+   *
+   * Offered to anybody who may view the piece - not the producer, not the
+   * owner, not a role - because recording a cut is not a handover: nothing
+   * reviews it, no stage moves and nobody is waiting on it. No stage
+   * condition either, which is the point: a piece is re-cut after it is
+   * finished.
+   *
+   * Correcting and removing are deliberately not action kinds: the answer
+   * differs down the list, so it travels on each row.
+   */
+  | "ADD_CONTENT_DERIVATIVE"
+  /**
+   * Step 1F.2.3g. Say something on this item's comment thread.
+   *
+   * The same rule as the derivative above, and at every stage including
+   * `ARCHIVED`. Here at all so the panel never concludes "there is a session,
+   * therefore there is a composer"; editing and deleting a comment are per
+   * row and travel on the comment.
+   */
+  | "ADD_CONTENT_COMMENT"
+  /** Step 1F.2.3f. Attach, correct or remove a commercial destination link. */
+  | "MANAGE_CONTENT_DESTINATIONS"
+  /**
+   * Step 1F.2.3f.2. There is at least one handed-in production file this
+   * session could correct. Which one is per row, on
+   * `ProductionSubmission.can_correct`.
+   */
+  | "CORRECT_PRODUCTION_OUTPUT"
+  /** Step 1F.2.3f. Record that a produced file went out on a channel. */
+  | "RECORD_PUBLICATION"
+  /**
+   * Step 1F.2.3f.1, renamed by 1F.2.3f.2. Correct **anybody's** publication -
+   * the management half. Correcting your own is per row, on
+   * `Publication.can_edit`, because it depends on which row is being looked
+   * at.
+   */
+  | "EDIT_ANY_PUBLICATION"
+  /**
+   * Step 1F.2.3f.1. Take a publication back as entered in error. Narrower
+   * than the edit: only while the content is `PUBLISHED`.
+   */
+  | "REVERSE_PUBLICATION"
+  | "DELETE_CONTENT"
+  | "ASSIGN_PRODUCER"
+  | "CLAIM_PRODUCTION"
+  | "START_PRODUCTION"
+  | "SUBMIT_PRODUCTION"
+  | "UNDO_LAST_ACTION";
   target_stage: string | null;
   decision: string | null;
   emphasis: "PRIMARY" | "SECONDARY" | "DANGER";
@@ -2943,11 +2943,11 @@ export interface AvailableAction {
    * panel never reads history to work that out.
    */
   undo_kind:
-    | "UNDO_TEAM_LEAD_APPROVAL"
-    | "UNDO_HEAD_APPROVAL"
-    | "UNDO_INTERNAL_REVIEW"
-    | "UNDO_REVISION"
-    | null;
+  | "UNDO_TEAM_LEAD_APPROVAL"
+  | "UNDO_HEAD_APPROVAL"
+  | "UNDO_INTERNAL_REVIEW"
+  | "UNDO_REVISION"
+  | null;
 }
 
 /** Step 1F.2.3b. One recorded stage change, with its reversal link. */
@@ -3587,6 +3587,104 @@ export interface MyDepartmentSeat {
   manager_user_id?: Uuid | null;
 }
 
+// --- Đề xuất tài nguyên (2026-10-21) ------------------------------------------
+
+export interface ResourceRequestPerson {
+  user_id: Uuid;
+  full_name: string;
+}
+
+export interface ResourceRequest {
+  id: Uuid;
+  code: string;
+  type_id: Uuid;
+  type_name: string;
+  quantity: number;
+  /** `HANOI` / `SAIGON` / `ALL`. */
+  site: string;
+  site_label: string;
+  purpose: string;
+  requirements: string | null;
+  reason: string;
+  replaces: string | null;
+  budget: number;
+  /** `YYYY-MM-DD`. */
+  needed_by: string;
+  /** HEAD_REVIEW / FUNDING / PURCHASING / DELIVERED / COMPLETED / REJECTED / CANCELLED. */
+  stage: string;
+  stage_label: string;
+  requester: ResourceRequestPerson;
+  /** The heads who decide the head step; empty = it was skipped. */
+  approvers: ResourceRequestPerson[];
+  actual_cost: number | null;
+  supplier: string | null;
+  created_at: string;
+  awaiting_me: boolean;
+  /** approve / reject / fund / deliver / confirm / cancel - what this viewer may do now. */
+  actions: string[];
+  delivered: number;
+  detail_path: string;
+  /**
+   * Detail only: the five cards of the process strip. `state` done / current /
+   * todo / skipped / stopped; who did it (or who it waits on), when, the note.
+   */
+  steps: Array<{
+    key: string;
+    label: string;
+    state: string;
+    person_name?: string | null;
+    person_user_id?: Uuid | null;
+    status_label?: string;
+    at?: string | null;
+    note?: string | null;
+  }>;
+  events: Array<{
+    id: Uuid;
+    kind: string;
+    label: string;
+    at: string;
+    actor: ResourceRequestPerson | null;
+    note: string | null;
+  }>;
+  resources: Array<{
+    id: Uuid;
+    code: string;
+    external_id: string;
+    name: string;
+    link: string | null;
+    detail_path: string;
+  }>;
+  /** Detail only: active resources of this type the requester holds now. */
+  holding: number;
+}
+
+export interface ResourceRequestForm {
+  types: Array<{ value: string; label: string }>;
+  sites: Array<{ value: string; label: string }>;
+  approvers: ResourceRequestPerson[];
+  max_quantity: number;
+}
+
+export interface ResourceRequestBody {
+  type_id: Uuid;
+  quantity: number;
+  site: string;
+  purpose: string;
+  requirements?: string | null;
+  reason: string;
+  replaces?: string | null;
+  budget: number;
+  needed_by: string;
+}
+
+export interface ResourceRequestAction {
+  action: "approve" | "reject" | "fund" | "deliver" | "confirm" | "cancel";
+  note?: string | null;
+  lines?: string;
+  actual_cost?: number;
+  supplier?: string | null;
+}
+
 // --- "Kết nối AI" (0064) ----------------------------------------------------
 
 export interface AiConnection {
@@ -3675,6 +3773,8 @@ export interface DepartmentCatalog {
     /** `["NONE", "OWN", "ALL"]` or `["NONE", "ALL"]`. */
     scopes: string[];
     own_meaning?: string | null;
+    /** This permission's own words for its scopes, over `scope_labels` (2026-10-21). Optional. */
+    scope_labels?: Record<string, string> | null;
     /** 0066: held per person over a scope (the PR review gates) - never a department cell. */
     personal_only?: boolean;
   }>;
@@ -4774,7 +4874,16 @@ export const api = {
   resetMemberPassword: (userId: Uuid) =>
     post<void>(`/api/account/members/${userId}/reset-password`),
   /**
-   * Anybody's member code ("mã thành viên", 0063): OWNER / ADMIN only (403
+   * "Đăng nhập thay" (2026-10-21): OWNER only. A single-use login link that
+   * signs in as the member, to support / fix on their behalf. Audited; never
+   * into an OWNER nor oneself (403 `impersonation_forbidden`).
+   */
+  issueLoginLink: (userId: Uuid) =>
+    post<{ url: string; expires_at: string }>(`/api/account/login-link`, {
+      user_id: userId,
+    }),
+  /**
+   * Anybody's member code ("mã nhân viên", 0063): OWNER / ADMIN only (403
    * `member_code_forbidden`). Folded to A-Z0-9, at most 12; blank / null
    * clears it. Written on the account and every open stream tag.
    */
@@ -6184,8 +6293,7 @@ export const api = {
    */
   deleteLegacyWorkItem: (id: Uuid, note?: string | null) =>
     del<LegacyWorkItemDeletion>(
-      `/api/pr/work/maintenance/items/${id}${
-        note && note.trim() ? `?note=${encodeURIComponent(note.trim())}` : ""
+      `/api/pr/work/maintenance/items/${id}${note && note.trim() ? `?note=${encodeURIComponent(note.trim())}` : ""
       }`,
     ),
   /**
@@ -6198,8 +6306,7 @@ export const api = {
    */
   deleteTerminalWorkItem: (id: Uuid, note?: string | null) =>
     del<TerminalWorkItemDeletion>(
-      `/api/pr/work/maintenance/terminal-items/${id}${
-        note && note.trim() ? `?note=${encodeURIComponent(note.trim())}` : ""
+      `/api/pr/work/maintenance/terminal-items/${id}${note && note.trim() ? `?note=${encodeURIComponent(note.trim())}` : ""
       }`,
     ),
 
@@ -6325,6 +6432,20 @@ export const api = {
   resources: (filters: ResourceFilters = {}) =>
     get<ResourceList>(`/api/resources${query(filters)}`),
   /** The listing as .xlsx: the same filters, the caller's scope, ids as text. */
+  /** "Đề xuất tài nguyên": `tab` all / mine (waiting on me) / open. */
+  resourceRequests: (tab: "all" | "mine" | "open" = "all") =>
+    get<{ items: ResourceRequest[]; awaiting_count: number }>(
+      `/api/resources/requests${query({ tab })}`,
+    ),
+  resourceRequestForm: () => get<ResourceRequestForm>("/api/resources/requests/form"),
+  resourceRequestHolding: (typeId: Uuid) =>
+    get<{ count: number }>(`/api/resources/requests/holding${query({ type_id: typeId })}`),
+  createResourceRequest: (body: ResourceRequestBody) =>
+    post<ResourceRequest>("/api/resources/requests", body),
+  resourceRequest: (id: Uuid) => get<ResourceRequest>(`/api/resources/requests/${id}`),
+  /** One step; 403 when it is not this viewer's, 409 `resource_request_moved` when it moved on. */
+  actOnResourceRequest: (id: Uuid, body: ResourceRequestAction) =>
+    post<ResourceRequest>(`/api/resources/requests/${id}/actions`, body),
   resourceExportUrl: (filters: ResourceFilters = {}) =>
     `/api/resources/export.xlsx${query(filters)}`,
   /**
@@ -6554,6 +6675,13 @@ export interface ResourcesAccess {
   view: boolean;
   /** Sees every resource (Phòng Tài nguyên, Ban Giám đốc, OWNER, ADMIN). */
   view_all: boolean;
+  /** "Thêm tài nguyên" (2026-10-21: the Phòng Tài nguyên). Optional: an older API omits it. */
+  create?: boolean;
+  /**
+   * Edits EVERY resource and changes any holder. One's own resources (and a
+   * head's department's people's) are editable without it: see the detail's
+   * `can_edit`.
+   */
   edit: boolean;
   import_excel: boolean;
   settings: boolean;
@@ -6718,7 +6846,10 @@ export interface ResourceDetail {
   handovers: ResourceHandover[];
   statuses: ResourceStatusLine[];
   changes: ResourceChange[];
+  /** Edit, update the status, review this one: its holder, their head, the Phòng Tài nguyên. */
   can_edit: boolean;
+  /** "Đổi người được bàn giao": the Phòng Tài nguyên only. Optional: an older API omits it. */
+  can_handover?: boolean;
 }
 
 /** The form's fields (`POST` needs the first four). */

@@ -39,6 +39,8 @@ from meobot.api.schemas.account import (
     ChangeRoleRequest,
     EmploymentStatusRequest,
     EmploymentStatusResponse,
+    LoginLinkRequest,
+    LoginLinkResponse,
     MemberCodeRequest,
     MemberCodeResponse,
     MemberListResponse,
@@ -318,6 +320,37 @@ async def reset_password(
     return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
+@router.post(
+    "/login-link",
+    response_model=LoginLinkResponse,
+    responses={
+        403: {
+            "model": ErrorEnvelope,
+            "description": "impersonation_forbidden - OWNER only, not self nor an OWNER target.",
+        },
+        404: {"model": ErrorEnvelope, "description": "account_not_found."},
+        422: {"model": ErrorEnvelope, "description": "target_required."},
+    },
+)
+async def issue_login_link(
+    body: LoginLinkRequest,
+    actor: CurrentActorDep,
+    accounts: AccountServiceDep,
+    request_id: RequestIdDep,
+) -> LoginLinkResponse:
+    """*Đăng nhập thay.* OWNER only: a single-use link (like ``/web``) that
+    signs in as the named member - by Telegram id or user id - to support or
+    fix something on their behalf. Audited every time; the account is never an
+    OWNER and never oneself."""
+    issued = await accounts.issue_login_link_for(
+        actor=actor,
+        request_id=request_id,
+        user_id=body.user_id,
+        telegram_user_id=body.telegram_user_id,
+    )
+    return LoginLinkResponse(url=issued.url, expires_at=issued.expires_at)
+
+
 _STATUS_RESPONSES: dict[int | str, dict[str, Any]] = {
     403: {
         "model": ErrorEnvelope,
@@ -400,7 +433,7 @@ async def set_member_code(
     accounts: AccountServiceDep,
     request_id: RequestIdDep,
 ) -> MemberCodeResponse:
-    """*Mã thành viên* of any account (0063), in a stream or not. OWNER and
+    """*Mã nhân viên* of any account (0063), in a stream or not. OWNER and
     ADMIN. Folded to A-Z0-9 (at most 12), blank clears it; written on the
     account and on every open stream tag."""
     code = await accounts.set_member_code(

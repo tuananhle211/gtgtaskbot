@@ -645,6 +645,25 @@ async def head_team(session: AsyncSession, head_id: uuid.UUID) -> frozenset[uuid
     return frozenset(team)
 
 
+async def reports_of(session: AsyncSession, head_id: uuid.UUID) -> frozenset[uuid.UUID]:
+    """The people attached to ``head_id`` (2026-10-21): seated in a
+    department they head with them as "Trưởng quản lý" (``manager_user_id``).
+    Strict - a member reporting to nobody is nobody's. What a head sees and
+    manages in the resources module."""
+    everyone = await load_seats(session)
+    mine = {
+        seat.department_id for seat in everyone.get(head_id, ()) if seat.position is Position.HEAD
+    }
+    if not mine:
+        return frozenset()
+    return frozenset(
+        user_id
+        for user_id, seats in everyone.items()
+        if user_id != head_id
+        and any(seat.department_id in mine and seat.manager_user_id == head_id for seat in seats)
+    )
+
+
 async def department_people(session: AsyncSession, head_id: uuid.UUID) -> frozenset[uuid.UUID]:
     """Everybody seated in a department ``head_id`` heads (2026-10-19) - heads
     and members alike, whoever they report to. What a Trưởng phòng may open
