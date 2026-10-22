@@ -157,3 +157,14 @@ async def test_02_reject_cancel_and_skip(world: World) -> None:
         world.client.post("/api/resources/requests", json=body(catalog, quantity=0)).status_code
         == 422
     )
+
+
+async def test_03_budget_and_date_are_optional(world: World) -> None:
+    people = await cast(world)
+    catalog = options(world, people.tn_head)
+    world.act_as(people.ads.orderer)
+    data = body(catalog)
+    del data["budget"], data["needed_by"]
+    created = world.client.post("/api/resources/requests", json=data)
+    assert created.status_code == 201, created.json()
+    assert created.json()["budget"] is None and created.json()["needed_by"] is None

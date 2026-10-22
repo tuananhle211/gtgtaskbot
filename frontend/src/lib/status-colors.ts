@@ -77,6 +77,10 @@ const STEP_COLORS: Record<string, StatusColor> = {
   HOAN_THANH: "green",
   PENDING: "slate",
   DONE: "green",
+  // A Design assignee's own standing (0073): waiting to accept is amber like
+  // "Đã giao", working is blue, handed in is green.
+  CHUA_NHAN: "amber",
+  DA_NOP: "green",
 };
 
 /**

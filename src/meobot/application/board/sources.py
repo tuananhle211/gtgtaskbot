@@ -38,12 +38,13 @@ from meobot.application.board.holders import (
     pr_reviewers,
     waiting_for,
 )
+from meobot.application.orders.node_assignees import assignee_sets, load_open_assignees
 from meobot.application.orders.scope import OrderScope, approval_reaches, boss_of
 from meobot.application.pr_content_query import ContentQuery
 from meobot.application.pr_query_service import PrQueryService
 from meobot.core.config import Settings
 from meobot.core.time import ensure_utc, utcnow
-from meobot.db.models.order import Order, OrderNode, OrderSubmission
+from meobot.db.models.order import Order, OrderNode, OrderNodeAssignee, OrderSubmission
 from meobot.db.models.org_unit import OrgUnitMember
 from meobot.db.models.pr import PrBrand, PrContentItem
 from meobot.db.models.pr_production import PrProductionSubmission
@@ -56,6 +57,7 @@ from meobot.domain.board.models import (
     BirthdayView,
     BoardPage,
     BoardQuery,
+    DesignAssigneeView,
     DesignCodeView,
     DesignView,
     Phase,
@@ -237,6 +239,47 @@ def awaiting_acceptance(node: OrderNode) -> bool:
         and node.assignee_user_id is not None
         and node.accepted_at is None
         and not awaiting_hand_out(node)
+    )
+
+
+def assignee_rows_of(
+    user_id: uuid.UUID, *, unsubmitted: bool = False, active: bool = False
+) -> ColumnElement[bool]:
+    """``EXISTS`` an open ``order_node_assignees`` row of this person on a node
+    of the correlated ``Order`` (a Design node handed to several people, 0073).
+
+    ``unsubmitted`` keeps only rows the person has not handed in yet; ``active``
+    keeps only rows on a node still being worked (``DANG_LAM``/``DANG_SUA``).
+    """
+    statement = (
+        select(OrderNodeAssignee.id)
+        .join(OrderNode, OrderNode.id == OrderNodeAssignee.node_id)
+        .where(
+            OrderNode.order_id == Order.id,
+            OrderNodeAssignee.user_id == user_id,
+            OrderNodeAssignee.removed_at.is_(None),
+        )
+    )
+    if unsubmitted:
+        statement = statement.where(OrderNodeAssignee.submitted_at.is_(None))
+    if active:
+        statement = statement.where(
+            OrderNode.status.in_([OrderNodeStatus.DANG_LAM, OrderNodeStatus.DANG_SUA])
+        )
+    return statement.exists()
+
+
+def node_has_assignee_rows() -> ColumnElement[bool]:
+    """``EXISTS`` an open per-person row on the correlated ``OrderNode`` - a
+    node handed out through ``order_node_assignees`` rather than its single
+    ``assignee_user_id`` (0073)."""
+    return (
+        select(OrderNodeAssignee.id)
+        .where(
+            OrderNodeAssignee.node_id == OrderNode.id,
+            OrderNodeAssignee.removed_at.is_(None),
+        )
+        .exists()
     )
 
 
@@ -660,11 +703,14 @@ class AdsBoardSource:
             statement = statement.where(Order.owner_user_id == query.owner_user_id)
         if query.assignee_user_id is not None:
             statement = statement.where(
-                exists(
-                    select(OrderNode.id).where(
-                        OrderNode.order_id == Order.id,
-                        OrderNode.assignee_user_id == query.assignee_user_id,
-                    )
+                or_(
+                    exists(
+                        select(OrderNode.id).where(
+                            OrderNode.order_id == Order.id,
+                            OrderNode.assignee_user_id == query.assignee_user_id,
+                        )
+                    ),
+                    assignee_rows_of(query.assignee_user_id),
                 )
             )
         if query.person_user_id is not None:
@@ -677,6 +723,7 @@ class AdsBoardSource:
                             OrderNode.assignee_user_id == query.person_user_id,
                         )
                     ),
+                    assignee_rows_of(query.person_user_id),
                 )
             )
         user_id = self._scope.user_id
@@ -689,6 +736,7 @@ class AdsBoardSource:
                             OrderNode.order_id == Order.id, OrderNode.assignee_user_id == user_id
                         )
                     ),
+                    assignee_rows_of(user_id),
                 )
             )
         if query.awaiting_me and user_id is not None:
@@ -813,9 +861,16 @@ class AdsBoardSource:
                     OrderNode.order_id == Order.id,
                     OrderNode.assignee_user_id == user_id,
                     OrderNode.status.in_([OrderNodeStatus.DANG_LAM, OrderNodeStatus.DANG_SUA]),
+                    # A node handed to several people (0073) waits on each of
+                    # them through their own row, below, not its first assignee.
+                    ~node_has_assignee_rows(),
                 )
             )
         )
+        # A Design node (0073) still waits on every assignee who has not handed
+        # in yet - accept / edit items / submit; once they submit it waits on
+        # the others and then their Leader, so it is no longer "theirs".
+        conditions.append(assignee_rows_of(user_id, unsubmitted=True, active=True))
         conditions.append(
             (Order.owner_user_id == user_id) & (Order.stage == OrderStage.ORDER_RETURNED)
         )
@@ -878,6 +933,9 @@ class AdsBoardSource:
         orders = list((await self._session.scalars(ordered)).all())
         awaiting = await self._awaiting_among(orders, query)
         nodes_by_order = await self._nodes(orders)
+        assignees = await load_open_assignees(
+            self._session, [node.id for nodes in nodes_by_order.values() for node in nodes]
+        )
         names = await display_names(
             self._session,
             {order.owner_user_id for order in orders}
@@ -887,7 +945,8 @@ class AdsBoardSource:
                 for node in nodes
                 for person in (node.assignee_user_id, node.preassigned_user_id)
                 if person is not None
-            },
+            }
+            | {row.user_id for rows in assignees.values() for row in rows},
         )
         links = await self._latest_links(nodes_by_order)
         node_links = await self.node_links(nodes_by_order)
@@ -896,10 +955,20 @@ class AdsBoardSource:
         )
         rows = tuple(
             replace(
-                self._row(order, nodes_by_order.get(order.id, []), names, links, now, approvers),
+                self._row(
+                    order,
+                    nodes_by_order.get(order.id, []),
+                    names,
+                    links,
+                    now,
+                    approvers,
+                    assignees,
+                ),
                 awaiting_me=order.id in awaiting,
-                design=design_view(order, nodes_by_order.get(order.id, []), names, node_links),
-                actions=self.action_kinds(order, nodes_by_order.get(order.id, [])),
+                design=design_view(
+                    order, nodes_by_order.get(order.id, []), names, node_links, assignees
+                ),
+                actions=self.action_kinds(order, nodes_by_order.get(order.id, []), assignees),
             )
             for order in orders
         )
@@ -944,10 +1013,16 @@ class AdsBoardSource:
                 latest[order_id] = submission.link
         return latest
 
-    def action_kinds(self, order: Order, nodes: list[OrderNode]) -> tuple[str, ...]:
+    def action_kinds(
+        self,
+        order: Order,
+        nodes: list[OrderNode],
+        assignees: dict[uuid.UUID, list[OrderNodeAssignee]] | None = None,
+    ) -> tuple[str, ...]:
         """What the viewer may do on this order right now, as action kinds
         (``SUBMIT_WORK``, ``APPROVE_NODE``...) - the policy's own answer, so a
         list can offer the button without opening the task."""
+        assignees = assignees or {}
         view = OrderView(
             id=order.id,
             video_type=order.video_type,
@@ -957,19 +1032,25 @@ class AdsBoardSource:
             category=order.category,
             approved=order.order_approved_at is not None,
         )
-        node_views = tuple(
-            NodeView(
-                id=node.id,
-                node_type=node.node_type,
-                status=node.status,
-                assignee_user_id=node.assignee_user_id,
-                preassigned_user_id=node.preassigned_user_id,
-                accepted_at=node.accepted_at,
+        node_views = []
+        for node in nodes:
+            assigned, accepted, submitted = assignee_sets(assignees.get(node.id, ()))
+            node_views.append(
+                NodeView(
+                    id=node.id,
+                    node_type=node.node_type,
+                    status=node.status,
+                    assignee_user_id=node.assignee_user_id,
+                    preassigned_user_id=node.preassigned_user_id,
+                    accepted_at=node.accepted_at,
+                    assignee_user_ids=assigned,
+                    accepted_user_ids=accepted,
+                    submitted_user_ids=submitted,
+                )
             )
-            for node in nodes
-        )
         kinds = [
-            action.kind.value for action in available_actions(view, node_views, self._scope.context)
+            action.kind.value
+            for action in available_actions(view, tuple(node_views), self._scope.context)
         ]
         return tuple(dict.fromkeys(kinds))
 
@@ -1026,8 +1107,10 @@ class AdsBoardSource:
         links: dict[uuid.UUID, str],
         now: datetime,
         approvers: AdsApprovers | None = None,
+        assignees: dict[uuid.UUID, list[OrderNodeAssignee]] | None = None,
     ) -> TaskRow:
         approvers = approvers or AdsApprovers()
+        assignees = assignees or {}
         by_type = {node.node_type: node for node in nodes}
         phase = ADS_STAGE_PHASE[order.stage]
         cells = []
@@ -1040,15 +1123,20 @@ class AdsBoardSource:
             if node is None:
                 continue
             cell_state, label = self._node_state(node, order, names, approvers)
+            person_name = self._cell_person(node, names, approvers, order.video_type)
+            person_user_id = node.assignee_user_id if node.assignee_user_id in names else None
+            multi = self._multi_design(node, assignees.get(node.id, []), names)
+            if multi is not None:
+                workers, cell_state, label = multi
+                person_name = format_names(tuple(workers))
+                person_user_id = None
             since = node.approved_at or node.submitted_at or node.assigned_at or node.activated_at
             cells.append(
                 TaskCell(
                     key=node_type.value,
                     label=node_type_label(node_type),
-                    person_name=self._cell_person(node, names, approvers, order.video_type),
-                    person_user_id=node.assignee_user_id
-                    if node.assignee_user_id in names
-                    else None,
+                    person_name=person_name,
+                    person_user_id=person_user_id,
                     status=cell_state,
                     status_label=label,
                     is_current=node.status in ACTIVE_NODE_STATUSES,
@@ -1078,7 +1166,9 @@ class AdsBoardSource:
         else:
             stage_since = submitted
         owner_name = names.get(order.owner_user_id, "")
-        holder, status_label, state = self._holder(order, current, names, owner_name, approvers)
+        holder, status_label, state = self._holder(
+            order, current, names, owner_name, approvers, assignees
+        )
         extras: list[tuple[str, str]] = []
         if order.script_source is not None:
             extras.append(("Source", "AI" if order.script_source.value == "AI" else "Quay thực tế"))
@@ -1153,6 +1243,31 @@ class AdsBoardSource:
             return None
         team = approvers.assigners_of(node.node_type, video_type)
         return f"{format_names(team)} giao" if team else None
+
+    @staticmethod
+    def _multi_design(
+        node: OrderNode,
+        rows: list[OrderNodeAssignee],
+        names: dict[uuid.UUID, str],
+    ) -> tuple[list[Person], str, str] | None:
+        """A Design node handed to several people (0073), while they are still
+        working: the workers, the step's state code and its words - "Đã giao"
+        (nobody has accepted), "Đang nhận/làm" (some have), "Đang làm" (all) or
+        "Đang sửa" (sent back). ``None`` otherwise, so a single-assignee node
+        keeps its usual holder and status."""
+        if node.node_type is not OrderNodeType.THIET_KE or len(rows) <= 1:
+            return None
+        if node.status not in (OrderNodeStatus.DANG_LAM, OrderNodeStatus.DANG_SUA):
+            return None
+        workers = [Person(row.user_id, names.get(row.user_id, "")) for row in rows]
+        if node.status is OrderNodeStatus.DANG_SUA:
+            return workers, OrderNodeStatus.DANG_SUA.value, "Đang sửa"
+        accepted = sum(1 for row in rows if row.accepted_at is not None)
+        if accepted == 0:
+            return workers, STATE_DA_GIAO, "Đã giao"
+        if accepted == len(rows):
+            return workers, OrderNodeStatus.DANG_LAM.value, "Đang làm"
+        return workers, OrderNodeStatus.DANG_LAM.value, "Đang nhận/làm"
 
     @staticmethod
     def _node_state(
@@ -1241,6 +1356,7 @@ class AdsBoardSource:
         names: dict[uuid.UUID, str],
         owner_name: str,
         approvers: AdsApprovers,
+        assignees: dict[uuid.UUID, list[OrderNodeAssignee]] | None = None,
     ) -> tuple[Holder, str, str | None]:
         """The member(s) holding the order, the status naming them, and the
         row's state (a waiting state, or the node's status).
@@ -1287,6 +1403,11 @@ class AdsBoardSource:
                 waiting_for(lead),
                 STATE_CHO_DUYET if lead else STATE_CHUA_GIAO,
             )
+        multi = AdsBoardSource._multi_design(current, (assignees or {}).get(current.id, []), names)
+        if multi is not None:
+            # A Design node handed to several people (0073): name them all.
+            workers, state, word = multi
+            return Holder(tuple(workers)), f"{label} · {word}", state
         if current.assignee_user_id is None:
             return held_by(None), f"{label} · Chờ giao", STATE_CHUA_GIAO
         worker = Person(current.assignee_user_id, names.get(current.assignee_user_id, ""))
@@ -1447,8 +1568,10 @@ def design_view(
     nodes: list[OrderNode],
     names: dict[uuid.UUID, str],
     node_links: dict[uuid.UUID, tuple[str, datetime]],
+    assignees: dict[uuid.UUID, list[OrderNodeAssignee]] | None = None,
 ) -> DesignView:
-    """The Design team's reading of one order (0058)."""
+    """The Design team's reading of one order (0058, 0069)."""
+    assignees = assignees or {}
     by_type = {node.node_type: node for node in nodes}
     script = by_type.get(OrderNodeType.BIEN_TAP)
     design = by_type.get(OrderNodeType.THIET_KE)
@@ -1462,6 +1585,26 @@ def design_view(
     def link_of(node: OrderNode | None) -> str | None:
         return None if node is None or node.id not in node_links else node_links[node.id][0]
 
+    design_rows = [] if design is None else assignees.get(design.id, [])
+    assignee_views = tuple(
+        DesignAssigneeView(
+            user_id=row.user_id,
+            name=names.get(row.user_id, "—"),
+            status=(
+                "DA_NOP"
+                if row.submitted_at is not None
+                else ("DANG_LAM" if row.accepted_at is not None else "CHUA_NHAN")
+            ),
+            submitted=row.submitted_at is not None,
+            codes=code_views(row.work_items),
+        )
+        for row in design_rows
+    )
+    submitted_count = sum(1 for view in assignee_views if view.submitted)
+    # Several designers: name them all; otherwise the one holder as before.
+    designer: str | None = (
+        ", ".join(view.name for view in assignee_views) if assignee_views else person(design)
+    )
     proposed = None if design is None else design.proposed_design_items
     references = split_links(order.design_link) or split_links(order.reference_link)
     return DesignView(
@@ -1472,7 +1615,10 @@ def design_view(
         note=order.note,
         codes=code_views(order.design_items),
         proposed_codes=None if proposed is None else code_views(proposed),
-        designer=person(design),
+        designer=designer,
+        assignees=assignee_views,
+        submitted_count=submitted_count,
+        assignee_total=len(assignee_views),
         design_link=link_of(design),
         design_submitted_at=(
             None if design is None or design.id not in node_links else node_links[design.id][1]

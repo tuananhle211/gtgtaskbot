@@ -107,7 +107,7 @@ export default function ResourceRequestsPage() {
                         <PersonLink userId={item.requester.user_id} name={item.requester.full_name} />
                       </td>
                       <td className="whitespace-nowrap text-right tabular-nums">{formatVnd(item.budget)}</td>
-                      <td className="whitespace-nowrap">{formatDate(item.needed_by)}</td>
+                      <td className="whitespace-nowrap">{item.needed_by ? formatDate(item.needed_by) : "–"}</td>
                       <td className="whitespace-nowrap">
                         <Pill tone={requestTone(item.stage)}>{item.stage_label}</Pill>
                       </td>

@@ -7,6 +7,7 @@ import {
   api,
   type DesignCodeItem,
   type TaskAction,
+  type TaskPerson,
   type TaskActionBody,
   type TaskActionInput,
   type TaskRow,
@@ -15,6 +16,7 @@ import {
 import {
   defaultDeadlineInput,
   assigneeLoadLabel,
+  workloadLabel,
   formatDeadline,
   isOverBudget,
   overDesired,
@@ -31,6 +33,17 @@ import {
 } from "@/components/design-codes-picker";
 import { Select } from "@/components/pr";
 import { DateTimeInput } from "@/components/date-input";
+
+/**
+ * One assignee option's label: with effort on, the tokens line (which already
+ * carries the ORD+PR workload); with effort off, the name plus the workload
+ * numbers alone (0069). Shown on every "Giao việc" picker.
+ */
+function optionLabel(person: TaskPerson, showLoad: boolean): string {
+  if (showLoad) return assigneeLoadLabel(person);
+  const work = workloadLabel(person);
+  return work ? `${person.name} · ${work}` : person.name;
+}
 
 /**
  * A task's workflow actions: the one dialog that asks, collects and sends.
@@ -86,11 +99,14 @@ export function useTaskActionForm({
   );
   // The "mã task design" each action's picker holds, once it was touched.
   const [codes, setCodes] = useState<Record<string, DesignCodeItem[]>>({});
+  // 0069: who is ticked on a multi-person "Giao việc" (ORD Design).
+  const [picked, setPicked] = useState<Record<string, string[]>>({});
   const run = useMutation({
     mutationFn: (body: TaskActionBody) => api.taskAction(task.id, body),
     onSuccess: (fresh) => {
       setValues({});
       setCodes({});
+      setPicked({});
       onDone(fresh);
     },
     onError: (error) => {
@@ -134,9 +150,13 @@ export function useTaskActionForm({
   // some: a list that was there is changed or kept, never emptied.
   const codesRequired = (action: TaskAction) =>
     required(action, "design_codes") || (action.design_codes ?? []).length > 0;
+  const pickedOf = (action: TaskAction) => picked[action.key] ?? [];
   const missing = (action: TaskAction) =>
     (action.requires_note && !valueOf(action, "note").trim()) ||
-    (action.inputs.includes("assignee") && !valueOf(action, "assignee")) ||
+    (action.inputs.includes("assignee") &&
+      (action.multi_assign
+        ? pickedOf(action).length === 0
+        : !valueOf(action, "assignee"))) ||
     (action.required_inputs ?? []).some(
       (input) => input !== "design_codes" && !valueOf(action, input).trim(),
     ) ||
@@ -153,8 +173,13 @@ export function useTaskActionForm({
     if (wantsNote(action) && note) body.note = note;
     if (action.inputs.includes("link") && link) body.link = link;
     if (action.inputs.includes("text") && text.trim()) body.text = text;
-    if (action.inputs.includes("assignee") && assignee)
-      body.assignee_user_id = assignee;
+    if (action.inputs.includes("assignee")) {
+      if (action.multi_assign) {
+        if (pickedOf(action).length > 0) body.assignee_user_ids = pickedOf(action);
+      } else if (assignee) {
+        body.assignee_user_id = assignee;
+      }
+    }
     const tokens = parseTokens(valueOf(action, "tokens"));
     if (action.inputs.includes("tokens") && tokens !== null) body.tokens = tokens;
     const deadline = toIsoFromLocal(valueOf(action, "deadline"));
@@ -168,7 +193,43 @@ export function useTaskActionForm({
 
   const inputsFor = (action: TaskAction) => {
     const parts: React.ReactNode[] = [];
-    if (action.inputs.includes("assignee")) {
+    if (action.inputs.includes("assignee") && action.multi_assign) {
+      // 0069: several designers at once. Each picks their own work items later.
+      const chosen = pickedOf(action);
+      const toggle = (userId: string) =>
+        setPicked((all) => {
+          const current = all[action.key] ?? [];
+          return {
+            ...all,
+            [action.key]: current.includes(userId)
+              ? current.filter((id) => id !== userId)
+              : [...current, userId],
+          };
+        });
+      parts.push(
+        <fieldset key="assignee" className="block text-xs text-[var(--text)]">
+          <legend className="mb-1">Giao cho (chọn một hoặc nhiều người)</legend>
+          <div className="space-y-1">
+            {action.assignee_options.map((person) => (
+              <label
+                key={person.user_id}
+                className="flex items-center gap-2 rounded-lg border border-[var(--border)] bg-[var(--surface)] px-2.5 py-1.5"
+              >
+                <input
+                  type="checkbox"
+                  checked={chosen.includes(person.user_id)}
+                  onChange={() => toggle(person.user_id)}
+                  className="size-4 accent-[var(--accent)]"
+                />
+                <span className={showLoad && isOverBudget(person) ? "text-[var(--bad)]" : undefined}>
+                  {optionLabel(person, showLoad)}
+                </span>
+              </label>
+            ))}
+          </div>
+        </fieldset>,
+      );
+    } else if (action.inputs.includes("assignee")) {
       parts.push(
         <label key="assignee" className="block text-xs text-[var(--text)]">
           Giao cho (bắt buộc)
@@ -188,7 +249,7 @@ export function useTaskActionForm({
                   showLoad && isOverBudget(person) ? "text-[var(--bad)]" : undefined
                 }
               >
-                {showLoad ? assigneeLoadLabel(person) : person.name}
+                {optionLabel(person, showLoad)}
               </option>
             ))}
           </Select>

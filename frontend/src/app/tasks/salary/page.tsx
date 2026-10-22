@@ -11,6 +11,7 @@ import {
   KPI_STEPS,
   SALARY_BASE,
   WEEK_PRIZES,
+  MAX_WORK_DAYS,
   WORK_DAYS,
   accumulatedBonus,
   adsCost,
@@ -231,7 +232,7 @@ function MonthlyTab() {
             value={days}
             onChange={setDays}
             min={0}
-            max={WORK_DAYS}
+            max={MAX_WORK_DAYS}
             step={0.5}
             display={days.toLocaleString("vi-VN")}
             unit={`/ ${WORK_DAYS} công (sáng T7 = 0,5)`}

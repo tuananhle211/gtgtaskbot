@@ -144,9 +144,7 @@ async def main(apply: bool) -> None:
         doomed = [
             row[0]
             for row in (
-                await conn.execute(
-                    text("select id from users where role <> 'OWNER'")
-                )
+                await conn.execute(text("select id from users where role <> 'OWNER'"))
             ).all()
         ]
         print("users to delete:", len(doomed))

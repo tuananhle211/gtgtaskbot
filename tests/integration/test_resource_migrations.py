@@ -117,7 +117,7 @@ async def test_01_models_and_migration_agree(database: Database) -> None:
         }
     assert diff == [], diff
     assert columns and "WORKING" in str(columns["employment_status"])
-    assert alembic_head() == "0070"
+    assert alembic_head() == "0072"
 
 
 def _mentions(item: object) -> bool:
@@ -138,7 +138,8 @@ async def test_02_the_pick_lists_and_the_grants_are_seeded(database: Database) -
             "HANDOVER": 3,
             "ORIGIN": 6,
             "ROLE": 9,
-            "STATUS": 6,
+            # 0072: "Die / Mất" became "Die" + "Mất".
+            "STATUS": 7,
             "TWO_FACTOR": 3,
             "TYPE": 7,
         }
@@ -155,6 +156,7 @@ async def test_02_the_pick_lists_and_the_grants_are_seeded(database: Database) -
             "RESTRICTED": "ATTENTION",
             "CHECKPOINT": "ATTENTION",
             "DIE": "LOST",
+            "LOST": "LOST",
             "RETURNED": "CLOSED",
             "STOPPED": "CLOSED",
         }
@@ -298,6 +300,6 @@ async def test_04_the_migration_goes_both_ways(dsn: str) -> None:
             count = (
                 await connection.execute(text("SELECT count(*) FROM resource_options"))
             ).scalar_one()
-            assert count == 34
+            assert count == 35  # 0072 adds "Mất"
     finally:
         await engine.dispose()

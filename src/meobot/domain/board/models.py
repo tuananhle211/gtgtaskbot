@@ -174,9 +174,26 @@ class DesignView:
     #: A designer's different list, waiting for the Design Leader.
     proposed_codes: tuple[DesignCodeView, ...] | None = None
     designer: str | None = None
+    #: 0069: every designer on the Design node, with their own list and
+    #: whether they have handed in; plus "đã nộp N/M".
+    assignees: tuple[DesignAssigneeView, ...] = ()
+    submitted_count: int = 0
+    assignee_total: int = 0
     #: The newest link the Design step handed in, and when.
     design_link: str | None = None
     design_submitted_at: datetime | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class DesignAssigneeView:
+    """0069: one designer on a Design node, for the board and the task page."""
+
+    user_id: uuid.UUID
+    name: str
+    #: ``CHUA_NHAN`` / ``DANG_LAM`` / ``DA_NOP``.
+    status: str
+    submitted: bool
+    codes: tuple[DesignCodeView, ...] = ()
 
 
 @dataclass(frozen=True, slots=True)
@@ -365,6 +382,7 @@ __all__ = [
     "BoardPage",
     "BoardQuery",
     "DashboardSummary",
+    "DesignAssigneeView",
     "DesignCodeView",
     "DesignView",
     "PersonStat",

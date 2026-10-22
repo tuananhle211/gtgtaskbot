@@ -83,8 +83,9 @@ class RequestInput:
     site: RequestSite
     purpose: str
     reason: str
-    budget: int
-    needed_by: date
+    #: Optional since 0071.
+    budget: int | None = None
+    needed_by: date | None = None
     requirements: str | None = None
     replaces: str | None = None
 
@@ -245,6 +246,7 @@ class ResourceRequestService:
             .join(ResourceOption, ResourceOption.id == Resource.status_id)
             .where(
                 Resource.holder_user_id == user_id,
+                Resource.deleted_at.is_(None),
                 Resource.type_id == type_id,
                 ResourceOption.status_group == StatusGroup.NORMAL,
             )
@@ -309,7 +311,7 @@ class ResourceRequestService:
         counted = (
             await self._session.execute(
                 select(Resource.request_id, func.count(Resource.id))
-                .where(Resource.request_id.in_(ids))
+                .where(Resource.request_id.in_(ids), Resource.deleted_at.is_(None))
                 .group_by(Resource.request_id)
             )
         ).all()
@@ -329,7 +331,9 @@ class ResourceRequestService:
             resources = list(
                 (
                     await self._session.scalars(
-                        select(Resource).where(Resource.request_id.in_(ids)).order_by(Resource.code)
+                        select(Resource)
+                        .where(Resource.request_id.in_(ids), Resource.deleted_at.is_(None))
+                        .order_by(Resource.code)
                     )
                 ).all()
             )
@@ -514,12 +518,12 @@ class ResourceRequestService:
                     f"Cần nhập {label}.",
                     details={"reason": f"request_{name}_missing", "field": name},
                 )
-        if data.budget < 0:
+        if data.budget is not None and data.budget < 0:
             raise ResourceValidationError(
                 "Dự toán không hợp lệ.",
                 details={"reason": "request_budget_invalid", "field": "budget"},
             )
-        if data.needed_by < utcnow().date():
+        if data.needed_by is not None and data.needed_by < utcnow().date():
             raise ResourceValidationError(
                 "Ngày cần có đã qua.",
                 details={"reason": "request_needed_by_past", "field": "needed_by"},
@@ -656,6 +660,7 @@ class ResourceRequestService:
         taken = (
             await self._session.scalars(
                 select(Resource.external_id).where(
+                    Resource.deleted_at.is_(None),
                     Resource.type_id == row.type_id,
                     func.lower(Resource.external_id).in_(list(seen)),
                 )

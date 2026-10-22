@@ -27,7 +27,7 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from meobot.core.time import ensure_utc
-from meobot.db.models.order import Order, OrderNode, OrderTokenLedger
+from meobot.db.models.order import Order, OrderNode, OrderNodeAssignee, OrderTokenLedger
 from meobot.domain.orders.deadlines import work_day
 from meobot.domain.orders.models import OrderTokenKind
 
@@ -59,6 +59,19 @@ class OrderTokenLedgerService:
                 None if node.deadline_at is None else at <= ensure_utc(node.deadline_at)
             )
         worker = node.assignee_user_id
+        if worker is None:
+            # A Design node handed to several people (0069): the node's one
+            # token row lands on the first assignee. Splitting the estimate per
+            # person is a follow-up (the ledger's key is one row per node).
+            worker = await self._session.scalar(
+                select(OrderNodeAssignee.user_id)
+                .where(
+                    OrderNodeAssignee.node_id == node.id,
+                    OrderNodeAssignee.removed_at.is_(None),
+                )
+                .order_by(OrderNodeAssignee.assigned_at, OrderNodeAssignee.id)
+                .limit(1)
+            )
         if worker is None or not take_tokens:
             return
         day = work_day(at)

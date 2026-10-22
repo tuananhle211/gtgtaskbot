@@ -12,7 +12,6 @@ Clears:
 """
 
 # Table/column names are string literals, never from input.
-# ruff: noqa: S608
 
 from __future__ import annotations
 
@@ -79,11 +78,7 @@ async def main(apply: bool) -> None:
             result = await conn.execute(text(statement))
             deleted[table] = deleted.get(table, 0) + result.rowcount
 
-        users = (
-            await conn.execute(
-                text("select count(*) from users")
-            )
-        ).scalar()
+        users = (await conn.execute(text("select count(*) from users"))).scalar()
 
         if apply:
             await transaction.commit()

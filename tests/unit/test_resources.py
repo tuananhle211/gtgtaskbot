@@ -114,6 +114,8 @@ async def test_01_access_follows_the_departments(world: World) -> None:
         "view": True,
         "view_all": True,
         "create": True,
+        "delete": True,
+        "view_list": True,
         "edit": True,
         "import_excel": True,
         "settings": True,
@@ -378,8 +380,7 @@ async def test_05_every_change_leaves_its_line_and_history_cannot_be_rewritten(
     assert not looks_like_secret("dùng cho TKQC")
     warned = world.client.patch(f"/api/resources/{resource_id}", json={"note": "mật khẩu 123456"})
     assert warned.status_code == 200 and warned.json()["resource"]["secret_warning"] is True
-    # No delete route: a resource is never removed.
-    assert world.client.delete(f"/api/resources/{resource_id}").status_code == 405
+    # 0071: deleting exists, for the Phòng Tài nguyên only (see test_13).
     # The database refuses to rewrite history.
     with pytest.raises(DBAPIError):
         await world.session.execute(update(ResourceHandover).values(note="đã sửa"))
@@ -1179,3 +1180,100 @@ async def test_12_holders_and_heads_manage_their_own(world: World) -> None:
     # The Phòng Tài nguyên: everything, the holder included.
     staff = detail(people.tn_staff, by_writer).json()
     assert staff["can_edit"] is True and staff["can_handover"] is True
+
+
+async def test_13_delete_and_the_identifying_fields(world: World) -> None:
+    """0071 / 2026-10-21: only the Phòng Tài nguyên deletes (soft: gone from
+    every list, its id free again); a holder edits their resource but never
+    its ID nor its type; a plain member gets no "Danh sách tài nguyên" menu."""
+    people = await cast(world)
+    ads = people.ads
+    catalog = options(world, people.tn_head)
+    mine = create(
+        world, people.tn_staff, catalog, external_id="del-1", holder_user_id=str(ads.orderer.id)
+    )["resource"]
+
+    # The holder: other fields yes, ID and type no.
+    world.act_as(ads.orderer)
+    ok = world.client.patch(
+        f"/api/resources/{mine['id']}", json={"name": "Đổi tên", "external_id": "del-1"}
+    )
+    assert ok.status_code == 200, ok.json()
+    assert ok.json()["resource"]["can_change_identity"] is False
+    assert ok.json()["can_delete"] is False
+    for change in ({"external_id": "khac"}, {"type_id": option_id(catalog, "TYPE", "PAGE")}):
+        refused = world.client.patch(f"/api/resources/{mine['id']}", json=change)
+        assert refused.status_code == 403, change
+    assert world.client.delete(f"/api/resources/{mine['id']}").status_code == 403
+    listed = world.client.get("/api/resources").json()["items"]
+    assert listed[0]["can_edit"] is True and listed[0]["can_delete"] is False
+    assert (
+        me(world, ads.orderer)["view_list"] is False and me(world, ads.orderer)["delete"] is False
+    )
+
+    # The Phòng Tài nguyên: changes the ID, deletes.
+    assert me(world, people.tn_staff)["delete"] is True and me(world, people.tn_staff)["view_list"]
+    world.act_as(people.tn_staff)
+    row = world.client.get("/api/resources", params={"q": "del-1"}).json()["items"][0]
+    assert row["can_delete"] and row["can_change_identity"] and row["can_handover"]
+    gone = world.client.delete(f"/api/resources/{mine['id']}", params={"note": "Nhập trùng"})
+    assert gone.status_code == 204
+    assert world.client.get(f"/api/resources/{mine['id']}").status_code == 404
+    assert world.client.get("/api/resources", params={"q": "del-1"}).json()["items"] == []
+    world.act_as(ads.orderer)
+    assert world.client.get("/api/resources").json()["items"] == []
+    # Its id is free again; its code is not reused.
+    again = create(world, people.tn_staff, catalog, external_id="del-1")["resource"]
+    assert again["code"] != mine["code"]
+
+
+async def test_14_handed_over_at_and_newest_first(world: World) -> None:
+    """2026-10-21: every row carries "Ngày bàn giao" (the latest hand-over)
+    and the tables sort on it, newest first; a resource never handed over
+    sorts by when it was added."""
+    people = await cast(world)
+    ads = people.ads
+    catalog = options(world, people.tn_head)
+    first = create(
+        world, people.tn_staff, catalog, external_id="h-1", holder_user_id=str(ads.orderer.id)
+    )["resource"]
+    loose = create(world, people.tn_staff, catalog, external_id="h-2")["resource"]
+    second = create(
+        world, people.tn_staff, catalog, external_id="h-3", holder_user_id=str(ads.orderer.id)
+    )["resource"]
+    # The first one is handed over again: now the newest hand-over.
+    world.act_as(people.tn_staff)
+    moved = world.client.post(
+        f"/api/resources/{first['id']}/holder",
+        json={"holder_user_id": str(ads.writer.id), "reason": "TRANSFER"},
+    )
+    assert moved.status_code == 200, moved.json()
+    rows = world.client.get(
+        "/api/resources", params={"sort": "handed_over_at", "desc": "true", "q": "h-"}
+    ).json()["items"]
+    assert [row["code"] for row in rows] == [first["code"], second["code"], loose["code"]]
+    assert rows[0]["handed_over_at"] and rows[2]["handed_over_at"] is None
+
+
+async def test_15_die_and_lost_are_two_statuses(world: World) -> None:
+    """2026-10-22: "Die / Mất" is split - "Die" (the old entry, so its data)
+    and "Mất", both a loss; an old file's "Die / Mất" reads as "Die"."""
+    from meobot.application.resources.excel import _match_option
+    from meobot.db.models.resource import ResourceOption
+
+    people = await cast(world)
+    catalog = options(world, people.tn_head)
+    kinds = next(item for item in catalog["kinds"] if item["kind"] == "STATUS")
+    statuses = {item["code"]: item for item in kinds["options"]}
+    assert statuses["DIE"]["name"] == "Die" and statuses["LOST"]["name"] == "Mất"
+    assert statuses["DIE"]["status_group"] == statuses["LOST"]["status_group"] == "LOST"
+    rows = (await world.session.scalars(select(ResourceOption))).all()
+    status_rows = [row for row in rows if row.kind.value == "STATUS"]
+    for text_in, code in (
+        ("Die / Mất", "DIE"),
+        ("die/mất", "DIE"),
+        ("Die", "DIE"),
+        ("Mất", "LOST"),
+    ):
+        match = _match_option(text_in, status_rows)
+        assert match is not None and match.code == code, text_in

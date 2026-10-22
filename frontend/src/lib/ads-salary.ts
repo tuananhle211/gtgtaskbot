@@ -22,6 +22,8 @@ export type SalaryGrade = keyof typeof SALARY_BASE;
 
 /** Working days of a full month (a Saturday morning counts 0,5). */
 export const WORK_DAYS = 23;
+/** The slider goes past the standard month (2026-10-22): extra days add allowance; pay is already full from 90%. */
+export const MAX_WORK_DAYS = 28;
 /** Meal + travel allowance per working day. */
 export const DAILY_ALLOWANCE = 35_000;
 

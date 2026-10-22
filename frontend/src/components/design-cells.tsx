@@ -228,6 +228,14 @@ export function DesignerCell({ row }: { row: TaskRow }) {
       ) : (
         <span className="text-[var(--text-muted)]">Chưa có người thiết kế</span>
       )}
+      {design?.assignee_total && design.assignee_total > 1 ? (
+        <span
+          data-testid="design-submitted-count"
+          className="mt-0.5 block text-[11px] text-[var(--text-muted)]"
+        >
+          Đã nộp {design.submitted_count ?? 0}/{design.assignee_total}
+        </span>
+      ) : null}
       {design?.design_link ? (
         <span className="mt-0.5 block">
           <WebLink href={design.design_link} label="Link thiết kế" />

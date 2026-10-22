@@ -118,6 +118,20 @@ export interface AssigneeLoad {
   tokens_left_today?: number | null;
   tokens_open?: number | null;
   open_tasks?: number | null;
+  assigned_count?: number;
+  doing_count?: number;
+}
+
+/**
+ * Everyone's workload, shown on every assignee picker in the app (0069):
+ * "· giao 2 · đang làm 3" (ORD + PR). Empty string when both are zero, so a
+ * fresh person reads just their name.
+ */
+export function workloadLabel(person: AssigneeLoad): string {
+  const assigned = person.assigned_count ?? 0;
+  const doing = person.doing_count ?? 0;
+  if (assigned === 0 && doing === 0) return "";
+  return `giao ${assigned} · đang làm ${doing}`;
 }
 
 /**
@@ -128,6 +142,8 @@ export interface AssigneeLoad {
  */
 export function assigneeLoadLabel(person: AssigneeLoad): string {
   const parts = [person.name];
+  const work = workloadLabel(person);
+  if (work) parts.push(work);
   const left = person.tokens_left_today;
   if (left !== null && left !== undefined) {
     const budget =

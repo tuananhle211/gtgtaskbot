@@ -839,12 +839,21 @@ def _loose(text: str) -> str:
     return re.sub(r"\s*([/()])\s*", r"\1", fold(text))
 
 
+#: Folded cell text → option code, for names that no longer exist.
+_ALIASES: Mapping[str, str] = {"die/mat": "DIE", "die-mat": "DIE", "die mat": "DIE"}
+
+
 def _match_option(text: str, options: Iterable[ResourceOption]) -> ResourceOption | None:
     """The entry a cell means: by name or code, spacing forgiven; else the
     one entry whose name the cell contains ("Chủ tài khoản (Via/AI)" → Chủ
     tài khoản, "Được chia sẻ dùng chung" → Dùng chung)."""
     rows = list(options)
     wanted = _loose(text)
+    # 2026-10-22: the old combined status reads as "Die" (its data went there).
+    if wanted in _ALIASES:
+        aliased = next((option for option in rows if option.code == _ALIASES[wanted]), None)
+        if aliased is not None:
+            return aliased
     for option in rows:
         if wanted in (_loose(option.name), fold(option.code)):
             return option
@@ -887,11 +896,15 @@ class ResourceImportService:
                 select(User).where(User.deleted_at.is_(None), User.active.is_(True))
             )
         ).all()
+        # A deleted resource frees its id (0071), never its code.
         taken = (
             await self._session.execute(
-                select(Resource.type_id, Resource.external_id, Resource.code)
+                select(Resource.type_id, Resource.external_id, Resource.code).where(
+                    Resource.deleted_at.is_(None)
+                )
             )
         ).all()
+        all_codes = (await self._session.scalars(select(Resource.code))).all()
         return ImportContext(
             departments=departments,
             catalog=await self._service.catalog(),
@@ -900,7 +913,7 @@ class ResourceImportService:
             taken_ids=frozenset(
                 (type_id, fold(external_id)) for type_id, external_id, _code in taken
             ),
-            taken_codes=frozenset(code for _type_id, _external_id, code in taken),
+            taken_codes=frozenset(all_codes),
             create_options=create_options,
         )
 

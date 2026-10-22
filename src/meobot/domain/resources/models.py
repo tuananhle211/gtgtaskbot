@@ -39,6 +39,8 @@ class ResourcePermission(StrEnum):
     VIEW = "VIEW"
     #: Add a resource (2026-10-21: its own permission - the Phòng Tài nguyên).
     CREATE = "CREATE"
+    #: Delete a resource (0071; soft - its histories stay). The Phòng Tài nguyên.
+    DELETE = "DELETE"
     #: Edit EVERY resource, change the holder, update the status, review.
     #: Without it a person still edits / updates / reviews what they hold,
     #: and a department head what their department's people hold.
@@ -63,6 +65,7 @@ RESOURCE_PERMISSION_LABELS: Mapping[ResourcePermission, str] = MappingProxyType(
     {
         ResourcePermission.VIEW: "Xem tài nguyên",
         ResourcePermission.CREATE: "Thêm tài nguyên",
+        ResourcePermission.DELETE: "Xoá tài nguyên",
         ResourcePermission.EDIT: "Sửa mọi tài nguyên, đổi người giữ, cập nhật trạng thái, rà soát",
         ResourcePermission.IMPORT: "Nhập từ Excel",
         ResourcePermission.SETTINGS: "Cài đặt danh sách lựa chọn, ngưỡng rà soát",
@@ -116,6 +119,7 @@ def default_resource_grants(function: DepartmentFunction) -> dict[Position, dict
             Position.MEMBER: {
                 ResourcePermission.VIEW.value: _ALL,
                 ResourcePermission.CREATE.value: _ALL,
+                ResourcePermission.DELETE.value: _ALL,
                 ResourcePermission.EDIT.value: _ALL,
                 ResourcePermission.REPORT.value: _ALL,
             },
@@ -208,7 +212,9 @@ SEED_OPTIONS: tuple[tuple[OptionKind, str, str, StatusGroup | None], ...] = (
     (OptionKind.STATUS, "ACTIVE", "Hoạt động", StatusGroup.NORMAL),
     (OptionKind.STATUS, "RESTRICTED", "Hạn chế", StatusGroup.ATTENTION),
     (OptionKind.STATUS, "CHECKPOINT", "Checkpoint", StatusGroup.ATTENTION),
-    (OptionKind.STATUS, "DIE", "Die / Mất", StatusGroup.LOST),
+    # 2026-10-22: "Die / Mất" split in two; the old entry (and its data) is "Die".
+    (OptionKind.STATUS, "DIE", "Die", StatusGroup.LOST),
+    (OptionKind.STATUS, "LOST", "Mất", StatusGroup.LOST),
     (OptionKind.STATUS, "RETURNED", "Đã thu hồi", StatusGroup.CLOSED),
     (OptionKind.STATUS, "STOPPED", "Ngừng dùng", StatusGroup.CLOSED),
     (OptionKind.ORIGIN, "COMPANY", "Công ty cấp", None),
@@ -291,7 +297,7 @@ class AlertKind(StrEnum):
     REVIEW_OVERDUE = "REVIEW_OVERDUE"
     #: The status needs attention (Hạn chế, Checkpoint...).
     STATUS_ATTENTION = "STATUS_ATTENTION"
-    #: The status is a loss (Die/Mất).
+    #: The status is a loss (Die, Mất).
     STATUS_LOST = "STATUS_LOST"
 
 

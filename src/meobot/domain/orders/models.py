@@ -183,6 +183,21 @@ class OrderTokenKind(StrEnum):
     REVISION = "REVISION"
 
 
+class OrderNodeAssigneeEventKind(StrEnum):
+    """0069: one entry in a Design assignee's work-item history (for scoring)."""
+
+    #: The Leader handed the node to this person (with an initial list or none).
+    ASSIGNED = "ASSIGNED"
+    #: The person (or the Leader) changed this person's work-item list.
+    ITEMS_EDITED = "ITEMS_EDITED"
+    #: The person handed in, fixing their list.
+    SUBMITTED = "SUBMITTED"
+    #: The Leader adjusted the agreed list when approving the node.
+    LEADER_ADJUSTED = "LEADER_ADJUSTED"
+    #: The node was sent back; this person's submission was reopened.
+    RETURNED = "RETURNED"
+
+
 class OrderApprovalGate(StrEnum):
     """The three decisions that are not a node's review."""
 
@@ -295,6 +310,7 @@ __all__ = [
     "OrderApprovalGate",
     "OrderCategory",
     "OrderEventKind",
+    "OrderNodeAssigneeEventKind",
     "OrderNodeStatus",
     "OrderNodeType",
     "OrderScriptSource",

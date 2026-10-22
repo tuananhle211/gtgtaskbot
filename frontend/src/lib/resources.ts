@@ -21,11 +21,11 @@ export type ResourceScreenIcon =
 export const RESOURCE_SCREENS: ReadonlyArray<{
   href: string;
   label: string;
-  flag: "view" | "edit" | "import_excel" | "settings" | "report";
+  flag: "view" | "view_list" | "edit" | "import_excel" | "settings" | "report";
   /** The sidebar glyph (`Icon` in `components/shell.tsx`), one per screen. */
   icon: ResourceScreenIcon;
 }> = [
-  { href: "/resources", label: "Danh sách tài nguyên", flag: "view", icon: "inventory" },
+  { href: "/resources", label: "Danh sách tài nguyên", flag: "view_list", icon: "inventory" },
   { href: "/resources/mine", label: "Tài nguyên của tôi", flag: "view", icon: "mine" },
   { href: "/resources/requests", label: "Đề xuất tài nguyên", flag: "view", icon: "request" },
   { href: "/resources/people", label: "Tra cứu nhân viên", flag: "report", icon: "lookup" },
@@ -38,7 +38,10 @@ export const RESOURCE_SCREENS: ReadonlyArray<{
 export function resourceScreens(me: UnitsMe | undefined) {
   const access = me?.resources;
   if (!access?.view) return [];
-  return RESOURCE_SCREENS.filter((screen) => access[screen.flag]);
+  return RESOURCE_SCREENS.filter((screen) =>
+    // An older API has no `view_list`: the list then follows `view_all`.
+    screen.flag === "view_list" ? (access.view_list ?? access.view_all) : access[screen.flag],
+  );
 }
 
 /** A row's tint: red for a `bad` alert, amber for a `warn` one, none otherwise. */

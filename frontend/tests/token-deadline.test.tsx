@@ -21,6 +21,7 @@ import type { EffortGrid, TaskRow, UnifiedTaskDetail } from "@/lib/api";
 import { formatShortDateTime } from "@/lib/datetime";
 import {
   assigneeLoadLabel,
+  workloadLabel,
   deadlineStatusLabel,
   defaultDeadlineInput,
   formatDeadline,
@@ -247,6 +248,23 @@ describe("the deadline helpers", () => {
       "Vy · ⚡ vượt 2/8 hôm nay · ⚡ đang ôm 12 (4 task)",
     );
     expect(assigneeLoadLabel({ user_id: "x", name: "Chỉ tên" } as never)).toBe("Chỉ tên");
+  });
+
+  it("shows ORD+PR workload on every picker (0069)", () => {
+    expect(workloadLabel({ name: "A", assigned_count: 2, doing_count: 3 })).toBe(
+      "giao 2 · đang làm 3",
+    );
+    expect(workloadLabel({ name: "A", assigned_count: 0, doing_count: 0 })).toBe("");
+    // The tokens label carries the workload too, before the tokens.
+    expect(
+      assigneeLoadLabel({
+        name: "Minh",
+        assigned_count: 1,
+        doing_count: 2,
+        tokens_left_today: 5,
+        tokens_budget_today: 8,
+      }),
+    ).toBe("Minh · giao 1 · đang làm 2 · ⚡ còn 5/8 hôm nay");
   });
 
   it("reads tokens as 0..999.99 with up to two decimals", () => {

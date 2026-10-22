@@ -749,6 +749,43 @@ describe("mã task design in the action dialog", () => {
     expect(actionBody(stub)).toEqual({ key: "ads:SUBMIT_WORK:n-bt", version: 5 });
     expect(calls(stub).some((call) => call.url.includes("design-codes"))).toBe(false);
   });
+
+  it("hands one Design task to several people at once (0069)", async () => {
+    const stub = detailPage({
+      ...DETAIL,
+      actions: [
+        {
+          key: "ads:ASSIGN:n-tk",
+          label: "Giao việc · Design",
+          emphasis: "PRIMARY",
+          requires_note: false,
+          inputs: ["assignee"],
+          required_inputs: [],
+          assignee_options: [
+            { user_id: "d1", name: "Designer A", assigned_count: 1, doing_count: 2 },
+            { user_id: "d2", name: "Designer B", assigned_count: 0, doing_count: 0 },
+          ],
+          multi_assign: true,
+        },
+      ],
+    });
+    await userEvent.click(await screen.findByRole("button", { name: "Giao việc · Design" }));
+    const dialog = await screen.findByRole("dialog");
+    // Effort off: the workload numbers still show on every option.
+    expect(within(dialog).getByText(/Designer A · giao 1 · đang làm 2/)).toBeInTheDocument();
+    // Nothing ticked: cannot confirm. Tick two people.
+    expect(accept()).toBeDisabled();
+    await userEvent.click(within(dialog).getByRole("checkbox", { name: /Designer A/ }));
+    await userEvent.click(within(dialog).getByRole("checkbox", { name: /Designer B/ }));
+    expect(accept()).toBeEnabled();
+    await confirm();
+    await waitFor(() => expect(actionBody(stub)).toBeDefined());
+    expect(actionBody(stub)).toEqual({
+      key: "ads:ASSIGN:n-tk",
+      version: 5,
+      assignee_user_ids: ["d1", "d2"],
+    });
+  });
 });
 
 describe("the task page's own blocks", () => {

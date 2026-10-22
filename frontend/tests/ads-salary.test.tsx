@@ -120,7 +120,9 @@ describe("the page", () => {
     expect(screen.getByText("48,2tr")).toBeInTheDocument();
     await userEvent.click(screen.getByRole("radio", { name: /Bậc 3/ }));
     expect(screen.getByText("45,7tr")).toBeInTheDocument();
-    fireEvent.change(screen.getByLabelText("Ngày công thực tế / tháng"), { target: { value: "20" } });
+    const days = screen.getByLabelText("Ngày công thực tế / tháng");
+    expect(days).toHaveAttribute("max", "28");
+    fireEvent.change(days, { target: { value: "20" } });
     expect(screen.queryByText("45,7tr")).not.toBeInTheDocument();
     await userEvent.click(screen.getByRole("tab", { name: "Máy tính cost" }));
     expect(screen.getByText("46,33%")).toBeInTheDocument();

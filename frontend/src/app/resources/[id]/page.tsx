@@ -1,11 +1,12 @@
 "use client";
 
 import Link from "next/link";
-import { useParams } from "next/navigation";
+import { useParams, useRouter } from "next/navigation";
 import { useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { api, type ResourceDetail, type ResourceRow } from "@/lib/api";
 import { PageHeader, PrimaryButton, SecondaryButton } from "@/components/pr";
+import { DeleteResourceButton } from "@/components/resource-actions";
 import { ErrorBox, Loading, Pill } from "@/components/states";
 import { ResourceFormDialog } from "@/components/resource-form";
 import { ChangeHolderDialog, ReviewDialog, UpdateStatusDialog } from "@/components/resource-dialogs";
@@ -33,6 +34,7 @@ export default function ResourcePage() {
   const detail = useQuery({ queryKey: ["resource", id], queryFn: () => api.resource(id) });
   const options = useQuery({ queryKey: ["resources", "options"], queryFn: () => api.resourceOptions() });
   const [dialog, setDialog] = useState<"edit" | "holder" | "status" | "review" | null>(null);
+  const router = useRouter();
 
   if (detail.isPending) return <Loading label="Đang tải hồ sơ…" />;
   if (detail.isError) return <ErrorBox error={detail.error} onRetry={() => detail.refetch()} />;
@@ -49,22 +51,31 @@ export default function ResourcePage() {
         title={`${row.code} · ${row.name}`}
         subtitle={`${row.type.name} · ${row.department.name} · ID ${row.external_id}`}
         action={
-          data.can_edit ? (
+          data.can_edit || data.can_delete ? (
             <div className="flex flex-wrap items-center gap-2">
-              <SecondaryButton type="button" onClick={() => setDialog("edit")}>
-                Sửa
-              </SecondaryButton>
+              {data.can_delete ? (
+                <DeleteResourceButton row={row} onDeleted={() => router.push("/resources/mine")} />
+              ) : null}
+              {data.can_edit ? (
+                <SecondaryButton type="button" onClick={() => setDialog("edit")}>
+                  Sửa
+                </SecondaryButton>
+              ) : null}
               {data.can_handover ? (
                 <SecondaryButton type="button" onClick={() => setDialog("holder")}>
                   Đổi người được bàn giao
                 </SecondaryButton>
               ) : null}
-              <SecondaryButton type="button" onClick={() => setDialog("status")}>
-                Cập nhật trạng thái
-              </SecondaryButton>
-              <PrimaryButton type="button" onClick={() => setDialog("review")}>
-                Đã rà soát
-              </PrimaryButton>
+              {data.can_edit ? (
+                <>
+                  <SecondaryButton type="button" onClick={() => setDialog("status")}>
+                    Cập nhật trạng thái
+                  </SecondaryButton>
+                  <PrimaryButton type="button" onClick={() => setDialog("review")}>
+                    Đã rà soát
+                  </PrimaryButton>
+                </>
+              ) : null}
             </div>
           ) : null
         }
@@ -110,7 +121,7 @@ export default function ResourcePage() {
       <Changes detail={data} />
 
       {dialog === "edit" ? (
-        <ResourceFormDialog open onClose={() => setDialog(null)} options={options.data} resource={row} onSaved={saved} lockDepartment={!data.can_handover} />
+        <ResourceFormDialog open onClose={() => setDialog(null)} options={options.data} resource={row} onSaved={saved} limited={!data.resource.can_change_identity} />
       ) : null}
       {dialog === "holder" ? (
         <ChangeHolderDialog open onClose={() => setDialog(null)} resource={row} options={options.data} onSaved={saved} />

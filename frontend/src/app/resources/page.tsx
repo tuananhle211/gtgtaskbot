@@ -31,20 +31,25 @@ const field =
   "min-h-10 rounded-lg border border-[var(--border)] bg-[var(--surface)] px-3 text-sm text-[var(--text)]";
 
 const SORTS = [
+  ["handed_over_at", "Ngày bàn giao"],
   ["code", "Mã"],
   ["name", "Tên"],
   ["type", "Loại"],
   ["department", "Ban"],
   ["holder", "Người giữ"],
   ["status", "Trạng thái"],
-  ["reviewed_at", "Ngày rà soát"],
 ] as const;
+
+/** 2026-10-21: newest hand-over first, unless the URL says otherwise. */
+const DEFAULT_SORT = "handed_over_at";
 
 function ResourceList() {
   const router = useRouter();
   const pathname = usePathname();
   const params = useSearchParams();
   const read = (key: string) => params.get(key) ?? "";
+  // Descending (newest first) unless the URL says `desc=false`.
+  const descending = read("desc") !== "false";
   const me = useQuery({ queryKey: ["units", "me"], queryFn: api.unitsMe });
   const options = useQuery({ queryKey: ["resources", "options"], queryFn: () => api.resourceOptions() });
   const people = useQuery({ queryKey: ["resources", "people"], queryFn: () => api.resourcePeople() });
@@ -59,8 +64,8 @@ function ResourceList() {
     employment_status: read("employee"),
     q: read("q"),
     alerts: read("alerts") === "true",
-    sort: read("sort") || "code",
-    desc: read("desc") === "true",
+    sort: read("sort") || DEFAULT_SORT,
+    desc: descending,
     limit: size,
     offset: (page - 1) * size,
   });
@@ -248,7 +253,7 @@ function ResourceList() {
             Sắp xếp
             <div className="flex gap-1">
               <Select
-                value={read("sort") || "code"}
+                value={read("sort") || DEFAULT_SORT}
                 onChange={(event) => setParams({ sort: event.target.value })}
                 className="min-w-0 flex-1 text-sm"
                 aria-label="Sắp xếp theo"
@@ -261,11 +266,11 @@ function ResourceList() {
               </Select>
               <button
                 type="button"
-                aria-label={read("desc") === "true" ? "Đang giảm dần" : "Đang tăng dần"}
-                onClick={() => setParams({ desc: read("desc") === "true" ? "" : "true" })}
+                aria-label={descending ? "Đang giảm dần" : "Đang tăng dần"}
+                onClick={() => setParams({ desc: descending ? "false" : "" })}
                 className="min-h-11 rounded-lg border border-[var(--border)] px-3 text-sm"
               >
-                {read("desc") === "true" ? "↓" : "↑"}
+                {descending ? "↓" : "↑"}
               </button>
             </div>
           </label>
@@ -276,7 +281,7 @@ function ResourceList() {
       {list.isPending ? <Loading label="Đang tải tài nguyên…" /> : null}
       {list.data ? (
         <div className="panel">
-          <ResourceTable rows={list.data.items} />
+          <ResourceTable actions rows={list.data.items} />
           <Pager
             page={page}
             total={list.data.total}

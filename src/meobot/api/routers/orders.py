@@ -449,13 +449,14 @@ async def assign_node(
     request_id: RequestIdDep,
     services: ServicesDep,
 ) -> OrderDetailResponse:
+    ids = list(body.assignee_user_ids or ([body.assignee_user_id] if body.assignee_user_id else []))
     await services.commands.assign(
         actor=actor,
         request_id=request_id,
         order_id=order_id,
         node_id=node_id,
         expected_version=body.version,
-        assignee_user_id=body.assignee_user_id,
+        assignee_user_ids=ids,
         plan=NodePlan(tokens=body.tokens, deadline_at=body.deadline_at),
     )
     return await _detail(services, actor, order_id)

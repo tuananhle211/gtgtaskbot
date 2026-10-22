@@ -130,7 +130,7 @@ function Content({ row }: { row: ResourceRequest }) {
     ["Lý do", <span key="reason" className="whitespace-pre-line">{row.reason}</span>],
     ["Thay thế cho", row.replaces ?? "–"],
     ["Dự toán tối đa", formatVnd(row.budget)],
-    ["Cần trước", formatDate(row.needed_by)],
+    ["Cần trước", row.needed_by ? formatDate(row.needed_by) : "–"],
     [
       "Người đề xuất",
       <span key="requester">

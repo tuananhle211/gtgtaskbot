@@ -491,6 +491,7 @@ class AuditAction(StrEnum):
     RESOURCE_HOLDER_CHANGED = "resource.holder.changed"
     RESOURCE_STATUS_UPDATED = "resource.status.updated"
     RESOURCE_REVIEWED = "resource.reviewed"
+    RESOURCE_DELETED = "resource.deleted"
     RESOURCE_REQUEST_CREATED = "resource.request.created"
     RESOURCE_REQUEST_DECIDED = "resource.request.decided"
     RESOURCE_REQUEST_DELIVERED = "resource.request.delivered"

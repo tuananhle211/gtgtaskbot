@@ -71,8 +71,8 @@ class RequestOut(BaseModel):
     requirements: str | None
     reason: str
     replaces: str | None
-    budget: int
-    needed_by: date
+    budget: int | None
+    needed_by: date | None
     stage: str
     stage_label: str
     requester: PersonOut
@@ -189,8 +189,9 @@ class CreateRequestBody(BaseModel):
     requirements: str | None = Field(default=None, max_length=4000)
     reason: str = Field(max_length=4000)
     replaces: str | None = Field(default=None, max_length=200)
-    budget: int = Field(ge=0)
-    needed_by: date
+    #: Optional (0071).
+    budget: int | None = Field(default=None, ge=0)
+    needed_by: date | None = None
 
 
 class ActionBody(BaseModel):

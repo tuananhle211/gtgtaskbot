@@ -124,6 +124,8 @@ class OrderActionKind(StrEnum):
     #: 0053: change a node's tokens / deadline without handing it out again
     #: (also how the Leader enters the revision tokens after a final return).
     SET_NODE_PLAN = "SET_NODE_PLAN"
+    #: 0069: a Design assignee edits their own list of work items before nộp.
+    SET_WORK_ITEMS = "SET_WORK_ITEMS"
 
 
 #: Which stage each action may be applied from. ``None`` = any non-terminal.
@@ -157,6 +159,7 @@ ACTION_STAGES: dict[OrderActionKind, frozenset[OrderStage] | None] = {
     OrderActionKind.SET_NODE_PLAN: frozenset(
         {OrderStage.BIEN_TAP, OrderStage.THIET_KE, OrderStage.DUNG}
     ),
+    OrderActionKind.SET_WORK_ITEMS: frozenset({OrderStage.THIET_KE}),
 }
 
 #: The stages in which the active node's own actions apply.
@@ -191,6 +194,7 @@ ACTION_LABELS: dict[OrderActionKind, str] = {
     OrderActionKind.SET_PRIORITY: "Ưu tiên",
     OrderActionKind.CANCEL: "Huỷ order",
     OrderActionKind.SET_NODE_PLAN: "Sửa token/deadline",
+    OrderActionKind.SET_WORK_ITEMS: "Sửa đầu việc",
 }
 
 
@@ -205,6 +209,12 @@ class NodeView:
     assignee_user_id: uuid.UUID | None
     preassigned_user_id: uuid.UUID | None
     accepted_at: datetime | None
+    #: 0069, a Design node handed to several people: who is on it, and who has
+    #: accepted / handed in. Empty for a single-assignee node, which keeps
+    #: using ``assignee_user_id`` / ``accepted_at`` above.
+    assignee_user_ids: frozenset[uuid.UUID] = frozenset()
+    accepted_user_ids: frozenset[uuid.UUID] = frozenset()
+    submitted_user_ids: frozenset[uuid.UUID] = frozenset()
 
 
 @dataclass(frozen=True, slots=True)
@@ -384,10 +394,15 @@ def available_actions(
         managed = function_node(current.node_type, order.video_type)
         assigns = managed in may.nodes(AdsPermission.NODE_ASSIGN)
         reviews = current.node_type in may.nodes(AdsPermission.NODE_REVIEW)
-        working = ctx.user_id == current.assignee_user_id and current.status in (
-            OrderNodeStatus.DANG_LAM,
-            OrderNodeStatus.DANG_SUA,
-        )
+        multi = bool(current.assignee_user_ids)
+        in_progress = current.status in (OrderNodeStatus.DANG_LAM, OrderNodeStatus.DANG_SUA)
+        if multi:
+            # A Design node with several people: each acts on their own row.
+            mine = ctx.user_id in current.assignee_user_ids
+            submitted_by_me = ctx.user_id in current.submitted_user_ids
+            working = mine and not submitted_by_me and in_progress
+        else:
+            working = ctx.user_id == current.assignee_user_id and in_progress
         if assigns and current.status in (
             OrderNodeStatus.CHUA_GIAO,
             OrderNodeStatus.DANG_LAM,
@@ -408,9 +423,15 @@ def available_actions(
             add(OrderActionKind.SET_NODE_PLAN, current.id)
         # Assigned is not accepted: the assignee presses "Nhận việc" first,
         # and only then may hand the work in.
-        if working and current.accepted_at is None:
+        accepted = (
+            ctx.user_id in current.accepted_user_ids if multi else current.accepted_at is not None
+        )
+        if working and not accepted:
             add(OrderActionKind.ACCEPT, current.id)
-        if working and current.accepted_at is not None:
+        if working and accepted:
+            if multi:
+                # A Design assignee edits their own list before handing in.
+                add(OrderActionKind.SET_WORK_ITEMS, current.id)
             add(OrderActionKind.SUBMIT_WORK, current.id)
         if (
             reviews

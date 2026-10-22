@@ -3607,9 +3607,10 @@ export interface ResourceRequest {
   requirements: string | null;
   reason: string;
   replaces: string | null;
-  budget: number;
-  /** `YYYY-MM-DD`. */
-  needed_by: string;
+  /** "Dự toán tối đa"; null = not given (optional since 0071). */
+  budget: number | null;
+  /** `YYYY-MM-DD`; null = not given (optional since 0071). */
+  needed_by: string | null;
   /** HEAD_REVIEW / FUNDING / PURCHASING / DELIVERED / COMPLETED / REJECTED / CANCELLED. */
   stage: string;
   stage_label: string;
@@ -3673,8 +3674,8 @@ export interface ResourceRequestBody {
   requirements?: string | null;
   reason: string;
   replaces?: string | null;
-  budget: number;
-  needed_by: string;
+  budget?: number | null;
+  needed_by?: string | null;
 }
 
 export interface ResourceRequestAction {
@@ -3978,17 +3979,37 @@ export interface TaskRowDesign {
   codes?: DesignCodeItem[];
   /** The designer's changed list, waiting for the Design Leader. */
   proposed_codes?: DesignCodeItem[] | null;
+  /** All designers' names, comma-joined; null when nobody holds it yet. */
   designer?: string | null;
+  /** 0069: every designer on the Design node, with their own list + state. */
+  assignees?: DesignAssignee[];
+  /** "Đã nộp N/M" of the Design team. */
+  submitted_count?: number;
+  assignee_total?: number;
   /** The newest link the Design step handed in. */
   design_link?: string | null;
   /** When that link was handed in (ISO datetime). */
   design_submitted_at?: string | null;
 }
 
+/** 0069: one designer on a Design node, for the board and the task page. */
+export interface DesignAssignee {
+  user_id: Uuid;
+  name: string;
+  /** CHUA_NHAN / DANG_LAM / DA_NOP. */
+  status: string;
+  submitted: boolean;
+  codes?: DesignCodeItem[];
+}
+
 /** The task page's "Mã task design" block. */
 export interface TaskDesignCodes {
   codes?: DesignCodeItem[];
   proposed_codes?: DesignCodeItem[] | null;
+  /** 0069: every designer on the Design node, with their own list + state. */
+  assignees?: DesignAssignee[];
+  submitted_count?: number;
+  assignee_total?: number;
   /** When the newest Design link was handed in (ISO datetime). */
   design_submitted_at?: string | null;
 }
@@ -4394,6 +4415,9 @@ export interface TaskPerson {
   /** Tokens on nodes handed out and not finished, and how many such nodes. */
   tokens_open?: number | null;
   open_tasks?: number | null;
+  /** 0069: ORD + PR workload - assigned (not started) and doing - on every picker. */
+  assigned_count?: number;
+  doing_count?: number;
 }
 
 export interface TaskInfo {
@@ -4497,6 +4521,8 @@ export interface TaskAction {
   design_codes?: DesignCodeItem[] | null;
   /** One line under the picker, e.g. what changing the codes leads to. */
   hint?: string | null;
+  /** 0069: "Giao việc" may pick several people at once (ORD Design). */
+  multi_assign?: boolean;
 }
 
 /**
@@ -4529,12 +4555,16 @@ export interface TaskActionBody {
   link?: string;
   text?: string;
   assignee_user_id?: Uuid;
+  /** 0069: several people handed one Design node at once. */
+  assignee_user_ids?: Uuid[];
   /** ORD: the node's tokens (estimate, or revision tokens on a return). */
   tokens?: number;
   /** ORD: the node's deadline, ISO-8601. */
   deadline_at?: string;
   /** ORD: the "mã task design" list; sent only when the action lists the input. */
   design_codes?: DesignCodePick[] | null;
+  /** 0069: the Leader's optional split of codes per person on a multi-assign. */
+  design_codes_by_user?: Record<Uuid, DesignCodePick[]>;
 }
 
 // --- Password login and the account screen ----------------------------------
@@ -6446,6 +6476,9 @@ export const api = {
   /** One step; 403 when it is not this viewer's, 409 `resource_request_moved` when it moved on. */
   actOnResourceRequest: (id: Uuid, body: ResourceRequestAction) =>
     post<ResourceRequest>(`/api/resources/requests/${id}/actions`, body),
+  /** "Xoá tài nguyên" (0071): 204; 403 `resource_forbidden` outside the Phòng Tài nguyên. */
+  deleteResource: (id: Uuid, note?: string) =>
+    del<void>(`/api/resources/${id}${query({ note })}`),
   resourceExportUrl: (filters: ResourceFilters = {}) =>
     `/api/resources/export.xlsx${query(filters)}`,
   /**
@@ -6677,6 +6710,14 @@ export interface ResourcesAccess {
   view_all: boolean;
   /** "Thêm tài nguyên" (2026-10-21: the Phòng Tài nguyên). Optional: an older API omits it. */
   create?: boolean;
+  /** "Xoá tài nguyên" (0071: the Phòng Tài nguyên). Optional. */
+  delete?: boolean;
+  /**
+   * The "Danh sách tài nguyên" menu entry: more than one's own to see (every
+   * resource, or a head's people's). A plain member has "Tài nguyên của tôi"
+   * only. Optional: an older API omits it.
+   */
+  view_list?: boolean;
   /**
    * Edits EVERY resource and changes any holder. One's own resources (and a
    * head's department's people's) are editable without it: see the detail's
@@ -6783,6 +6824,17 @@ export interface ResourceRow {
   created_at: string;
   updated_at: string;
   detail_path: string;
+  /**
+   * What the viewer may do on this row (2026-10-21, the table's quick
+   * actions): edit / status / review, change the holder, delete, change the
+   * ID and the type. Optional: an older API omits them (= no).
+   */
+  can_edit?: boolean;
+  can_handover?: boolean;
+  can_delete?: boolean;
+  can_change_identity?: boolean;
+  /** "Ngày bàn giao": the latest hand-over (2026-10-21); null before any. Optional. */
+  handed_over_at?: string | null;
 }
 
 export interface ResourceList {
@@ -6850,6 +6902,8 @@ export interface ResourceDetail {
   can_edit: boolean;
   /** "Đổi người được bàn giao": the Phòng Tài nguyên only. Optional: an older API omits it. */
   can_handover?: boolean;
+  /** "Xoá" (0071): the Phòng Tài nguyên. Optional. */
+  can_delete?: boolean;
 }
 
 /** The form's fields (`POST` needs the first four). */

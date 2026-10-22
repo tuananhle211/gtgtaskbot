@@ -31,7 +31,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from meobot.application.pr_work_result_service import PrWorkResultService
 from meobot.core.logging import get_logger
-from meobot.db.models.order import Order, OrderNode, OrderWorkRule
+from meobot.db.models.order import Order, OrderNode, OrderNodeAssignee, OrderWorkRule
 from meobot.domain.identity.models import Actor
 from meobot.domain.orders.models import KPI_NODE_TYPES
 from meobot.domain.pr.work_results import PrWorkResultSource
@@ -74,8 +74,16 @@ class OrderWorkRecorder:
         approved_at: datetime,
         link: str | None,
     ) -> bool:
-        """Record the result. ``False`` when nothing was recorded, and why is logged."""
-        if node.node_type not in KPI_NODE_TYPES or node.assignee_user_id is None:
+        """Record the result. ``False`` when nothing was recorded, and why is logged.
+
+        A Design node handed to several people (0069) scores each of them: one
+        result per person, subject = that person, on their own ``source_key``.
+        Every other node scores its single assignee as before.
+        """
+        if node.node_type not in KPI_NODE_TYPES:
+            return False
+        subjects = await self._subjects(node)
+        if not subjects:
             return False
         work_type_id = await self.work_type_for(order, node)
         if work_type_id is None:
@@ -88,20 +96,41 @@ class OrderWorkRecorder:
                 },
             )
             return False
-        await self._results.record_source_result(
-            actor=actor,
-            request_id=request_id,
-            source_type=PrWorkResultSource.ORDER,
-            source_key=order_source_key(node),
-            work_type_id=work_type_id,
-            subject_user_id=node.assignee_user_id,
-            occurred_at=approved_at,
-            validated_by_user_id=actor.user_id,
-            validated_at=approved_at,
-            label=f"{order.code} — {order.title}",
-            link=link,
-        )
+        for entity_id, user_id in subjects:
+            # A per-person result keys on the assignee row's id; the single
+            # node result keeps the node id (0069). Both are a uuid in the key.
+            await self._results.record_source_result(
+                actor=actor,
+                request_id=request_id,
+                source_type=PrWorkResultSource.ORDER,
+                source_key=f"order:{entity_id}:{node.node_type.value}",
+                work_type_id=work_type_id,
+                subject_user_id=user_id,
+                occurred_at=approved_at,
+                validated_by_user_id=actor.user_id,
+                validated_at=approved_at,
+                label=f"{order.code} — {order.title}",
+                link=link,
+            )
         return True
+
+    async def _subjects(self, node: OrderNode) -> list[tuple[uuid.UUID, uuid.UUID]]:
+        """``(entity_id, user_id)`` for each result to record. A Design node's
+        designers (0069) each score on their assignee row id; a single-assignee
+        node scores its assignee on the node id."""
+        rows = (
+            await self._session.scalars(
+                select(OrderNodeAssignee)
+                .where(
+                    OrderNodeAssignee.node_id == node.id,
+                    OrderNodeAssignee.removed_at.is_(None),
+                )
+                .order_by(OrderNodeAssignee.assigned_at, OrderNodeAssignee.id)
+            )
+        ).all()
+        if rows:
+            return [(row.id, row.user_id) for row in rows]
+        return [] if node.assignee_user_id is None else [(node.id, node.assignee_user_id)]
 
 
 __all__ = ["OrderWorkRecorder", "order_source_key"]

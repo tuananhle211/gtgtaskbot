@@ -64,6 +64,8 @@ class ResourceAccess:
     managed_people: frozenset[uuid.UUID] = frozenset()
     #: Add a resource ("Thêm tài nguyên"): the Phòng Tài nguyên.
     create: bool = False
+    #: Delete a resource ("Xoá", 0071): the Phòng Tài nguyên.
+    delete: bool = False
     #: Edit EVERY resource, and change any holder.
     edit: bool = False
     import_excel: bool = False
@@ -74,6 +76,13 @@ class ResourceAccess:
     @property
     def any_view(self) -> bool:
         return self.view_all or self.view_held
+
+    @property
+    def view_list(self) -> bool:
+        """ "Danh sách tài nguyên" is worth a menu entry: more than one's own
+        to look at (every resource, or a head's people's). A plain member has
+        "Tài nguyên của tôi" only (2026-10-21)."""
+        return self.view_all or self.edit or self.create or bool(self.managed_people)
 
     def require_view(self) -> None:
         if not self.any_view:
@@ -99,6 +108,7 @@ EVERYTHING = ResourceAccess(
     view_all=True,
     view_held=True,
     create=True,
+    delete=True,
     edit=True,
     import_excel=True,
     settings=True,
@@ -108,6 +118,7 @@ EVERYTHING = ResourceAccess(
 
 _FLAGS: tuple[tuple[ResourcePermission, str], ...] = (
     (ResourcePermission.CREATE, "create"),
+    (ResourcePermission.DELETE, "delete"),
     (ResourcePermission.EDIT, "edit"),
     (ResourcePermission.IMPORT, "import_excel"),
     (ResourcePermission.SETTINGS, "settings"),

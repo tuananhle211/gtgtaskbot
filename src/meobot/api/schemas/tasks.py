@@ -33,6 +33,9 @@ class AssigneeOptionResponse(PersonRefResponse):
     tokens_left_today: float | None = None
     tokens_open: float | None = None
     open_tasks: int | None = None
+    #: 0069: ORD + PR workload - assigned (not started) and doing.
+    assigned_count: int = 0
+    doing_count: int = 0
 
 
 class TaskSourceResponse(_Out):
@@ -149,6 +152,8 @@ class TaskActionResponse(_Out):
     #: explanation to show under it.
     design_codes: list[DesignCodeItemResponse] | None = None
     hint: str | None = None
+    #: ORD Design (0069): "Giao việc" may pick several people at once.
+    multi_assign: bool = False
 
 
 class TaskDetailResponse(_Out):
@@ -184,12 +189,19 @@ class TaskActionRequest(BaseModel):
     link: str | None = Field(default=None, max_length=2000)
     text: str | None = None
     assignee_user_id: uuid.UUID | None = None
+    #: ORD Design (0069): several people handed one node at once ("Giao việc").
+    assignee_user_ids: list[uuid.UUID] | None = Field(default=None, max_length=30)
     #: 0053: a node's tokens and deadline (Giao việc, Nhận việc by a Leader,
     #: Sửa token/deadline) or, on Trả sửa, the revision tokens and deadline.
     tokens: Decimal | None = Field(default=None, ge=0, le=Decimal("999.99"))
     deadline_at: datetime | None = None
     #: ORD (0058): the design codes picked on a hand-in or an approval.
     design_codes: list[DesignPickBody] | None = Field(default=None, max_length=100)
+    #: ORD Design (0069): the Leader's optional split of codes per person, when
+    #: giving one node to several designers. Keyed by their user id.
+    design_codes_by_user: dict[uuid.UUID, list[DesignPickBody]] | None = Field(
+        default=None, max_length=30
+    )
 
 
 __all__ = [

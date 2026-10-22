@@ -9,16 +9,25 @@ that appears is a button that works.
 from __future__ import annotations
 
 import uuid
+from collections.abc import Iterable
 from dataclasses import dataclass, field
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from meobot.application.orders.node_assignees import assignee_sets, load_open_assignees
 from meobot.application.orders.scope import OrderScope
 from meobot.application.units.directory import UnitDirectoryService
 from meobot.core.config import Settings
 from meobot.core.time import ensure_utc, utcnow
-from meobot.db.models.order import Order, OrderApproval, OrderEvent, OrderNode, OrderSubmission
+from meobot.db.models.order import (
+    Order,
+    OrderApproval,
+    OrderEvent,
+    OrderNode,
+    OrderNodeAssignee,
+    OrderSubmission,
+)
 from meobot.db.models.user import User
 from meobot.domain.identity.models import Actor
 from meobot.domain.orders.errors import OrderNotFoundError
@@ -33,6 +42,22 @@ from meobot.domain.orders.pipeline import (
 from meobot.domain.units.models import UnitCode, UnitSettings
 
 
+def _node_view(node: OrderNode, rows: Iterable[OrderNodeAssignee]) -> NodeView:
+    """A node's policy view, carrying its Design assignees (0069)."""
+    assigned, accepted, submitted = assignee_sets(rows)
+    return NodeView(
+        id=node.id,
+        node_type=node.node_type,
+        status=node.status,
+        assignee_user_id=node.assignee_user_id,
+        preassigned_user_id=node.preassigned_user_id,
+        accepted_at=node.accepted_at,
+        assignee_user_ids=assigned,
+        accepted_user_ids=accepted,
+        submitted_user_ids=submitted,
+    )
+
+
 @dataclass(slots=True)
 class OrderDetail:
     order: Order
@@ -44,6 +69,9 @@ class OrderDetail:
     urgent: bool
     #: Display names for every user id the detail mentions.
     names: dict[uuid.UUID, str] = field(default_factory=dict)
+    #: 0069: each Design node's open assignees (node_id → rows), for the
+    #: design block and for seeding each person's work-item inputs.
+    design_assignees: dict[uuid.UUID, list[OrderNodeAssignee]] = field(default_factory=dict)
 
 
 @dataclass(frozen=True, slots=True)
@@ -147,17 +175,8 @@ class OrderQueryService:
             category=order.category,
             approved=order.order_approved_at is not None,
         )
-        node_views = tuple(
-            NodeView(
-                id=node.id,
-                node_type=node.node_type,
-                status=node.status,
-                assignee_user_id=node.assignee_user_id,
-                preassigned_user_id=node.preassigned_user_id,
-                accepted_at=node.accepted_at,
-            )
-            for node in nodes
-        )
+        design_assignees = await load_open_assignees(self._session, [node.id for node in nodes])
+        node_views = tuple(_node_view(node, design_assignees.get(node.id, ())) for node in nodes)
         actions = available_actions(view, node_views, scoped.scope.context)
         user_ids: set[uuid.UUID] = {order.owner_user_id}
         if order.approver_user_id is not None:
@@ -174,6 +193,8 @@ class OrderQueryService:
                 )
                 if item is not None
             )
+        for rows in design_assignees.values():
+            user_ids.update(row.user_id for row in rows)
         for submission in submissions:
             user_ids.add(submission.submitted_by_user_id)
         for approval in approvals:
@@ -197,6 +218,7 @@ class OrderQueryService:
                 urgent_days=scoped.settings.urgent_days,
             ),
             names=names,
+            design_assignees=design_assignees,
         )
 
     async def names(self, user_ids: set[uuid.UUID]) -> dict[uuid.UUID, str]:

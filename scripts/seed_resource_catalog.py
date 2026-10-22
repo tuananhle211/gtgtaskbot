@@ -79,7 +79,9 @@ CATALOGUE: tuple[tuple[OptionKind, str, str, StatusGroup | None], ...] = (
     (OptionKind.STATUS, "ACTIVE", "Hoạt động", StatusGroup.NORMAL),
     (OptionKind.STATUS, "RESTRICTED", "Hạn chế", StatusGroup.ATTENTION),
     (OptionKind.STATUS, "CHECKPOINT", "Checkpoint", StatusGroup.ATTENTION),
-    (OptionKind.STATUS, "DIE", "Die / Mất", StatusGroup.LOST),
+    # 2026-10-22: "Die / Mất" split in two; the old entry (and its data) is "Die".
+    (OptionKind.STATUS, "DIE", "Die", StatusGroup.LOST),
+    (OptionKind.STATUS, "LOST", "Mất", StatusGroup.LOST),
     (OptionKind.STATUS, "RETURNED", "Đã thu hồi", StatusGroup.CLOSED),
     (OptionKind.STATUS, "STOPPED", "Ngừng dùng", StatusGroup.CLOSED),
 )

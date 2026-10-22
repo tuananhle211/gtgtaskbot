@@ -64,10 +64,14 @@ class TaskActionCommand:
     link: str | None = None
     text: str | None = None
     assignee_user_id: uuid.UUID | None = None
+    #: ORD Design (0069): several people may be handed one node at once.
+    assignee_user_ids: tuple[uuid.UUID, ...] | None = None
     tokens: Decimal | None = None
     deadline_at: datetime | None = None
     #: ORD (0058): the design codes picked on a hand-in or an approval.
     design_picks: tuple[DesignPick, ...] | None = None
+    #: ORD Design (0069): the Leader's optional split of codes per person.
+    picks_by_user: dict[uuid.UUID, tuple[DesignPick, ...]] | None = None
 
 
 def _unknown(key: str) -> TaskActionKeyError:
@@ -170,7 +174,12 @@ class TaskActionService:
                 reason=note or "",
             )
         elif kind is OrderActionKind.ASSIGN:
-            if command.assignee_user_id is None:
+            ids = (
+                list(command.assignee_user_ids)
+                if command.assignee_user_ids
+                else ([command.assignee_user_id] if command.assignee_user_id else [])
+            )
+            if not ids:
                 raise ValidationError(
                     "Chọn người được giao.",
                     details={"reason": "assignee_required", "field": "assignee_user_id"},
@@ -181,8 +190,18 @@ class TaskActionService:
                 order_id=order_id,
                 node_id=need_node(),
                 expected_version=version,
-                assignee_user_id=command.assignee_user_id,
+                assignee_user_ids=ids,
                 plan=plan,
+                picks_by_user=command.picks_by_user,
+            )
+        elif kind is OrderActionKind.SET_WORK_ITEMS:
+            await commands.set_work_items(
+                actor=actor,
+                request_id=request_id,
+                order_id=order_id,
+                node_id=need_node(),
+                expected_version=version,
+                design_picks=command.design_picks or (),
             )
         elif kind is OrderActionKind.ACCEPT:
             await commands.accept(

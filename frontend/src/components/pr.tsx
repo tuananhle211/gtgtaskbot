@@ -1,5 +1,6 @@
 "use client";
 
+import { collectOptions, SearchableSelect, SEARCH_THRESHOLD } from "@/components/searchable-select";
 import Link from "next/link";
 import type { ContentSummary } from "@/lib/api";
 import {
@@ -99,6 +100,15 @@ export function Select({
   className = "",
   ...props
 }: React.SelectHTMLAttributes<HTMLSelectElement>) {
+  // A long list gets a search box (2026-10-22, components/searchable-select).
+  const options = props.multiple || props.size ? [] : collectOptions(children);
+  if (options.length >= SEARCH_THRESHOLD) {
+    return (
+      <SearchableSelect options={options} className={className} selectProps={props}>
+        {children}
+      </SearchableSelect>
+    );
+  }
   return (
     <select
       {...props}

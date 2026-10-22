@@ -64,6 +64,7 @@ from meobot.application.pr_query_service import ContentDetail
 from meobot.application.pr_services import PrServices
 from meobot.application.tasks.sync import build_task
 from meobot.application.units.directory import ROLE_FOR_NODE, UnitDirectoryService
+from meobot.application.workload_service import Workload, WorkloadService
 from meobot.core.config import Settings
 from meobot.core.errors import NotFoundError
 from meobot.core.time import ensure_utc, utcnow
@@ -187,6 +188,7 @@ ADS_NODE_KINDS: frozenset[OrderActionKind] = frozenset(
         OrderActionKind.SUBMIT_WORK,
         OrderActionKind.APPROVE_NODE,
         OrderActionKind.RETURN_NODE,
+        OrderActionKind.SET_WORK_ITEMS,
     }
 )
 _ADS_PRIMARY: frozenset[OrderActionKind] = frozenset(
@@ -227,6 +229,11 @@ class PersonRef:
     tokens_left_today: float | None = None
     tokens_open: float | None = None
     open_tasks: int | None = None
+    #: 0069: the person's workload across ORD + PR - how many pieces of work are
+    #: assigned to them (not started) and how many they are doing. On every
+    #: assignee picker in the app.
+    assigned_count: int = 0
+    doing_count: int = 0
 
 
 @dataclass(frozen=True, slots=True)
@@ -345,6 +352,8 @@ class TaskActionView:
     #: current values to start from.
     plan_mode: str | None = None
     defaults: PlanDefaults | None = None
+    #: ORD Design (0069): "Giao việc" may pick several people at once.
+    multi_assign: bool = False
 
 
 @dataclass(frozen=True, slots=True)
@@ -471,7 +480,9 @@ class TaskDetailService:
         node_links = await source.node_links(nodes_by_order)
         names = dict(detail.names)
         approvers = await ads_approvers(self._session, order.unit_id)
-        row = source._row(order, list(detail.nodes), names, links, utcnow(), approvers)
+        row = source._row(
+            order, list(detail.nodes), names, links, utcnow(), approvers, detail.design_assignees
+        )
         current = _current_person(row)
         summary = TaskSummary(
             id=task.id,
@@ -512,18 +523,28 @@ class TaskDetailService:
             fields=_ads_fields(order),
             submissions=_ads_submissions(detail),
             timeline=_ads_timeline(detail),
-            actions=await self._ads_actions(detail, scoped.settings),
+            actions=await self._ads_actions(actor, detail, scoped.settings),
             category=order.category.value,
-            design=design_view(order, list(detail.nodes), names, node_links),
+            design=design_view(
+                order, list(detail.nodes), names, node_links, detail.design_assignees
+            ),
             birthday=birthday_view(order),
         )
 
     async def _ads_actions(
-        self, detail: OrderDetail, settings: UnitSettings
+        self, actor: Actor, detail: OrderDetail, settings: UnitSettings
     ) -> tuple[TaskActionView, ...]:
         order = detail.order
         taken = OrderTokenLedgerService(self._session)
         nodes = {node.id: node for node in detail.nodes}
+
+        def my_items(node_id: uuid.UUID) -> tuple[DesignCodeView, ...]:
+            """The viewer's own Design work items on this node (0069)."""
+            for row in detail.design_assignees.get(node_id, ()):
+                if row.user_id == actor.user_id:
+                    return code_views(row.work_items)
+            return ()
+
         views: list[TaskActionView] = []
         for action in detail.actions:
             kind = action.kind
@@ -548,6 +569,7 @@ class TaskDetailService:
             defaults: PlanDefaults | None = None
             codes: tuple[DesignCodeView, ...] | None = None
             hint: str | None = None
+            multi_assign = False
             # 0058: an order that visits Design carries design codes.
             designs = (
                 settings.design_codes_enabled
@@ -565,6 +587,7 @@ class TaskDetailService:
                     ),
                     deadline_at=_utc(node.revision_deadline_at if revision else node.deadline_at),
                 )
+            node_multi = designs and node is not None and node.node_type is OrderNodeType.THIET_KE
             if kind is OrderActionKind.ASSIGN and node is not None:
                 inputs = ("assignee", "tokens", "deadline")
                 # The plan is required the first time the node is planned.
@@ -573,8 +596,16 @@ class TaskDetailService:
                 options = await self._ads_assignees(
                     order.unit_id, node.node_type, order.video_type, settings
                 )
+                if node_multi:
+                    # Several designers may be handed the node at once (0069).
+                    multi_assign = True
                 if node.status is OrderNodeStatus.CHUA_GIAO:
                     emphasis = "PRIMARY"
+            elif kind is OrderActionKind.SET_WORK_ITEMS and node is not None:
+                inputs = ("design_codes",)
+                required = ("design_codes",)
+                codes = my_items(node.id)
+                hint = "Chọn đầu việc bạn đã làm (dùng để tính điểm)."
             elif kind is OrderActionKind.ACCEPT and node is not None:
                 # A Leader taking a node routed to them plans it here.
                 if _unplanned(node, settings) and any(
@@ -609,16 +640,13 @@ class TaskDetailService:
                         codes = current
                         hint = "Chọn các mã task design Design cần làm, kèm số lượng."
                     elif node.node_type is OrderNodeType.THIET_KE:
+                        # 0069: each designer picks the work items they did;
+                        # it is required, and starts from their own list.
                         inputs = (*inputs, "design_codes")
-                        codes = current
-                        if current:
-                            hint = "Sửa mã task design thì bài nộp cần Trưởng phòng Design duyệt."
-                        else:
-                            required = (*required, "design_codes")
-                            hint = (
-                                "Order chưa có mã task design: chọn mã và số lượng, "
-                                "Trưởng phòng Design sẽ duyệt."
-                            )
+                        required = (*required, "design_codes")
+                        mine = my_items(node.id)
+                        codes = mine if mine else current
+                        hint = "Chọn đầu việc bạn đã làm (dùng để tính điểm)."
             elif (
                 kind is OrderActionKind.APPROVE_NODE
                 and node is not None
@@ -666,6 +694,7 @@ class TaskDetailService:
                     defaults=defaults if "deadline" in inputs else None,
                     design_codes=codes if "design_codes" in inputs else None,
                     hint=hint if "design_codes" in inputs else None,
+                    multi_assign=multi_assign,
                 )
             )
         return tuple(sorted(views, key=lambda view: _EMPHASIS_ORDER[view.emphasis]))
@@ -695,9 +724,11 @@ class TaskDetailService:
             if settings.effort_enabled
             else {}
         )
+        workload = await WorkloadService(self._session).counts([row.user.id for row in rows])
         options = []
         for row in rows:
             load = loads.get(row.user.id)
+            held = workload.get(row.user.id, Workload())
             options.append(
                 PersonRef(
                     row.user.id,
@@ -706,6 +737,8 @@ class TaskDetailService:
                     tokens_left_today=None if load is None else load.left,
                     tokens_open=None if load is None else load.open_tokens,
                     open_tasks=None if load is None else load.open_tasks,
+                    assigned_count=held.assigned,
+                    doing_count=held.doing,
                 )
             )
         return tuple(options)
@@ -935,13 +968,25 @@ class TaskDetailService:
                 select(User).where(User.active.is_(True)).order_by(User.full_name, User.id)
             )
         ).all()
-        options: list[PersonRef] = []
+        eligible = []
         for user in users:
             candidate = Actor(
                 user_id=user.id, full_name=user.full_name, role=user.role or Role.EMPLOYEE
             )
             if await capabilities.allows(candidate, PrCapability.PR_PRODUCTION_EXECUTE):
-                options.append(PersonRef(user.id, user.full_name))
+                eligible.append(user)
+        workload = await WorkloadService(self._session).counts([user.id for user in eligible])
+        options: list[PersonRef] = []
+        for user in eligible:
+            held = workload.get(user.id, Workload())
+            options.append(
+                PersonRef(
+                    user.id,
+                    user.full_name,
+                    assigned_count=held.assigned,
+                    doing_count=held.doing,
+                )
+            )
         return tuple(options)
 
 

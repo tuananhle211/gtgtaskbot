@@ -10,7 +10,8 @@ import { ResourceTable } from "@/components/resource-table";
 export default function MyResourcesPage() {
   const list = useQuery({
     queryKey: ["resources", "list", { mine: true }],
-    queryFn: () => api.resources({ mine: true, limit: 500 }),
+    // Newest hand-over first (2026-10-21).
+    queryFn: () => api.resources({ mine: true, limit: 500, sort: "handed_over_at", desc: true }),
   });
   return (
     <div className="space-y-4">
@@ -22,7 +23,7 @@ export default function MyResourcesPage() {
       {list.isError ? <ErrorBox error={list.error} onRetry={() => list.refetch()} /> : null}
       {list.data ? (
         <div className="panel">
-          <ResourceTable rows={list.data.items} emptyMessage="Bạn chưa giữ tài nguyên nào." />
+          <ResourceTable actions rows={list.data.items} emptyMessage="Bạn chưa giữ tài nguyên nào." />
         </div>
       ) : null}
     </div>

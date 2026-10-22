@@ -489,13 +489,49 @@ function BirthdayPanel({ info }: { info: BirthdayInfo }) {
  * Nothing is drawn for an order that has neither (no Design step, or not
  * picked yet).
  */
+const DESIGN_STATUS_LABEL: Record<string, string> = {
+  CHUA_NHAN: "Chưa nhận",
+  DANG_LAM: "Đang làm",
+  DA_NOP: "Đã nộp",
+};
+
 function DesignCodesPanel({ design }: { design: TaskDesignCodes }) {
   const codes = design.codes ?? [];
   const proposed = design.proposed_codes ?? null;
-  if (codes.length === 0 && !proposed) return null;
+  const assignees = design.assignees ?? [];
+  if (codes.length === 0 && !proposed && assignees.length === 0) return null;
   return (
     <section aria-label="Mã task design" className="panel p-4 text-sm">
       <h2 className="font-semibold">Mã task design</h2>
+      {assignees.length > 1 ? (
+        <div className="mt-3" data-testid="design-assignees">
+          <h3 className="text-xs font-semibold uppercase tracking-wide text-[var(--text-muted)]">
+            Người làm · đã nộp {design.submitted_count ?? 0}/{design.assignee_total ?? assignees.length}
+          </h3>
+          <ul className="mt-2 space-y-2">
+            {assignees.map((person) => (
+              <li
+                key={person.user_id}
+                className="rounded-lg border border-[var(--border)] bg-[var(--surface)] p-2"
+              >
+                <p className="flex items-center justify-between gap-2">
+                  <span className="person font-medium">{person.name}</span>
+                  <span className={`st st-${stepColor(person.status)}`}>
+                    {DESIGN_STATUS_LABEL[person.status] ?? person.status}
+                  </span>
+                </p>
+                {person.codes && person.codes.length > 0 ? (
+                  <div className="mt-1.5">
+                    <DesignCodeLines items={person.codes} />
+                  </div>
+                ) : (
+                  <p className="mt-1 text-xs text-[var(--text-muted)]">Chưa chọn đầu việc.</p>
+                )}
+              </li>
+            ))}
+          </ul>
+        </div>
+      ) : null}
       {proposed ? (
         <div className="mt-3 grid gap-4 md:grid-cols-2">
           <div data-testid="design-codes-current">

@@ -357,7 +357,10 @@ describe("Hồ sơ tài nguyên", () => {
       { match: "/api/units/me", body: ME },
       { match: "/api/resources/options", body: OPTIONS },
       { match: "/api/resources/people", body: { people: [PERSON()] } },
-      { match: "/api/resources/r-1", body: { ...DETAIL, can_edit: true, can_handover: false } },
+      {
+        match: "/api/resources/r-1",
+        body: { ...DETAIL, can_edit: true, can_handover: false, resource: { ...DETAIL.resource, can_change_identity: false } },
+      },
     ]);
     renderWithQuery(<ResourcePage />);
     await screen.findByRole("heading", { name: /ADS-002/ });
@@ -367,7 +370,10 @@ describe("Hồ sơ tài nguyên", () => {
     expect(screen.queryByRole("button", { name: "Đổi người được bàn giao" })).not.toBeInTheDocument();
     await userEvent.click(screen.getByRole("button", { name: "Sửa" }));
     expect(await screen.findByLabelText(/Ban quản lý/)).toBeDisabled();
-    expect(screen.getByText("Chỉ Phòng Tài nguyên đổi được ban quản lý.")).toBeInTheDocument();
+    expect(screen.getByLabelText(/^Loại/)).toBeDisabled();
+    expect(screen.getByLabelText(/ID tài nguyên/)).toBeDisabled();
+    expect(screen.getByLabelText(/Tên tài nguyên/)).toBeEnabled();
+    expect(screen.getByText("Chỉ Phòng Tài nguyên đổi được ban quản lý, loại và ID.")).toBeInTheDocument();
   });
 
   it("sends a status update from its dialog", async () => {
@@ -440,5 +446,60 @@ describe("the import page", () => {
     expect(link).toHaveAttribute("href", "/api/resources/import/template.xlsx");
     expect(link).toHaveAttribute("download");
     expect(screen.getByText(/chỉ có một sheet/)).toBeInTheDocument();
+  });
+});
+
+describe("quick actions on the table (2026-10-21)", () => {
+  it("offers what the row allows and deletes after a confirmation", async () => {
+    const { ResourceTable } = await import("@/components/resource-table");
+    const stub = stubFetch([
+      { match: "/api/resources/r-1", method: "DELETE", status: 204 },
+      { match: "/api/resources", body: { items: [], total: 0, limit: 10, offset: 0, review_days: 30 } },
+    ]);
+    renderWithQuery(
+      <ResourceTable
+        actions
+        rows={[
+          ROW({ id: "r-1", code: "ADS-001", can_edit: true, can_handover: true, can_delete: true }),
+          ROW({ id: "r-2", code: "ADS-002", can_edit: true }),
+          ROW({ id: "r-3", code: "ADS-003" }),
+        ]}
+      />,
+    );
+    await userEvent.click(screen.getByRole("button", { name: "Thao tác với ADS-001" }));
+    expect(screen.getAllByRole("menuitem").map((item) => item.textContent)).toEqual([
+      "Sửa",
+      "Cập nhật trạng thái",
+      "Đã rà soát",
+      "Đổi người được bàn giao",
+      "Xoá",
+    ]);
+    await userEvent.click(screen.getByRole("menuitem", { name: "Xoá" }));
+    expect(screen.getByRole("dialog")).toHaveTextContent("Xoá ADS-001");
+    const accept = screen.getByRole("dialog").querySelector<HTMLElement>("[data-confirm-accept]")!;
+    await userEvent.click(accept);
+    await waitFor(() =>
+      expect(
+        (stub as unknown as { calls: Array<{ url: string; method: string }> }).calls.some(
+          (call) => call.method === "DELETE" && call.url.endsWith("/api/resources/r-1"),
+        ),
+      ).toBe(true),
+    );
+    // A holder's row: no hand-over, no delete; a row they cannot touch: no menu.
+    await userEvent.click(screen.getByRole("button", { name: "Thao tác với ADS-002" }));
+    expect(screen.getAllByRole("menuitem").map((item) => item.textContent)).toEqual([
+      "Sửa",
+      "Cập nhật trạng thái",
+      "Đã rà soát",
+    ]);
+    expect(screen.queryByRole("button", { name: "Thao tác với ADS-003" })).not.toBeInTheDocument();
+  });
+
+  it('gives a plain member "Tài nguyên của tôi" without "Danh sách tài nguyên"', () => {
+    const member = resourceScreens({
+      ...ME,
+      resources: { ...ACCESS, view_all: false, view_list: false, edit: false, import_excel: false, settings: false, report: false },
+    }).map((screen) => screen.href);
+    expect(member).toEqual(["/resources/mine", "/resources/requests"]);
   });
 });

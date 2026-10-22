@@ -3,7 +3,8 @@
 import Link from "next/link";
 import type { ResourceRow } from "@/lib/api";
 import { Pill } from "@/components/states";
-import { useRowNavigation } from "@/components/task-table";
+import { NO_ROW_NAV, useRowNavigation } from "@/components/task-table";
+import { ResourceRowActions } from "@/components/resource-actions";
 import {
   alertTone,
   employmentTone,
@@ -25,6 +26,7 @@ import {
 export const RESOURCE_COLUMNS = [
   "Mã",
   "Loại",
+  "Ngày bàn giao",
   "ID",
   "Tên",
   "Ban",
@@ -32,18 +34,24 @@ export const RESOURCE_COLUMNS = [
   "Trạng thái nhân viên",
   "Trạng thái",
   "Bàn giao",
-  "Ngày rà soát",
 ] as const;
 
 export function ResourceTable({
   rows,
   emptyMessage = "Không có tài nguyên nào trong bộ lọc này.",
   compact = false,
+  actions = false,
 }: {
   rows: ResourceRow[];
   emptyMessage?: string;
   /** Without the "Ban" column (the employee look-up already says the department). */
   compact?: boolean;
+  /**
+   * A last column with each row's quick actions ("⋯": Sửa, Cập nhật trạng
+   * thái, Đã rà soát, Đổi người được bàn giao, Xoá - whatever the row's own
+   * flags allow, 2026-10-21).
+   */
+  actions?: boolean;
 }) {
   const rowProps = useRowNavigation();
   return (
@@ -51,6 +59,11 @@ export function ResourceTable({
       <table className="table-dense min-w-[1100px]" data-testid="resource-table">
         <thead>
           <tr>
+            {actions ? (
+              <th scope="col" className="w-10">
+                <span className="sr-only">Thao tác</span>
+              </th>
+            ) : null}
             {RESOURCE_COLUMNS.filter((column) => !compact || column !== "Ban").map((column) => (
               <th key={column} scope="col">
                 {column}
@@ -61,7 +74,7 @@ export function ResourceTable({
         <tbody>
           {rows.length === 0 ? (
             <tr>
-              <td colSpan={compact ? 9 : 10} className="text-[var(--text-muted)]">
+              <td colSpan={(compact ? 9 : 10) + (actions ? 1 : 0)} className="text-[var(--text-muted)]">
                 {emptyMessage}
               </td>
             </tr>
@@ -81,6 +94,13 @@ export function ResourceTable({
                       : ""
                 }`}
               >
+                {actions ? (
+                  // First, so it is in view without scrolling; a press here
+                  // opens the menu, never the profile.
+                  <td {...NO_ROW_NAV} className="w-10">
+                    <ResourceRowActions row={row} />
+                  </td>
+                ) : null}
                 <td className="whitespace-nowrap">
                   <Link
                     href={row.detail_path}
@@ -101,6 +121,9 @@ export function ResourceTable({
                   ) : null}
                 </td>
                 <td className="whitespace-nowrap">{row.type.name}</td>
+                <td className="whitespace-nowrap text-xs tabular-nums">
+                  {formatResourceDay(row.handed_over_at ?? null) || "–"}
+                </td>
                 <td className="font-mono text-xs">{row.external_id}</td>
                 <td className="max-w-[18rem]">
                   <span className="block truncate font-medium" title={row.name}>
@@ -142,9 +165,6 @@ export function ResourceTable({
                   <Pill tone={statusTone(row.status.status_group)}>{row.status.name}</Pill>
                 </td>
                 <td className="whitespace-nowrap text-xs">{row.handover.name}</td>
-                <td className="whitespace-nowrap text-xs tabular-nums">
-                  {formatResourceDay(row.reviewed_at)}
-                </td>
               </tr>
             );
           })}

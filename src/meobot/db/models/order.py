@@ -62,6 +62,7 @@ from meobot.domain.orders.models import (
     OrderApprovalGate,
     OrderCategory,
     OrderEventKind,
+    OrderNodeAssigneeEventKind,
     OrderNodeStatus,
     OrderNodeType,
     OrderScriptSource,
@@ -72,6 +73,8 @@ from meobot.domain.orders.models import (
 
 ORDERS = "orders"
 ORDER_NODES = "order_nodes"
+ORDER_NODE_ASSIGNEES = "order_node_assignees"
+ORDER_NODE_ASSIGNEE_EVENTS = "order_node_assignee_events"
 ORDER_SUBMISSIONS = "order_submissions"
 ORDER_EVENTS = "order_events"
 ORDER_APPROVALS = "order_approvals"
@@ -327,6 +330,80 @@ class OrderSubmission(Base, UUIDPrimaryKeyMixin):
     )
 
 
+#: The SQL predicate for a still-open assignee row (0069).
+OPEN_ASSIGNEE = text("removed_at IS NULL")
+
+
+class OrderNodeAssignee(Base, UUIDPrimaryKeyMixin):
+    """0069: one person assigned to one node, with their own list of design
+    work items. A single-assignee node (Biên kịch, Dựng) has exactly one row;
+    a Design node may have several, each scored on their own list."""
+
+    __tablename__ = ORDER_NODE_ASSIGNEES
+    __table_args__ = (
+        Index(
+            "uq_order_node_assignees_node_user",
+            "node_id",
+            "user_id",
+            unique=True,
+            postgresql_where=OPEN_ASSIGNEE,
+            sqlite_where=OPEN_ASSIGNEE,
+        ),
+        Index("ix_order_node_assignees_user", "user_id"),
+    )
+
+    node_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey(f"{ORDER_NODES}.id", ondelete=RESTRICT), nullable=False
+    )
+    user_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey(f"{USERS_TABLE}.id", ondelete=RESTRICT), nullable=False
+    )
+    assigned_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utcnow, server_default=func.now(), nullable=False
+    )
+    accepted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    submitted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    submission_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey(f"{ORDER_SUBMISSIONS}.id", ondelete=RESTRICT), nullable=True
+    )
+    #: This person's design work items (snapshots code_id/code/name/quantity).
+    work_items: Mapped[list[dict[str, Any]] | None] = mapped_column(JSONColumn, nullable=True)
+    #: The Leader took this person off the node; the row is kept for history.
+    removed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+
+class OrderNodeAssigneeEvent(Base, UUIDPrimaryKeyMixin):
+    """0069: append-only history of a Design assignee's work-item list, so the
+    monthly scoring can see what each person claimed and when it changed."""
+
+    __tablename__ = ORDER_NODE_ASSIGNEE_EVENTS
+    __table_args__ = (Index("ix_order_node_assignee_events_node", "node_id", "created_at"),)
+
+    node_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey(f"{ORDER_NODES}.id", ondelete=RESTRICT), nullable=False
+    )
+    user_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey(f"{USERS_TABLE}.id", ondelete=RESTRICT), nullable=False
+    )
+    kind: Mapped[OrderNodeAssigneeEventKind] = mapped_column(
+        value_enum(OrderNodeAssigneeEventKind, name="order_node_assignee_event_kind", length=20),
+        nullable=False,
+    )
+    #: The list after this change.
+    work_items: Mapped[list[dict[str, Any]] | None] = mapped_column(JSONColumn, nullable=True)
+    #: Which revision round of the node this change belongs to.
+    revision_no: Mapped[int] = mapped_column(
+        Integer, nullable=False, default=0, server_default=text("0")
+    )
+    actor_user_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey(f"{USERS_TABLE}.id", ondelete=RESTRICT), nullable=False
+    )
+    note: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utcnow, server_default=func.now(), nullable=False
+    )
+
+
 class OrderEvent(Base, UUIDPrimaryKeyMixin):
     """One thing that happened to one order. Never edited, never deleted."""
 
@@ -534,6 +611,8 @@ __all__ = [
     "ORDER_EVENTS",
     "ORDER_LEDGER",
     "ORDER_NODES",
+    "ORDER_NODE_ASSIGNEES",
+    "ORDER_NODE_ASSIGNEE_EVENTS",
     "ORDER_SUBMISSIONS",
     "ORDER_WORK_RULES",
     "TYPED_WORK_RULE",
@@ -542,6 +621,8 @@ __all__ = [
     "OrderCodeCounter",
     "OrderEvent",
     "OrderNode",
+    "OrderNodeAssignee",
+    "OrderNodeAssigneeEvent",
     "OrderSubmission",
     "OrderTokenLedger",
     "OrderWorkRule",

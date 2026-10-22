@@ -286,7 +286,7 @@ async def list_resources(
         offset=offset,
     )
     page = await service.list_resources(access, filters)
-    return ResourceListResponse.from_page(page, limit=limit, offset=offset)
+    return ResourceListResponse.from_page(page, limit=limit, offset=offset, access=access)
 
 
 @router.get("/export.xlsx")
@@ -349,7 +349,7 @@ async def create_resource(
     ``resource_holder_invalid`` / ``resource_department_invalid`` name their field."""
     data = ResourceInput(**body.model_dump())
     row = await service.create(access=access, actor=actor, request_id=request_id, data=data)
-    return ResourceDetailResponse.from_detail(await service.get(access, row.id))
+    return ResourceDetailResponse.from_detail(await service.get(access, row.id), access)
 
 
 # --- reports --------------------------------------------------------------------------
@@ -446,7 +446,7 @@ async def resource(
     resource_id: uuid.UUID, access: ResourceAccessDep, service: ResourceServiceDep
 ) -> ResourceDetailResponse:
     """The profile: every field, the two histories and the change log, newest first."""
-    return ResourceDetailResponse.from_detail(await service.get(access, resource_id))
+    return ResourceDetailResponse.from_detail(await service.get(access, resource_id), access)
 
 
 @router.patch("/{resource_id}", response_model=ResourceDetailResponse)
@@ -464,7 +464,7 @@ async def update_resource(
     await service.update(
         access=access, actor=actor, request_id=request_id, resource_id=resource_id, changes=changes
     )
-    return ResourceDetailResponse.from_detail(await service.get(access, resource_id))
+    return ResourceDetailResponse.from_detail(await service.get(access, resource_id), access)
 
 
 @router.post("/{resource_id}/holder", response_model=ResourceDetailResponse)
@@ -488,7 +488,7 @@ async def change_holder(
         note=body.note,
         handover_id=body.handover_id,
     )
-    return ResourceDetailResponse.from_detail(await service.get(access, resource_id))
+    return ResourceDetailResponse.from_detail(await service.get(access, resource_id), access)
 
 
 @router.post("/{resource_id}/status", response_model=ResourceDetailResponse)
@@ -508,7 +508,7 @@ async def update_status(
         status_id=body.status_id,
         note=body.note,
     )
-    return ResourceDetailResponse.from_detail(await service.get(access, resource_id))
+    return ResourceDetailResponse.from_detail(await service.get(access, resource_id), access)
 
 
 @router.post("/{resource_id}/review", response_model=ResourceDetailResponse)
@@ -524,7 +524,24 @@ async def mark_reviewed(
     await service.mark_reviewed(
         access=access, actor=actor, request_id=request_id, resource_id=resource_id, note=body.note
     )
-    return ResourceDetailResponse.from_detail(await service.get(access, resource_id))
+    return ResourceDetailResponse.from_detail(await service.get(access, resource_id), access)
+
+
+@router.delete("/{resource_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_resource(
+    resource_id: uuid.UUID,
+    access: ResourceAccessDep,
+    actor: CurrentActorDep,
+    request_id: RequestIdDep,
+    service: ResourceServiceDep,
+    note: str | None = Query(default=None, max_length=1000),
+) -> Response:
+    """ "Xoá tài nguyên" (0071): the Phòng Tài nguyên (``DELETE``), else 403
+    ``resource_forbidden``. Soft: gone from every list, its history kept."""
+    await service.delete(
+        access=access, actor=actor, request_id=request_id, resource_id=resource_id, note=note
+    )
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
 __all__ = ["router"]

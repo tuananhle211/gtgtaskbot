@@ -100,8 +100,16 @@ class ResourceOption(Base, UUIDPrimaryKeyMixin, TimestampMixin):
 class Resource(Base, UUIDPrimaryKeyMixin, TimestampMixin):
     __tablename__ = RESOURCES
     __table_args__ = (
-        #: Rule 3: no two resources of one type share an id.
-        UniqueConstraint("type_id", "external_id", name="uq_resources_type_id_external_id"),
+        #: Rule 3: no two LIVING resources of one type share an id (0071: a
+        #: deleted one frees its id).
+        Index(
+            "uq_resources_type_id_external_id",
+            "type_id",
+            "external_id",
+            unique=True,
+            postgresql_where=text("deleted_at IS NULL"),
+            sqlite_where=text("deleted_at IS NULL"),
+        ),
         CheckConstraint(_not_empty("code"), name="code_not_empty"),
         CheckConstraint(_not_empty("external_id"), name="external_id_not_empty"),
         CheckConstraint(_not_empty("name"), name="name_not_empty"),
@@ -158,6 +166,12 @@ class Resource(Base, UUIDPrimaryKeyMixin, TimestampMixin):
     created_by_user_id: Mapped[uuid.UUID | None] = mapped_column(
         ForeignKey(f"{USERS_TABLE}.id", ondelete=RESTRICT), nullable=True
     )
+    #: "Xoá" (0071): soft - the histories are append-only and point at it.
+    #: A deleted resource is gone from every list, report and count.
+    deleted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    deleted_by_user_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey(f"{USERS_TABLE}.id", ondelete=RESTRICT), nullable=True
+    )
     #: The "Đề xuất tài nguyên" this resource was bought for (0070).
     request_id: Mapped[uuid.UUID | None] = mapped_column(
         ForeignKey(f"{RESOURCE_REQUESTS}.id", ondelete=RESTRICT), nullable=True, index=True
@@ -189,8 +203,9 @@ class ResourceRequest(Base, UUIDPrimaryKeyMixin, TimestampMixin):
     reason: Mapped[str] = mapped_column(Text, nullable=False)
     replaces: Mapped[str | None] = mapped_column(String(200), nullable=True)
     #: "Dự toán tối đa", in đồng.
-    budget: Mapped[int] = mapped_column(BigInteger, nullable=False)
-    needed_by: Mapped[date] = mapped_column(Date, nullable=False)
+    #: "Dự toán tối đa" and "Cần có trước ngày": optional since 0071.
+    budget: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
+    needed_by: Mapped[date | None] = mapped_column(Date, nullable=True)
     stage: Mapped[RequestStage] = mapped_column(
         value_enum(RequestStage, name="resource_request_stage", length=20), nullable=False
     )

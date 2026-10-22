@@ -112,7 +112,7 @@ export function ResourceFormDialog({
   options,
   resource = null,
   onSaved,
-  lockDepartment = false,
+  limited = false,
 }: {
   open: boolean;
   onClose: () => void;
@@ -122,9 +122,10 @@ export function ResourceFormDialog({
   onSaved: (detail: ResourceDetail) => void;
   /**
    * The editor is the holder or their head, not the Phòng Tài nguyên: the
-   * "Ban quản lý" cannot move (the server refuses a change, 2026-10-21).
+   * "Ban quản lý", the type and the ID cannot change (the server refuses
+   * them, 2026-10-21).
    */
-  lockDepartment?: boolean;
+  limited?: boolean;
 }) {
   const queryClient = useQueryClient();
   const ids = {
@@ -183,7 +184,7 @@ export function ResourceFormDialog({
     label: string,
     key: keyof Draft,
     kind: string,
-    { required = false, keep }: { required?: boolean; keep?: string | null } = {},
+    { required = false, keep, disabled = false }: { required?: boolean; keep?: string | null; disabled?: boolean } = {},
   ) => (
     <label htmlFor={id} className="block text-xs text-[var(--text-muted)]">
       {label}
@@ -194,6 +195,7 @@ export function ResourceFormDialog({
         onChange={(event) => set(key, event.target.value)}
         className="mt-1 w-full text-sm"
         aria-invalid={field === key || undefined}
+        disabled={disabled}
       >
         {required ? null : <option value="">— Không —</option>}
         {required && !draft[key] ? <option value="">— chọn —</option> : null}
@@ -239,7 +241,7 @@ export function ResourceFormDialog({
     id: string,
     label: string,
     key: keyof Draft,
-    { required = false, type = "text", placeholder = "", mono = false }: { required?: boolean; type?: string; placeholder?: string; mono?: boolean } = {},
+    { required = false, type = "text", placeholder = "", mono = false, disabled = false }: { required?: boolean; type?: string; placeholder?: string; mono?: boolean; disabled?: boolean } = {},
   ) => (
     <label htmlFor={id} className="block text-xs text-[var(--text-muted)]">
       {label}
@@ -251,7 +253,8 @@ export function ResourceFormDialog({
         placeholder={placeholder}
         onChange={(event) => set(key, event.target.value)}
         aria-invalid={field === key || undefined}
-        className={`mt-1 ${FIELD} ${mono ? "font-mono" : ""}`}
+        disabled={disabled}
+        className={`mt-1 ${FIELD} ${mono ? "font-mono" : ""} disabled:opacity-60`}
         {...(type === "text" && mono ? { inputMode: "text" as const, autoComplete: "off" } : {})}
       />
       {errorOf(key) ? (
@@ -308,7 +311,7 @@ export function ResourceFormDialog({
               onChange={(event) => set("department_id", event.target.value)}
               className="mt-1 w-full text-sm"
               aria-invalid={field === "department_id" || undefined}
-              disabled={lockDepartment}
+              disabled={limited}
             >
               {(options?.departments ?? []).map((department) => (
                 <option key={department.id} value={department.id}>
@@ -316,13 +319,16 @@ export function ResourceFormDialog({
                 </option>
               ))}
             </Select>
-            {lockDepartment ? (
-              <span className="mt-1 block text-[11px]">Chỉ Phòng Tài nguyên đổi được ban quản lý.</span>
+            {limited ? (
+              <span className="mt-1 block text-[11px]">
+                Chỉ Phòng Tài nguyên đổi được ban quản lý, loại và ID.
+              </span>
             ) : null}
           </label>
-          {select(ids.type, "Loại", "type_id", "TYPE", { required: true, keep: resource?.type.id })}
+          {select(ids.type, "Loại", "type_id", "TYPE", { required: true, keep: resource?.type.id, disabled: limited })}
           {text(ids.external, "ID tài nguyên", "external_id", {
             mono: true,
+            disabled: limited,
             placeholder: "Để trống: hệ thống lấy mã tài nguyên làm ID",
           })}
           {text(ids.name, "Tên tài nguyên", "name", { required: true })}

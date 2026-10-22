@@ -47,6 +47,10 @@ class ResourceAccessResponse(BaseModel):
     view_all: bool = False
     #: "Thêm tài nguyên" (2026-10-21: the Phòng Tài nguyên).
     create: bool = False
+    #: "Xoá tài nguyên" (0071: the Phòng Tài nguyên).
+    delete: bool = False
+    #: The "Danh sách tài nguyên" menu entry: more than one's own to see.
+    view_list: bool = False
     #: Edit EVERY resource and change any holder; one's own (and a head's
     #: department's people's) are editable without it - see ``can_edit``.
     edit: bool = False
@@ -61,6 +65,8 @@ class ResourceAccessResponse(BaseModel):
             view=access.any_view,
             view_all=access.view_all,
             create=access.create,
+            delete=access.delete,
+            view_list=access.view_list,
             edit=access.edit,
             import_excel=access.import_excel,
             settings=access.settings,
@@ -261,11 +267,29 @@ class ResourceRowResponse(BaseModel):
     created_at: datetime
     updated_at: datetime
     detail_path: str
+    #: "Ngày bàn giao": the latest hand-over (2026-10-21); null before any.
+    handed_over_at: datetime | None = None
+    #: What the viewer may do on this row (2026-10-21; the table's quick
+    #: actions): edit / status / review, change the holder, delete, and change
+    #: the identifying fields (ID, loại). False when not computed.
+    can_edit: bool = False
+    can_handover: bool = False
+    can_delete: bool = False
+    can_change_identity: bool = False
 
     @classmethod
-    def from_row(cls, row: ResourceRow) -> ResourceRowResponse:
+    def from_row(
+        cls, row: ResourceRow, access: ResourceAccess | None = None
+    ) -> ResourceRowResponse:
         resource = row.resource
+        manages = access is not None and access.may_manage(
+            holder_user_id=resource.holder_user_id, department_id=resource.department_id
+        )
         return cls(
+            can_edit=manages,
+            can_handover=access is not None and access.edit,
+            can_delete=access is not None and access.delete,
+            can_change_identity=access is not None and access.edit,
             id=resource.id,
             code=resource.code,
             type=OptionResponse.from_row(row.type),
@@ -297,6 +321,7 @@ class ResourceRowResponse(BaseModel):
             created_at=resource.created_at,
             updated_at=resource.updated_at,
             detail_path=f"/resources/{resource.id}",
+            handed_over_at=row.handed_over_at,
         )
 
 
@@ -308,9 +333,16 @@ class ResourceListResponse(BaseModel):
     review_days: int
 
     @classmethod
-    def from_page(cls, page: ResourcePage, *, limit: int, offset: int) -> ResourceListResponse:
+    def from_page(
+        cls,
+        page: ResourcePage,
+        *,
+        limit: int,
+        offset: int,
+        access: ResourceAccess | None = None,
+    ) -> ResourceListResponse:
         return cls(
-            items=[ResourceRowResponse.from_row(row) for row in page.rows],
+            items=[ResourceRowResponse.from_row(row, access) for row in page.rows],
             total=page.total,
             limit=limit,
             offset=offset,
@@ -400,11 +432,16 @@ class ResourceDetailResponse(BaseModel):
     can_edit: bool
     #: "Đổi người được bàn giao" (whoever edits every resource).
     can_handover: bool = False
+    #: "Xoá" (0071: the Phòng Tài nguyên).
+    can_delete: bool = False
 
     @classmethod
-    def from_detail(cls, detail: ResourceDetail) -> ResourceDetailResponse:
+    def from_detail(
+        cls, detail: ResourceDetail, access: ResourceAccess | None = None
+    ) -> ResourceDetailResponse:
         return cls(
-            resource=ResourceRowResponse.from_row(detail.row),
+            can_delete=access is not None and access.delete,
+            resource=ResourceRowResponse.from_row(detail.row, access),
             handovers=[HandoverResponse.from_line(line) for line in detail.handovers],
             statuses=[StatusLineResponse.from_line(line) for line in detail.statuses],
             changes=[ChangeResponse.from_line(line) for line in detail.changes],

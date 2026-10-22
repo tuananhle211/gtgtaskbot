@@ -95,6 +95,26 @@ def describe_items(items: Iterable[DesignItem]) -> str:
     return ", ".join(f"{item.code} x{item.quantity}" for item in items) or "(trống)"
 
 
+def sum_work_items(lists: Iterable[Iterable[DesignItem]]) -> tuple[DesignItem, ...]:
+    """0069: several designers' lists added into one, quantities summed per
+    code. The code/name snapshot is the first one seen for each code. Used to
+    compare the whole Design team's output against the order's list."""
+    total: dict[uuid.UUID, DesignItem] = {}
+    for items in lists:
+        for item in items:
+            seen = total.get(item.code_id)
+            if seen is None:
+                total[item.code_id] = item
+            else:
+                total[item.code_id] = DesignItem(
+                    code_id=seen.code_id,
+                    code=seen.code,
+                    name=seen.name,
+                    quantity=seen.quantity + item.quantity,
+                )
+    return tuple(total.values())
+
+
 #: How many "Ảnh minh hoạ" links one birthday order carries.
 MAX_REFERENCE_LINKS = 20
 
@@ -125,4 +145,5 @@ __all__ = [
     "join_links",
     "same_items",
     "split_links",
+    "sum_work_items",
 ]

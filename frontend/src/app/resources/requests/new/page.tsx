@@ -61,8 +61,8 @@ export default function NewResourceRequestPage() {
         requirements: draft.requirements.trim() || null,
         reason: draft.reason.trim(),
         replaces: draft.replaces.trim() || null,
-        budget: Number(digits(draft.budget) || "0"),
-        needed_by: draft.needed_by,
+        budget: digits(draft.budget) ? Number(digits(draft.budget)) : null,
+        needed_by: draft.needed_by || null,
       }),
     onSuccess: (created) => router.push(created.detail_path),
   });
@@ -88,9 +88,7 @@ export default function NewResourceRequestPage() {
     quantity <= options.max_quantity &&
     draft.site &&
     draft.purpose.trim() &&
-    draft.reason.trim() &&
-    digits(draft.budget) &&
-    draft.needed_by;
+    draft.reason.trim();
   const field = send.error instanceof ApiError ? (send.error.details?.field as string | undefined) : undefined;
   const typeName = options.types.find((item) => item.value === draft.type_id)?.label ?? "";
   const route =
@@ -201,7 +199,7 @@ export default function NewResourceRequestPage() {
           />
         </label>
         <label htmlFor={ids.budget} className={label}>
-          Dự toán tối đa (đ) *
+          Dự toán tối đa (đ)
           <input
             id={ids.budget}
             inputMode="numeric"
@@ -211,13 +209,12 @@ export default function NewResourceRequestPage() {
           />
         </label>
         <label htmlFor={ids.needed} className={label}>
-          Cần có trước ngày *
+          Cần có trước ngày
           <DateInput
             id={ids.needed}
             value={draft.needed_by}
             onChange={(event) => set("needed_by", event.target.value)}
             className={input}
-            required
             aria-invalid={field === "needed_by" || undefined}
           />
         </label>

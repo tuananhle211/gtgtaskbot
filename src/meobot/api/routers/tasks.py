@@ -116,6 +116,9 @@ async def task_action(
             link=body.link,
             text=body.text,
             assignee_user_id=body.assignee_user_id,
+            assignee_user_ids=(
+                None if body.assignee_user_ids is None else tuple(body.assignee_user_ids)
+            ),
             tokens=body.tokens,
             deadline_at=body.deadline_at,
             design_picks=(
@@ -125,6 +128,16 @@ async def task_action(
                     DesignPick(code_id=item.code_id, quantity=item.quantity)
                     for item in body.design_codes
                 )
+            ),
+            picks_by_user=(
+                None
+                if body.design_codes_by_user is None
+                else {
+                    user_id: tuple(
+                        DesignPick(code_id=item.code_id, quantity=item.quantity) for item in picks
+                    )
+                    for user_id, picks in body.design_codes_by_user.items()
+                }
             ),
         ),
     )

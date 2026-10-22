@@ -20,7 +20,7 @@ would otherwise see both inside one statement.
 from __future__ import annotations
 
 import uuid
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
 from datetime import date, datetime
 from decimal import Decimal
@@ -37,6 +37,7 @@ from meobot.application.orders.design_code_service import (
     has_birthday_orders,
     manages_design_codes,
 )
+from meobot.application.orders.node_assignees import OrderNodeAssigneeService
 from meobot.application.orders.notifications import OrderNotificationService
 from meobot.application.orders.scope import OrderScope
 from meobot.application.orders.script_review import (
@@ -51,7 +52,14 @@ from meobot.application.pr_support import lock_row, record_pr_event
 from meobot.application.units.directory import ROLE_FOR_NODE, UnitDirectoryService
 from meobot.core.config import Settings
 from meobot.core.time import ensure_utc, utcnow
-from meobot.db.models.order import Order, OrderApproval, OrderEvent, OrderNode, OrderSubmission
+from meobot.db.models.order import (
+    Order,
+    OrderApproval,
+    OrderEvent,
+    OrderNode,
+    OrderNodeAssignee,
+    OrderSubmission,
+)
 from meobot.db.models.org_unit import OrgUnitMember, UnitDuration, UnitPlatform, UnitVideoKind
 from meobot.db.models.user import User
 from meobot.domain.audit.models import AuditAction
@@ -199,6 +207,9 @@ class _Loaded:
     scope: OrderScope
     settings: UnitSettings
     membership: UnitMembership
+    #: 0069: a Design node's open assignees (node_id → rows). Empty for a
+    #: single-assignee node, whose NodeView keeps using ``assignee_user_id``.
+    design_assignees: dict[uuid.UUID, list[OrderNodeAssignee]] = field(default_factory=dict)
 
     def view(self) -> OrderView:
         return OrderView(
@@ -220,6 +231,19 @@ class _Loaded:
                 assignee_user_id=node.assignee_user_id,
                 preassigned_user_id=node.preassigned_user_id,
                 accepted_at=node.accepted_at,
+                assignee_user_ids=frozenset(
+                    row.user_id for row in self.design_assignees.get(node.id, ())
+                ),
+                accepted_user_ids=frozenset(
+                    row.user_id
+                    for row in self.design_assignees.get(node.id, ())
+                    if row.accepted_at is not None
+                ),
+                submitted_user_ids=frozenset(
+                    row.user_id
+                    for row in self.design_assignees.get(node.id, ())
+                    if row.submitted_at is not None
+                ),
             )
             for node in self.nodes.values()
         )
@@ -263,6 +287,8 @@ class OrderCommandService:
         self._kpi = kpi
         self._tokens = OrderTokenLedgerService(session)
         self._design = DesignCodeService(session, directory=directory, audit=audit)
+        #: 0069: several designers on one Design node, each scored on their list.
+        self._assignees = OrderNodeAssigneeService(session)
         #: The AI reading of "Khung nhập kịch bản"; None = nobody to ask.
         self._script_reviewer = script_reviewer
         self._passed_scripts = passed_scripts
@@ -729,11 +755,17 @@ class OrderCommandService:
         order_id: uuid.UUID,
         node_id: uuid.UUID,
         expected_version: int,
-        assignee_user_id: uuid.UUID,
+        assignee_user_ids: Sequence[uuid.UUID],
         plan: NodePlan | None = None,
+        picks_by_user: Mapping[uuid.UUID, Sequence[DesignPick]] | None = None,
     ) -> Order:
-        """Hand the node to a member, with its tokens and deadline - both
-        required the first time the node is planned (0053)."""
+        """Hand the node to one or more members, with its tokens and deadline -
+        both required the first time the node is planned (0053).
+
+        A Design node (0069) may be handed to several people at once; the
+        Leader may split the design codes per person (``picks_by_user``). Every
+        other node takes exactly one person.
+        """
         loaded = await self._load(actor, order_id, expected_version)
         node = self._node(loaded, node_id)
         assert_allowed(
@@ -743,29 +775,53 @@ class OrderCommandService:
             loaded.scope.context,
             node_id=node.id,
         )
-        await self._check_function_member(
-            loaded.order.unit_id,
-            node.node_type,
-            assignee_user_id,
-            video_type=loaded.order.video_type,
-        )
+        wanted = list(dict.fromkeys(assignee_user_ids))
+        if not wanted:
+            raise OrderValidationError(
+                "Cần chọn ít nhất một người làm.",
+                details={"reason": "assignee_required", "field": "assignee_user_id"},
+            )
+        multi = self._multi_design(loaded, node)
+        if len(wanted) > 1 and not multi:
+            raise OrderValidationError(
+                "Công đoạn này chỉ giao cho một người.",
+                details={"reason": "single_assignee", "field": "assignee_user_id"},
+            )
+        for user_id in wanted:
+            await self._check_function_member(
+                loaded.order.unit_id, node.node_type, user_id, video_type=loaded.order.video_type
+            )
         before = self._snapshot(loaded.order)
         await self._apply_plan(
             loaded, node, actor, plan or NodePlan(), required=_unplanned(node, loaded.settings)
         )
         await self._design_only_approval(loaded, node, actor)
-        changed = node.assignee_user_id != assignee_user_id
-        node.assignee_user_id = assignee_user_id
+        if multi:
+            items_by_user = await self._resolve_picks_by_user(loaded, picks_by_user)
+            rows = await self._assignees.set_people(
+                node, wanted, actor=actor, items_by_user=items_by_user
+            )
+            # The board reads a node's aggregate state off these columns; the
+            # per-person state lives in order_node_assignees (0069). The first
+            # person is the node's "primary" so a cell still names somebody,
+            # and accepted_at mirrors whether anyone has started.
+            node.assignee_user_id = wanted[0]
+            node.accepted_at = next(
+                (row.accepted_at for row in rows if row.accepted_at is not None), None
+            )
+        else:
+            changed = node.assignee_user_id != wanted[0]
+            node.assignee_user_id = wanted[0]
+            if changed:
+                node.accepted_at = None
         node.assigned_at = utcnow()
-        if changed:
-            node.accepted_at = None
         if node.status is OrderNodeStatus.CHUA_GIAO:
             node.status = OrderNodeStatus.DANG_LAM
         node.version += 1
         self._bump(loaded.order)
         await self._session.flush()
         await self._event(
-            loaded.order, OrderEventKind.NODE_ASSIGNED, actor, node=node, assignee=assignee_user_id
+            loaded.order, OrderEventKind.NODE_ASSIGNED, actor, node=node, assignee=wanted[0]
         )
         await self._audit_order(
             actor, request_id, AuditAction.ORDER_NODE_ASSIGNED, loaded.order, before=before
@@ -774,6 +830,31 @@ class OrderCommandService:
             actor=actor, order=loaded.order, node=node, unit=loaded.settings
         )
         return loaded.order
+
+    def _multi_design(self, loaded: _Loaded, node: OrderNode) -> bool:
+        """Whether this node is a Design node that may carry several people,
+        each scored on their own list (0069)."""
+        return (
+            node.node_type is OrderNodeType.THIET_KE
+            and loaded.settings.design_codes_enabled
+            and loaded.order.category is OrderCategory.STANDARD
+        )
+
+    async def _resolve_picks_by_user(
+        self,
+        loaded: _Loaded,
+        picks_by_user: Mapping[uuid.UUID, Sequence[DesignPick]] | None,
+    ) -> dict[uuid.UUID, tuple[DesignItem, ...]]:
+        if not picks_by_user:
+            return {}
+        keep = items_from_json(loaded.order.design_items)
+        resolved: dict[uuid.UUID, tuple[DesignItem, ...]] = {}
+        for user_id, picks in picks_by_user.items():
+            if picks:
+                resolved[user_id] = await self._design.resolve(
+                    loaded.order.unit_id, picks, keep=keep
+                )
+        return resolved
 
     async def accept(
         self,
@@ -804,7 +885,16 @@ class OrderCommandService:
                 loaded, node, actor, plan or NodePlan(), required=_unplanned(node, loaded.settings)
             )
         await self._design_only_approval(loaded, node, actor)
-        node.accepted_at = utcnow()
+        if self._multi_design(loaded, node):
+            # Each Design assignee accepts their own row (a Leader taking a
+            # routed node becomes one here); the node's own accepted_at mirrors
+            # "somebody has started" for the board.
+            assert actor.user_id is not None
+            await self._assignees.take(node, actor.user_id, actor=actor)
+            if node.accepted_at is None:
+                node.accepted_at = utcnow()
+        else:
+            node.accepted_at = utcnow()
         node.version += 1
         self._bump(loaded.order)
         await self._session.flush()
@@ -846,6 +936,10 @@ class OrderCommandService:
             node_id=node.id,
         )
         link, script_text = _blank_to_none(link), _blank_to_none(script_text)
+        if self._multi_design(loaded, node):
+            return await self._submit_design(
+                loaded, node, actor, request_id, link=link, note=note, design_picks=design_picks
+            )
         picked, proposed = await self._design_hand_in(loaded, node, design_picks)
         if link is None and hands_in_product(loaded.order.video_type, node.node_type):
             # The last node's hand-in is the product the orderer reviews.
@@ -927,6 +1021,122 @@ class OrderCommandService:
         )
         return loaded.order
 
+    async def _submit_design(
+        self,
+        loaded: _Loaded,
+        node: OrderNode,
+        actor: Actor,
+        request_id: uuid.UUID,
+        *,
+        link: str | None,
+        note: str | None,
+        design_picks: Sequence[DesignPick] | None,
+    ) -> Order:
+        """One Design assignee hands their work in (0069).
+
+        They must say which work items they did (``design_picks``, not empty).
+        The node waits until everybody has handed in; then the whole team's
+        lists are summed: equal to the order's list finishes the node, a
+        different total waits for the Design Leader to approve the change.
+        """
+        assert actor.user_id is not None
+        if not design_picks:
+            raise OrderValidationError(
+                "Cần chọn đầu việc đã làm trước khi nộp.",
+                details={"reason": "work_items_required", "field": "design_codes"},
+            )
+        keep = items_from_json(loaded.order.design_items)
+        items = await self._design.resolve(loaded.order.unit_id, design_picks, keep=keep)
+        if link is None and hands_in_product(loaded.order.video_type, node.node_type):
+            raise OrderValidationError(
+                "Công đoạn cuối cần nộp link sản phẩm.",
+                details={"reason": "link_required", "field": "link"},
+            )
+        before = self._snapshot(loaded.order)
+        submission = await self._submission(node, actor, link=link, script_text=None, note=note)
+        await self._assignees.mark_submitted(node, actor.user_id, items, submission.id, actor=actor)
+        node.version += 1
+        self._bump(loaded.order)
+        await self._session.flush()
+        await self._event(
+            loaded.order,
+            OrderEventKind.WORK_SUBMITTED,
+            actor,
+            node=node,
+            submission=submission,
+            note=note,
+        )
+        await self._audit_order(
+            actor, request_id, AuditAction.ORDER_NODE_SUBMITTED, loaded.order, before=before
+        )
+        if not await self._assignees.all_submitted(node.id):
+            # Still waiting on the rest of the team.
+            return loaded.order
+        combined = await self._assignees.combined_items(node.id)
+        node.submitted_at = utcnow()
+        if same_items(combined, keep):
+            # The team's total matches the order: finish and move on.
+            node.status = OrderNodeStatus.CHO_DUYET
+            await self._session.flush()
+            await self._complete_node(loaded, node, actor, request_id, note=None)
+            return loaded.order
+        # The total differs: the Design Leader decides the order's list.
+        node.status = OrderNodeStatus.CHO_DUYET
+        node.proposed_design_items = items_to_json(combined)
+        await self._session.flush()
+        await self._event(
+            loaded.order,
+            OrderEventKind.DESIGN_CODES_PROPOSED,
+            actor,
+            node=node,
+            note=(
+                "Nhóm Design nộp khác mã order: "
+                f"{describe_items(keep)} → {describe_items(combined)}"
+            ),
+        )
+        await self._notify.submission_ready(
+            actor=actor,
+            order=loaded.order,
+            node=node,
+            unit=loaded.settings,
+            approver_node=node.node_type,
+        )
+        return loaded.order
+
+    async def set_work_items(
+        self,
+        *,
+        actor: Actor,
+        request_id: uuid.UUID,
+        order_id: uuid.UUID,
+        node_id: uuid.UUID,
+        expected_version: int,
+        design_picks: Sequence[DesignPick],
+    ) -> Order:
+        """A Design assignee edits their own list of work items before nộp
+        (0069). The change is logged for the monthly scoring."""
+        loaded = await self._load(actor, order_id, expected_version)
+        node = self._node(loaded, node_id)
+        assert_allowed(
+            OrderActionKind.SET_WORK_ITEMS,
+            loaded.view(),
+            loaded.node_views(),
+            loaded.scope.context,
+            node_id=node.id,
+        )
+        assert actor.user_id is not None
+        before = self._snapshot(loaded.order)
+        keep = items_from_json(loaded.order.design_items)
+        items = await self._design.resolve(loaded.order.unit_id, design_picks, keep=keep)
+        await self._assignees.set_items(node, actor.user_id, items, actor=actor)
+        node.version += 1
+        self._bump(loaded.order)
+        await self._session.flush()
+        await self._audit_order(
+            actor, request_id, AuditAction.ORDER_NODE_ASSIGNED, loaded.order, before=before
+        )
+        return loaded.order
+
     async def approve_node(
         self,
         *,
@@ -964,6 +1174,8 @@ class OrderCommandService:
                 )
             order.design_items = items_to_json(decided)
             node.proposed_design_items = None
+            if self._multi_design(loaded, node):
+                await self._assignees.log_adjustment(node, decided, actor=actor)
             await self._event(
                 order,
                 OrderEventKind.DESIGN_CODES_SET,
@@ -1103,6 +1315,9 @@ class OrderCommandService:
         node.revision_count += 1
         # A requested change of design codes goes back with the hand-in.
         node.proposed_design_items = None
+        if self._multi_design(loaded, node):
+            # Everybody's hand-in reopens; their lists are kept to fix.
+            await self._assignees.reopen(node, actor=actor)
         node.token_revision = Decimal(node.token_revision or 0) + tokens
         node.revision_tokens_pending = False
         deadline = None if plan.deadline_at is None else _future(plan.deadline_at)
@@ -1562,12 +1777,27 @@ class OrderCommandService:
                 .order_by(OrderNode.created_at)
             )
         ).all()
+        node_ids = [node.id for node in nodes]
+        rows = (
+            await self._session.scalars(
+                select(OrderNodeAssignee)
+                .where(
+                    OrderNodeAssignee.node_id.in_(node_ids),
+                    OrderNodeAssignee.removed_at.is_(None),
+                )
+                .order_by(OrderNodeAssignee.assigned_at, OrderNodeAssignee.id)
+            )
+        ).all()
+        design_assignees: dict[uuid.UUID, list[OrderNodeAssignee]] = {}
+        for row in rows:
+            design_assignees.setdefault(row.node_id, []).append(row)
         return _Loaded(
             order=order,
             nodes={node.node_type: node for node in nodes},
             scope=scope,
             settings=settings,
             membership=membership,
+            design_assignees=design_assignees,
         )
 
     @staticmethod
@@ -1601,6 +1831,11 @@ class OrderCommandService:
         node.version += 1
         order.stage = stage_for_node(node.node_type)
         await self._session.flush()
+        # A Design node the orderer chose a designer for starts with that
+        # person as its one assignee; a routed Leader is not an assignee - they
+        # hand the work out (0069).
+        if self._multi_design(loaded, node) and node.preassigned_user_id is not None:
+            await self._assignees.set_people(node, [node.preassigned_user_id], actor=actor)
         await self._event(order, OrderEventKind.NODE_ACTIVATED, actor, node=node, assignee=assignee)
         await self._notify.node_turn(
             actor=actor, order=order, node=node, unit=loaded.settings, first=first

@@ -16,6 +16,7 @@ from meobot.domain.board.models import (
     BirthdayView,
     BoardPage,
     DashboardSummary,
+    DesignAssigneeView,
     DesignCodeView,
     DesignView,
     Phase,
@@ -61,6 +62,28 @@ class DesignCodeItemResponse(BaseModel):
         return cls(code_id=item.code_id, code=item.code, name=item.name, quantity=item.quantity)
 
 
+class DesignAssigneeResponse(BaseModel):
+    """0069: one designer on a Design node, with their own list."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    user_id: uuid.UUID
+    name: str
+    status: str
+    submitted: bool
+    codes: list[DesignCodeItemResponse] = []
+
+    @classmethod
+    def from_domain(cls, view: DesignAssigneeView) -> DesignAssigneeResponse:
+        return cls(
+            user_id=view.user_id,
+            name=view.name,
+            status=view.status,
+            submitted=view.submitted,
+            codes=[DesignCodeItemResponse.from_domain(item) for item in view.codes],
+        )
+
+
 class DesignViewResponse(BaseModel):
     """The Design team's reading of an ORD row (0058)."""
 
@@ -77,6 +100,11 @@ class DesignViewResponse(BaseModel):
     #: The designer's different list, waiting for the Design Leader.
     proposed_codes: list[DesignCodeItemResponse] | None = None
     designer: str | None = None
+    #: 0069: every designer on the Design node, with their list and submit
+    #: state, plus "đã nộp N/M".
+    assignees: list[DesignAssigneeResponse] = []
+    submitted_count: int = 0
+    assignee_total: int = 0
     design_link: str | None = None
     #: When the newest Design link was handed in.
     design_submitted_at: datetime | None = None
@@ -96,6 +124,9 @@ class DesignViewResponse(BaseModel):
                 else [DesignCodeItemResponse.from_domain(item) for item in view.proposed_codes]
             ),
             designer=view.designer,
+            assignees=[DesignAssigneeResponse.from_domain(item) for item in view.assignees],
+            submitted_count=view.submitted_count,
+            assignee_total=view.assignee_total,
             design_link=view.design_link,
             design_submitted_at=view.design_submitted_at,
         )

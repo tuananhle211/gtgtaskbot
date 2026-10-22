@@ -412,7 +412,9 @@ class PlanRequest(VersionedRequest):
 
 
 class AssignRequest(PlanRequest):
-    assignee_user_id: uuid.UUID
+    assignee_user_id: uuid.UUID | None = None
+    #: ORD Design (0069): several people handed one node at once.
+    assignee_user_ids: list[uuid.UUID] | None = Field(default=None, max_length=30)
 
 
 class ReturnNodeRequest(PlanRequest):

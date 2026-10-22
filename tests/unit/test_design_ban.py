@@ -250,7 +250,7 @@ async def test_05_a_designer_who_keeps_the_codes_moves_on_without_review(world: 
     ads, codes = await design_world(world)
     code = await to_design(world, ads, codes)
     submit = action(task(world, ads.designer, code), "ads:SUBMIT_WORK:")
-    assert "design_codes" in submit["inputs"] and "design_codes" not in submit["required_inputs"]
+    assert "design_codes" in submit["inputs"] and "design_codes" in submit["required_inputs"]
     assert summary(submit["design_codes"]) == [("CA", 1), ("TKBTS", 3)]
     # Sent back as they are (in another order): not a change.
     done = do(
@@ -288,9 +288,7 @@ async def test_06_a_changed_list_waits_for_the_design_leader(world: World) -> No
     assert summary(page["design"]["proposed_codes"]) == [("O-TB", 1), ("TKBTS", 2)]
     asked = "Yêu cầu thay đổi mã task design"
     note = next(e for e in page["timeline"] if e["label"].startswith(asked))
-    assert note["note"] == (
-        "Nhân viên yêu cầu thay đổi mã task design: TKBTS x3, CA x1 → TKBTS x2, O-TB x1"
-    )
+    assert note["note"] == ("Nhóm Design nộp khác mã order: TKBTS x3, CA x1 → TKBTS x2, O-TB x1")
     waiting = board(world, ads.lead_tk, awaiting_me="true")
     assert [item["code"] for item in waiting["items"]] == [code]
     assert summary(waiting["items"][0]["design"]["proposed_codes"]) == [("O-TB", 1), ("TKBTS", 2)]
@@ -365,7 +363,7 @@ async def test_08_with_no_script_step_the_designer_picks_and_always_waits(world:
     assert "design_codes" in submit["required_inputs"] and submit["design_codes"] == []
     missing = do(world, ads.designer, code, "ads:SUBMIT_WORK:", link="https://e/design")
     assert missing.status_code == 422
-    assert error_reason(missing.json()) == "design_codes_required"
+    assert error_reason(missing.json()) == "work_items_required"
     done = do(
         world,
         ads.designer,
@@ -810,7 +808,14 @@ async def test_16_a_team_sees_an_order_only_once_it_reaches_their_step(world: Wo
     assert not any(sees(person) for person in cut)
     tk = node(detail, "THIET_KE")["id"]
     detail = act(world, ads.designer, f"/nodes/{tk}/accept", detail)
-    detail = act(world, ads.designer, f"/nodes/{tk}/submit", detail, link="https://e/design")
+    detail = act(
+        world,
+        ads.designer,
+        f"/nodes/{tk}/submit",
+        detail,
+        link="https://e/design",
+        design_codes=pick(codes, CA=1),
+    )
     assert detail["order"]["stage"] == "DUNG"
     assert all(sees(person) for team in (script, design, cut) for person in team)
 
@@ -889,7 +894,14 @@ async def test_17_the_design_team_filters_by_where_the_design_step_stands(world:
     done_code, done = await at_design("Hoàn thành", chosen=True)
     act(world, ads.designer, f"/nodes/{node(done, 'THIET_KE')['id']}/accept", done)
     assert (
-        do(world, ads.designer, done_code, "ads:SUBMIT_WORK:", link="https://e/d").status_code
+        do(
+            world,
+            ads.designer,
+            done_code,
+            "ads:SUBMIT_WORK:",
+            link="https://e/d",
+            design_codes=pick(codes, CA=1),
+        ).status_code
         == 200
     )
 
@@ -1082,7 +1094,14 @@ async def test_design_only_order_skips_the_head_and_lists_its_tasks(world: World
     gates = [(a["gate"], a["decision"], a["actor_user_id"]) for a in detail["approvals"]]
     assert ("ORDER", "APPROVED", str(ads.lead_tk.id)) in gates
     detail = act(world, ads.designer, f"/nodes/{tk['id']}/accept", detail)
-    detail = act(world, ads.designer, f"/nodes/{tk['id']}/submit", detail, link="https://e/tk")
+    detail = act(
+        world,
+        ads.designer,
+        f"/nodes/{tk['id']}/submit",
+        detail,
+        link="https://e/tk",
+        design_codes=pick(codes, TKBTS=2),
+    )
     assert detail["order"]["stage"] == "FINAL_REVIEW"
     # Approved once: later takes do not add another approval.
     assert sum(1 for a in detail["approvals"] if a["gate"] == "ORDER") == 1

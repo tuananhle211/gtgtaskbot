@@ -35,7 +35,7 @@ from sqlalchemy import Select, and_, exists, false, or_, select
 from sqlalchemy.orm import aliased
 
 from meobot.db.models.department import Department, DepartmentMember
-from meobot.db.models.order import Order, OrderNode
+from meobot.db.models.order import Order, OrderNode, OrderNodeAssignee
 from meobot.db.models.org_unit import OrgUnitMember
 from meobot.db.models.user import User
 from meobot.domain.orders.errors import OrderNotFoundError
@@ -128,6 +128,19 @@ class OrderScope:
                         OrderNode.assignee_user_id == self.user_id,
                         OrderNode.preassigned_user_id == self.user_id,
                     ),
+                )
+            )
+        )
+        # 0069: a Design node handed to several people - each assignee sees it.
+        conditions.append(
+            exists(
+                select(OrderNodeAssignee.id)
+                .join(OrderNode, OrderNode.id == OrderNodeAssignee.node_id)
+                .where(
+                    OrderNode.order_id == Order.id,
+                    OrderNode.status.notin_(NOT_REACHED),
+                    OrderNodeAssignee.user_id == self.user_id,
+                    OrderNodeAssignee.removed_at.is_(None),
                 )
             )
         )

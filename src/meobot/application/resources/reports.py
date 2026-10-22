@@ -92,7 +92,7 @@ class ResourceReportService:
         if not (access.report or access.view_all):
             raise ResourceForbiddenError("Bạn chưa được xem báo cáo tài nguyên.")
         scope = self._service._scope(access)
-        statement = select(Resource).order_by(Resource.code)
+        statement = select(Resource).where(Resource.deleted_at.is_(None)).order_by(Resource.code)
         if scope is not None:
             statement = statement.where(scope)
         return list((await self._session.scalars(statement)).all())

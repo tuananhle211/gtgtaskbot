@@ -181,6 +181,8 @@ class ResourceRow:
     holder: Person | None
     two_factor_holder: Person | None
     alerts: tuple[Alert, ...]
+    #: "Ngày bàn giao" (2026-10-21): the latest hand-over line, None before any.
+    handed_over_at: datetime | None = None
 
     @property
     def flagged(self) -> bool:
@@ -526,7 +528,7 @@ class ResourceService:
         self, access: ResourceAccess, filters: ResourceFilters
     ) -> ResourcePage:
         scope = self._scope(access)
-        statement = select(Resource)
+        statement = select(Resource).where(Resource.deleted_at.is_(None))
         if scope is not None:
             statement = statement.where(scope)
         if filters.department_id is not None:
@@ -590,6 +592,14 @@ class ResourceService:
         seats = await self._open_seats(
             [resource.holder_user_id for resource in resources if resource.holder_user_id]
         )
+        latest = (
+            await self._session.execute(
+                select(ResourceHandover.resource_id, func.max(ResourceHandover.created_at))
+                .where(ResourceHandover.resource_id.in_([r.id for r in resources]))
+                .group_by(ResourceHandover.resource_id)
+            )
+        ).all()
+        handed: dict[uuid.UUID, datetime] = {key: value for key, value in latest}  # noqa: C416
         now = utcnow()
         rows: list[ResourceRow] = []
         for resource in resources:
@@ -624,6 +634,7 @@ class ResourceService:
                     two_factor_holder=two_factor_holder.person
                     if two_factor_holder is not None
                     else None,
+                    handed_over_at=handed.get(resource.id),
                     alerts=tuple(
                         alerts_for(
                             resource,
@@ -722,7 +733,9 @@ class ResourceService:
 
     async def _visible(self, access: ResourceAccess, resource_id: uuid.UUID) -> Resource:
         scope = self._scope(access)
-        statement = select(Resource).where(Resource.id == resource_id)
+        statement = select(Resource).where(
+            Resource.id == resource_id, Resource.deleted_at.is_(None)
+        )
         if scope is not None:
             statement = statement.where(scope)
         row = await self._session.scalar(statement)
@@ -769,7 +782,9 @@ class ResourceService:
         person = _person_of(user, departments.get(user.id, ()))
         holding = (
             await self._session.scalars(
-                select(Resource).where(Resource.holder_user_id == user.id).order_by(Resource.code)
+                select(Resource)
+                .where(Resource.holder_user_id == user.id, Resource.deleted_at.is_(None))
+                .order_by(Resource.code)
             )
         ).all()
         touched = (
@@ -787,7 +802,7 @@ class ResourceService:
             (
                 await self._session.scalars(
                     select(Resource)
-                    .where(Resource.id.in_(list(before_ids)))
+                    .where(Resource.id.in_(list(before_ids)), Resource.deleted_at.is_(None))
                     .order_by(Resource.code)
                 )
             ).all()
@@ -964,6 +979,16 @@ class ResourceService:
             and changes["department_id"] != row.department_id
         ):
             raise ResourceForbiddenError("Chỉ Phòng Tài nguyên đổi được ban quản lý.")
+        if not access.edit:
+            # 2026-10-21: the holder and their head edit the rest, never what
+            # identifies the resource.
+            for key, label in (("external_id", "ID tài nguyên"), ("type_id", "loại tài nguyên")):
+                if (
+                    key in changes
+                    and changes[key] not in (None, getattr(row, key))
+                    and not (key == "external_id" and str(changes[key]).strip() == row.external_id)
+                ):
+                    raise ResourceForbiddenError(f"Chỉ Phòng Tài nguyên đổi được {label}.")
         catalog = await self.catalog()
         current = ResourceInput(
             **{item.name: getattr(row, item.name) for item in fields(ResourceInput)}
@@ -1017,6 +1042,37 @@ class ResourceService:
             await self._snap(row),
         )
         return row
+
+    async def delete(
+        self,
+        *,
+        access: ResourceAccess,
+        actor: Actor,
+        request_id: uuid.UUID,
+        resource_id: uuid.UUID,
+        note: str | None = None,
+    ) -> None:
+        """ "Xoá tài nguyên" (0071): the Phòng Tài nguyên (``DELETE``). Soft -
+        the row stays for its append-only histories, gone from every list,
+        report and count; its id may be used again."""
+        access.require("delete")
+        row = await self._visible(access, resource_id)
+        before = await self._snap(row)
+        row.deleted_at = utcnow()
+        row.deleted_by_user_id = actor.user_id
+        self._session.add(
+            ResourceChange(
+                resource_id=row.id,
+                field="deleted",
+                old_value=row.code,
+                new_value=(note or "").strip() or None,
+                actor_user_id=actor.user_id,
+            )
+        )
+        await self._session.flush()
+        await self._record(
+            actor, request_id, AuditAction.RESOURCE_DELETED, "resource", row.id, before, None
+        )
 
     async def change_holder(
         self,
@@ -1253,7 +1309,9 @@ class ResourceService:
         # Rule 3: one id per type. No id given = the resource code will stand
         # in (unique on its own), see ``create`` / ``update``.
         statement = select(Resource.id).where(
-            Resource.type_id == values["type_id"], Resource.external_id == values["external_id"]
+            Resource.type_id == values["type_id"],
+            Resource.external_id == values["external_id"],
+            Resource.deleted_at.is_(None),
         )
         if exclude is not None:
             statement = statement.where(Resource.id != exclude)
@@ -1474,6 +1532,9 @@ def _sort_rows(rows: list[ResourceRow], sort: str, desc: bool) -> list[ResourceR
             row.resource.reviewed_at is None,
             ensure_utc(row.resource.reviewed_at or datetime.min.replace(tzinfo=UTC)),
         ),
+        # "Ngày bàn giao": the latest hand-over, else when it was added - so
+        # newest-first never strands a resource without a hand-over at the top.
+        "handed_over_at": lambda row: ensure_utc(row.handed_over_at or row.resource.created_at),
     }
     key = keys.get(sort, keys["code"])
     return sorted(rows, key=key, reverse=desc)
