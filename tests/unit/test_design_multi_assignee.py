@@ -60,7 +60,7 @@ async def at_design_handout(world: World, ads: Any, codes: dict[str, str]) -> tu
 
 async def test_leader_hands_one_design_task_to_two_people(world: World) -> None:
     ads, codes, second = await two_designers(world)
-    code, detail = await at_design_handout(world, ads, codes)
+    code, _detail = await at_design_handout(world, ads, codes)
 
     # The assign dialog is multi-select, and lists the ban's members (not leads).
     assign = next(a for a in task(world, ads.lead_tk, code)["actions"] if "ASSIGN" in a["key"])

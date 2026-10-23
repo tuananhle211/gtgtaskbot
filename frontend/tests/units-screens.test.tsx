@@ -278,7 +278,11 @@ describe("the nav follows the person's units", () => {
     });
     // A long label wraps inside the sidebar (from lg) instead of running out of it.
     const long = screen.getByRole("link", { name: "Thành viên & Phân quyền" });
-    expect(long.querySelector("span")).toHaveClass("lg:whitespace-normal", "min-w-0");
+    // The label span (not the icon wrapper) is the one that wraps from `lg`.
+    expect(long.querySelector("span.whitespace-nowrap")).toHaveClass(
+      "lg:whitespace-normal",
+      "min-w-0",
+    );
     // The unit switch moved beside the page title; the top bar has none.
     expect(
       screen.queryByRole("navigation", { name: "Chọn luồng" }),
