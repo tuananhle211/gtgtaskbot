@@ -71,7 +71,7 @@ from meobot.domain.orders.deadlines import (
     node_deadline_status,
     open_status,
 )
-from meobot.domain.orders.design_codes import items_from_json, split_links
+from meobot.domain.orders.design_codes import DesignItem, items_from_json, split_links
 from meobot.domain.orders.labels import (
     node_status_label,
     node_type_label,
@@ -1557,9 +1557,24 @@ BIRTHDAY_KIND_LABEL = "Sinh nhật"
 
 
 def code_views(raw: Any) -> tuple[DesignCodeView, ...]:
-    return tuple(
-        DesignCodeView(code_id=item.code_id, code=item.code, name=item.name, quantity=item.quantity)
-        for item in items_from_json(raw)
+    return tuple(code_view(item) for item in items_from_json(raw))
+
+
+def code_view(item: DesignItem) -> DesignCodeView:
+    return DesignCodeView(
+        code_id=item.code_id,
+        code=item.code,
+        name=item.name,
+        quantity=item.quantity,
+        form=item.form,
+        form_label=item.form_label,
+        form_pct=item.form_pct,
+        unit_points=item.unit_points,
+        points=item.points,
+        note=item.note,
+        free=item.free,
+        examples=item.examples,
+        unit_label=item.unit_label,
     )
 
 

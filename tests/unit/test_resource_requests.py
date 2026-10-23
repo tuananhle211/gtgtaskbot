@@ -62,6 +62,8 @@ async def test_01_the_whole_flow(world: World) -> None:
     waiting = world.client.get("/api/resources/requests", params={"tab": "mine"}).json()
     assert [item["code"] for item in waiting["items"]] == [request["code"]]
     assert waiting["awaiting_count"] == 1
+    # The menu's badge (2026-10-22): the same count on /api/units/me.
+    assert world.client.get("/api/units/me").json()["resources"]["requests_awaiting"] == 1
     world.act_as(ads.writer)
     assert world.client.get(f"/api/resources/requests/{request['id']}").status_code == 404
 
@@ -73,6 +75,9 @@ async def test_01_the_whole_flow(world: World) -> None:
     assert waiting["status_label"] == f"Chờ {ads.head.full_name} duyệt"
     approved = act(world, ads.head, request, "approve", note="Ok")
     assert approved.status_code == 200 and approved.json()["stage"] == "FUNDING"
+    assert world.client.get("/api/units/me").json()["resources"]["requests_awaiting"] == 0
+    world.act_as(people.tn_staff)
+    assert world.client.get("/api/units/me").json()["resources"]["requests_awaiting"] == 1
 
     # Step 3: "Duyệt chi" - the Phòng Tài nguyên.
     assert act(world, ads.head, request, "fund").status_code == 403

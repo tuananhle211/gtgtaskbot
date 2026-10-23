@@ -5,8 +5,11 @@ import { useMutation, useQueryClient } from "@tanstack/react-query";
 import {
   ApiError,
   api,
+  RETURN_REASONS,
   type DesignCodeItem,
+  type ReturnReason,
   type TaskAction,
+  type TaskPhase,
   type TaskPerson,
   type TaskActionBody,
   type TaskActionInput,
@@ -99,6 +102,8 @@ export function useTaskActionForm({
   );
   // The "mã task design" each action's picker holds, once it was touched.
   const [codes, setCodes] = useState<Record<string, DesignCodeItem[]>>({});
+  // 0074: the step's own task codes (Biên kịch / Dựng), once touched.
+  const [ownCodes, setOwnCodes] = useState<Record<string, DesignCodeItem[]>>({});
   // 0069: who is ticked on a multi-person "Giao việc" (ORD Design).
   const [picked, setPicked] = useState<Record<string, string[]>>({});
   const run = useMutation({
@@ -106,6 +111,7 @@ export function useTaskActionForm({
     onSuccess: (fresh) => {
       setValues({});
       setCodes({});
+      setOwnCodes({});
       setPicked({});
       onDone(fresh);
     },
@@ -121,6 +127,8 @@ export function useTaskActionForm({
     // Nothing planned yet: today, so only the day needs changing.
     if (input === "deadline")
       return toLocalInput(action.defaults?.deadline_at) || defaultDeadlineInput();
+    // 0074: a hand-in sent back for its codes only goes again as it was.
+    if (input === "link" && action.link_default) return action.link_default;
     return "";
   };
   const valueOf = (action: TaskAction, input: string) =>
@@ -151,6 +159,12 @@ export function useTaskActionForm({
   const codesRequired = (action: TaskAction) =>
     required(action, "design_codes") || (action.design_codes ?? []).length > 0;
   const pickedOf = (action: TaskAction) => picked[action.key] ?? [];
+  // 0074: the step's own code(s): what was picked here, else the suggestion.
+  const wantsOwn = (action: TaskAction) => action.inputs.includes("task_codes");
+  const phaseOf = (action: TaskAction) => (action.task_phase ?? "THIET_KE") as TaskPhase;
+  const ownOf = (action: TaskAction) => ownCodes[action.key] ?? action.task_codes ?? [];
+  const ownRequired = (action: TaskAction) =>
+    required(action, "task_codes") || (action.task_codes ?? []).length > 0;
   const missing = (action: TaskAction) =>
     (action.requires_note && !valueOf(action, "note").trim()) ||
     (action.inputs.includes("assignee") &&
@@ -158,10 +172,13 @@ export function useTaskActionForm({
         ? pickedOf(action).length === 0
         : !valueOf(action, "assignee"))) ||
     (action.required_inputs ?? []).some(
-      (input) => input !== "design_codes" && !valueOf(action, input).trim(),
+      (input) =>
+        input !== "design_codes" && input !== "task_codes" && !valueOf(action, input).trim(),
     ) ||
     (wantsCodes(action) &&
       !designCodesValid(codesOf(action), codesRequired(action))) ||
+    (wantsOwn(action) &&
+      !designCodesValid(ownOf(action), ownRequired(action), phaseOf(action))) ||
     invalid(action);
 
   const bodyFor = (action: TaskAction): TaskActionBody => {
@@ -188,6 +205,11 @@ export function useTaskActionForm({
     // Only for an action that lists the input, and only a list worth sending.
     if (wantsCodes(action) && codesOf(action).length > 0)
       body.design_codes = toDesignCodePicks(codesOf(action));
+    if (wantsOwn(action) && ownOf(action).length > 0)
+      body.task_codes = toDesignCodePicks(ownOf(action));
+    const reason = valueOf(action, "return_reason");
+    if (action.inputs.includes("return_reason") && reason)
+      body.return_reason = reason as ReturnReason;
     return body;
   };
 
@@ -352,10 +374,57 @@ export function useTaskActionForm({
         </label>,
       );
     }
+    if (action.inputs.includes("return_reason")) {
+      // 0074: "Không duyệt" names one of three reasons.
+      const chosen = valueOf(action, "return_reason");
+      parts.push(
+        <fieldset key="return_reason" className="space-y-1.5 text-xs text-[var(--text)]">
+          <legend className="mb-1">Lý do không duyệt (bắt buộc)</legend>
+          {RETURN_REASONS.map((reason) => (
+            <label
+              key={reason.value}
+              className={`flex cursor-pointer items-start gap-2 rounded-lg border p-2 ${
+                chosen === reason.value
+                  ? "border-[var(--accent)] bg-[var(--accent-soft)]"
+                  : "border-[var(--border)] bg-[var(--surface)]"
+              }`}
+            >
+              <input
+                type="radio"
+                name={`return_reason-${action.key}`}
+                value={reason.value}
+                checked={chosen === reason.value}
+                onChange={() => setValue(action, "return_reason", reason.value)}
+                className="mt-0.5"
+              />
+              <span>
+                <span className="block text-sm font-medium">{reason.label}</span>
+                <span className="block text-[var(--text-muted)]">{reason.hint}</span>
+              </span>
+            </label>
+          ))}
+        </fieldset>,
+      );
+    }
+    if (wantsOwn(action)) {
+      parts.push(
+        <DesignCodesInput
+          key="task_codes"
+          phase={phaseOf(action)}
+          value={ownOf(action)}
+          onChange={(next) => setOwnCodes((all) => ({ ...all, [action.key]: next }))}
+          required={ownRequired(action)}
+          hint="Mã task bạn đã làm (tính điểm). Trùng đề xuất thì đi như bình thường, khác thì chờ Trưởng phòng duyệt."
+        />,
+      );
+    }
     if (wantsCodes(action)) {
+      const forDesign = phaseOf(action) === "THIET_KE";
       parts.push(
         <DesignCodesInput
           key="design_codes"
+          phase="THIET_KE"
+          label={forDesign ? undefined : "Mã task công việc Design (đề xuất cho bước Design)"}
           value={codesOf(action)}
           onChange={(next) =>
             setCodes((all) => ({ ...all, [action.key]: next }))
@@ -363,6 +432,17 @@ export function useTaskActionForm({
           required={codesRequired(action)}
           hint={action.hint}
         />,
+      );
+    } else if (action.hint) {
+      // 0074: an approval of codes that differ from the suggestion says how.
+      parts.push(
+        <p
+          key="hint"
+          data-testid="action-hint"
+          className="whitespace-pre-line rounded-lg border border-[var(--warn)]/30 bg-[var(--warn-soft)] p-3 text-xs text-[var(--text)]"
+        >
+          {action.hint}
+        </p>,
       );
     }
     if (wantsNote(action)) {

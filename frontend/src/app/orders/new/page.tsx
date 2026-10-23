@@ -9,13 +9,15 @@ import {
   scriptReviewOf,
   type CreateOrderBody,
   type DesignCodeItem,
+  type DesignCodePick,
   type OrderInfo,
+  type TaskPhase,
   type ScriptCheck,
   type ScriptReview,
 } from "@/lib/api";
 import { ScriptReviewDialog } from "@/components/script-review-dialog";
 import {
-  DesignCodesPicker,
+  DesignCodesInput,
   designCodesValid,
   toDesignCodePicks,
 } from "@/components/design-codes-picker";
@@ -33,7 +35,6 @@ import { PageHeader, Select } from "@/components/pr";
 import { ErrorBox, Loading, NoticeBox } from "@/components/states";
 import { CreateContentForm } from "@/components/pr-create-content";
 import {
-  formatPoints,
   orderedProcess,
   PROCESS_NODES,
   processCode,
@@ -41,12 +42,6 @@ import {
 } from "@/lib/ads-process";
 import { defaultDeadlineInput, isPast, toIsoFromLocal, toLocalInput } from "@/lib/deadline";
 import { DateTimeInput } from "@/components/date-input";
-
-/**
- * Points ("điểm hiệu suất") next to the video kinds and durations on the
- * form. Hidden for now (the owner's call); the server still snapshots them.
- */
-const SHOW_POINTS = false;
 
 /** Who each node is routed to first, to hand out to their team. */
 const NODE_HEADS: Record<string, string> = {
@@ -274,29 +269,18 @@ function AdsOrderForm({
   const defaultNames = defaults.map((person) => person.name).join(", ");
   const approverName =
     candidates.find((person) => person.user_id === approver)?.name ?? (defaultNames || null);
-  const kinds = useQuery({
-    queryKey: ["units", "ADS", "video-kinds"],
-    queryFn: () => api.unitVideoKinds("ADS"),
-  });
   const platformsQ = useQuery({
     queryKey: ["units", "ADS", "platforms"],
     queryFn: () => api.unitPlatforms("ADS"),
   });
-  const durationsQ = useQuery({
-    queryKey: ["units", "ADS", "durations"],
-    queryFn: () => api.unitDurations("ADS"),
-  });
-  const designCodesQ = useQuery({
-    queryKey: ["units", "ADS", "design-codes"],
-    queryFn: () => api.designCodes(),
-  });
-  // "Task công việc" of a Design-only order: the design codes it needs.
-  const [tasks, setTasks] = useState<DesignCodeItem[]>([]);
+  // 0074: "Task công việc" of each ticked step - a suggestion (optional); the
+  // worker picks the actual codes on handing in. "Loại video" and "Thời
+  // lượng" left the form.
+  const [tasks, setTasks] = useState<Partial<Record<TaskPhase, DesignCodeItem[]>>>({});
+  const [tasksTouched, setTasksTouched] = useState(false);
   const [form, setForm] = useState({
     title: editing?.title ?? "",
-    video_kind_id: editing?.video_kind_id ?? "",
     platform_id: editing?.platform_id ?? "",
-    duration_id: editing?.duration_id ?? "",
     script_source: editing?.script_source ?? "AI",
     order_content: editing?.order_content ?? "",
     design_link: editing?.design_link ?? "",
@@ -325,10 +309,9 @@ function AdsOrderForm({
         ? api.orderAction(editing.id, "/resubmit", {
           version: editing.version,
           title: body.title,
-          video_kind_id: body.video_kind_id,
           platform_id: body.platform_id,
-          duration_id: body.duration_id,
           order_content: body.order_content,
+          ...(tasksTouched ? { task_codes: body.task_codes ?? {} } : {}),
           script_source: body.script_source,
           design_link: body.design_link ?? "",
           reference_link: body.reference_link ?? "",
@@ -392,18 +375,18 @@ function AdsOrderForm({
     ...nodes.map((node) => NODE_LABELS[node]),
     "Người order duyệt final",
   ].join(" › ");
-  const activeKinds = (kinds.data?.kinds ?? [])
-    .filter((kind) => kind.active)
-    .sort((a, b) => a.sort_order - b.sort_order);
   const activePlatforms = (platformsQ.data?.platforms ?? [])
     .filter((p) => p.active)
     .sort((a, b) => a.sort_order - b.sort_order);
-  const activeDurations = (durationsQ.data?.durations ?? [])
-    .filter((d) => d.active)
-    .sort((a, b) => a.sort_order - b.sort_order);
-  const needsKind = !designOnly && activeKinds.length > 0;
   const needsPlatform = !designOnly && activePlatforms.length > 0;
-  const needsDuration = !designOnly && activeDurations.length > 0;
+  const taskCodes: Partial<Record<TaskPhase, DesignCodePick[]>> = {};
+  for (const node of nodes) {
+    const picked = tasks[node as TaskPhase] ?? [];
+    if (picked.length > 0) taskCodes[node as TaskPhase] = toDesignCodePicks(picked);
+  }
+  const tasksValid = nodes.every((node) =>
+    designCodesValid(tasks[node as TaskPhase] ?? [], false, node as TaskPhase),
+  );
   const toggleNode = (node: ProcessNode) =>
     !editing &&
     setTicked((current) =>
@@ -422,12 +405,11 @@ function AdsOrderForm({
   const body: CreateOrderBody = {
     title: form.title,
     process: nodes,
+    ...(designCodes ? { task_codes: taskCodes } : {}),
     ...(designOnly
-      ? { design_codes: toDesignCodePicks(tasks) }
+      ? {}
       : {
-        video_kind_id: form.video_kind_id || null,
         platform_id: form.platform_id || null,
-        duration_id: form.duration_id || null,
         script_source: form.script_source,
       }),
     order_content: form.order_content,
@@ -447,13 +429,11 @@ function AdsOrderForm({
     nodes.length > 0 &&
     form.title.trim() &&
     form.order_content.trim() &&
-    (!needsKind || form.video_kind_id) &&
     (!needsPlatform || form.platform_id) &&
-    (!needsDuration || form.duration_id) &&
     body.desired_deadline_at &&
     !deadlinePast &&
     (designOnly || !approverRequired || approver) &&
-    (!designOnly || designCodesValid(tasks, designCodes)) &&
+    tasksValid &&
     mayGo;
   const field =
     "min-h-11 w-full rounded-lg border border-[var(--border)] bg-[var(--surface)] px-3 text-sm text-[var(--text)]";
@@ -545,40 +525,26 @@ function AdsOrderForm({
             </p>
           ) : null}
         </fieldset>
-        {designOnly ? (
-          <div className="space-y-1">
-            <p className="text-sm font-medium">3 · Task công việc</p>
-            <DesignCodesPicker
-              value={tasks}
-              onChange={setTasks}
-              options={designCodesQ.data?.codes ?? []}
-              loading={designCodesQ.isLoading}
-              required={designCodes}
-              label="Mã task design"
-              hint="Chọn các task Design cần làm, kèm số lượng."
-            />
-            {designCodesQ.isError ? <NoticeBox error={designCodesQ.error} /> : null}
+        {designCodes && nodes.length > 0 ? (
+          <div className="space-y-4" data-testid="order-task-codes">
+            <p className="text-sm font-bold">3 · Mã task công việc</p>
+            <p className="text-xs text-[var(--text-muted)]">
+              Mức task đề xuất cho từng công đoạn (không bắt buộc). Người làm chọn mã thực tế khi
+              nộp bài; khác đề xuất thì Trưởng phòng duyệt.
+            </p>
+            {nodes.map((node) => (
+              <DesignCodesInput
+                key={node}
+                phase={node as TaskPhase}
+                value={tasks[node as TaskPhase] ?? []}
+                onChange={(next) => {
+                  setTasksTouched(true);
+                  setTasks((current) => ({ ...current, [node]: next }));
+                }}
+                label={`Mã task công việc ${NODE_LABELS[node]}`}
+              />
+            ))}
           </div>
-        ) : null}
-        {needsKind ? (
-          <label className="block text-sm font-medium">
-            3 · Loại video
-            <Select
-              value={form.video_kind_id}
-              onChange={set("video_kind_id")}
-              className="mt-1 w-full"
-            >
-              <option value="">Chọn loại video…</option>
-              {activeKinds.map((kind) => (
-                <option key={kind.id} value={kind.id}>
-                  {SHOW_POINTS ? `${kind.name} · ${formatPoints(kind.points)} điểm` : kind.name}
-                </option>
-              ))}
-            </Select>
-            <span className="block text-xs font-normal text-[var(--text-muted)]">
-              {SHOW_POINTS ? "Bắt buộc · điểm hiệu suất tính theo loại video" : "Bắt buộc"}
-            </span>
-          </label>
         ) : null}
         <div className="grid gap-3 sm:grid-cols-2">
           {needsPlatform ? (
@@ -593,23 +559,6 @@ function AdsOrderForm({
                 {activePlatforms.map((p) => (
                   <option key={p.id} value={p.id}>
                     {p.name}
-                  </option>
-                ))}
-              </Select>
-            </label>
-          ) : null}
-          {needsDuration ? (
-            <label className="block text-sm font-medium">
-              Thời lượng
-              <Select
-                value={form.duration_id}
-                onChange={set("duration_id")}
-                className="mt-1 w-full"
-              >
-                <option value="">Chọn thời lượng…</option>
-                {activeDurations.map((d) => (
-                  <option key={d.id} value={d.id}>
-                    {SHOW_POINTS ? `${d.name} · ${formatPoints(d.points)} điểm` : d.name}
                   </option>
                 ))}
               </Select>

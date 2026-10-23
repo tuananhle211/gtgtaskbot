@@ -35,6 +35,7 @@ from meobot.core.errors import ValidationError
 from meobot.db.models.task import SOURCE_PR_CONTENT, Task
 from meobot.domain.identity.models import Actor
 from meobot.domain.orders.design_codes import DesignPick
+from meobot.domain.orders.models import OrderReturnReason
 from meobot.domain.orders.pipeline import OrderActionKind
 from meobot.domain.pr.errors import (
     PrPermissionDeniedError,
@@ -72,6 +73,10 @@ class TaskActionCommand:
     design_picks: tuple[DesignPick, ...] | None = None
     #: ORD Design (0069): the Leader's optional split of codes per person.
     picks_by_user: dict[uuid.UUID, tuple[DesignPick, ...]] | None = None
+    #: ORD (0074): the step's own task code(s) on a hand-in (Biên kịch / Dựng).
+    task_picks: tuple[DesignPick, ...] | None = None
+    #: ORD (0074): why a hand-in or the product is sent back.
+    return_reason: OrderReturnReason | None = None
 
 
 def _unknown(key: str) -> TaskActionKeyError:
@@ -232,6 +237,7 @@ class TaskActionService:
                 script_text=_blank(command.text),
                 note=note,
                 design_picks=command.design_picks,
+                task_picks=command.task_picks,
             )
         elif kind is OrderActionKind.APPROVE_NODE:
             await commands.approve_node(
@@ -241,7 +247,6 @@ class TaskActionService:
                 node_id=need_node(),
                 expected_version=version,
                 note=note,
-                design_picks=command.design_picks,
             )
         elif kind is OrderActionKind.RETURN_NODE:
             await commands.return_node(
@@ -252,6 +257,7 @@ class TaskActionService:
                 expected_version=version,
                 note=note or "",
                 plan=plan,
+                reason=command.return_reason,
             )
         elif kind is OrderActionKind.APPROVE_VIDEO:
             await commands.approve_video(
@@ -264,6 +270,7 @@ class TaskActionService:
                 order_id=order_id,
                 expected_version=version,
                 note=note or "",
+                reason=command.return_reason,
             )
         elif kind is OrderActionKind.APPROVE_FINAL:
             await commands.approve_final(
@@ -280,6 +287,7 @@ class TaskActionService:
                 order_id=order_id,
                 expected_version=version,
                 note=note or "",
+                reason=command.return_reason,
             )
         elif kind is OrderActionKind.SET_PRIORITY:
             order = await self._orders.queries.resolve(actor, str(order_id))

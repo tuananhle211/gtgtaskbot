@@ -116,6 +116,7 @@ async def test_01_access_follows_the_departments(world: World) -> None:
         "create": True,
         "delete": True,
         "view_list": True,
+        "requests_awaiting": 0,
         "edit": True,
         "import_excel": True,
         "settings": True,

@@ -40,7 +40,8 @@ async def design_world(world: World) -> tuple[Ads, dict[str, str]]:
     ads = await ads_world(world)
     ads.unit.settings = {**(ads.unit.settings or {}), "design_codes_enabled": True}
     await world.session.flush()
-    world.act_as(ads.lead_tk)
+    # "Danh mục điểm" is the OWNER's to keep (2026-10-23).
+    world.act_as(world.owner)
     codes: dict[str, str] = {}
     for code, name in (
         ("TKBTS", "SOCIAL - Thiết kế Banner, Thumb Video, Avatar"),
@@ -50,6 +51,21 @@ async def design_world(world: World) -> tuple[Ads, dict[str, str]]:
         made = world.client.post("/api/units/ADS/design-codes", json={"code": code, "name": name})
         assert made.status_code == 201, made.json()
         codes[code] = made.json()["id"]
+    # 0074: Biên kịch and Dựng have their own codes; orders suggest one each.
+    for phase, code, name, points in (
+        ("BIEN_TAP", "N3", "Kịch bản video đến 3 phút", 120),
+        ("DUNG", "D3", "Video trên 90 giây đến 3 phút", 240),
+    ):
+        made = world.client.post(
+            "/api/units/ADS/task-codes",
+            json={"code": code, "name": name, "phase": phase, "points": points},
+        )
+        assert made.status_code == 201, made.json()
+        codes[code] = made.json()["id"]
+    world.task_suggestions = {  # type: ignore[attr-defined]
+        "BIEN_TAP": [{"code_id": codes["N3"]}],
+        "DUNG": [{"code_id": codes["D3"]}],
+    }
     return ads, codes
 
 
@@ -73,6 +89,9 @@ def action(page: dict[str, Any], prefix: str) -> dict[str, Any]:
 
 def do(world: World, user: User, code: str, prefix: str, **body: Any) -> Any:
     """Run the task page's action whose key starts with ``prefix``."""
+    if "RETURN" in prefix:
+        # 0074: "Không duyệt" names a reason while task codes are on.
+        body.setdefault("return_reason", "WORKER_FAULT")
     page = task(world, user, code)
     return world.client.post(
         f"/api/tasks/{code}/actions",
@@ -120,7 +139,7 @@ async def to_design(world: World, ads: Ads, codes: dict[str, str]) -> str:
 # --- the catalogue ------------------------------------------------------------------
 
 
-async def test_01_the_design_leader_keeps_the_catalogue_everybody_reads_it(world: World) -> None:
+async def test_01_the_owner_keeps_the_catalogue_everybody_reads_it(world: World) -> None:
     ads, codes = await design_world(world)
     # Anybody in ORD reads the active codes, in the order they were added.
     for reader in (ads.designer, ads.writer, ads.orderer, ads.head):
@@ -131,14 +150,14 @@ async def test_01_the_design_leader_keeps_the_catalogue_everybody_reads_it(world
     # Outside ORD there is nothing behind the route.
     world.act_as(ads.outsider)
     assert world.client.get("/api/units/ADS/design-codes").status_code == 404
-    # Only the Design Leader (and OWNER / ADMIN) writes or sees the retired ones.
-    for refused_for in (ads.designer, ads.head, ads.lead_bt):
+    # Only the OWNER writes or sees the retired ones - no Trưởng phòng.
+    for refused_for in (ads.designer, ads.head, ads.lead_bt, ads.lead_tk):
         world.act_as(refused_for)
         made = world.client.post("/api/units/ADS/design-codes", json={"code": "X", "name": "x"})
         assert made.status_code == 403 and error_reason(made.json()) == "design_code_forbidden"
         retired = world.client.get("/api/units/ADS/design-codes?include_inactive=true")
         assert retired.status_code == 403
-    world.act_as(ads.lead_tk)
+    world.act_as(world.owner)
     taken = world.client.post("/api/units/ADS/design-codes", json={"code": "ca", "name": "Khác"})
     assert taken.status_code == 422 and error_reason(taken.json()) == "design_code_taken"
     renamed = world.client.patch(
@@ -150,7 +169,6 @@ async def test_01_the_design_leader_keeps_the_catalogue_everybody_reads_it(world
     ] == ["TKBTS", "O-TB"]
     everything = world.client.get("/api/units/ADS/design-codes?include_inactive=true").json()
     assert len(everything["codes"]) == 3
-    world.act_as(world.owner)
     made = world.client.post("/api/units/ADS/design-codes", json={"code": " tkv ", "name": "KV"})
     assert made.status_code == 201 and made.json()["code"] == "TKV"
     # The catalogue is ORD's alone.
@@ -218,7 +236,7 @@ async def test_03_the_script_step_must_pick_design_codes_for_design(world: World
     assert page["task"]["stage"] == "THIET_KE"
     assert summary(page["design"]["codes"]) == [("CA", 1), ("TKBTS", 3)]
     assert page["design"]["proposed_codes"] is None
-    assert any(entry["label"].startswith("Chốt mã task design") for entry in page["timeline"])
+    assert any(entry["label"].startswith("Chốt mã task công việc") for entry in page["timeline"])
     # The Design team's table reads the script link, who wrote it and the codes.
     row = next(item for item in board(world, ads.lead_tk)["items"] if item["code"] == code)
     assert row["category"] == "STANDARD" and row["birthday"] is None
@@ -286,16 +304,18 @@ async def test_06_a_changed_list_waits_for_the_design_leader(world: World) -> No
     assert page["task"]["stage"] == "THIET_KE" and page["task"]["state"] == "CHO_DUYET"
     assert summary(page["design"]["codes"]) == [("CA", 1), ("TKBTS", 3)]
     assert summary(page["design"]["proposed_codes"]) == [("O-TB", 1), ("TKBTS", 2)]
-    asked = "Yêu cầu thay đổi mã task design"
+    asked = "Nộp khác mã task đề xuất"
     note = next(e for e in page["timeline"] if e["label"].startswith(asked))
-    assert note["note"] == ("Nhóm Design nộp khác mã order: TKBTS x3, CA x1 → TKBTS x2, O-TB x1")
+    assert note["note"].startswith("Nhóm Design nộp khác mã task đề xuất:\nĐề xuất: TKBTS")
+    assert "Nộp: TKBTS" in note["note"] and "O-TB" in note["note"]
     waiting = board(world, ads.lead_tk, awaiting_me="true")
     assert [item["code"] for item in waiting["items"]] == [code]
     assert summary(waiting["items"][0]["design"]["proposed_codes"]) == [("O-TB", 1), ("TKBTS", 2)]
 
+    # 0074: the Trưởng phòng reads how it differs and approves it as entered.
     approve = action(task(world, ads.lead_tk, code), "ads:APPROVE_NODE:")
-    assert approve["inputs"] == ["note", "design_codes"]
-    assert summary(approve["design_codes"]) == [("O-TB", 1), ("TKBTS", 2)]
+    assert approve["inputs"] == ["note"]
+    assert approve["design_codes"] is None and "Đề xuất:" in approve["hint"]
     approved = do(world, ads.lead_tk, code, "ads:APPROVE_NODE:")
     assert approved.status_code == 200, approved.json()
     page = approved.json()
@@ -304,7 +324,9 @@ async def test_06_a_changed_list_waits_for_the_design_leader(world: World) -> No
     assert page["design"]["proposed_codes"] is None
 
 
-async def test_07_the_leader_may_fix_the_list_or_send_the_hand_in_back(world: World) -> None:
+async def test_07_the_leader_approves_as_entered_or_sends_back_with_a_reason(
+    world: World,
+) -> None:
     ads, codes = await design_world(world)
     code = await to_design(world, ads, codes)
     changed = pick(codes, TKBTS=9)
@@ -319,30 +341,48 @@ async def test_07_the_leader_may_fix_the_list_or_send_the_hand_in_back(world: Wo
         ).status_code
         == 200
     )
-    # Sent back: the request goes with it, the order keeps its codes.
-    returned = do(world, ads.lead_tk, code, "ads:RETURN_NODE:", note="Sai số lượng", tokens=0)
+    # "Không duyệt" names one of three reasons (0074).
+    reasonless = do(
+        world, ads.lead_tk, code, "ads:RETURN_NODE:", note="Sai", tokens=0, return_reason=None
+    )
+    assert reasonless.status_code == 422
+    assert error_reason(reasonless.json()) == "return_reason_required"
+    before = task(world, ads.lead_tk, code)["task"]["revisions"]
+    # "Mã công việc chưa hợp lý": the request goes back, no revision round.
+    returned = do(
+        world,
+        ads.lead_tk,
+        code,
+        "ads:RETURN_NODE:",
+        note="Sai số lượng",
+        tokens=0,
+        return_reason="WRONG_CODES",
+    )
     assert returned.status_code == 200, returned.json()
     page = returned.json()
     assert page["task"]["state"] == "DANG_SUA"
+    assert page["task"]["revisions"] == before
     assert page["design"]["proposed_codes"] is None
     assert summary(page["design"]["codes"]) == [("CA", 1), ("TKBTS", 3)]
-    # Handed in again with a change; this time the Leader decides the list.
+    assert any(
+        (entry["note"] or "").startswith("Mã công việc chưa hợp lý:") for entry in page["timeline"]
+    )
+    # The hand-in offers the link handed in last, to send it again as it was.
+    submit = action(task(world, ads.designer, code), "ads:SUBMIT_WORK:")
+    assert submit["link_default"] == "https://e/v1"
+    # Handed in again with a change; approved as entered - no edit.
     assert (
         do(
             world,
             ads.designer,
             code,
             "ads:SUBMIT_WORK:",
-            link="https://e/v2",
-            design_codes=changed,
+            link="https://e/v1",
+            design_codes=pick(codes, TKBTS=4, CA=1),
         ).status_code
         == 200
     )
-    empty = do(world, ads.lead_tk, code, "ads:APPROVE_NODE:", design_codes=[])
-    assert empty.status_code == 422 and error_reason(empty.json()) == "design_codes_required"
-    approved = do(
-        world, ads.lead_tk, code, "ads:APPROVE_NODE:", design_codes=pick(codes, TKBTS=4, CA=1)
-    )
+    approved = do(world, ads.lead_tk, code, "ads:APPROVE_NODE:")
     assert approved.status_code == 200, approved.json()
     assert summary(approved.json()["design"]["codes"]) == [("CA", 1), ("TKBTS", 4)]
 
@@ -386,7 +426,7 @@ async def test_08_with_no_script_step_the_designer_picks_and_always_waits(world:
 async def test_09_a_retired_code_stays_on_the_order_that_carries_it(world: World) -> None:
     ads, codes = await design_world(world)
     code = await to_design(world, ads, codes)
-    world.act_as(ads.lead_tk)
+    world.act_as(world.owner)
     assert (
         world.client.patch(
             f"/api/units/ADS/design-codes/{codes['CA']}", json={"active": False}
@@ -1057,10 +1097,9 @@ def design_only(world: World, ads: Ads, **overrides: Any) -> Any:
 
 async def test_design_only_order_skips_the_head_and_lists_its_tasks(world: World) -> None:
     ads, codes = await design_world(world)
-    # Its "Task công việc" are the design codes: required, and the video
-    # kind / platform / duration are not asked for.
-    refused = design_only(world, ads)
-    assert refused.status_code == 422 and error_reason(refused.json()) == "design_codes_required"
+    # Its "Task công việc" are the design codes - a suggestion, optional since
+    # 0074 - and the video kind / platform / duration are not asked for.
+    assert design_only(world, ads).status_code == 201
     made = design_only(world, ads, design_codes=pick(codes, TKBTS=2))
     assert made.status_code == 201, made.json()
     detail = made.json()

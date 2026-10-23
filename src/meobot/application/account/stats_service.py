@@ -16,9 +16,11 @@ What each figure counts
 
 Ads (``orders`` / ``order_nodes`` / ``order_events``):
 
-* ``points`` / ``nodes_done`` - production nodes (Biên kịch, Design, Dựng) the
-  person is assignee of, ``HOAN_THANH``, approved in the month; points are the
-  order's ``video_kind_points`` snapshot (an order without a kind counts 0);
+* ``nodes_done`` - production nodes (Biên kịch, Design, Dựng) the person is
+  assignee of, ``HOAN_THANH``, approved in the month;
+* ``points`` (0074) - the task-code points they earned on steps first done in
+  the month (``order_node_points``: every designer of a shared Design step
+  their own; nothing before task codes were switched on);
 * ``nodes_in_progress`` - nodes assigned to them now in ``DANG_LAM`` /
   ``DANG_SUA`` / ``CHO_DUYET``, any month, on an order not cancelled;
 * ``revisions`` - returns (``NODE_RETURNED`` / ``VIDEO_RETURNED`` /
@@ -60,7 +62,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from meobot.application.orders.effort_service import daily_budget, working_share
 from meobot.core.time import utcnow
-from meobot.db.models.order import Order, OrderEvent, OrderNode, OrderTokenLedger
+from meobot.db.models.order import Order, OrderEvent, OrderNode, OrderNodePoints, OrderTokenLedger
 from meobot.db.models.org_unit import OrgUnit, OrgUnitMember
 from meobot.db.models.pr import PrApprovalEvent, PrContentItem
 from meobot.db.models.pr_production import PrProductionSubmission
@@ -183,12 +185,11 @@ class AccountStatsService:
                 for index, name in enumerate(fields, start=1):
                     target[name] = row[index]
 
-        # Ads: production nodes done in the month, their points and first passes.
+        # Ads: production nodes done in the month and their first passes.
         done = await self._session.execute(
             select(
                 OrderNode.assignee_user_id,
                 func.count(OrderNode.id),
-                func.coalesce(func.sum(Order.video_kind_points), 0),
                 func.sum(case((OrderNode.revision_count == 0, 1), else_=0)),
                 func.sum(case((OrderNode.deadline_met.is_not(None), 1), else_=0)),
                 func.sum(case((OrderNode.deadline_met.is_(True), 1), else_=0)),
@@ -203,7 +204,19 @@ class AccountStatsService:
             )
             .group_by(OrderNode.assignee_user_id)
         )
-        merge(done.all(), "nodes_done", "points", "first_pass", "with_deadline", "met")
+        merge(done.all(), "nodes_done", "first_pass", "with_deadline", "met")
+
+        # 0074: the task-code points earned on steps first done in the month.
+        earned = await self._session.execute(
+            select(OrderNodePoints.user_id, func.coalesce(func.sum(OrderNodePoints.points), 0))
+            .where(
+                OrderNodePoints.user_id.in_(ids),
+                OrderNodePoints.first_completed_at >= month.start,
+                OrderNodePoints.first_completed_at < month.end,
+            )
+            .group_by(OrderNodePoints.user_id)
+        )
+        merge(earned.all(), "points")
 
         in_progress = await self._session.execute(
             select(OrderNode.assignee_user_id, func.count(OrderNode.id))

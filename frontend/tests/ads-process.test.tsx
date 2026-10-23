@@ -98,11 +98,36 @@ const KINDS = {
 type Call = { url: string; method: string; body: unknown };
 const calls = (stub: unknown) => (stub as { calls: Call[] }).calls;
 
+const N3 = "eeeeeeee-0000-4000-8000-000000000003";
+const D4 = "eeeeeeee-0000-4000-8000-000000000004";
+const FORMS = [
+  { key: "NEW", label: "Làm mới", pct: 100, note: "Mặc định.", phases: ["BIEN_TAP", "THIET_KE", "DUNG"], active: true },
+  { key: "AFTER_EFFECTS", label: "Video có After Effects", pct: 150, note: "Chỉ dùng cho D1-D7.", phases: ["DUNG"], active: true },
+];
+const TASK_CODE_ROUTES = [
+  {
+    match: "/api/units/ADS/task-codes?phase=BIEN_TAP",
+    body: {
+      codes: [{ id: N3, phase: "BIEN_TAP", code: "N3", name: "Kịch bản video đến 3 phút", title: "Kịch bản video đến 3 phút", points: 120, active: true, sort_order: 1 }],
+      forms: FORMS,
+    },
+  },
+  {
+    match: "/api/units/ADS/task-codes?phase=DUNG",
+    body: {
+      codes: [{ id: D4, phase: "DUNG", code: "D4", name: "Video trên 3 đến 5 phút", title: "Video trên 3 đến 5 phút", points: 480, active: true, sort_order: 1 }],
+      forms: FORMS,
+    },
+  },
+  { match: "/api/units/ADS/task-codes", body: { codes: [], forms: FORMS } },
+];
+
 function stubCreateForm(kinds: unknown = KINDS) {
   return stubFetch([
     { match: "/api/units/me", body: ORDERER },
     { match: "/api/units/ADS/members", body: MEMBERS },
     { match: "/api/units/ADS/video-kinds", body: kinds },
+    ...TASK_CODE_ROUTES,
     {
       match: "/api/orders",
       method: "POST",
@@ -156,17 +181,20 @@ describe("a Design-only order", () => {
       { match: "/api/units/ADS/members", body: MEMBERS },
       { match: "/api/units/ADS/video-kinds", body: KINDS },
       {
-        match: "/api/units/ADS/design-codes",
+        match: "/api/units/ADS/task-codes",
         body: {
           codes: [
             {
               id: DESIGN_CODE,
+              phase: "THIET_KE",
               code: "TKBTS",
               name: "SOCIAL - Banner",
+              points: 90,
               active: true,
               sort_order: 1,
             },
           ],
+          forms: FORMS,
         },
       },
       { match: "/api/orders", method: "POST", body: { order: { code: "TUAN-T-261008-01" } } },
@@ -181,10 +209,10 @@ describe("a Design-only order", () => {
     expect(screen.queryByRole("radio", { name: "Quay thực tế" })).not.toBeInTheDocument();
     expect(screen.getByText("4 · Nội dung")).toBeInTheDocument();
     expect(screen.getByTestId("design-only-route")).toHaveTextContent("Trưởng phòng Design");
-    // The tasks are required.
-    expect(submit()).toBeDisabled();
+    // The tasks are a suggestion now (0074): optional.
+    expect(submit()).toBeEnabled();
     await userEvent.selectOptions(
-      await screen.findByRole("combobox", { name: "Mã task design (bắt buộc)" }),
+      await screen.findByRole("combobox", { name: "Mã task công việc Design" }),
       DESIGN_CODE,
     );
     expect(submit()).toBeEnabled();
@@ -197,7 +225,7 @@ describe("a Design-only order", () => {
       );
       expect(sent?.body).toMatchObject({
         process: ["THIET_KE"],
-        design_codes: [{ code_id: DESIGN_CODE, quantity: 1 }],
+        task_codes: { THIET_KE: [{ code_id: DESIGN_CODE, quantity: 1 }] },
       });
       expect(sent?.body).not.toHaveProperty("video_kind_id");
       expect(sent?.body).not.toHaveProperty("script_source");
@@ -238,7 +266,7 @@ describe("the create form's Quy trình", () => {
     expect(screen.getByText("Bạn (người order) duyệt final")).toBeInTheDocument();
   });
 
-  it("sends the process and the video kind", async () => {
+  it("sends the process and the suggested Task công việc, never a video kind (0074)", async () => {
     const fetchMock = stubCreateForm();
     renderWithQuery(<NewOrderPage />);
     await userEvent.click(await screen.findByRole("checkbox", { name: "Biên kịch" }));
@@ -247,21 +275,23 @@ describe("the create form's Quy trình", () => {
       screen.getByRole("textbox", { name: /Link thiết kế/ }),
       "https://drive.example.com/design",
     );
-    const kind = screen.getByRole("combobox", { name: /Loại video/ });
-    expect(
-      within(kind)
-        .getAllByRole("option")
-        .map((option) => option.textContent),
-    ).toEqual([
-      "Chọn loại video…",
-      // Points are hidden on the form for now.
-      "Video full diễn hoạt",
-      "Short video",
-    ]);
-    // The kind is required while the unit has any.
-    expect(submit()).toBeDisabled();
-    await userEvent.selectOptions(kind, KIND_FULL);
+    // "Loại video" and "Thời lượng" left the form.
+    expect(screen.queryByRole("combobox", { name: /Loại video/ })).not.toBeInTheDocument();
+    expect(screen.queryByRole("combobox", { name: /Thời lượng/ })).not.toBeInTheDocument();
+    // One optional "Task công việc" per ticked step: nothing chosen may be sent.
     expect(submit()).toBeEnabled();
+    const dung = await screen.findByRole("combobox", { name: "Mã task công việc Dựng" });
+    await waitFor(() => expect(within(dung).getAllByRole("option")).toHaveLength(2));
+    await userEvent.selectOptions(dung, D4);
+    // A form of Dựng, with its rule under it, and the points.
+    await userEvent.click(
+      within(screen.getByRole("radiogroup", { name: "Hình thức · D4" })).getByRole("radio", {
+        name: /After Effects/,
+      }),
+    );
+    expect(screen.getByText("Chỉ dùng cho D1-D7.")).toBeInTheDocument();
+    expect(screen.getAllByTestId("design-codes-total").at(-1)).toHaveTextContent("720 điểm");
+    expect(screen.getByRole("combobox", { name: "Mã task công việc Biên kịch" })).toBeInTheDocument();
     await userEvent.click(submit());
     const dialog = await screen.findByRole("dialog");
     await userEvent.click(within(dialog).getByRole("button", { name: "Gửi order" }));
@@ -272,10 +302,12 @@ describe("the create form's Quy trình", () => {
       expect(sent?.body).toMatchObject({
         title: "Video serum",
         process: ["BIEN_TAP", "DUNG"],
-        video_kind_id: KIND_FULL,
+        task_codes: { DUNG: [{ code_id: D4, quantity: 1, form: "AFTER_EFFECTS" }] },
         design_link: "https://drive.example.com/design",
         desired_deadline_at: new Date(FUTURE_DEADLINE).toISOString(),
       });
+      expect(sent?.body).not.toHaveProperty("video_kind_id");
+      expect(sent?.body).not.toHaveProperty("duration_id");
       expect(sent?.body).not.toHaveProperty("video_type");
       expect(sent?.body).not.toHaveProperty("preassigned");
     });
@@ -611,8 +643,8 @@ describe("the create form's Quy trình", () => {
     }
   });
 
-  it("hides Loại video when the unit has no kinds", async () => {
-    stubCreateForm({ kinds: [] });
+  it("never asks for Loại video, even when the unit has kinds", async () => {
+    stubCreateForm();
     renderWithQuery(<NewOrderPage />);
     await screen.findByRole("checkbox", { name: "Dựng" });
     await waitFor(() =>
@@ -779,9 +811,18 @@ describe("the video kinds manager", () => {
     ]);
   }
 
+  it("is no longer on Thiết lập ORD (0074): points live on Danh mục điểm", async () => {
+    stubAdmin();
+    renderWithQuery(<OrdSettingsPage />);
+    await screen.findByRole("heading", { name: "Thiết lập ORD" });
+    expect(
+      screen.queryByRole("region", { name: "Loại video & điểm hiệu suất" }),
+    ).not.toBeInTheDocument();
+  });
+
   it("lists every kind, inactive ones greyed, from the admin listing", async () => {
     const fetchMock = stubAdmin();
-    renderWithQuery(<OrdSettingsPage />);
+    renderWithQuery(<VideoKindsManager code="ADS" />);
     const section = await screen.findByRole("region", {
       name: "Loại video & điểm hiệu suất",
     });
@@ -802,7 +843,7 @@ describe("the video kinds manager", () => {
 
   it("edits a kind and sends only what changed", async () => {
     const fetchMock = stubAdmin();
-    renderWithQuery(<OrdSettingsPage />);
+    renderWithQuery(<VideoKindsManager code="ADS" />);
     const points = await screen.findByLabelText("Điểm · Short video");
     const save = screen.getByRole("button", { name: "Lưu Short video" });
     expect(save).toBeDisabled();
@@ -842,7 +883,7 @@ describe("the video kinds manager", () => {
 
   it("adds a new kind after the last one", async () => {
     const fetchMock = stubAdmin();
-    renderWithQuery(<OrdSettingsPage />);
+    renderWithQuery(<VideoKindsManager code="ADS" />);
     const name = await screen.findByLabelText("Tên loại video mới");
     const add = screen.getByRole("button", { name: "Thêm" });
     expect(add).toBeDisabled();

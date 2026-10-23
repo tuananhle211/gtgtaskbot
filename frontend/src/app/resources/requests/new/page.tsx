@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useId, useState } from "react";
-import { useMutation, useQuery } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api, ApiError } from "@/lib/api";
 import { PageHeader, PrimaryButton, Select } from "@/components/pr";
 import { DateInput } from "@/components/date-input";
@@ -42,6 +42,7 @@ const digits = (value: string) => value.replace(/[^\d]/g, "");
 
 export default function NewResourceRequestPage() {
   const router = useRouter();
+  const queryClient = useQueryClient();
   const form = useQuery({ queryKey: ["resource-request-form"], queryFn: api.resourceRequestForm });
   const [draft, setDraft] = useState<Draft>(EMPTY);
   const set = <K extends keyof Draft>(key: K, value: Draft[K]) =>
@@ -64,7 +65,11 @@ export default function NewResourceRequestPage() {
         budget: digits(draft.budget) ? Number(digits(draft.budget)) : null,
         needed_by: draft.needed_by || null,
       }),
-    onSuccess: (created) => router.push(created.detail_path),
+    onSuccess: (created) => {
+      void queryClient.invalidateQueries({ queryKey: ["units", "me"] });
+      void queryClient.invalidateQueries({ queryKey: ["resource-requests"] });
+      router.push(created.detail_path);
+    },
   });
   const ids = {
     type: useId(),

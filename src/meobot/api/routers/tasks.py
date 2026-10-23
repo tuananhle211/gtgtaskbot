@@ -29,7 +29,6 @@ from meobot.application.tasks.delete_service import TaskDeleteService
 from meobot.application.tasks.detail_service import TaskDetailService
 from meobot.application.units.directory import UnitDirectoryService
 from meobot.core.config import Settings
-from meobot.domain.orders.design_codes import DesignPick
 
 router = APIRouter(prefix="/api/tasks", tags=["tasks"])
 
@@ -124,21 +123,22 @@ async def task_action(
             design_picks=(
                 None
                 if body.design_codes is None
-                else tuple(
-                    DesignPick(code_id=item.code_id, quantity=item.quantity)
-                    for item in body.design_codes
-                )
+                else tuple(item.to_pick() for item in body.design_codes)
             ),
             picks_by_user=(
                 None
                 if body.design_codes_by_user is None
                 else {
-                    user_id: tuple(
-                        DesignPick(code_id=item.code_id, quantity=item.quantity) for item in picks
-                    )
+                    user_id: tuple(item.to_pick() for item in picks)
                     for user_id, picks in body.design_codes_by_user.items()
                 }
             ),
+            task_picks=(
+                None
+                if body.task_codes is None
+                else tuple(item.to_pick() for item in body.task_codes)
+            ),
+            return_reason=body.return_reason,
         ),
     )
     return TaskDetailResponse.from_domain(await services.detail.detail(actor, str(task.id)))

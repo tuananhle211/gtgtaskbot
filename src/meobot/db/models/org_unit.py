@@ -216,23 +216,43 @@ class UnitDuration(Base, UUIDPrimaryKeyMixin, TimestampMixin):
 
 
 class UnitDesignCode(Base, UUIDPrimaryKeyMixin, TimestampMixin):
-    """One design code ("mã task design") of a unit's catalogue (0058): a kind of
-    artwork the Design team produces, e.g. ``TKBTS`` "SOCIAL - Thiết kế Banner,
-    Thumb Video, Avatar". Kept by the Design Leader; never deleted, only
-    deactivated - orders snapshot the code and name."""
+    """One task code ("mã task công việc") of a unit's catalogue.
+
+    0058 made it the Design team's codes; since 0074 every production phase
+    has its own (``phase``: Biên kịch N1-N5, Design T1-T5, Dựng D1-D7), each
+    with points per unit, and one "Việc khác" row per phase (``free_points``)
+    whose points the person types in. Kept by the phase's Trưởng phòng; never
+    deleted, only deactivated - orders snapshot what they picked. Design codes
+    have no name: their picker shows the code and the examples."""
 
     __tablename__ = UNIT_DESIGN_CODES
     __table_args__ = (
         CheckConstraint(_not_empty("code"), name="code_not_empty"),
-        CheckConstraint(_not_empty("name"), name="name_not_empty"),
+        CheckConstraint("name IS NULL OR length(trim(name)) > 0", name="name_not_blank"),
+        CheckConstraint("points >= 0", name="points_not_negative"),
         Index("uq_unit_design_codes_unit_code", "unit_id", text("lower(code)"), unique=True),
     )
 
     unit_id: Mapped[uuid.UUID] = mapped_column(
         ForeignKey(f"{ORG_UNITS}.id", ondelete=RESTRICT), nullable=False
     )
+    #: 0074: the node type whose step picks this code.
+    phase: Mapped[str] = mapped_column(
+        String(20), nullable=False, default="THIET_KE", server_default=text("'THIET_KE'")
+    )
     code: Mapped[str] = mapped_column(String(30), nullable=False)
-    name: Mapped[str] = mapped_column(String(200), nullable=False)
+    name: Mapped[str | None] = mapped_column(String(200), nullable=True)
+    #: 0074: what one unit scores, before the form % and the quantity.
+    points: Mapped[int] = mapped_column(
+        Integer, nullable=False, default=0, server_default=text("0")
+    )
+    unit_label: Mapped[str | None] = mapped_column(String(40), nullable=True)
+    examples: Mapped[str | None] = mapped_column(Text, nullable=True)
+    note: Mapped[str | None] = mapped_column(Text, nullable=True)
+    #: 0074: "Việc khác": the person writes what they did and types the points.
+    free_points: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False, server_default=text("false")
+    )
     active: Mapped[bool] = mapped_column(
         Boolean, nullable=False, default=True, server_default=text("true")
     )

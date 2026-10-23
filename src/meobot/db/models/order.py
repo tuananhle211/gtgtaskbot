@@ -65,6 +65,7 @@ from meobot.domain.orders.models import (
     OrderNodeAssigneeEventKind,
     OrderNodeStatus,
     OrderNodeType,
+    OrderReturnReason,
     OrderScriptSource,
     OrderStage,
     OrderTokenKind,
@@ -80,6 +81,7 @@ ORDER_EVENTS = "order_events"
 ORDER_APPROVALS = "order_approvals"
 ORDER_CODE_COUNTERS = "order_code_counters"
 ORDER_WORK_RULES = "order_work_rules"
+ORDER_NODE_POINTS = "order_node_points"
 
 #: The SQL twin of :data:`~meobot.domain.orders.models.ACTIVE_NODE_STATUSES`.
 #: Spelled out so the migration and the model declare the same index.
@@ -193,6 +195,10 @@ class Order(Base, UUIDPrimaryKeyMixin, TimestampMixin):
     #: 0058: the design codes ("mã task design") the order needs, each with a
     #: quantity - snapshots, see :mod:`meobot.domain.orders.design_codes`.
     design_items: Mapped[list[dict[str, Any]] | None] = mapped_column(JSONColumn, nullable=True)
+    #: 0074: the task codes suggested when the order was placed (or sent again),
+    #: by phase (``{"DUNG": [...]}``) - never rewritten afterwards, so the
+    #: suggestion can be compared with what was actually done.
+    suggested_task_items: Mapped[dict[str, Any] | None] = mapped_column(JSONColumn, nullable=True)
     #: 0058, birthday orders only (the person's name is the title).
     birthday_branch: Mapped[str | None] = mapped_column(String(120), nullable=True)
     birthday_gender: Mapped[BirthdayGender | None] = mapped_column(
@@ -294,6 +300,18 @@ class OrderNode(Base, UUIDPrimaryKeyMixin, TimestampMixin):
     #: list of design codes than the order's; it waits for the Design Leader.
     proposed_design_items: Mapped[list[dict[str, Any]] | None] = mapped_column(
         JSONColumn, nullable=True
+    )
+    #: 0074, Biên kịch / Dựng: the node's task code (one line) - suggested on
+    #: the order, the actual one once handed in and agreed. Design keeps its
+    #: list on the order (``orders.design_items``) and per person.
+    task_items: Mapped[list[dict[str, Any]] | None] = mapped_column(JSONColumn, nullable=True)
+    #: 0074: sends back by reason - the worker's mistake ("Làm lỗi") or not
+    #: ("Do thay đổi yêu cầu"); "Mã công việc chưa hợp lý" counts in neither.
+    returns_fault: Mapped[int] = mapped_column(
+        Integer, nullable=False, default=0, server_default=text("0")
+    )
+    returns_other: Mapped[int] = mapped_column(
+        Integer, nullable=False, default=0, server_default=text("0")
     )
     version: Mapped[int] = mapped_column(
         Integer, nullable=False, default=1, server_default=text("1")
@@ -431,9 +449,44 @@ class OrderEvent(Base, UUIDPrimaryKeyMixin):
         ForeignKey(f"{ORDER_SUBMISSIONS}.id", ondelete=RESTRICT), nullable=True
     )
     note: Mapped[str | None] = mapped_column(Text, nullable=True)
+    #: 0074: why a hand-in or the product was sent back (a return only).
+    return_reason: Mapped[OrderReturnReason | None] = mapped_column(
+        value_enum(OrderReturnReason, name="order_return_reason", length=20), nullable=True
+    )
     #: Stamped in Python as well as by the database, so the log keeps its order
     #: on a backend whose ``now()`` has only seconds (the offline suite).
     created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utcnow, server_default=func.now(), nullable=False
+    )
+
+
+class OrderNodePoints(Base, UUIDPrimaryKeyMixin):
+    """0074: the points one person earned on one production step, from the
+    task codes they did. Written when the step is done; a step done again
+    after a return updates its row and keeps the month of the first time."""
+
+    __tablename__ = ORDER_NODE_POINTS
+    __table_args__ = (
+        UniqueConstraint("node_id", "user_id", name="uq_order_node_points_node_user"),
+        Index("ix_order_node_points_user_completed", "user_id", "first_completed_at"),
+    )
+
+    node_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey(f"{ORDER_NODES}.id", ondelete=RESTRICT), nullable=False
+    )
+    order_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey(f"{ORDERS}.id", ondelete=RESTRICT), nullable=False
+    )
+    user_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey(f"{USERS_TABLE}.id", ondelete=RESTRICT), nullable=False
+    )
+    phase: Mapped[OrderNodeType] = mapped_column(
+        value_enum(OrderNodeType, name="order_node_points_phase", length=10), nullable=False
+    )
+    items: Mapped[list[dict[str, Any]]] = mapped_column(JSONColumn, nullable=False)
+    points: Mapped[int] = mapped_column(Integer, nullable=False)
+    first_completed_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=utcnow, server_default=func.now(), nullable=False
     )
 
@@ -623,6 +676,7 @@ __all__ = [
     "OrderNode",
     "OrderNodeAssignee",
     "OrderNodeAssigneeEvent",
+    "OrderNodePoints",
     "OrderSubmission",
     "OrderTokenLedger",
     "OrderWorkRule",

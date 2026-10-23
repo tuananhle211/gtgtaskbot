@@ -46,6 +46,7 @@ from meobot.application.board.sources import (
     PrBoardSource,
     ads_kind_label,
     birthday_view,
+    code_view,
     code_views,
     design_view,
     display_names,
@@ -68,7 +69,7 @@ from meobot.application.workload_service import Workload, WorkloadService
 from meobot.core.config import Settings
 from meobot.core.errors import NotFoundError
 from meobot.core.time import ensure_utc, utcnow
-from meobot.db.models.order import Order, OrderNode
+from meobot.db.models.order import Order, OrderNode, OrderNodeAssignee, OrderNodePoints
 from meobot.db.models.pr import PrApprovalEvent, PrContentItem
 from meobot.db.models.pr_content_version import PrContentVersion
 from meobot.db.models.pr_production import PrProductionSubmission
@@ -81,10 +82,12 @@ from meobot.domain.board.models import (
     DesignCodeView,
     DesignView,
     Phase,
+    TaskCodesPersonView,
+    TaskCodesPhaseView,
     TaskRow,
 )
 from meobot.domain.identity.models import Actor, Role
-from meobot.domain.orders.design_codes import split_links
+from meobot.domain.orders.design_codes import items_from_json, split_links, total_points
 from meobot.domain.orders.labels import (
     event_label,
     node_type_label,
@@ -102,6 +105,7 @@ from meobot.domain.orders.models import (
     is_design_only,
 )
 from meobot.domain.orders.pipeline import OrderActionKind, function_node, hands_in_product
+from meobot.domain.orders.task_codes import TASK_PHASES, describe_change, phase_label
 from meobot.domain.pr.models import (
     PrApprovalDecision,
     PrApprovalStage,
@@ -354,6 +358,13 @@ class TaskActionView:
     defaults: PlanDefaults | None = None
     #: ORD Design (0069): "Giao việc" may pick several people at once.
     multi_assign: bool = False
+    #: ORD (0074): the step's own task codes - the phase whose catalogue the
+    #: picker offers, and what it starts from (the suggestion).
+    task_phase: str | None = None
+    task_codes: tuple[DesignCodeView, ...] | None = None
+    #: ORD (0074): the link handed in last, so a hand-in sent back for its
+    #: codes only can be sent again as it was.
+    link_default: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -378,6 +389,8 @@ class TaskDetail:
     category: str | None = None
     design: DesignView | None = None
     birthday: BirthdayView | None = None
+    #: ORD (0074): each production step's task codes and points.
+    task_codes: tuple[TaskCodesPhaseView, ...] = ()
 
 
 # --- the service ---------------------------------------------------------------
@@ -523,16 +536,44 @@ class TaskDetailService:
             fields=_ads_fields(order),
             submissions=_ads_submissions(detail),
             timeline=_ads_timeline(detail),
-            actions=await self._ads_actions(actor, detail, scoped.settings),
+            actions=await self._ads_actions(actor, detail, scoped.settings, node_links),
             category=order.category.value,
             design=design_view(
                 order, list(detail.nodes), names, node_links, detail.design_assignees
             ),
             birthday=birthday_view(order),
+            task_codes=(
+                task_codes_views(
+                    order,
+                    list(detail.nodes),
+                    detail.design_assignees,
+                    names,
+                    await self._points(list(detail.nodes)),
+                )
+                if scoped.settings.design_codes_enabled
+                else ()
+            ),
+        )
+
+    async def _points(self, nodes: list[OrderNode]) -> list[OrderNodePoints]:
+        if not nodes:
+            return []
+        return list(
+            (
+                await self._session.scalars(
+                    select(OrderNodePoints).where(
+                        OrderNodePoints.node_id.in_([node.id for node in nodes])
+                    )
+                )
+            ).all()
         )
 
     async def _ads_actions(
-        self, actor: Actor, detail: OrderDetail, settings: UnitSettings
+        self,
+        actor: Actor,
+        detail: OrderDetail,
+        settings: UnitSettings,
+        node_links: dict[uuid.UUID, tuple[str, datetime]] | None = None,
     ) -> tuple[TaskActionView, ...]:
         order = detail.order
         taken = OrderTokenLedgerService(self._session)
@@ -570,12 +611,13 @@ class TaskDetailService:
             codes: tuple[DesignCodeView, ...] | None = None
             hint: str | None = None
             multi_assign = False
+            task_phase: str | None = None
+            task_codes: tuple[DesignCodeView, ...] | None = None
+            link_default: str | None = None
+            # 0074: every production step of a standard order carries task codes.
+            tasks_on = settings.design_codes_enabled and order.category is OrderCategory.STANDARD
             # 0058: an order that visits Design carries design codes.
-            designs = (
-                settings.design_codes_enabled
-                and order.category is OrderCategory.STANDARD
-                and OrderNodeType.THIET_KE in NODE_PLAN[order.video_type]
-            )
+            designs = tasks_on and OrderNodeType.THIET_KE in NODE_PLAN[order.video_type]
             if node is not None and kind in _PLAN_KINDS:
                 revision = node.revision_count > 0
                 plan_mode = "REVISION" if revision else "ESTIMATE"
@@ -605,6 +647,7 @@ class TaskDetailService:
                 inputs = ("design_codes",)
                 required = ("design_codes",)
                 codes = my_items(node.id)
+                task_phase = OrderNodeType.THIET_KE.value
                 hint = "Chọn đầu việc bạn đã làm (dùng để tính điểm)."
             elif kind is OrderActionKind.ACCEPT and node is not None:
                 # A Leader taking a node routed to them plans it here.
@@ -631,14 +674,18 @@ class TaskDetailService:
                     # The last node hands in the product: its link is required.
                     label = f"Nộp sản phẩm · {node_type_label(node.node_type)}"
                     required = ("link",)
+                if node is not None and node_links and node.id in node_links:
+                    link_default = node_links[node.id][0]
                 if designs and node is not None:
                     current = code_views(order.design_items)
                     if node.node_type is OrderNodeType.BIEN_TAP:
-                        # The script step tells Design what to make.
+                        # The script step suggests what Design makes; required
+                        # only while the order suggests nothing (0074).
                         inputs = (*inputs, "design_codes")
-                        required = (*required, "design_codes")
+                        if not current:
+                            required = (*required, "design_codes")
                         codes = current
-                        hint = "Chọn các mã task design Design cần làm, kèm số lượng."
+                        hint = "Mã task Design đề xuất cho bước Design (kèm số lượng)."
                     elif node.node_type is OrderNodeType.THIET_KE:
                         # 0069: each designer picks the work items they did;
                         # it is required, and starts from their own list.
@@ -646,19 +693,39 @@ class TaskDetailService:
                         required = (*required, "design_codes")
                         mine = my_items(node.id)
                         codes = mine if mine else current
-                        hint = "Chọn đầu việc bạn đã làm (dùng để tính điểm)."
+                        task_phase = OrderNodeType.THIET_KE.value
+                        hint = (
+                            "Chọn mã task bạn đã làm (dùng để tính điểm). Tổng cả nhóm trùng "
+                            "đề xuất thì đi luôn, khác thì chờ Trưởng phòng duyệt."
+                        )
+                if (
+                    tasks_on
+                    and node is not None
+                    and node.node_type in (OrderNodeType.BIEN_TAP, OrderNodeType.DUNG)
+                ):
+                    # 0074: the step's own code - the suggestion to start from.
+                    inputs = (*inputs, "task_codes")
+                    task_phase = node.node_type.value
+                    task_codes = code_views(node.task_items)
+                    if not task_codes:
+                        required = (*required, "task_codes")
             elif (
                 kind is OrderActionKind.APPROVE_NODE
                 and node is not None
                 and node.proposed_design_items is not None
             ):
-                # The designer asked for different codes: the Leader decides
-                # the list, starting from the request.
-                inputs = ("note", "design_codes")
-                required = ("design_codes",)
-                codes = code_views(node.proposed_design_items)
+                # 0074: the hand-in's codes differ from the suggestion. The
+                # Trưởng phòng approves them as entered, or sends them back.
+                inputs = ("note",)
+                current_items = (
+                    items_from_json(order.design_items)
+                    if node.node_type is OrderNodeType.THIET_KE
+                    else items_from_json(node.task_items)
+                )
                 hint = (
-                    "Nhân viên yêu cầu thay đổi mã task design. Duyệt là chốt danh sách bên dưới."
+                    "Nộp khác mã task đề xuất. Duyệt là chốt điểm theo mã đã nộp; sai thì "
+                    "Không duyệt với lý do “Mã công việc chưa hợp lý”.\n"
+                    + describe_change(current_items, items_from_json(node.proposed_design_items))
                 )
             elif kind is OrderActionKind.RETURN_NODE:
                 # "Token sửa" required (0 allowed), "Deadline sửa" optional.
@@ -666,11 +733,16 @@ class TaskDetailService:
                 required = ("tokens",)
                 plan_mode = "REVISION"
                 defaults = PlanDefaults()
+                if tasks_on:
+                    # 0074: one of the three reasons.
+                    inputs = ("return_reason", *inputs)
+                    required = ("return_reason", *required)
+            elif kind in (OrderActionKind.RETURN_VIDEO, OrderActionKind.RETURN_FINAL):
+                inputs = ("return_reason", "note") if tasks_on else ("note",)
+                required = ("return_reason",) if tasks_on else ()
             elif kind in (
                 OrderActionKind.APPROVE_FINAL,
                 OrderActionKind.RETURN_ORDER,
-                OrderActionKind.RETURN_VIDEO,
-                OrderActionKind.RETURN_FINAL,
                 OrderActionKind.CANCEL,
                 OrderActionKind.APPROVE_NODE,
             ):
@@ -693,8 +765,11 @@ class TaskDetailService:
                     plan_mode=plan_mode if "deadline" in inputs else None,
                     defaults=defaults if "deadline" in inputs else None,
                     design_codes=codes if "design_codes" in inputs else None,
-                    hint=hint if "design_codes" in inputs else None,
+                    hint=hint if ("design_codes" in inputs or hint) else None,
                     multi_assign=multi_assign,
+                    task_phase=task_phase,
+                    task_codes=task_codes if "task_codes" in inputs else None,
+                    link_default=link_default if "link" in inputs else None,
                 )
             )
         return tuple(sorted(views, key=lambda view: _EMPHASIS_ORDER[view.emphasis]))
@@ -995,6 +1070,85 @@ class TaskDetailService:
 
 def unit_of(task: Task) -> UnitCode:
     return UnitCode.PR if task.source_type == SOURCE_PR_CONTENT else UnitCode.ADS
+
+
+def task_codes_views(
+    order: Order,
+    nodes: list[OrderNode],
+    assignees: dict[uuid.UUID, list[OrderNodeAssignee]],
+    names: dict[uuid.UUID, str],
+    points: list[OrderNodePoints],
+) -> tuple[TaskCodesPhaseView, ...]:
+    """0074: each production step's task codes for the task page (a birthday
+    order shows its Design T1 x1)."""
+    suggested_all = order.suggested_task_items or {}
+    earned: dict[uuid.UUID, list[OrderNodePoints]] = {}
+    for row in points:
+        earned.setdefault(row.node_id, []).append(row)
+    by_type = {node.node_type: node for node in nodes}
+    plan = NODE_PLAN[order.video_type]
+    views: list[TaskCodesPhaseView] = []
+    for phase in TASK_PHASES:
+        node = by_type.get(phase)
+        if node is None or phase not in plan or node.status is OrderNodeStatus.BO_QUA:
+            continue
+        suggested = items_from_json(suggested_all.get(phase.value))
+        current = items_from_json(
+            order.design_items if phase is OrderNodeType.THIET_KE else node.task_items
+        )
+        proposed = (
+            None
+            if node.proposed_design_items is None
+            else items_from_json(node.proposed_design_items)
+        )
+        people: list[TaskCodesPersonView] = []
+        if node.id in earned:
+            people = [
+                TaskCodesPersonView(
+                    user_id=row.user_id,
+                    name=names.get(row.user_id, "—"),
+                    codes=code_views(row.items),
+                    points=row.points,
+                    earned=True,
+                )
+                for row in earned[node.id]
+            ]
+        elif phase is OrderNodeType.THIET_KE and assignees.get(node.id):
+            for person in assignees[node.id]:
+                items = items_from_json(person.work_items)
+                people.append(
+                    TaskCodesPersonView(
+                        user_id=person.user_id,
+                        name=names.get(person.user_id, "—"),
+                        codes=code_views(person.work_items),
+                        points=total_points(items),
+                    )
+                )
+        elif node.assignee_user_id is not None:
+            own = proposed if proposed is not None else current
+            people = [
+                TaskCodesPersonView(
+                    user_id=node.assignee_user_id,
+                    name=names.get(node.assignee_user_id, "—"),
+                    codes=tuple(code_view(item) for item in own),
+                    points=total_points(own),
+                )
+            ]
+        views.append(
+            TaskCodesPhaseView(
+                phase=phase.value,
+                label=phase_label(phase),
+                suggested=tuple(code_view(item) for item in suggested),
+                suggested_points=total_points(suggested),
+                current=tuple(code_view(item) for item in current),
+                current_points=total_points(current),
+                proposed=None if proposed is None else tuple(code_view(i) for i in proposed),
+                proposed_points=None if proposed is None else total_points(proposed),
+                change=None if proposed is None else describe_change(current, proposed),
+                people=tuple(people),
+            )
+        )
+    return tuple(views)
 
 
 def _steps(row: TaskRow) -> tuple[TaskStep, ...]:

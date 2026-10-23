@@ -242,6 +242,8 @@ function ActionPanel({ row }: { row: ResourceRequest }) {
     onSuccess: (next) => {
       queryClient.setQueryData(["resource-request", row.id], next);
       void queryClient.invalidateQueries({ queryKey: ["resource-requests"] });
+      // The menu's badge counts what waits on me.
+      void queryClient.invalidateQueries({ queryKey: ["units", "me"] });
       void queryClient.invalidateQueries({ queryKey: ["resources"] });
       setNote("");
     },

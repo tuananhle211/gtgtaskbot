@@ -18,7 +18,13 @@ import { DepartmentTags } from "@/components/department-tags";
 import { Logo, LogoMark } from "@/components/logo";
 import { LibraryIcon, isLibraryUrl } from "@/components/library-icon";
 
-type NavItem = { href: string; label: string; icon: NavIcon };
+type NavItem = {
+  href: string;
+  label: string;
+  icon: NavIcon;
+  /** A count drawn beside the label ("việc chờ bạn"); nothing when 0 or absent. */
+  badge?: number;
+};
 
 /**
  * A branch of the nav tree: a heading that folds, and what sits under it -
@@ -80,8 +86,9 @@ const DASHBOARD_NAV: NavItem = { href: "/dashboard", label: "Dashboard", icon: "
 
 /**
  * "Bảng order": the task tables, one per kind of order. "Order tổng" is the
- * shared table every stream has; the other two are the Design ban's and show
- * only when `/api/units/me` says so (`design.birthday`, `design.manage_codes`).
+ * shared table every stream has; "Order sinh nhật" is the Design ban's and
+ * shows only when `/api/units/me` says so (`design.birthday`); "Danh mục điểm"
+ * (0074) is everybody's in the order flow.
  *
  * There is no "Tạo order" entry: an order is created from the board of its own
  * kind ("+ Tạo order" on /tasks, and on the birthday board).
@@ -92,9 +99,11 @@ const ORDER_BIRTHDAY_NAV: NavItem = {
   label: "Order sinh nhật",
   icon: "birthday",
 };
-const DESIGN_CODES_NAV: NavItem = {
-  href: "/tasks/design-codes",
-  label: "Mã task design",
+/** 0074: "Danh mục điểm" - every step's task codes and points, read by the
+ * whole order flow, kept by each step's Trưởng phòng. */
+const TASK_CODES_NAV: NavItem = {
+  href: "/tasks/task-codes",
+  label: "Danh mục điểm",
   icon: "codes",
 };
 
@@ -113,7 +122,7 @@ function orderBoards(me: UnitsMe | undefined, sessionRole?: string): NavGroup {
     children: [
       ORDER_TOTAL_NAV,
       ...(me?.design?.birthday ? [ORDER_BIRTHDAY_NAV] : []),
-      ...(me?.design?.manage_codes ? [DESIGN_CODES_NAV] : []),
+      TASK_CODES_NAV,
       ...(seesAdsSalary(me, sessionRole) ? [ADS_SALARY_NAV] : []),
     ],
   };
@@ -161,6 +170,8 @@ function resourcesBranch(me: UnitsMe | undefined): NavGroup | null {
       href: screen.href,
       label: screen.label,
       icon: screen.icon,
+      // 2026-10-22: the requests waiting on this person.
+      badge: screen.href === "/resources/requests" ? me?.resources?.requests_awaiting : undefined,
     })),
   };
 }
@@ -498,6 +509,9 @@ export function Shell({ children }: { children: React.ReactNode }) {
     queryKey: ["units", "me"],
     queryFn: api.unitsMe,
     enabled: Boolean(session.data) && !mustChangePassword,
+    // The menu's badges ("Đề xuất tài nguyên" waiting on me) follow other
+    // people's actions too: look again every minute while the tab is open.
+    refetchInterval: 60_000,
   });
 
   const [foldedNow, setFoldedNow] = useState<Record<string, boolean>>(() => ({
@@ -536,7 +550,13 @@ export function Shell({ children }: { children: React.ReactNode }) {
       title={collapsed ? item.label : undefined}
       className={linkClass(isActive(item.href))}
     >
-      <Icon name={item.icon} />
+      <span className="relative inline-flex">
+        <Icon name={item.icon} />
+        {item.badge && collapsed ? (
+          // Folded sidebar: a dot on the icon says there is something waiting.
+          <span aria-hidden="true" className="absolute -right-1 -top-1 hidden h-2 w-2 rounded-full bg-[var(--brand-magenta)] lg:block" />
+        ) : null}
+      </span>
       {/* One line in the phone strip; from `lg` a long label ("Thành viên &
           Phân quyền (PR)") wraps inside the sidebar instead of running out of it. */}
       <span
@@ -544,6 +564,15 @@ export function Shell({ children }: { children: React.ReactNode }) {
       >
         {item.label}
       </span>
+      {item.badge ? (
+        <span
+          className={`ml-auto inline-flex min-w-5 shrink-0 items-center justify-center rounded-full bg-[var(--brand-magenta)] px-1.5 text-[11px] font-semibold leading-5 text-white ${collapsed ? "lg:hidden" : ""}`}
+          title={`${item.badge} việc chờ bạn xử lý`}
+        >
+          {item.badge > 99 ? "99+" : item.badge}
+          <span className="sr-only"> việc chờ bạn xử lý</span>
+        </span>
+      ) : null}
     </Link>
   );
   // A library entry: out of the app, in a new tab, led by its round chip.

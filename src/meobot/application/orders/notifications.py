@@ -163,9 +163,12 @@ class OrderNotificationService:
         unit: UnitSettings,
         approver_node: OrderNodeType | None,
         to_owner: bool = False,
+        change: str | None = None,
     ) -> None:
         """Work was handed in: the Leaders of ``approver_node``, or - for the
-        final review - the orderer, whose review it is."""
+        final review - the orderer, whose review it is. ``change`` (0074): the
+        hand-in's task codes differ from the suggestion - how, for the
+        Trưởng phòng who decides."""
         if to_owner:
             recipients = [order.owner_user_id]
         else:
@@ -188,6 +191,7 @@ class OrderNotificationService:
             body=(
                 f"“{order.title}” ({order.code}): công đoạn {node_type_label(node.node_type)} "
                 f"đã nộp bản V{node.submission_count}, chờ bạn duyệt."
+                + ("" if not change else f" Nộp khác mã task đề xuất, cần duyệt mã:\n{change}")
             ),
             suffix=f"{node.node_type.value}:V{node.submission_count}",
         )

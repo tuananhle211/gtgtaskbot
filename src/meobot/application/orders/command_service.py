@@ -24,6 +24,7 @@ from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
 from datetime import date, datetime
 from decimal import Decimal
+from typing import Any
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -58,6 +59,7 @@ from meobot.db.models.order import (
     OrderEvent,
     OrderNode,
     OrderNodeAssignee,
+    OrderNodePoints,
     OrderSubmission,
 )
 from meobot.db.models.org_unit import OrgUnitMember, UnitDuration, UnitPlatform, UnitVideoKind
@@ -80,6 +82,7 @@ from meobot.domain.orders.design_codes import (
     join_links,
     same_items,
     split_links,
+    total_points,
 )
 from meobot.domain.orders.errors import (
     OrderActionNotAllowedError,
@@ -88,7 +91,7 @@ from meobot.domain.orders.errors import (
     OrderStateError,
     OrderValidationError,
 )
-from meobot.domain.orders.labels import node_type_label
+from meobot.domain.orders.labels import RETURN_REASON_LABELS, node_type_label
 from meobot.domain.orders.models import (
     ACTIVE_NODE_STATUSES,
     NODE_PLAN,
@@ -100,6 +103,7 @@ from meobot.domain.orders.models import (
     OrderEventKind,
     OrderNodeStatus,
     OrderNodeType,
+    OrderReturnReason,
     OrderScriptSource,
     OrderStage,
     OrderVideoType,
@@ -122,6 +126,13 @@ from meobot.domain.orders.pipeline import (
     node_needs_review,
     stage_for_node,
     video_review_applies,
+)
+from meobot.domain.orders.task_codes import (
+    TASK_PHASES,
+    TaskFormSpec,
+    describe_change,
+    form_specs,
+    phase_label,
 )
 from meobot.domain.units.member_code import derive_member_code
 from meobot.domain.units.models import UnitCode, UnitMembership, UnitSettings
@@ -150,9 +161,12 @@ class CreateOrderCommand:
     #: 0056: the Trưởng phòng ADS chosen to approve this order. None = the
     #: orderer's own head, else every head.
     approver_user_id: uuid.UUID | None = None
-    #: A Design-only order's "Task công việc": the design codes it needs, in
-    #: place of the video kind, platform and duration. Ignored otherwise.
+    #: The design codes suggested for the Design step (the older field; see
+    #: ``task_codes``).
     design_codes: tuple[DesignPick, ...] | None = None
+    #: 0074: the task codes suggested for each ticked step ("Task công việc"),
+    #: by node type - all optional. The hand-ins say what was actually done.
+    task_codes: Mapping[OrderNodeType, Sequence[DesignPick]] | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -173,6 +187,9 @@ class OrderEdit:
     note: str | None = None
     desired_deadline_at: datetime | None = None
     approver_user_id: uuid.UUID | None = None
+    #: 0074: new suggested task codes, by node type (the whole set replaces
+    #: the old one).
+    task_codes: Mapping[OrderNodeType, Sequence[DesignPick]] | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -334,17 +351,21 @@ class OrderCommandService:
                 )
         await self._validate_preassigned(unit.id, command.video_type, command.preassigned)
         kind = platform = duration = None
-        design_items: tuple[DesignItem, ...] = ()
         ai_note = None
-        if design_only:
-            if settings.design_codes_enabled:
-                if not command.design_codes:
-                    raise _design_codes_required()
-                design_items = await self._design.resolve(unit.id, command.design_codes)
-        else:
-            kind = await self._video_kind(unit.id, command.video_kind_id, required=True)
+        # 0074: what the orderer suggests for each ticked step - all optional;
+        # the workers' hand-ins say what was actually done.
+        suggestions = await self._suggestions(
+            unit.id,
+            settings,
+            command.video_type,
+            _task_picks(command.task_codes, command.design_codes),
+        )
+        design_items = suggestions.get(OrderNodeType.THIET_KE, ())
+        if not design_only:
+            # "Loại video" and "Thời lượng" left the form (0074); kept if sent.
+            kind = await self._video_kind(unit.id, command.video_kind_id, required=False)
             platform = await self._platform(unit.id, command.platform_id, required=True)
-            duration = await self._duration(unit.id, command.duration_id, required=True)
+            duration = await self._duration(unit.id, command.duration_id, required=False)
             # Last check, before anything is written: the AI reads the script.
             # A script that breaks the rules goes back to the orderer here. A
             # Design-only order's "Nội dung" is a plain brief: not read.
@@ -382,16 +403,19 @@ class OrderCommandService:
             desired_deadline_at=desired,
             approver_user_id=approver,
             design_items=items_to_json(design_items) if design_items else None,
+            suggested_task_items=_suggested_json(suggestions),
         )
         self._session.add(order)
         await self._session.flush()
         created: dict[OrderNodeType, OrderNode] = {}
         for node_type, status in initial_node_statuses(command.video_type).items():
+            own = suggestions.get(node_type) if node_type is not OrderNodeType.THIET_KE else None
             created[node_type] = OrderNode(
                 order_id=order.id,
                 node_type=node_type,
                 status=status,
                 preassigned_user_id=command.preassigned.get(node_type),
+                task_items=items_to_json(own) if own else None,
             )
             self._session.add(created[node_type])
         await self._session.flush()
@@ -455,6 +479,10 @@ class OrderCommandService:
         note = _blank_to_none(command.note)
         if entry is None or entry.member_code is None:
             await self._assign_member_code(unit.id, actor, tagged=entry is not None)
+        # 2026-10-23: a birthday card is Design's T1 x1 - scored when done.
+        birthday_items = (
+            await self._design.birthday_items(unit.id) if settings.design_codes_enabled else ()
+        )
         now = utcnow()
         code = await self._codes.allocate()
         order = Order(
@@ -463,6 +491,8 @@ class OrderCommandService:
             title=name,
             video_type=OrderVideoType.T,
             category=OrderCategory.BIRTHDAY,
+            design_items=items_to_json(birthday_items) if birthday_items else None,
+            suggested_task_items=_suggested_json({OrderNodeType.THIET_KE: birthday_items}),
             order_content=note or f"Thiết kế sinh nhật: {name}",
             design_link=_birthday_links(command),
             note=note,
@@ -675,6 +705,15 @@ class OrderCommandService:
             await self._validate_preassigned(order.unit_id, order.video_type, edit.preassigned)
             for node_type, node in loaded.nodes.items():
                 node.preassigned_user_id = edit.preassigned.get(node_type)
+        if edit.task_codes is not None:
+            suggestions = await self._suggestions(
+                order.unit_id, loaded.settings, order.video_type, edit.task_codes
+            )
+            order.design_items = items_to_json(suggestions.get(OrderNodeType.THIET_KE, ())) or None
+            for node_type, node in loaded.nodes.items():
+                if node_type in (OrderNodeType.BIEN_TAP, OrderNodeType.DUNG):
+                    node.task_items = items_to_json(suggestions.get(node_type, ())) or None
+            order.suggested_task_items = _suggested_json(suggestions)
         # Sent again = read again: the script may have changed, or the rules.
         ai_note = (
             None
@@ -852,7 +891,11 @@ class OrderCommandService:
         for user_id, picks in picks_by_user.items():
             if picks:
                 resolved[user_id] = await self._design.resolve(
-                    loaded.order.unit_id, picks, keep=keep
+                    loaded.order.unit_id,
+                    picks,
+                    keep=keep,
+                    phase=OrderNodeType.THIET_KE,
+                    forms=self._forms(loaded),
                 )
         return resolved
 
@@ -921,11 +964,16 @@ class OrderCommandService:
         script_text: str | None,
         note: str | None,
         design_picks: Sequence[DesignPick] | None = None,
+        task_picks: Sequence[DesignPick] | None = None,
     ) -> Order:
-        """Hand the work in. ``design_picks`` (0058) is the list of design
-        codes: the script step must pick it when the order goes on to Design;
-        the designer may send a different one, which then waits for the
-        Design Leader (see :mod:`meobot.domain.orders.design_codes`)."""
+        """Hand the work in.
+
+        ``task_picks`` (0074) is the step's own task code(s) - what was
+        actually done; required when the order suggested none, and a list
+        that differs from the suggestion waits for the phase's Trưởng phòng.
+        ``design_picks`` (0058) is what the script step suggests for Design
+        (required only while the order has no suggestion for Design); on a
+        Design hand-in it stands for ``task_picks``."""
         loaded = await self._load(actor, order_id, expected_version)
         node = self._node(loaded, node_id)
         assert_allowed(
@@ -938,9 +986,17 @@ class OrderCommandService:
         link, script_text = _blank_to_none(link), _blank_to_none(script_text)
         if self._multi_design(loaded, node):
             return await self._submit_design(
-                loaded, node, actor, request_id, link=link, note=note, design_picks=design_picks
+                loaded,
+                node,
+                actor,
+                request_id,
+                link=link,
+                note=note,
+                design_picks=task_picks if task_picks is not None else design_picks,
             )
         picked, proposed = await self._design_hand_in(loaded, node, design_picks)
+        suggested_own = items_from_json(node.task_items)
+        own_set, own_proposed = await self._task_hand_in(loaded, node, task_picks)
         if link is None and hands_in_product(loaded.order.video_type, node.node_type):
             # The last node's hand-in is the product the orderer reviews.
             raise OrderValidationError(
@@ -961,6 +1017,10 @@ class OrderCommandService:
         node.version += 1
         if node.node_type is OrderNodeType.THIET_KE:
             node.proposed_design_items = None if proposed is None else items_to_json(proposed)
+        elif node.node_type in (OrderNodeType.BIEN_TAP, OrderNodeType.DUNG):
+            node.proposed_design_items = (
+                None if own_proposed is None else items_to_json(own_proposed)
+            )
         self._bump(loaded.order)
         await self._session.flush()
         await self._event(
@@ -993,6 +1053,30 @@ class OrderCommandService:
                     f"{describe_items(current)} → {describe_items(proposed)}"
                 ),
             )
+        label = phase_label(node.node_type)
+        change: str | None = None
+        if own_set is not None:
+            # A Trưởng phòng who did the step: their code stands (0074).
+            node.task_items = items_to_json(own_set)
+            await self._event(
+                loaded.order,
+                OrderEventKind.DESIGN_CODES_SET,
+                actor,
+                node=node,
+                note=(
+                    f"Trưởng phòng tự chốt mã task {label}:\n"
+                    f"{describe_change(suggested_own, own_set)}"
+                ),
+            )
+        if own_proposed is not None:
+            change = describe_change(suggested_own, own_proposed)
+            await self._event(
+                loaded.order,
+                OrderEventKind.DESIGN_CODES_PROPOSED,
+                actor,
+                node=node,
+                note=f"Nộp khác mã task {label} đề xuất:\n{change}",
+            )
         await self._audit_order(
             actor, request_id, AuditAction.ORDER_NODE_SUBMITTED, loaded.order, before=before
         )
@@ -1006,10 +1090,19 @@ class OrderCommandService:
             self._bump(loaded.order)
             await self._session.flush()
             return loaded.order
-        if proposed is None and not node_needs_review(loaded.settings, node.node_type):
+        birthday = loaded.order.category is OrderCategory.BIRTHDAY
+        if (
+            proposed is None
+            and own_proposed is None
+            and (
+                # A birthday card (T1 x1, nothing to pick) never waits for the
+                # Trưởng phòng: the hand-in finishes it (2026-10-23).
+                birthday or not node_needs_review(loaded.settings, node.node_type)
+            )
+        ):
             # No Leader review for this node (a unit setting): handing in
-            # finishes it and the next node starts straight away. A changed
-            # list of design codes always waits for the Design Leader.
+            # finishes it and the next node starts straight away. Task codes
+            # that differ from the suggestion always wait for the Trưởng phòng.
             await self._complete_node(loaded, node, actor, request_id, note=None)
             return loaded.order
         await self._notify.submission_ready(
@@ -1018,6 +1111,7 @@ class OrderCommandService:
             node=node,
             unit=loaded.settings,
             approver_node=node.node_type,
+            change=change,
         )
         return loaded.order
 
@@ -1046,7 +1140,13 @@ class OrderCommandService:
                 details={"reason": "work_items_required", "field": "design_codes"},
             )
         keep = items_from_json(loaded.order.design_items)
-        items = await self._design.resolve(loaded.order.unit_id, design_picks, keep=keep)
+        items = await self._design.resolve(
+            loaded.order.unit_id,
+            design_picks,
+            keep=keep,
+            phase=OrderNodeType.THIET_KE,
+            forms=self._forms(loaded),
+        )
         if link is None and hands_in_product(loaded.order.video_type, node.node_type):
             raise OrderValidationError(
                 "Công đoạn cuối cần nộp link sản phẩm.",
@@ -1075,12 +1175,28 @@ class OrderCommandService:
         combined = await self._assignees.combined_items(node.id)
         node.submitted_at = utcnow()
         if same_items(combined, keep):
-            # The team's total matches the order: finish and move on.
+            # The team's total matches the suggestion: finish and move on.
             node.status = OrderNodeStatus.CHO_DUYET
             await self._session.flush()
             await self._complete_node(loaded, node, actor, request_id, note=None)
             return loaded.order
-        # The total differs: the Design Leader decides the order's list.
+        change = describe_change(keep, combined)
+        team = {row.user_id for row in await self._assignees.open_rows(node.id)}
+        if team == {actor.user_id} and self._reviews(loaded, node):
+            # A Trưởng phòng who did the step alone: their codes stand (0074).
+            loaded.order.design_items = items_to_json(combined)
+            await self._event(
+                loaded.order,
+                OrderEventKind.DESIGN_CODES_SET,
+                actor,
+                node=node,
+                note=f"Trưởng phòng tự chốt mã task Design:\n{change}",
+            )
+            node.status = OrderNodeStatus.CHO_DUYET
+            await self._session.flush()
+            await self._complete_node(loaded, node, actor, request_id, note=None)
+            return loaded.order
+        # The total differs: the Design Trưởng phòng decides.
         node.status = OrderNodeStatus.CHO_DUYET
         node.proposed_design_items = items_to_json(combined)
         await self._session.flush()
@@ -1089,10 +1205,7 @@ class OrderCommandService:
             OrderEventKind.DESIGN_CODES_PROPOSED,
             actor,
             node=node,
-            note=(
-                "Nhóm Design nộp khác mã order: "
-                f"{describe_items(keep)} → {describe_items(combined)}"
-            ),
+            note=f"Nhóm Design nộp khác mã task đề xuất:\n{change}",
         )
         await self._notify.submission_ready(
             actor=actor,
@@ -1100,6 +1213,7 @@ class OrderCommandService:
             node=node,
             unit=loaded.settings,
             approver_node=node.node_type,
+            change=change,
         )
         return loaded.order
 
@@ -1127,7 +1241,13 @@ class OrderCommandService:
         assert actor.user_id is not None
         before = self._snapshot(loaded.order)
         keep = items_from_json(loaded.order.design_items)
-        items = await self._design.resolve(loaded.order.unit_id, design_picks, keep=keep)
+        items = await self._design.resolve(
+            loaded.order.unit_id,
+            design_picks,
+            keep=keep,
+            phase=OrderNodeType.THIET_KE,
+            forms=self._forms(loaded),
+        )
         await self._assignees.set_items(node, actor.user_id, items, actor=actor)
         node.version += 1
         self._bump(loaded.order)
@@ -1146,11 +1266,11 @@ class OrderCommandService:
         node_id: uuid.UUID,
         expected_version: int,
         note: str | None = None,
-        design_picks: Sequence[DesignPick] | None = None,
     ) -> Order:
-        """Approve the hand-in. On a Design hand-in that asked for different
-        design codes, the approval makes that list the order's - or the list
-        the Leader sends instead (``design_picks``)."""
+        """Approve the hand-in. On a hand-in whose task codes differ from the
+        suggestion, the approval makes them the step's: the points are what
+        the workers entered (the Trưởng phòng does not edit them; a list that
+        is wrong is sent back with "Mã công việc chưa hợp lý")."""
         loaded = await self._load(actor, order_id, expected_version)
         node = self._node(loaded, node_id)
         assert_allowed(
@@ -1163,25 +1283,23 @@ class OrderCommandService:
         order = loaded.order
         before = self._snapshot(order)
         if node.proposed_design_items is not None:
-            proposed = items_from_json(node.proposed_design_items)
-            current = items_from_json(order.design_items)
-            decided = proposed
-            if design_picks is not None:
-                if not design_picks:
-                    raise _design_codes_required()
-                decided = await self._design.resolve(
-                    order.unit_id, design_picks, keep=(*current, *proposed)
-                )
-            order.design_items = items_to_json(decided)
+            decided = items_from_json(node.proposed_design_items)
+            if node.node_type is OrderNodeType.THIET_KE:
+                current = items_from_json(order.design_items)
+                order.design_items = items_to_json(decided)
+            else:
+                current = items_from_json(node.task_items)
+                node.task_items = items_to_json(decided)
             node.proposed_design_items = None
-            if self._multi_design(loaded, node):
-                await self._assignees.log_adjustment(node, decided, actor=actor)
             await self._event(
                 order,
                 OrderEventKind.DESIGN_CODES_SET,
                 actor,
                 node=node,
-                note=f"Duyệt đổi mã task design: {describe_items(decided)}",
+                note=(
+                    f"Duyệt mã task {phase_label(node.node_type)}:\n"
+                    f"{describe_change(current, decided)}"
+                ),
             )
         await self._complete_node(loaded, node, actor, request_id, note=note)
         await self._audit_order(
@@ -1220,6 +1338,7 @@ class OrderCommandService:
             first=first_approval,
             take_tokens=loaded.settings.effort_enabled,
         )
+        await self._record_points(loaded, node, now)
         # The next node may only become active once this one is no longer.
         await self._session.flush()
         latest = await self._latest_submission(node)
@@ -1289,9 +1408,15 @@ class OrderCommandService:
         expected_version: int,
         note: str,
         plan: NodePlan | None = None,
+        reason: OrderReturnReason | None = None,
     ) -> Order:
         """Send the hand-in back with this round's revision tokens ("Token
-        sửa", required, may be 0) and, optionally, a revision deadline."""
+        sửa", required, may be 0) and, optionally, a revision deadline.
+
+        ``reason`` (0074, required while task codes are on): "Làm lỗi" and
+        "Do thay đổi yêu cầu" open a revision round (counted apart);
+        "Mã công việc chưa hợp lý" only asks for the codes again - no revision
+        round, no revision tokens."""
         loaded = await self._load(actor, order_id, expected_version)
         node = self._node(loaded, node_id)
         assert_allowed(
@@ -1302,8 +1427,10 @@ class OrderCommandService:
             node_id=node.id,
         )
         note = _require_note(note)
+        reason = _return_reason(loaded.settings, reason)
+        codes_only = reason is OrderReturnReason.WRONG_CODES
         plan = plan or NodePlan()
-        effort = loaded.settings.effort_enabled
+        effort = loaded.settings.effort_enabled and not codes_only
         tokens = _tokens(plan.tokens) if effort else Decimal(0)
         if tokens is None:
             raise OrderValidationError(
@@ -1312,7 +1439,9 @@ class OrderCommandService:
             )
         before = self._snapshot(loaded.order)
         node.status = OrderNodeStatus.DANG_SUA
-        node.revision_count += 1
+        if not codes_only:
+            node.revision_count += 1
+        _count_return(node, reason)
         # A requested change of design codes goes back with the hand-in.
         node.proposed_design_items = None
         if self._multi_design(loaded, node):
@@ -1329,7 +1458,15 @@ class OrderCommandService:
         node.version += 1
         self._bump(loaded.order)
         await self._session.flush()
-        await self._event(loaded.order, OrderEventKind.NODE_RETURNED, actor, node=node, note=note)
+        note = _reason_note(reason, note)
+        await self._event(
+            loaded.order,
+            OrderEventKind.NODE_RETURNED,
+            actor,
+            node=node,
+            note=note,
+            return_reason=reason,
+        )
         await self._audit_order(
             actor, request_id, AuditAction.ORDER_NODE_RETURNED, loaded.order, before=before
         )
@@ -1526,6 +1663,7 @@ class OrderCommandService:
         order_id: uuid.UUID,
         expected_version: int,
         note: str,
+        reason: OrderReturnReason | None = None,
     ) -> Order:
         loaded = await self._load(actor, order_id, expected_version)
         assert_allowed(
@@ -1541,6 +1679,7 @@ class OrderCommandService:
             action=AuditAction.ORDER_VIDEO_RETURNED,
             note=note,
             final=False,
+            reason=_return_reason(loaded.settings, reason),
         )
 
     async def approve_final(
@@ -1619,6 +1758,7 @@ class OrderCommandService:
         order_id: uuid.UUID,
         expected_version: int,
         note: str,
+        reason: OrderReturnReason | None = None,
     ) -> Order:
         loaded = await self._load(actor, order_id, expected_version)
         assert_allowed(
@@ -1634,6 +1774,7 @@ class OrderCommandService:
             action=AuditAction.ORDER_FINAL_RETURNED,
             note=note,
             final=True,
+            reason=_return_reason(loaded.settings, reason),
         )
 
     # --- flags ------------------------------------------------------------------------
@@ -1734,10 +1875,20 @@ class OrderCommandService:
         ):
             return None, None
         current = items_from_json(order.design_items)
+        forms = self._forms(loaded)
         if node.node_type is OrderNodeType.BIEN_TAP:
+            # The script step suggests what Design makes: required only while
+            # the order carries no suggestion for Design (0074).
             if not picks:
-                raise _design_codes_required()
-            return await self._design.resolve(order.unit_id, picks, keep=current), None
+                if not current:
+                    raise _design_codes_required()
+                return None, None
+            return (
+                await self._design.resolve(
+                    order.unit_id, picks, keep=current, phase=OrderNodeType.THIET_KE, forms=forms
+                ),
+                None,
+            )
         if picks is None:
             if not current:
                 # No script step picked them: the designer does, here.
@@ -1745,8 +1896,128 @@ class OrderCommandService:
             return None, None
         if not picks:
             raise _design_codes_required()
-        wanted = await self._design.resolve(order.unit_id, picks, keep=current)
+        wanted = await self._design.resolve(
+            order.unit_id, picks, keep=current, phase=OrderNodeType.THIET_KE, forms=forms
+        )
         return None, (None if current and same_items(wanted, current) else wanted)
+
+    async def _task_hand_in(
+        self, loaded: _Loaded, node: OrderNode, picks: Sequence[DesignPick] | None
+    ) -> tuple[tuple[DesignItem, ...] | None, tuple[DesignItem, ...] | None]:
+        """What a Biên kịch / Dựng hand-in does to the step's own task code
+        (0074): ``(set, proposed)``.
+
+        ``set`` - a Trưởng phòng who did the step changed it: it stands.
+        ``proposed`` - somebody else's code that differs from the suggestion
+        (or a first one where none was suggested): it waits for the phase's
+        Trưởng phòng. Both ``None`` when it matches the suggestion, the step
+        carries no codes, or task codes are switched off."""
+        order = loaded.order
+        if (
+            not loaded.settings.design_codes_enabled
+            or order.category is not OrderCategory.STANDARD
+            or node.node_type not in (OrderNodeType.BIEN_TAP, OrderNodeType.DUNG)
+        ):
+            return None, None
+        suggested = items_from_json(node.task_items)
+        if not picks:
+            if not suggested:
+                raise _task_codes_required(node.node_type)
+            return None, None
+        actual = await self._design.resolve(
+            order.unit_id, picks, keep=suggested, phase=node.node_type, forms=self._forms(loaded)
+        )
+        if suggested and same_items(actual, suggested):
+            # The same work; only a note may have changed - keep it.
+            node.task_items = items_to_json(actual)
+            return None, None
+        if self._reviews(loaded, node):
+            return actual, None
+        return None, actual
+
+    def _reviews(self, loaded: _Loaded, node: OrderNode) -> bool:
+        """Does the actor of ``loaded`` review this node's hand-ins (its
+        Trưởng phòng, the OWNER, an ADMIN)?"""
+        managed = function_node(node.node_type, loaded.order.video_type)
+        return managed in loaded.scope.context.permissions.nodes(AdsPermission.NODE_REVIEW)
+
+    @staticmethod
+    def _forms(loaded: _Loaded) -> tuple[TaskFormSpec, ...]:
+        return form_specs(loaded.settings.task_forms)
+
+    async def _suggestions(
+        self,
+        unit_id: uuid.UUID,
+        settings: UnitSettings,
+        video_type: OrderVideoType,
+        picks: Mapping[OrderNodeType, Sequence[DesignPick]] | None,
+    ) -> dict[OrderNodeType, tuple[DesignItem, ...]]:
+        """The suggested task codes of each step the process visits."""
+        if not settings.design_codes_enabled or not picks:
+            return {}
+        forms = form_specs(settings.task_forms)
+        plan = NODE_PLAN[video_type]
+        suggestions: dict[OrderNodeType, tuple[DesignItem, ...]] = {}
+        for phase, chosen in picks.items():
+            if phase not in TASK_PHASES or phase not in plan or not chosen:
+                continue
+            suggestions[phase] = await self._design.resolve(
+                unit_id, chosen, phase=phase, forms=forms
+            )
+        return suggestions
+
+    async def _record_points(self, loaded: _Loaded, node: OrderNode, now: datetime) -> None:
+        """0074: the step is done - every person on it earns the points of the
+        task codes they did. Done again after a return: the row is updated and
+        keeps the month of the first time."""
+        order = loaded.order
+        if not loaded.settings.design_codes_enabled or node.node_type not in TASK_PHASES:
+            return
+        # A birthday order scores its T1 x1 like any Design step (2026-10-23).
+        people: list[tuple[uuid.UUID, tuple[DesignItem, ...]]] = []
+        if node.node_type is OrderNodeType.THIET_KE:
+            rows = await self._assignees.open_rows(node.id)
+            people = [(row.user_id, items_from_json(row.work_items)) for row in rows]
+            if not rows and node.assignee_user_id is not None:
+                # A Design step handed out before 0073 (or a birthday order):
+                # one person, the order's list.
+                items = items_from_json(order.design_items)
+                if not items and order.category is OrderCategory.BIRTHDAY:
+                    # A birthday order placed before it carried T1: T1 x1 anyway.
+                    items = await self._design.birthday_items(order.unit_id)
+                people = [(node.assignee_user_id, items)]
+        elif node.assignee_user_id is not None:
+            people = [(node.assignee_user_id, items_from_json(node.task_items))]
+        existing = {
+            row.user_id: row
+            for row in (
+                await self._session.scalars(
+                    select(OrderNodePoints).where(OrderNodePoints.node_id == node.id)
+                )
+            ).all()
+        }
+        for user_id, items in people:
+            if not items:
+                continue
+            row = existing.get(user_id)
+            if row is None:
+                self._session.add(
+                    OrderNodePoints(
+                        node_id=node.id,
+                        order_id=order.id,
+                        user_id=user_id,
+                        phase=node.node_type,
+                        items=items_to_json(items),
+                        points=total_points(items),
+                        first_completed_at=now,
+                        updated_at=now,
+                    )
+                )
+            else:
+                row.items = items_to_json(items)
+                row.points = total_points(items)
+                row.updated_at = now
+        await self._session.flush()
 
     async def _load(self, actor: Actor, order_id: uuid.UUID, expected_version: int) -> _Loaded:
         membership = await self._directory.require(actor, UnitCode.ADS)
@@ -1852,9 +2123,11 @@ class OrderCommandService:
         action: AuditAction,
         note: str,
         final: bool,
+        reason: OrderReturnReason | None = None,
     ) -> Order:
         """A gate returns the product: the last production node reopens for
-        the same person ("Đang sửa"), who hands in a new version."""
+        the same person ("Đang sửa"), who hands in a new version - or, for
+        "Mã công việc chưa hợp lý", only picks the task codes again."""
         order = loaded.order
         node = loaded.product()
         before = self._snapshot(order)
@@ -1866,17 +2139,26 @@ class OrderCommandService:
             legacy.status = OrderNodeStatus.BO_QUA
             legacy.version += 1
             await self._session.flush()
+        codes_only = reason is OrderReturnReason.WRONG_CODES
         node.status = OrderNodeStatus.DANG_SUA
-        node.revision_count += 1
+        if not codes_only:
+            node.revision_count += 1
+        _count_return(node, reason)
         # The returner does not plan the node: its Leader enters the revision
         # tokens ("Nhập token sửa"); the worker may start meanwhile.
-        node.revision_tokens_pending = loaded.settings.effort_enabled
+        node.revision_tokens_pending = loaded.settings.effort_enabled and not codes_only
+        if self._multi_design(loaded, node):
+            # Every designer hands in again; their lists are kept to fix.
+            await self._assignees.reopen(node, actor=actor)
         node.version += 1
         order.stage = stage_for_node(node.node_type)
+        note = _reason_note(reason, note)
         await self._approval(
             order, gate, OrderApprovalDecision.RETURNED, actor, submission=latest, comment=note
         )
-        await self._event(order, event, actor, node=node, submission=latest, note=note)
+        await self._event(
+            order, event, actor, node=node, submission=latest, note=note, return_reason=reason
+        )
         self._bump(order)
         await self._session.flush()
         await self._audit_order(actor, request_id, action, order, before=before)
@@ -1973,6 +2255,7 @@ class OrderCommandService:
         assignee: uuid.UUID | None = None,
         submission: OrderSubmission | None = None,
         note: str | None = None,
+        return_reason: OrderReturnReason | None = None,
     ) -> None:
         assert actor.user_id is not None
         self._session.add(
@@ -1984,6 +2267,7 @@ class OrderCommandService:
                 assignee_user_id=assignee,
                 submission_id=None if submission is None else submission.id,
                 note=_blank_to_none(note),
+                return_reason=return_reason,
             )
         )
         await self._session.flush()
@@ -2263,6 +2547,55 @@ def _format_tokens(tokens: Decimal) -> str:
 
 def _format_when(at: datetime) -> str:
     return f"{at.astimezone(WORK_TIMEZONE):%d/%m/%Y %H:%M}"
+
+
+def _task_picks(
+    task_codes: Mapping[OrderNodeType, Sequence[DesignPick]] | None,
+    design_codes: Sequence[DesignPick] | None,
+) -> dict[OrderNodeType, Sequence[DesignPick]]:
+    """The suggested codes by step; the older ``design_codes`` field counts
+    for Design when ``task_codes`` says nothing about it."""
+    picks: dict[OrderNodeType, Sequence[DesignPick]] = dict(task_codes or {})
+    if design_codes and OrderNodeType.THIET_KE not in picks:
+        picks[OrderNodeType.THIET_KE] = design_codes
+    return picks
+
+
+def _suggested_json(
+    suggestions: Mapping[OrderNodeType, Sequence[DesignItem]],
+) -> dict[str, Any] | None:
+    stored = {phase.value: items_to_json(items) for phase, items in suggestions.items() if items}
+    return stored or None
+
+
+def _task_codes_required(phase: OrderNodeType) -> OrderValidationError:
+    return OrderValidationError(
+        f"Cần chọn mã task {phase_label(phase)} đã làm trước khi nộp.",
+        details={"reason": "task_codes_required", "field": "task_codes"},
+    )
+
+
+def _return_reason(
+    settings: UnitSettings, reason: OrderReturnReason | None
+) -> OrderReturnReason | None:
+    """0074: "Không duyệt" names one of three reasons while task codes are on."""
+    if reason is None and settings.design_codes_enabled:
+        raise OrderValidationError(
+            "Chọn lý do không duyệt.",
+            details={"reason": "return_reason_required", "field": "return_reason"},
+        )
+    return reason
+
+
+def _count_return(node: OrderNode, reason: OrderReturnReason | None) -> None:
+    if reason is OrderReturnReason.WORKER_FAULT:
+        node.returns_fault += 1
+    elif reason is OrderReturnReason.CHANGED_REQUEST:
+        node.returns_other += 1
+
+
+def _reason_note(reason: OrderReturnReason | None, note: str) -> str:
+    return note if reason is None else f"{RETURN_REASON_LABELS[reason]}: {note}"
 
 
 def _design_codes_required() -> OrderValidationError:

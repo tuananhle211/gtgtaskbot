@@ -204,6 +204,11 @@ class DesignAccessResponse(BaseModel):
     view: bool = False
     #: Keeps the catalogue of design codes: the Design Leader, OWNER, ADMIN.
     manage_codes: bool = False
+    #: 0074: the phases (node types) whose task codes this caller keeps on
+    #: "Danh mục điểm" - each phase's Trưởng phòng; the OWNER / an ADMIN all.
+    task_phases: list[str] = []
+    #: 0074: may edit the forms ("hình thức"): the OWNER / an ADMIN.
+    manage_forms: bool = False
     #: May open the birthday board and place birthday orders: the Design
     #: team, OWNER / ADMIN, and a member granted it on their ORD tag (0059).
     birthday: bool = False
@@ -434,35 +439,91 @@ class UpdateUnitSettingsRequest(BaseModel):
 
 
 class DesignCodeResponse(BaseModel):
-    """One row of the Design team's catalogue of design codes ("mã task design")."""
+    """One row of the task-code catalogue ("Danh mục điểm"; 0058 design codes,
+    every phase with points since 0074). ``name`` falls back to the examples
+    (a Design code has no name of its own); ``title`` is the stored name."""
 
     id: uuid.UUID
+    phase: str
     code: str
     name: str
+    title: str | None = None
+    points: int = 0
+    unit_label: str | None = None
+    examples: str | None = None
+    note: str | None = None
+    free_points: bool = False
     active: bool
     sort_order: int
 
     @classmethod
     def from_row(cls, row: UnitDesignCode) -> DesignCodeResponse:
         return cls(
-            id=row.id, code=row.code, name=row.name, active=row.active, sort_order=row.sort_order
+            id=row.id,
+            phase=row.phase,
+            code=row.code,
+            name=row.name or row.examples or row.code,
+            title=row.name,
+            points=row.points,
+            unit_label=row.unit_label,
+            examples=row.examples,
+            note=row.note,
+            free_points=row.free_points,
+            active=row.active,
+            sort_order=row.sort_order,
         )
+
+
+class TaskFormResponse(BaseModel):
+    """0074: one form ("hình thức") and the phases it is offered in."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    key: str
+    label: str
+    pct: int
+    note: str = ""
+    phases: list[str] = []
+    active: bool = True
 
 
 class DesignCodeListResponse(BaseModel):
     codes: list[DesignCodeResponse]
+    #: 0074: the forms, so a picker needs one call.
+    forms: list[TaskFormResponse] = []
+
+
+class TaskFormsResponse(BaseModel):
+    forms: list[TaskFormResponse]
+
+
+class TaskFormsRequest(BaseModel):
+    forms: list[TaskFormResponse] = Field(min_length=1, max_length=20)
 
 
 class CreateDesignCodeRequest(BaseModel):
     code: str = Field(min_length=1, max_length=60)
-    name: str = Field(min_length=1, max_length=300)
+    #: 0074: optional - a Design code shows its examples instead.
+    name: str | None = Field(default=None, max_length=300)
+    phase: str = "THIET_KE"
+    points: int = Field(default=0, ge=0, le=1_000_000)
+    unit_label: str | None = Field(default=None, max_length=40)
+    examples: str | None = Field(default=None, max_length=2000)
+    note: str | None = Field(default=None, max_length=2000)
+    free_points: bool = False
     active: bool = True
     sort_order: int | None = Field(default=None, ge=0, le=100000)
 
 
 class UpdateDesignCodeRequest(BaseModel):
+    """A text field sent as ``""`` is cleared."""
+
     code: str | None = Field(default=None, min_length=1, max_length=60)
-    name: str | None = Field(default=None, min_length=1, max_length=300)
+    name: str | None = Field(default=None, max_length=300)
+    points: int | None = Field(default=None, ge=0, le=1_000_000)
+    unit_label: str | None = Field(default=None, max_length=40)
+    examples: str | None = Field(default=None, max_length=2000)
+    note: str | None = Field(default=None, max_length=2000)
     active: bool | None = None
     sort_order: int | None = Field(default=None, ge=0, le=100000)
 

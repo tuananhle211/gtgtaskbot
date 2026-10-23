@@ -176,6 +176,19 @@ class OrderEventKind(StrEnum):
     BIRTHDAY_EDITED = "BIRTHDAY_EDITED"
 
 
+class OrderReturnReason(StrEnum):
+    """0074: why a Trưởng phòng (or the orderer, at the final review) sent a
+    hand-in back - "Không duyệt" offers exactly these three."""
+
+    #: "Do thay đổi yêu cầu": the work is redone, not the worker's mistake.
+    CHANGED_REQUEST = "CHANGED_REQUEST"
+    #: "Mã công việc chưa hợp lý": only the task codes are picked again; not a
+    #: revision round.
+    WRONG_CODES = "WRONG_CODES"
+    #: "Làm lỗi": the worker's mistake.
+    WORKER_FAULT = "WORKER_FAULT"
+
+
 class OrderTokenKind(StrEnum):
     """What a token ledger row takes off a person's day (0053)."""
 
@@ -313,6 +326,7 @@ __all__ = [
     "OrderNodeAssigneeEventKind",
     "OrderNodeStatus",
     "OrderNodeType",
+    "OrderReturnReason",
     "OrderScriptSource",
     "OrderStage",
     "OrderTokenKind",

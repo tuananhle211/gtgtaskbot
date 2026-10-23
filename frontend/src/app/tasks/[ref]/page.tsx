@@ -1,5 +1,6 @@
 "use client";
 
+import { TaskCodesPanel } from "@/components/task-codes-panel";
 import { TokenBadge } from "@/components/token-badge";
 import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
@@ -147,7 +148,11 @@ export default function TaskDetailPage() {
     <div className="space-y-4">
       {data.birthday ? <BirthdayPanel info={data.birthday} /> : null}
       <FieldsPanel fields={data.fields} unit={task.unit} />
-      {data.design ? <DesignCodesPanel design={data.design} /> : null}
+      {data.task_codes && data.task_codes.length > 0 ? (
+        <TaskCodesPanel phases={data.task_codes} design={data.design} />
+      ) : data.design ? (
+        <DesignCodesPanel design={data.design} />
+      ) : null}
       <SubmissionsPanel detail={data} />
       <TimelinePanel detail={data} />
     </div>

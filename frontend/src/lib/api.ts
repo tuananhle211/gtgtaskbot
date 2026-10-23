@@ -3469,6 +3469,10 @@ export interface DesignAccess {
   birthday: boolean;
   library?: DesignLibraryLink[];
   manage_library?: boolean;
+  /** 0074: the steps whose task codes this caller keeps on "Danh mục điểm". */
+  task_phases?: string[];
+  /** 0074: may edit the forms ("hình thức"): OWNER / ADMIN. */
+  manage_forms?: boolean;
 }
 
 /**
@@ -3906,45 +3910,148 @@ export interface UnitDurationBody {
   sort_order?: number;
 }
 
+/** 0074: the production steps that carry task codes ("mã task công việc"). */
+export type TaskPhase = "BIEN_TAP" | "THIET_KE" | "DUNG";
+
+export const TASK_PHASES: TaskPhase[] = ["BIEN_TAP", "THIET_KE", "DUNG"];
+
+export const TASK_PHASE_LABELS: Record<TaskPhase, string> = {
+  BIEN_TAP: "Biên kịch",
+  THIET_KE: "Design",
+  DUNG: "Dựng",
+};
+
 /**
- * One row of ORD's "mã task design" catalogue (e.g. `TKBTS` "SOCIAL - Thiết kế
- * Banner, Thumb Video, Avatar"). Never deleted: a retired row is `active: false`.
+ * One row of ORD's task-code catalogue ("Danh mục điểm"; 0058 design codes,
+ * every step with points since 0074). Never deleted: a retired row is
+ * `active: false`. `name` falls back to the examples (a Design code has no
+ * name of its own; `title` is the stored one). `free_points` = "Việc khác".
  */
 export interface DesignCode {
   id: Uuid;
+  phase?: TaskPhase | string;
   code: string;
   name: string;
+  title?: string | null;
+  points?: number;
+  unit_label?: string | null;
+  examples?: string | null;
+  note?: string | null;
+  free_points?: boolean;
   active: boolean;
   sort_order: number;
 }
 
+/** 0074: one form ("hình thức") a line may take, and the steps it is for. */
+export interface TaskForm {
+  key: string;
+  label: string;
+  pct: number;
+  note: string;
+  phases: string[];
+  active: boolean;
+}
+
 export interface DesignCodeList {
   codes: DesignCode[];
+  /** 0074: the forms, so a picker needs one call. */
+  forms?: TaskForm[];
 }
 
 export interface DesignCodeBody {
   code?: string;
-  name?: string;
+  /** Optional since 0074 ("" clears it): a Design code shows its examples. */
+  name?: string | null;
+  phase?: TaskPhase;
+  points?: number;
+  unit_label?: string | null;
+  examples?: string | null;
+  note?: string | null;
+  free_points?: boolean;
   active?: boolean;
   sort_order?: number;
 }
 
 /**
- * One "mã task design" on one order: a snapshot of the catalogue row (so a renamed
- * or retired row still reads) and how many of it.
+ * One task code on one order or step: a snapshot of the catalogue row (so a
+ * renamed or retired row still reads), how many of it, in which form, and the
+ * points it scores (0074). A "Việc khác" line (`free`) carries the points the
+ * person typed (`unit_points`) and what was done (`note`).
  */
 export interface DesignCodeItem {
   code_id: Uuid;
   code: string;
   name: string;
   quantity: number;
+  form?: string;
+  form_label?: string;
+  form_pct?: number;
+  unit_points?: number | null;
+  points?: number;
+  note?: string | null;
+  free?: boolean;
+  examples?: string | null;
+  unit_label?: string | null;
 }
 
-/** What an action sends for one code: the catalogue row and a quantity >= 1. */
+/** What an action sends for one code: the row, a quantity >= 1, its form, and
+ * for "Việc khác" what was done (`note`) and its `points`. */
 export interface DesignCodePick {
   code_id: Uuid;
   quantity: number;
+  form?: string;
+  note?: string | null;
+  points?: number;
 }
+
+/** 0074: one person's task codes on one step and their points. */
+export interface TaskCodesPerson {
+  user_id: Uuid;
+  name: string;
+  codes: DesignCodeItem[];
+  points: number;
+  /** The step is done and the points are counted. */
+  earned: boolean;
+}
+
+/** 0074: one production step's task codes on the task page. */
+export interface TaskCodesPhase {
+  phase: TaskPhase | string;
+  label: string;
+  /** What the order suggested when it was placed. */
+  suggested: DesignCodeItem[];
+  suggested_points: number;
+  /** What the step carries now (the suggestion, or the agreed actual codes). */
+  current: DesignCodeItem[];
+  current_points: number;
+  /** A hand-in's different codes, waiting for the Trưởng phòng. */
+  proposed?: DesignCodeItem[] | null;
+  proposed_points?: number | null;
+  /** How they differ, as the Trưởng phòng reads it. */
+  change?: string | null;
+  people: TaskCodesPerson[];
+}
+
+/** 0074: why "Không duyệt". */
+export type ReturnReason = "CHANGED_REQUEST" | "WRONG_CODES" | "WORKER_FAULT";
+
+export const RETURN_REASONS: { value: ReturnReason; label: string; hint: string }[] = [
+  {
+    value: "WORKER_FAULT",
+    label: "Làm lỗi",
+    hint: "Sai brief, sai thông tin, chất lượng chưa đạt - tính một lần sửa do lỗi người làm.",
+  },
+  {
+    value: "CHANGED_REQUEST",
+    label: "Do thay đổi yêu cầu",
+    hint: "Người order đổi yêu cầu - làm lại nhưng không tính lỗi người làm.",
+  },
+  {
+    value: "WRONG_CODES",
+    label: "Mã công việc chưa hợp lý",
+    hint: "Bài ổn, chỉ cần chọn lại mã task - không tính lần sửa.",
+  },
+];
 
 /** An ORD order's category: the ordinary one, or an "Order sinh nhật". */
 export type OrderCategory = "STANDARD" | "BIRTHDAY";
@@ -4395,11 +4502,10 @@ export interface CreateOrderBody {
   desired_deadline_at?: string | null;
   /** The Trưởng phòng ADS chosen to approve it (ignored for a head's own order). */
   approver_user_id?: Uuid | null;
-  /**
-   * Only Design ticked: "Task công việc" = the design codes, in place of the
-   * video kind, platform and duration (422 `design_codes_required`).
-   */
+  /** The design codes suggested for Design (older field; see `task_codes`). */
   design_codes?: DesignCodePick[];
+  /** 0074: "Task công việc" suggested for each ticked step - all optional. */
+  task_codes?: Partial<Record<TaskPhase, DesignCodePick[]>>;
 }
 
 // --- The unified task (PR content + Ads order) ------------------------------
@@ -4501,7 +4607,9 @@ export type TaskActionInput =
   | "assignee"
   | "tokens"
   | "deadline"
-  | "design_codes";
+  | "design_codes"
+  | "task_codes"
+  | "return_reason";
 
 export interface TaskAction {
   /** Opaque; posted back unchanged. The client never parses it. */
@@ -4523,6 +4631,12 @@ export interface TaskAction {
   hint?: string | null;
   /** 0069: "Giao việc" may pick several people at once (ORD Design). */
   multi_assign?: boolean;
+  /** 0074: the step whose task-code catalogue the picker offers. */
+  task_phase?: TaskPhase | string | null;
+  /** 0074: what the step's own task-code picker starts from (the suggestion). */
+  task_codes?: DesignCodeItem[] | null;
+  /** 0074: the link handed in last, to send a hand-in again as it was. */
+  link_default?: string | null;
 }
 
 /**
@@ -4546,6 +4660,8 @@ export interface UnifiedTaskDetail {
   design?: TaskDesignCodes | null;
   /** Set on a birthday order. */
   birthday?: BirthdayInfo | null;
+  /** 0074: each production step's task codes and points. */
+  task_codes?: TaskCodesPhase[];
 }
 
 export interface TaskActionBody {
@@ -4565,6 +4681,10 @@ export interface TaskActionBody {
   design_codes?: DesignCodePick[] | null;
   /** 0069: the Leader's optional split of codes per person on a multi-assign. */
   design_codes_by_user?: Record<Uuid, DesignCodePick[]>;
+  /** 0074: the step's own task code(s) handed in (Biên kịch / Dựng). */
+  task_codes?: DesignCodePick[] | null;
+  /** 0074: why "Không duyệt". */
+  return_reason?: ReturnReason;
 }
 
 // --- Password login and the account screen ----------------------------------
@@ -4574,7 +4694,7 @@ export interface TaskActionBody {
 export interface MemberStats {
   /** `YYYY-MM`. */
   month: string;
-  /** Ads production points: the video kind's points per completed node. */
+  /** 0074: task-code points earned on steps first done in the month. */
   points: number;
   nodes_done: number;
   /** Assigned now and not finished, whatever the month. */
@@ -5089,6 +5209,24 @@ export const api = {
   /** No delete: a row is retired with `active: false`. */
   updateDesignCode: (id: Uuid, body: DesignCodeBody) =>
     patch<DesignCode>(`/api/units/ADS/design-codes/${id}`, body),
+  /**
+   * 0074: "Danh mục điểm" - one step's task codes (all steps when `phase` is
+   * left out) with the forms. `includeInactive` needs to keep that step
+   * (`design.task_phases`), else 403 `design_code_forbidden`.
+   */
+  taskCodes: (phase?: TaskPhase, includeInactive = false) =>
+    get<DesignCodeList>(
+      `/api/units/ADS/task-codes${query({ phase, include_inactive: includeInactive })}`,
+    ),
+  /** 201. 403 `design_code_forbidden` (not that step's Trưởng phòng). */
+  createTaskCode: (body: DesignCodeBody & { code: string; phase: TaskPhase }) =>
+    post<DesignCode>("/api/units/ADS/task-codes", body),
+  updateTaskCode: (id: Uuid, body: DesignCodeBody) =>
+    patch<DesignCode>(`/api/units/ADS/task-codes/${id}`, body),
+  taskForms: () => get<{ forms: TaskForm[] }>("/api/units/ADS/task-forms"),
+  /** OWNER / ADMIN. 422 `task_form_invalid` ("Làm mới" 100% must stay on). */
+  setTaskForms: (forms: TaskForm[]) =>
+    put<{ forms: TaskForm[] }>("/api/units/ADS/task-forms", { forms }),
   /** The Design team's "Thư viện". 403 `library_forbidden` outside the team. */
   designLibrary: () => get<DesignLibrary>("/api/units/ADS/library"),
   /**
@@ -6718,6 +6856,8 @@ export interface ResourcesAccess {
    * only. Optional: an older API omits it.
    */
   view_list?: boolean;
+  /** "Đề xuất tài nguyên" waiting on me (2026-10-22): the menu's badge. Optional. */
+  requests_awaiting?: number;
   /**
    * Edits EVERY resource and changes any holder. One's own resources (and a
    * head's department's people's) are editable without it: see the detail's

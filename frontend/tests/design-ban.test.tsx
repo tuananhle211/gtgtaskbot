@@ -26,7 +26,6 @@ import userEvent from "@testing-library/user-event";
 import TaskDetailPage from "@/app/tasks/[ref]/page";
 import TasksPage from "@/app/tasks/page";
 import BirthdayOrdersPage from "@/app/tasks/birthday/page";
-import DesignCodesPage from "@/app/tasks/design-codes/page";
 import {
   DesignCodesPicker,
   designCodesValid,
@@ -153,10 +152,10 @@ describe('the "Bảng order" branch of the nav', () => {
     renderWithQuery(<Shell>{null}</Shell>);
   };
 
-  it('holds only "Order tổng" without the design flags, and no "Tạo order" entry', async () => {
+  it('holds "Order tổng" and "Danh mục điểm" without the design flags, and no "Tạo order" entry', async () => {
     shell();
     await screen.findByText("Phòng ban của bạn");
-    await waitFor(() => expect(navHrefs()).toEqual(["/dashboard", "/tasks"]));
+    await waitFor(() => expect(navHrefs()).toEqual(["/dashboard", "/tasks", "/tasks/task-codes"]));
     const branch = within(primary()).getByRole("group", { name: "Bảng order" });
     expect(within(branch).getByRole("button", { name: "Bảng order" })).toHaveAttribute(
       "aria-expanded",
@@ -166,26 +165,25 @@ describe('the "Bảng order" branch of the nav', () => {
       within(branch)
         .getAllByRole("link")
         .map((link) => link.textContent),
-    ).toEqual(["Order tổng"]);
+    ).toEqual(["Order tổng", "Danh mục điểm"]);
     // Creating moved to the boards: the sidebar has no entry for it.
     expect(within(primary()).queryByRole("link", { name: /Tạo order/ })).not.toBeInTheDocument();
     expect(navHrefs()).not.toContain("/orders/new");
     expect(within(primary()).queryByText("Quản lý task")).not.toBeInTheDocument();
   });
 
-  it('adds "Order sinh nhật" for design.birthday, and not the catalogue', async () => {
+  it('adds "Order sinh nhật" for design.birthday, before "Danh mục điểm"', async () => {
     shell(DESIGNER);
     expect(await screen.findByRole("link", { name: "Order sinh nhật" })).toHaveAttribute(
       "href",
       "/tasks/birthday",
     );
-    expect(navHrefs()).toEqual(["/dashboard", "/tasks", "/tasks/birthday"]);
-    expect(screen.queryByRole("link", { name: "Mã task design" })).not.toBeInTheDocument();
+    expect(navHrefs()).toEqual(["/dashboard", "/tasks", "/tasks/birthday", "/tasks/task-codes"]);
   });
 
-  it('adds "Mã task design" as the third child for design.manage_codes', async () => {
+  it('lists "Danh mục điểm" for everybody in the order flow (0074)', async () => {
     shell(DESIGN_LEAD);
-    await screen.findByRole("link", { name: "Mã task design" });
+    await screen.findByRole("link", { name: "Order sinh nhật" });
     const branch = within(primary()).getByRole("group", { name: "Bảng order" });
     expect(
       within(branch)
@@ -194,14 +192,8 @@ describe('the "Bảng order" branch of the nav', () => {
     ).toEqual([
       ["Order tổng", "/tasks"],
       ["Order sinh nhật", "/tasks/birthday"],
-      ["Mã task design", "/tasks/design-codes"],
+      ["Danh mục điểm", "/tasks/task-codes"],
     ]);
-  });
-
-  it("shows the catalogue alone when only manage_codes is set", async () => {
-    shell({ view: false, manage_codes: true, birthday: false });
-    await screen.findByRole("link", { name: "Mã task design" });
-    expect(navHrefs()).toEqual(["/dashboard", "/tasks", "/tasks/design-codes"]);
   });
 
   it("marks the board on screen, not the one it is nested under", async () => {
@@ -210,7 +202,7 @@ describe('the "Bảng order" branch of the nav', () => {
     const birthday = await screen.findByRole("link", { name: "Order sinh nhật" });
     expect(birthday).toHaveAttribute("aria-current", "page");
     expect(screen.getByRole("link", { name: "Order tổng" })).not.toHaveAttribute("aria-current");
-    expect(screen.getByRole("link", { name: "Mã task design" })).not.toHaveAttribute("aria-current");
+    expect(screen.getByRole("link", { name: "Danh mục điểm" })).not.toHaveAttribute("aria-current");
   });
 
   it('keeps a task\'s own page under "Order tổng"', async () => {
@@ -492,28 +484,26 @@ function PickerHarness({
 const picks = () => JSON.parse(screen.getByTestId("picks").textContent ?? "[]");
 const valid = () => screen.getByTestId("valid").textContent;
 
-describe("the mã task design picker", () => {
-  it("adds a code with quantity 1, and offers each code once", async () => {
+describe("the task-code picker (Design)", () => {
+  it("adds a code with quantity 1, and may add it again in another form", async () => {
     renderWithQuery(<PickerHarness required />);
-    const add = screen.getByRole("combobox", { name: "Mã task design (bắt buộc)" });
-    expect(screen.getByText("Chưa chọn mã task design nào.")).toBeInTheDocument();
+    const add = screen.getByRole("combobox", { name: "Mã task công việc Design (bắt buộc)" });
+    expect(screen.getByText("Chưa chọn mã task nào.")).toBeInTheDocument();
     expect(valid()).toBe("false");
     expect(within(add).getAllByRole("option").map((option) => option.textContent)).toEqual([
-      "— thêm mã task design —",
+      "+ Thêm mã task",
       "TKBTS · SOCIAL - Thiết kế Banner, Thumb Video, Avatar",
       "CA · Cover Album",
     ]);
     await userEvent.selectOptions(add, TKBTS.id);
     expect(picks()).toEqual([{ code_id: TKBTS.id, quantity: 1 }]);
     expect(valid()).toBe("true");
-    expect(within(add).getAllByRole("option").map((option) => option.textContent)).toEqual([
-      "— thêm mã task design —",
-      "CA · Cover Album",
-    ]);
-    await userEvent.selectOptions(add, CA.id);
+    // Design may take the same code twice - in two forms (0074).
+    await userEvent.selectOptions(add, TKBTS.id);
     expect(screen.getAllByTestId("design-code-item")).toHaveLength(2);
-    expect(within(add).getByRole("option")).toHaveTextContent("Không còn mã nào để thêm");
-    expect(add).toBeDisabled();
+    // Twice in the same form is refused until one changes.
+    expect(valid()).toBe("false");
+    expect(screen.getByText(/Mỗi mã chỉ chọn một lần cho mỗi hình thức/)).toBeInTheDocument();
   });
 
   it("changes a quantity, and refuses anything below 1", async () => {
@@ -541,7 +531,7 @@ describe("the mã task design picker", () => {
     renderWithQuery(<PickerHarness initial={[item(TKBTS, 3), item(CA, 1)]} required />);
     await userEvent.click(screen.getByRole("button", { name: "Bỏ mã TKBTS" }));
     expect(picks()).toEqual([{ code_id: CA.id, quantity: 1 }]);
-    const add = screen.getByRole("combobox", { name: "Mã task design (bắt buộc)" });
+    const add = screen.getByRole("combobox", { name: "Mã task công việc Design (bắt buộc)" });
     expect(within(add).getByRole("option", { name: /TKBTS/ })).toBeInTheDocument();
     await userEvent.click(screen.getByRole("button", { name: "Bỏ mã CA" }));
     expect(picks()).toEqual([]);
@@ -551,16 +541,16 @@ describe("the mã task design picker", () => {
 
   it("accepts an empty list when nothing is required", () => {
     renderWithQuery(<PickerHarness />);
-    expect(screen.getByRole("combobox", { name: "Mã task design" })).toBeInTheDocument();
+    expect(screen.getByRole("combobox", { name: "Mã task công việc Design" })).toBeInTheDocument();
     expect(valid()).toBe("true");
   });
 
   it("keeps a code that was retired since, without offering it again", async () => {
     renderWithQuery(<PickerHarness initial={[item(OLD, 2)]} options={[TKBTS, CA, OLD]} />);
-    expect(screen.getByTestId("design-code-item")).toHaveTextContent("OLD Mã đã ngừng");
+    expect(screen.getByTestId("design-code-item")).toHaveTextContent("OLDMã đã ngừng");
     expect(valid()).toBe("true");
     await userEvent.click(screen.getByRole("button", { name: "Bỏ mã OLD" }));
-    const add = screen.getByRole("combobox", { name: "Mã task design" });
+    const add = screen.getByRole("combobox", { name: "Mã task công việc Design" });
     expect(within(add).queryByRole("option", { name: /OLD/ })).not.toBeInTheDocument();
   });
 
@@ -625,6 +615,7 @@ const SCRIPT_HAND_IN = {
   inputs: ["link", "design_codes"] as UnifiedTaskDetail["actions"][number]["inputs"],
   required_inputs: ["design_codes"] as UnifiedTaskDetail["actions"][number]["inputs"],
   assignee_options: [],
+  task_phase: "BIEN_TAP",
 };
 
 const HINT = "Sửa mã task design thì bài nộp cần Trưởng phòng Design duyệt.";
@@ -644,7 +635,7 @@ const DESIGN_HAND_IN = {
 const detailPage = (detail: UnifiedTaskDetail, catalogue: DesignCode[] = [TKBTS, CA]) => {
   const stub = stubFetch([
     { match: "/api/units/me", body: ME_AS("BIEN_TAP", ORDERER) },
-    { match: "/api/units/ADS/design-codes", body: { codes: catalogue } },
+    { match: "/api/units/ADS/task-codes", body: { codes: catalogue } },
     { match: `/api/tasks/${TASK_ID}/actions`, method: "POST", body: detail },
     { match: `/api/tasks/${detail.task.code}`, body: detail },
   ]);
@@ -662,13 +653,15 @@ describe("mã task design in the action dialog", () => {
     const stub = detailPage({ ...DETAIL, actions: [SCRIPT_HAND_IN] });
     await userEvent.click(await screen.findByRole("button", { name: "Nộp bài · Biên kịch" }));
     const dialog = await screen.findByRole("dialog");
-    const add = within(dialog).getByRole("combobox", { name: "Mã task design (bắt buộc)" });
+    const add = within(dialog).getByRole("combobox", {
+      name: "Mã task công việc Design (đề xuất cho bước Design) (bắt buộc)",
+    });
     // Nothing chosen yet: the hand-in cannot be confirmed.
     expect(accept()).toBeDisabled();
     await waitFor(() => expect(within(add).getAllByRole("option")).toHaveLength(3));
-    // The picker asks for the active catalogue only.
+    // The picker asks for Design's active catalogue only.
     expect(
-      calls(stub).some((call) => call.url === "/api/units/ADS/design-codes"),
+      calls(stub).some((call) => call.url === "/api/units/ADS/task-codes?phase=THIET_KE"),
     ).toBe(true);
     await userEvent.selectOptions(add, TKBTS.id);
     await userEvent.selectOptions(add, CA.id);
@@ -709,8 +702,8 @@ describe("mã task design in the action dialog", () => {
         .getAllByTestId("design-code-item")
         .map((line) => line.textContent),
     ).toEqual([
-      "TKBTS SOCIAL - Thiết kế Banner, Thumb Video, AvatarBỏ",
-      "OLD Mã đã ngừngBỏ",
+      "TKBTSSOCIAL - Thiết kế Banner, Thumb Video, Avatar−+0 điểmBỏ",
+      "OLDMã đã ngừng−+0 điểmBỏ",
     ]);
     await userEvent.type(
       within(dialog).getByRole("textbox", { name: "Link sản phẩm (bắt buộc)" }),
@@ -723,7 +716,7 @@ describe("mã task design in the action dialog", () => {
     // A list that was there may be changed, never emptied.
     expect(accept()).toBeDisabled();
     await userEvent.selectOptions(
-      within(dialog).getByRole("combobox", { name: "Mã task design (bắt buộc)" }),
+      within(dialog).getByRole("combobox", { name: "Mã task công việc Design (bắt buộc)" }),
       CA.id,
     );
     await confirm();
@@ -1217,87 +1210,7 @@ describe("the birthday board", () => {
 
 // --- 6. The catalogue ----------------------------------------------------------
 
-describe('"Mã task design"', () => {
-  const cataloguePage = (me: unknown, extra: Parameters<typeof stubFetch>[0] = []) => {
-    const stub = stubFetch([
-      ...extra,
-      { match: "/api/units/me", body: me },
-      { match: "/api/units/ADS/design-codes", body: { codes: [TKBTS, OLD] } },
-    ]);
-    pathname = "/tasks/design-codes";
-    renderWithQuery(<DesignCodesPage />);
-    return stub;
-  };
-
-  it("lists every code, retired ones included", async () => {
-    const stub = cataloguePage(ME_AS("THIET_KE", DESIGN_LEAD));
-    expect(await screen.findByRole("textbox", { name: "Mã · TKBTS" })).toHaveValue("TKBTS");
-    expect(screen.getByRole("textbox", { name: "Tên · OLD" })).toHaveValue("Mã đã ngừng");
-    expect(screen.getByRole("checkbox", { name: "Đang dùng · TKBTS" })).toBeChecked();
-    expect(screen.getByRole("checkbox", { name: "Đang dùng · OLD" })).not.toBeChecked();
-    expect(calls(stub).find((call) => call.url.includes("design-codes"))!.url).toBe(
-      "/api/units/ADS/design-codes?include_inactive=true",
-    );
-  });
-
-  it("adds a code after asking", async () => {
-    const stub = cataloguePage(ME_AS("THIET_KE", DESIGN_LEAD), [
-      {
-        match: "/api/units/ADS/design-codes",
-        method: "POST",
-        status: 201,
-        body: { ...CA, sort_order: 4 },
-      },
-    ]);
-    const add = await screen.findByRole("button", { name: "Thêm" });
-    // A code and a name, or there is nothing to add.
-    expect(add).toBeDisabled();
-    await userEvent.type(screen.getByRole("textbox", { name: "Mã task design mới" }), "CA");
-    expect(add).toBeDisabled();
-    await userEvent.type(screen.getByRole("textbox", { name: "Tên mã task design mới" }), "Cover Album");
-    await userEvent.click(add);
-    expect(await screen.findByRole("dialog")).toHaveTextContent('Thêm mã task design "CA"?');
-    await confirm();
-    await waitFor(() => expect(calls(stub).some((call) => call.method === "POST")).toBe(true));
-    expect(calls(stub).find((call) => call.method === "POST")!.body).toEqual({
-      code: "CA",
-      name: "Cover Album",
-      active: true,
-      sort_order: 4,
-    });
-  });
-
-  it("renames and retires a code with only what changed", async () => {
-    const stub = cataloguePage(ME_AS("THIET_KE", DESIGN_LEAD), [
-      {
-        match: `/api/units/ADS/design-codes/${TKBTS.id}`,
-        method: "PATCH",
-        body: { ...TKBTS, name: "SOCIAL - Banner", active: false },
-      },
-    ]);
-    const name = await screen.findByRole("textbox", { name: "Tên · TKBTS" });
-    const save = screen.getByRole("button", { name: "Lưu TKBTS" });
-    expect(save).toBeDisabled();
-    await userEvent.clear(name);
-    await userEvent.type(name, "SOCIAL - Banner");
-    await userEvent.click(screen.getByRole("checkbox", { name: "Đang dùng · TKBTS" }));
-    await userEvent.click(save);
-    expect(await screen.findByRole("dialog")).toHaveTextContent('Ngừng dùng mã "TKBTS"?');
-    await confirm();
-    await waitFor(() => expect(calls(stub).some((call) => call.method === "PATCH")).toBe(true));
-    const sent = calls(stub).find((call) => call.method === "PATCH")!;
-    expect(sent.url).toBe(`/api/units/ADS/design-codes/${TKBTS.id}`);
-    expect(sent.body).toEqual({ name: "SOCIAL - Banner", active: false });
-  });
-
-  it("is only a notice for somebody who may not manage it", async () => {
-    const stub = cataloguePage(ME_AS("THIET_KE", DESIGNER));
-    expect(await screen.findByRole("status")).toHaveTextContent(
-      "Mã task design do Trưởng phòng Design quản lý",
-    );
-    expect(calls(stub).some((call) => call.url.includes("design-codes"))).toBe(false);
-  });
-});
+// The catalogue screen ("Danh mục điểm", 0074) is tested in task-codes.test.tsx.
 
 // --- 7. The Design ban's filters, status and deadline ----------------------------
 

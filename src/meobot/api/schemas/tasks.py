@@ -15,6 +15,20 @@ from meobot.api.schemas.board import (
     DesignViewResponse,
 )
 from meobot.application.tasks.detail_service import TaskDetail
+from meobot.domain.orders.design_codes import DesignPick
+from meobot.domain.orders.models import OrderReturnReason
+
+ActionInput = Literal[
+    "note",
+    "link",
+    "text",
+    "assignee",
+    "tokens",
+    "deadline",
+    "design_codes",
+    "task_codes",
+    "return_reason",
+]
 
 
 class _Out(BaseModel):
@@ -138,12 +152,10 @@ class TaskActionResponse(_Out):
     label: str
     emphasis: Literal["PRIMARY", "SECONDARY", "DANGER"]
     requires_note: bool
-    inputs: list[Literal["note", "link", "text", "assignee", "tokens", "deadline", "design_codes"]]
+    inputs: list[ActionInput]
     assignee_options: list[AssigneeOptionResponse]
     #: Inputs that may not be left empty (the last node's product link).
-    required_inputs: list[
-        Literal["note", "link", "text", "assignee", "tokens", "deadline", "design_codes"]
-    ] = []
+    required_inputs: list[ActionInput] = []
     #: ORD (0053): ``ESTIMATE`` (the node's plan) or ``REVISION`` (this
     #: round's "Token sửa" / "Deadline sửa"), and the values to start from.
     plan_mode: Literal["ESTIMATE", "REVISION"] | None = None
@@ -154,6 +166,35 @@ class TaskActionResponse(_Out):
     hint: str | None = None
     #: ORD Design (0069): "Giao việc" may pick several people at once.
     multi_assign: bool = False
+    #: ORD (0074): the step's own task codes (Biên kịch / Dựng) - the phase
+    #: whose catalogue to offer and the suggestion to start from.
+    task_phase: str | None = None
+    task_codes: list[DesignCodeItemResponse] | None = None
+    #: ORD (0074): the link handed in last (to send a hand-in again as it was).
+    link_default: str | None = None
+
+
+class TaskCodesPersonResponse(_Out):
+    user_id: uuid.UUID
+    name: str
+    codes: list[DesignCodeItemResponse] = []
+    points: int = 0
+    earned: bool = False
+
+
+class TaskCodesPhaseResponse(_Out):
+    """0074: one production step's task codes and points."""
+
+    phase: str
+    label: str
+    suggested: list[DesignCodeItemResponse] = []
+    suggested_points: int = 0
+    current: list[DesignCodeItemResponse] = []
+    current_points: int = 0
+    proposed: list[DesignCodeItemResponse] | None = None
+    proposed_points: int | None = None
+    change: str | None = None
+    people: list[TaskCodesPersonResponse] = []
 
 
 class TaskDetailResponse(_Out):
@@ -170,6 +211,8 @@ class TaskDetailResponse(_Out):
     birthday: BirthdayResponse | None = None
     #: "Xoá task" is offered to this viewer (the OWNER only).
     can_delete: bool = False
+    #: ORD (0074): each production step's task codes and points.
+    task_codes: list[TaskCodesPhaseResponse] = []
 
     @classmethod
     def from_domain(cls, detail: TaskDetail) -> TaskDetailResponse:
@@ -178,7 +221,22 @@ class TaskDetailResponse(_Out):
 
 class DesignPickBody(BaseModel):
     code_id: uuid.UUID
-    quantity: int = Field(ge=1, le=999)
+    quantity: int = Field(default=1, ge=1, le=999)
+    #: 0074: the form ("hình thức") key; empty = "Làm mới".
+    form: str | None = Field(default=None, max_length=30)
+    #: 0074: a line's note - for "Việc khác", what was done (required).
+    note: str | None = Field(default=None, max_length=1000)
+    #: 0074: "Việc khác" only: the points typed in.
+    points: int | None = Field(default=None, ge=1, le=1_000_000)
+
+    def to_pick(self) -> DesignPick:
+        return DesignPick(
+            code_id=self.code_id,
+            quantity=self.quantity,
+            form=self.form,
+            note=self.note,
+            points=self.points,
+        )
 
 
 class TaskActionRequest(BaseModel):
@@ -202,6 +260,10 @@ class TaskActionRequest(BaseModel):
     design_codes_by_user: dict[uuid.UUID, list[DesignPickBody]] | None = Field(
         default=None, max_length=30
     )
+    #: ORD (0074): the step's own task code(s) handed in (Biên kịch / Dựng).
+    task_codes: list[DesignPickBody] | None = Field(default=None, max_length=100)
+    #: ORD (0074): why "Không duyệt" (returns only).
+    return_reason: OrderReturnReason | None = None
 
 
 __all__ = [

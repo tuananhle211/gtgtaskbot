@@ -138,6 +138,11 @@ def create(world: World, ads: Ads, *, by: User | None = None, **overrides: Any) 
         "reference_link": "https://example.com/ref",
         "desired_deadline_at": FAR_DEADLINE,
     }
+    # 0074: a world with task codes on suggests a code for the single-code
+    # steps, so tests about something else hand in without picking one.
+    suggested = getattr(world, "task_suggestions", None)
+    if suggested:
+        body["task_codes"] = suggested
     body.update(overrides)
     response = world.client.post("/api/orders", json=body)
     assert response.status_code == 201, response.json()
@@ -163,6 +168,9 @@ def act(world: World, user: User, path: str, detail: dict[str, Any], **body: Any
         body.setdefault("tokens", 1)
         if not path.endswith("/return"):
             body.setdefault("deadline_at", FAR_DEADLINE)
+    if path.endswith("/return"):
+        # 0074: "Không duyệt" names a reason while task codes are on.
+        body.setdefault("return_reason", "WORKER_FAULT")
     response = world.client.post(
         f"/api/orders/{detail['order']['id']}{path}",
         json={"version": detail["order"]["version"], **body},
@@ -865,7 +873,7 @@ async def test_15_the_orderer_decides_the_final_review(world: World) -> None:
     assert refused.status_code in (403, 404)
 
 
-async def test_16_the_video_kind_is_required_valid_and_snapshotted(world: World) -> None:
+async def test_16_the_video_kind_is_optional_valid_and_snapshotted(world: World) -> None:
     ads = await ads_world(world)
     full = await add_kind(world, ads, "Video full diễn hoạt", "2.5")
     retired = await add_kind(world, ads, "Quay khác", active=False)
@@ -876,8 +884,9 @@ async def test_16_the_video_kind_is_required_valid_and_snapshotted(world: World)
         "order_content": "y",
         "desired_deadline_at": FAR_DEADLINE,
     }
-    missing = world.client.post("/api/orders", json=base)
-    assert missing.status_code == 422 and error_reason(missing.json()) == "video_kind_required"
+    # 0074: "Loại video" left the form - an order without one is fine...
+    assert world.client.post("/api/orders", json=base).status_code == 201
+    # ...but one that is sent must be a live kind of this unit.
     for bad in (retired.id, uuid.uuid4()):
         response = world.client.post("/api/orders", json={**base, "video_kind_id": str(bad)})
         assert response.status_code == 422 and error_reason(response.json()) == "video_kind_invalid"
