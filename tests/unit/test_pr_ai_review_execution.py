@@ -153,15 +153,22 @@ def test_04_the_model_cannot_supply_a_verdict() -> None:
         PrFullReviewOutput.model_validate({"summary": "s", "findings": [], "result": "PASS"})
 
 
-def test_05_an_unknown_severity_or_category_is_rejected() -> None:
-    """A schema violation never becomes a stored review."""
+def test_05_an_unknown_severity_is_rejected_but_a_category_is_coerced() -> None:
+    """``severity`` drives the gate, so it stays strict; ``category`` is only a
+    label, so a value the model invents is mapped, never a schema violation."""
+    # Severity is authoritative - an unknown or missing one still fails.
     for bad in (
         {"category": "CONTENT_QUALITY", "severity": "CRITICAL", "message": "x"},
-        {"category": "VIBES", "severity": "WARNING", "message": "x"},
-        {"category": "CONTENT_QUALITY", "severity": "WARNING"},
+        {"category": "CONTENT_QUALITY", "message": "x"},
     ):
         with pytest.raises(ValueError):
             PrFullReviewOutput.model_validate({"summary": "s", "findings": [bad]})
+    # A category outside the enum is coerced, not rejected (see 0073-era fix):
+    # the review would otherwise fail on a drifting label and fall through.
+    coerced = PrFullReviewOutput.model_validate(
+        {"summary": "s", "findings": [{"category": "VIBES", "severity": "WARNING", "message": "x"}]}
+    )
+    assert coerced.findings[0].category is PrReviewCategory.CONTENT_QUALITY
 
 
 def test_06_findings_map_onto_the_existing_review_columns() -> None:

@@ -41,7 +41,7 @@ from dataclasses import dataclass
 from enum import StrEnum
 from typing import Any
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from meobot.domain.pr.models import PrAiReviewResult
 
@@ -106,6 +106,45 @@ class PrPolicyAssessment(StrEnum):
     REVIEW_REQUIRED = "REVIEW_REQUIRED"
 
 
+#: Labels models emit for ``category`` outside the eight-value enum, mapped to
+#: the nearest one. ``category`` is a display label - the gate reads
+#: ``severity``, never ``category`` - so a value the model invents must never
+#: fail the whole review. Models drift here constantly ("CLAIMS", "CLARITY",
+#: "EDITORIAL", "REPUTATIONAL", ...), and a strict enum turned every such drift
+#: into a failed run that then fell through to a dead fallback. Nothing maps to
+#: ``PLATFORM_POLICY``: that category carries its own citation-grounding rules,
+#: so it is reached only when a model names it outright.
+_CATEGORY_ALIASES: dict[str, PrReviewCategory] = {
+    "CLAIMS": PrReviewCategory.COMPLIANCE,
+    "CLAIM": PrReviewCategory.COMPLIANCE,
+    "CLAIM_VERIFICATION": PrReviewCategory.COMPLIANCE,
+    "VERIFICATION": PrReviewCategory.COMPLIANCE,
+    "LEGAL": PrReviewCategory.COMPLIANCE,
+    "REGULATORY": PrReviewCategory.COMPLIANCE,
+    "POLICY": PrReviewCategory.COMPLIANCE,
+    "SAFETY": PrReviewCategory.COMPLIANCE,
+    "CLARITY": PrReviewCategory.CONTENT_QUALITY,
+    "EDITORIAL": PrReviewCategory.CONTENT_QUALITY,
+    "LANGUAGE": PrReviewCategory.CONTENT_QUALITY,
+    "GRAMMAR": PrReviewCategory.CONTENT_QUALITY,
+    "SPELLING": PrReviewCategory.CONTENT_QUALITY,
+    "ACCURACY": PrReviewCategory.CONTENT_QUALITY,
+    "TONE": PrReviewCategory.BRAND_TONE,
+    "BRAND": PrReviewCategory.BRAND_TONE,
+    "VOICE": PrReviewCategory.BRAND_TONE,
+    "REPUTATIONAL": PrReviewCategory.BRAND_TONE,
+    "REPUTATION": PrReviewCategory.BRAND_TONE,
+    "CONSISTENCY": PrReviewCategory.STRUCTURE,
+    "FORMAT": PrReviewCategory.STRUCTURE,
+    "FORMATTING": PrReviewCategory.STRUCTURE,
+    "LENGTH": PrReviewCategory.STRUCTURE,
+    "CALL_TO_ACTION": PrReviewCategory.CTA,
+    "CALLTOACTION": PrReviewCategory.CTA,
+    "PLATFORM": PrReviewCategory.PLATFORM_FIT,
+    "PRODUCTION": PrReviewCategory.PRODUCTION_READINESS,
+}
+
+
 class PrReviewFinding(BaseModel):
     """One thing the review noticed.
 
@@ -115,8 +154,29 @@ class PrReviewFinding(BaseModel):
 
     model_config = ConfigDict(frozen=True, extra="forbid")
 
-    category: PrReviewCategory
+    category: PrReviewCategory = PrReviewCategory.CONTENT_QUALITY
     severity: PrReviewSeverity
+
+    @field_validator("category", mode="before")
+    @classmethod
+    def _coerce_category(cls, value: object) -> object:
+        """Keep a drifting ``category`` from failing the whole review.
+
+        A value already in the enum passes through; a string outside it maps to
+        the nearest category (:data:`_CATEGORY_ALIASES`), else ``CONTENT_QUALITY``;
+        a missing or non-string value falls back to the default. The gate never
+        reads ``category`` (see :func:`derive_outcome`), so this only affects
+        the label a reader sees - never whether the content passes.
+        """
+        if isinstance(value, PrReviewCategory):
+            return value
+        if isinstance(value, str):
+            key = value.strip().upper().replace(" ", "_").replace("-", "_")
+            try:
+                return PrReviewCategory(key)
+            except ValueError:
+                return _CATEGORY_ALIASES.get(key, PrReviewCategory.CONTENT_QUALITY)
+        return PrReviewCategory.CONTENT_QUALITY
     message: str = Field(min_length=1, max_length=1000)
     suggestion: str | None = Field(default=None, max_length=1000)
 

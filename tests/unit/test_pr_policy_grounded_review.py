@@ -2484,3 +2484,52 @@ async def test_80_a_valid_grounded_target_pins_its_pack(world: PolicyWorld) -> N
     assert readiness.ready is True
     assert [pin.platform_code for pin in readiness.pins] == ["TIKTOK"]
     assert readiness.pins[0].distribution_mode is PrDistributionMode.PAID_AD
+
+
+def test_27_a_drifting_category_label_never_fails_the_review() -> None:
+    """A ``category`` the model invents must not sink the whole run.
+
+    The real-world outage: ``cx/gpt-5.6-*`` returns findings labelled "CLAIMS",
+    "CLARITY", "EDITORIAL", "REPUTATIONAL"... - none in the eight-value enum -
+    so ``PrFullReviewOutput.model_validate`` raised, the run fell through to a
+    dead fallback and failed. ``category`` is only a label (the gate reads
+    ``severity``), so an unknown value now maps to the nearest category, or
+    ``CONTENT_QUALITY``, and the review goes through.
+    """
+    drift = {
+        "CLAIMS": PrReviewCategory.COMPLIANCE,
+        "CLAIM_VERIFICATION": PrReviewCategory.COMPLIANCE,
+        "CLARITY": PrReviewCategory.CONTENT_QUALITY,
+        "EDITORIAL": PrReviewCategory.CONTENT_QUALITY,
+        "LANGUAGE": PrReviewCategory.CONTENT_QUALITY,
+        "CONSISTENCY": PrReviewCategory.STRUCTURE,
+        "REPUTATIONAL": PrReviewCategory.BRAND_TONE,
+        "something nobody has seen": PrReviewCategory.CONTENT_QUALITY,
+        "call-to-action": PrReviewCategory.CTA,
+    }
+    for raw, expected in drift.items():
+        output = PrFullReviewOutput.model_validate(
+            {
+                "summary": "s",
+                "findings": [
+                    {"category": raw, "severity": "WARNING", "message": "m"},
+                ],
+            }
+        )
+        assert output.findings[0].category is expected, raw
+        # The gate still reads the severity, untouched by the coercion.
+        assert output.findings[0].severity is PrReviewSeverity.WARNING
+
+    # A value already in the enum is passed through unchanged, and a missing
+    # category falls back to the default rather than raising.
+    kept = PrFullReviewOutput.model_validate(
+        {
+            "summary": "s",
+            "findings": [
+                {"category": "PLATFORM_POLICY", "severity": "BLOCKER", "message": "m"},
+                {"severity": "SUGGESTION", "message": "m"},
+            ],
+        }
+    )
+    assert kept.findings[0].category is PrReviewCategory.PLATFORM_POLICY
+    assert kept.findings[1].category is PrReviewCategory.CONTENT_QUALITY
