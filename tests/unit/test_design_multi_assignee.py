@@ -342,3 +342,49 @@ async def test_the_step_strip_names_every_designer(world: World) -> None:
     # The row holder ("Đang ở") names both too.
     assert ads.designer.full_name in page["task"]["current_person"]["name"]
     assert second.full_name in page["task"]["current_person"]["name"]
+
+
+async def test_a_legacy_design_node_without_rows_can_still_submit(world: World) -> None:
+    # A Design node assigned before 0073 carries a single assignee_user_id and
+    # NO order_node_assignees row. Submitting must back-fill the row, not 500
+    # on `assert row is not None` (the prod KOI-BTD-261016-02 crash).
+    import uuid as _uuid
+
+    from sqlalchemy import delete, select
+
+    from meobot.db.models.order import OrderNodeAssignee
+
+    ads, codes, _ = await two_designers(world)
+    code, detail = await at_design_handout(world, ads, codes)
+    tk = node(detail, "THIET_KE")["id"]
+    detail = act(
+        world, ads.lead_tk, f"/nodes/{tk}/assign", detail, assignee_user_ids=[str(ads.designer.id)]
+    )
+    detail = act(world, ads.designer, f"/nodes/{tk}/accept", detail)
+    # Drop the per-person rows to mimic a node assigned before 0073.
+    await world.session.execute(
+        delete(OrderNodeAssignee).where(OrderNodeAssignee.node_id == _uuid.UUID(tk))
+    )
+    await world.session.commit()
+
+    # Submit straight at the node (as the browser does), no page lookup.
+    page = task(world, ads.designer, code)
+    submitted = world.client.post(
+        f"/api/tasks/{code}/actions",
+        json={
+            "key": f"ads:SUBMIT_WORK:{tk}",
+            "version": page["task"]["version"],
+            "link": "https://e/a",
+            "design_codes": pick(codes, TKBTS=3, CA=1),
+        },
+    )
+    assert submitted.status_code == 200, submitted.json()
+    # A team of one whose total equals the order finishes the step → Dựng.
+    assert submitted.json()["task"]["stage"] == "DUNG"
+    # And a row was back-filled and marked submitted (for scoring).
+    rows = list(
+        await world.session.scalars(
+            select(OrderNodeAssignee).where(OrderNodeAssignee.node_id == _uuid.UUID(tk))
+        )
+    )
+    assert len(rows) == 1 and rows[0].submitted_at is not None

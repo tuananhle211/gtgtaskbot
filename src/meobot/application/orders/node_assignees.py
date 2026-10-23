@@ -144,12 +144,37 @@ class OrderNodeAssigneeService:
         await self._session.flush()
         return rows
 
+    async def ensure_row(
+        self, node: OrderNode, user_id: uuid.UUID, *, actor: Actor
+    ) -> OrderNodeAssignee:
+        """This person's open row, back-filling one when it is missing.
+
+        A Design node assigned before 0073 carries a single ``assignee_user_id``
+        and no per-person row; so does a Leader taking a node routed to them.
+        Either way the caller has already checked the person may act on the
+        node, so a missing row is created to mirror the node (its accept time,
+        if any), not invented authority. Keeps a legacy single-assignee node
+        working on the 0073 multi path as a team of one.
+        """
+        row = await self.row_for(node.id, user_id)
+        if row is not None:
+            return row
+        row = OrderNodeAssignee(
+            node_id=node.id,
+            user_id=user_id,
+            assigned_at=node.assigned_at or node.activated_at or utcnow(),
+            accepted_at=node.accepted_at,
+        )
+        self._session.add(row)
+        await self._session.flush()
+        await self._log(node, user_id, OrderNodeAssigneeEventKind.ASSIGNED, (), actor)
+        return row
+
     async def set_items(
         self, node: OrderNode, user_id: uuid.UUID, items: Sequence[DesignItem], *, actor: Actor
     ) -> OrderNodeAssignee:
         """One person edits their own list (before they hand in)."""
-        row = await self.row_for(node.id, user_id)
-        assert row is not None
+        row = await self.ensure_row(node, user_id, actor=actor)
         row.work_items = items_to_json(items)
         await self._log(node, user_id, OrderNodeAssigneeEventKind.ITEMS_EDITED, items, actor)
         await self._session.flush()
@@ -158,15 +183,8 @@ class OrderNodeAssigneeService:
     async def take(self, node: OrderNode, user_id: uuid.UUID, *, actor: Actor) -> OrderNodeAssignee:
         """Accept the node. A Leader taking a node routed to them (no row yet)
         becomes one of its assignees here."""
-        row = await self.row_for(node.id, user_id)
-        if row is None:
-            row = OrderNodeAssignee(
-                node_id=node.id, user_id=user_id, assigned_at=utcnow(), accepted_at=utcnow()
-            )
-            self._session.add(row)
-            await self._session.flush()
-            await self._log(node, user_id, OrderNodeAssigneeEventKind.ASSIGNED, (), actor)
-        elif row.accepted_at is None:
+        row = await self.ensure_row(node, user_id, actor=actor)
+        if row.accepted_at is None:
             row.accepted_at = utcnow()
         await self._session.flush()
         return row
@@ -180,8 +198,7 @@ class OrderNodeAssigneeService:
         *,
         actor: Actor,
     ) -> OrderNodeAssignee:
-        row = await self.row_for(node.id, user_id)
-        assert row is not None
+        row = await self.ensure_row(node, user_id, actor=actor)
         row.work_items = items_to_json(items)
         row.submitted_at = utcnow()
         row.submission_id = submission_id
