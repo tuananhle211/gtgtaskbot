@@ -57,7 +57,11 @@ from meobot.domain.pr.errors import (
     PrWorkflowTransitionError,
 )
 from meobot.domain.pr.models import PrAiReviewResult, PrAiReviewType, PrWorkflowStage
-from meobot.domain.pr.policy import PR_AI_REVIEW_PERMISSION, require_permission
+from meobot.domain.pr.policy import (
+    PR_AI_REVIEW_PERMISSION,
+    PR_READ_PERMISSION,
+    require_permission,
+)
 from meobot.domain.pr.workflow import PrTransitionTrigger, ai_review_target, is_gating_review
 
 logger = get_logger(__name__)
@@ -248,13 +252,16 @@ class PrAiReviewService:
     def require_may_request(self, actor: Actor) -> None:
         """Raise unless this actor may ask for an automated review.
 
-        Step 1F. The *same* permission recording one takes, and deliberately
-        not a new capability: "may cause an AI review to happen" and "may record
-        what one said" are the same authority over the same subsystem, and
-        inventing a second name for it would have meant a grant nobody
-        administers and a migration nobody needed.
+        The whole PR department may re-run a failed AI review, so this takes
+        only ``PR_READ_PERMISSION`` - the same authority that lets a person see
+        the content - not ``SCRIPT_REVIEW``. The content's own read scope is
+        checked separately by ``get_content`` at the route, so in practice this
+        opens the retry to any PR member who can already open the piece. Note
+        the asymmetry: *requesting* a review (a queue row, re-reading the same
+        draft with no human judgement) is a reader's action, while *recording*
+        a verdict still takes ``SCRIPT_REVIEW`` (see ``record_review``).
         """
-        require_permission(actor, PR_AI_REVIEW_PERMISSION)
+        require_permission(actor, PR_READ_PERMISSION)
 
     async def may_request(self, actor: Actor) -> bool:
         """The same decision as :meth:`require_may_request`, as a boolean.

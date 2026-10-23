@@ -1699,21 +1699,39 @@ async def test_49_retry_is_refused_once_the_content_has_moved_on(world: WebWorld
 
 
 @pytest.mark.asyncio
-async def test_50_an_unauthorized_actor_cannot_ask_for_a_review(world: WebWorld) -> None:
-    """``SCRIPT_REVIEW`` - the permission recording an AI review has always taken.
+async def test_50_any_pr_member_may_re_run_a_failed_review(world: WebWorld) -> None:
+    """The whole PR department may re-run a failed AI review.
 
-    **No new capability was added for Step 1F.** An EMPLOYEE may read PR data
-    and may not cause a review to run, and the refusal comes from the service.
+    Re-running takes only ``PR_READ_PERMISSION`` - the authority that already
+    lets a person open the content - not ``SCRIPT_REVIEW``. So a plain PR
+    EMPLOYEE, who owns the draft but holds no review gate, both sees the retry
+    button (``can_retry``) and may press it. Recording a *verdict* still takes
+    ``SCRIPT_REVIEW`` - that half is unchanged.
     """
     world.act_as(world.lead)
     content_id = await _make_content(world)
     await _at_ai_review(world, content_id)
+    run = (
+        (
+            await world.session.execute(
+                select(PrAiReviewRun).where(PrAiReviewRun.content_id == content_id)
+            )
+        )
+        .scalars()
+        .one()
+    )
+    run.status = PrAiReviewRunStatus.FAILED
+    run.started_at = utcnow()
+    run.finished_at = utcnow()
+    run.error_code = "llm_error"
+    await world.session.flush()
 
+    # A plain EMPLOYEE in PR: the panel offers the button, and the retry queues.
     world.act_as(world.outsider)
-    refused = world.client.post(f"/api/pr/contents/{content_id}/ai-review/retry")
-    assert refused.status_code == 403
-    # And the panel does not offer them the button either.
-    assert world.client.get(f"/api/pr/contents/{content_id}/ai-review").json()["can_retry"] is False
+    assert world.client.get(f"/api/pr/contents/{content_id}/ai-review").json()["can_retry"] is True
+    retried = world.client.post(f"/api/pr/contents/{content_id}/ai-review/retry")
+    assert retried.status_code == 202, retried.text
+    assert retried.json()["run"]["trigger"] == "MANUAL_RETRY"
 
 
 @pytest.mark.asyncio

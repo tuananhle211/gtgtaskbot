@@ -2455,9 +2455,10 @@ async def retry_ai_review(
 
     Four refusals, none of them this route's own invention:
 
-    * the read permission and ``SCRIPT_REVIEW`` are checked by the services -
-      recording an AI review has always taken that permission, and asking for
-      one is the same authority. **No new capability was added**;
+    * the viewer must be able to read the content - ``get_content`` scopes it,
+      and ``require_may_request`` takes ``PR_READ_PERMISSION``, so the whole PR
+      department may re-run a failed review (not only ``SCRIPT_REVIEW`` holders;
+      recording a verdict still takes ``SCRIPT_REVIEW``);
     * the content must still be at ``AI_REVIEW``, or there is nothing this
       review could gate;
     * there must be a draft to pin;
