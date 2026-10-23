@@ -4,6 +4,8 @@ import { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api, type ResourceDetail, type ResourceRow } from "@/lib/api";
 import { ConfirmDialog } from "@/components/confirm";
+import { Pill } from "@/components/states";
+import { statusTone } from "@/lib/resources";
 import { DangerButton } from "@/components/pr";
 import { RowMenu, type RowMenuItem } from "@/components/row-menu";
 import { ResourceFormDialog } from "@/components/resource-form";
@@ -160,5 +162,49 @@ export function DeleteResourceDialog({
       onConfirm={onConfirm}
       onCancel={onCancel}
     />
+  );
+}
+
+/**
+ * The status pill of a table row, as a button (2026-10-23): a click opens
+ * "Cập nhật trạng thái" for that resource. Only drawn for a row the viewer may
+ * edit (`can_edit`); the table shows a plain pill otherwise.
+ */
+export function ResourceStatusButton({ row }: { row: ResourceRow }) {
+  const queryClient = useQueryClient();
+  const [open, setOpen] = useState(false);
+  const options = useQuery({
+    queryKey: ["resources", "options"],
+    queryFn: () => api.resourceOptions(),
+    enabled: open,
+  });
+  return (
+    <>
+      <button
+        type="button"
+        onClick={() => setOpen(true)}
+        aria-label={`Đổi trạng thái ${row.code}: ${row.status.name}`}
+        title="Bấm để đổi trạng thái"
+        className="group inline-flex items-center gap-1 rounded-full focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--accent)]"
+      >
+        <Pill tone={statusTone(row.status.status_group)}>{row.status.name}</Pill>
+        <svg viewBox="0 0 24 24" width="12" height="12" aria-hidden="true" className="text-[var(--text-muted)] opacity-60 group-hover:opacity-100">
+          <path d="M6 9l6 6 6-6" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" />
+        </svg>
+      </button>
+      {open ? (
+        <UpdateStatusDialog
+          open
+          onClose={() => setOpen(false)}
+          resource={row}
+          options={options.data}
+          onSaved={(next: ResourceDetail) => {
+            queryClient.setQueryData(["resource", row.id], next);
+            void queryClient.invalidateQueries({ queryKey: ["resources"] });
+            setOpen(false);
+          }}
+        />
+      ) : null}
+    </>
   );
 }

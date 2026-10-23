@@ -149,8 +149,13 @@ describe('the "Thư viện" branch of the nav', () => {
     const hrefs = within(primary())
       .getAllByRole("link")
       .map((link) => link.getAttribute("href"));
-    expect(hrefs.slice(0, 3)).toEqual(["/dashboard", "/tasks", "/tasks/birthday"]);
-    expect(hrefs.slice(3)).toEqual(links.map((link) => link.getAttribute("href")));
+    expect(hrefs.slice(0, 4)).toEqual([
+      "/dashboard",
+      "/tasks",
+      "/tasks/birthday",
+      "/tasks/task-codes",
+    ]);
+    expect(hrefs.slice(4)).toEqual(links.map((link) => link.getAttribute("href")));
   });
 
   it("leads each entry with its icon, else the name's initials", async () => {

@@ -56,10 +56,20 @@ class DesignCodeItemResponse(BaseModel):
     code: str
     name: str
     quantity: int
+    #: 0074: the form ("hình thức"), the points, and a "Việc khác" line's work.
+    form: str = "NEW"
+    form_label: str = "Làm mới"
+    form_pct: int = 100
+    unit_points: int | None = None
+    points: int = 0
+    note: str | None = None
+    free: bool = False
+    examples: str | None = None
+    unit_label: str | None = None
 
     @classmethod
     def from_domain(cls, item: DesignCodeView) -> DesignCodeItemResponse:
-        return cls(code_id=item.code_id, code=item.code, name=item.name, quantity=item.quantity)
+        return cls.model_validate(item)
 
 
 class DesignAssigneeResponse(BaseModel):

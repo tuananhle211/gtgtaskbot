@@ -252,7 +252,7 @@ describe("the nav follows the person's units", () => {
       const hrefs = within(primary)
         .getAllByRole("link")
         .map((link) => link.getAttribute("href"));
-      expect(hrefs).toEqual(["/dashboard", "/tasks"]);
+      expect(hrefs).toEqual(["/dashboard", "/tasks", "/tasks/task-codes"]);
     });
     expect(
       screen.queryByRole("navigation", { name: "Chọn luồng" }),

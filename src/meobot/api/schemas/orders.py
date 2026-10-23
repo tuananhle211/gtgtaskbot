@@ -13,6 +13,7 @@ from meobot.application.orders.query_service import OrderDetail
 from meobot.core.time import ensure_utc, utcnow
 from meobot.db.models.order import OrderNode
 from meobot.domain.orders.deadlines import node_deadline_status
+from meobot.domain.orders.design_codes import DesignPick
 from meobot.domain.orders.labels import (
     event_label,
     node_status_label,
@@ -24,6 +25,7 @@ from meobot.domain.orders.models import (
     PRODUCTION_NODES,
     OrderNodeStatus,
     OrderNodeType,
+    OrderReturnReason,
     OrderStage,
     production_nodes,
 )
@@ -374,9 +376,12 @@ class CreateOrderRequest(BaseModel):
     #: 0056: the Trưởng phòng ADS chosen to approve it (422 ``approver_invalid``).
     #: Ignored for a head's own order, which needs no approval.
     approver_user_id: uuid.UUID | None = None
-    #: A Design-only order's "Task công việc" (design codes, 422
-    #: ``design_codes_required``) in place of video kind / platform / duration.
+    #: The design codes suggested for the Design step (older field; see
+    #: ``task_codes``).
     design_codes: list[DesignPickRequest] | None = Field(default=None, max_length=100)
+    #: 0074: "Task công việc" of each ticked step, keyed by node type
+    #: (``BIEN_TAP`` / ``THIET_KE`` / ``DUNG``) - all optional suggestions.
+    task_codes: dict[str, list[DesignPickRequest]] | None = None
 
 
 class VersionedRequest(BaseModel):
@@ -397,10 +402,18 @@ class ResubmitOrderRequest(VersionedRequest):
     note: str | None = Field(default=None, max_length=5000)
     desired_deadline_at: datetime | None = None
     approver_user_id: uuid.UUID | None = None
+    #: 0074: the suggested task codes again (the whole set, by node type).
+    task_codes: dict[str, list[DesignPickRequest]] | None = None
 
 
 class NoteRequest(VersionedRequest):
     note: str | None = None
+
+
+class ReturnRequest(NoteRequest):
+    """A gate sending the product back (0074: with one of three reasons)."""
+
+    return_reason: OrderReturnReason | None = None
 
 
 class PlanRequest(VersionedRequest):
@@ -419,13 +432,28 @@ class AssignRequest(PlanRequest):
 
 class ReturnNodeRequest(PlanRequest):
     note: str | None = None
+    #: 0074: one of three reasons (required while task codes are on).
+    return_reason: OrderReturnReason | None = None
 
 
 class DesignPickRequest(BaseModel):
-    """One design code ("mã task design") and how many (0058)."""
+    """One task code and how many (0058), in which form, and - for
+    "Việc khác" - what was done and its points (0074)."""
 
     code_id: uuid.UUID
-    quantity: int = Field(ge=1, le=999)
+    quantity: int = Field(default=1, ge=1, le=999)
+    form: str | None = Field(default=None, max_length=30)
+    note: str | None = Field(default=None, max_length=1000)
+    points: int | None = Field(default=None, ge=1, le=1_000_000)
+
+    def to_pick(self) -> DesignPick:
+        return DesignPick(
+            code_id=self.code_id,
+            quantity=self.quantity,
+            form=self.form,
+            note=self.note,
+            points=self.points,
+        )
 
 
 class SubmitWorkRequest(VersionedRequest):
@@ -435,6 +463,8 @@ class SubmitWorkRequest(VersionedRequest):
     #: 0058: the script step picks them for Design (422
     #: ``design_codes_required``); the designer may send a different list.
     design_codes: list[DesignPickRequest] | None = Field(default=None, max_length=100)
+    #: 0074: the step's own task code(s) - what was actually done.
+    task_codes: list[DesignPickRequest] | None = Field(default=None, max_length=100)
 
 
 #: One "Ảnh minh hoạ" link (a Drive link, a NAS path...).

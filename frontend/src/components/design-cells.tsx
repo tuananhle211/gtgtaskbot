@@ -1,5 +1,6 @@
 "use client";
 
+import { codeTitle, codeTooltip } from "@/components/design-codes-picker";
 import { Select } from "@/components/pr";
 import { Pill } from "@/components/states";
 import {
@@ -158,18 +159,52 @@ export function WebLink({ href, label }: { href: string; label: string }) {
 }
 
 /** The picked codes, one per line: the name, its code and "× quantity". */
-export function DesignCodeLines({ items }: { items: DesignCodeItem[] }) {
+export function DesignCodeLines({
+  items,
+  showPoints = false,
+}: {
+  items: DesignCodeItem[];
+  /** 0074: each line's points beside it. */
+  showPoints?: boolean;
+}) {
   return (
     <ul className="space-y-1">
-      {items.map((item) => (
-        <li key={item.code_id} className="flex items-start gap-1.5 leading-snug">
+      {items.map((item, index) => (
+        <li
+          key={`${item.code_id}-${item.form ?? ""}-${index}`}
+          className="flex items-start gap-1.5 leading-snug"
+          title={codeTooltip(item)}
+        >
           <span className="min-w-0 flex-1">
-            {item.name}{" "}
-            <span className="rounded bg-[var(--surface-muted)] px-1 py-0.5 font-mono text-[11px] font-semibold">
-              {item.code}
-            </span>
+            {item.free ? (
+              <>
+                <span className="rounded bg-[var(--surface-muted)] px-1 py-0.5 text-[11px] font-semibold">
+                  Việc khác
+                </span>{" "}
+                {item.note}
+              </>
+            ) : (
+              <>
+                {codeTitle(item)}{" "}
+                <span className="rounded bg-[var(--surface-muted)] px-1 py-0.5 font-mono text-[11px] font-semibold">
+                  {item.code}
+                </span>
+                {item.form && item.form !== "NEW" ? (
+                  <span className="ml-1 text-xs text-[var(--text-muted)]">
+                    · {item.form_label ?? item.form}
+                  </span>
+                ) : null}
+              </>
+            )}
           </span>
-          <span className="shrink-0 font-semibold tabular-nums">× {item.quantity}</span>
+          {item.free ? null : (
+            <span className="shrink-0 font-semibold tabular-nums">× {item.quantity}</span>
+          )}
+          {showPoints ? (
+            <span className="w-16 shrink-0 text-right font-bold tabular-nums">
+              {item.points ?? 0}đ
+            </span>
+          ) : null}
         </li>
       ))}
     </ul>

@@ -150,10 +150,21 @@ TASK_STATES: MappingProxyType[str, str] = MappingProxyType(
 
 @dataclass(frozen=True, slots=True)
 class DesignCodeView:
+    """One task-code line as shown (0058; points and form since 0074)."""
+
     code_id: uuid.UUID
     code: str
     name: str
     quantity: int
+    form: str = "NEW"
+    form_label: str = "Làm mới"
+    form_pct: int = 100
+    unit_points: int | None = None
+    points: int = 0
+    note: str | None = None
+    free: bool = False
+    examples: str | None = None
+    unit_label: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -194,6 +205,37 @@ class DesignAssigneeView:
     status: str
     submitted: bool
     codes: tuple[DesignCodeView, ...] = ()
+
+
+@dataclass(frozen=True, slots=True)
+class TaskCodesPersonView:
+    """0074: one person's task codes on one step, and their points."""
+
+    user_id: uuid.UUID
+    name: str
+    codes: tuple[DesignCodeView, ...] = ()
+    points: int = 0
+    #: True once the step is done and the points are counted.
+    earned: bool = False
+
+
+@dataclass(frozen=True, slots=True)
+class TaskCodesPhaseView:
+    """0074: one production step's task codes on the task page - what was
+    suggested when the order was placed, what the step now carries, a
+    hand-in's different list waiting for the Trưởng phòng (and how it
+    differs), and each person's points."""
+
+    phase: str
+    label: str
+    suggested: tuple[DesignCodeView, ...] = ()
+    suggested_points: int = 0
+    current: tuple[DesignCodeView, ...] = ()
+    current_points: int = 0
+    proposed: tuple[DesignCodeView, ...] | None = None
+    proposed_points: int | None = None
+    change: str | None = None
+    people: tuple[TaskCodesPersonView, ...] = ()
 
 
 @dataclass(frozen=True, slots=True)
@@ -388,5 +430,7 @@ __all__ = [
     "PersonStat",
     "Phase",
     "TaskCell",
+    "TaskCodesPersonView",
+    "TaskCodesPhaseView",
     "TaskRow",
 ]

@@ -31,6 +31,7 @@ from meobot.api.schemas.orders import (
     BirthdayOrderResponse,
     CreateBirthdayOrderRequest,
     CreateOrderRequest,
+    DesignPickRequest,
     NoteRequest,
     OrderActionResponse,
     OrderDetailResponse,
@@ -38,6 +39,7 @@ from meobot.api.schemas.orders import (
     PriorityRequest,
     ResubmitOrderRequest,
     ReturnNodeRequest,
+    ReturnRequest,
     ScriptCheckRequest,
     ScriptCheckResponse,
     SubmitWorkRequest,
@@ -152,6 +154,24 @@ def _script_source(value: str | None) -> OrderScriptSource | None:
         ) from error
 
 
+def _task_codes(
+    value: dict[str, list[DesignPickRequest]] | None,
+) -> dict[OrderNodeType, tuple[DesignPick, ...]] | None:
+    if value is None:
+        return None
+    parsed: dict[OrderNodeType, tuple[DesignPick, ...]] = {}
+    for key, picks in value.items():
+        try:
+            phase = OrderNodeType(key.strip().upper())
+        except ValueError as error:
+            raise ValidationError(
+                f"Công đoạn không hợp lệ: {key!r}.",
+                details={"reason": "invalid_node_type", "field": "task_codes", "value": key},
+            ) from error
+        parsed[phase] = tuple(item.to_pick() for item in picks)
+    return parsed
+
+
 def _preassigned(value: dict[str, uuid.UUID] | None) -> dict[OrderNodeType, uuid.UUID]:
     if not value:
         return {}
@@ -253,10 +273,8 @@ async def create_order(
             note=body.note,
             design_codes=None
             if body.design_codes is None
-            else tuple(
-                DesignPick(code_id=item.code_id, quantity=item.quantity)
-                for item in body.design_codes
-            ),
+            else tuple(item.to_pick() for item in body.design_codes),
+            task_codes=_task_codes(body.task_codes),
         ),
     )
     return await _detail(services, actor, order.id)
@@ -399,6 +417,7 @@ async def resubmit_order(
             desired_deadline_at=body.desired_deadline_at,
             approver_user_id=body.approver_user_id,
             note=body.note,
+            task_codes=_task_codes(body.task_codes),
         ),
     )
     return await _detail(services, actor, order_id)
@@ -534,12 +553,10 @@ async def submit_work(
         script_text=body.script_text,
         note=body.note,
         design_picks=(
-            None
-            if body.design_codes is None
-            else tuple(
-                DesignPick(code_id=item.code_id, quantity=item.quantity)
-                for item in body.design_codes
-            )
+            None if body.design_codes is None else tuple(i.to_pick() for i in body.design_codes)
+        ),
+        task_picks=(
+            None if body.task_codes is None else tuple(i.to_pick() for i in body.task_codes)
         ),
     )
     return await _detail(services, actor, order_id)
@@ -590,6 +607,7 @@ async def return_node(
         expected_version=body.version,
         note=body.note or "",
         plan=NodePlan(tokens=body.tokens, deadline_at=body.deadline_at),
+        reason=body.return_reason,
     )
     return await _detail(services, actor, order_id)
 
@@ -615,7 +633,7 @@ async def approve_video(
 )
 async def return_video(
     order_id: uuid.UUID,
-    body: NoteRequest,
+    body: ReturnRequest,
     actor: CurrentActorDep,
     request_id: RequestIdDep,
     services: ServicesDep,
@@ -626,6 +644,7 @@ async def return_video(
         order_id=order_id,
         expected_version=body.version,
         note=body.note or "",
+        reason=body.return_reason,
     )
     return await _detail(services, actor, order_id)
 
@@ -655,7 +674,7 @@ async def approve_final(
 )
 async def return_final(
     order_id: uuid.UUID,
-    body: NoteRequest,
+    body: ReturnRequest,
     actor: CurrentActorDep,
     request_id: RequestIdDep,
     services: ServicesDep,
@@ -666,6 +685,7 @@ async def return_final(
         order_id=order_id,
         expected_version=body.version,
         note=body.note or "",
+        reason=body.return_reason,
     )
     return await _detail(services, actor, order_id)
 

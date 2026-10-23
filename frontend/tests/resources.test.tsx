@@ -503,3 +503,40 @@ describe("quick actions on the table (2026-10-21)", () => {
     expect(member).toEqual(["/resources/mine", "/resources/requests"]);
   });
 });
+
+describe('the "Đề xuất tài nguyên" badge (2026-10-22)', () => {
+  it("shows how many requests wait on me, and nothing at zero", async () => {
+    const { Shell } = await import("@/components/shell");
+    stubFetch([
+      { match: "/api/auth/session", body: SESSION },
+      {
+        match: "/api/units/me",
+        body: { ...ME, resources: { ...ACCESS, view_list: false, requests_awaiting: 2 } },
+      },
+      { match: "/api/notifications", body: { items: [], unread_count: 0 } },
+    ]);
+    renderWithQuery(<Shell>{null}</Shell>);
+    const link = await screen.findByRole("link", { name: /Đề xuất tài nguyên/ });
+    expect(link).toHaveTextContent("2");
+    expect(link).toHaveAccessibleName("Đề xuất tài nguyên 2 việc chờ bạn xử lý");
+    expect(screen.getByRole("link", { name: "Tài nguyên của tôi" })).toBeInTheDocument();
+  });
+});
+
+describe("the status cell (2026-10-23)", () => {
+  it("comes before the employee's status and opens the status dialog for an editor only", async () => {
+    const { ResourceTable, RESOURCE_COLUMNS } = await import("@/components/resource-table");
+    expect(RESOURCE_COLUMNS.indexOf("Trạng thái")).toBe(RESOURCE_COLUMNS.indexOf("Trạng thái nhân viên") - 1);
+    stubFetch([{ match: "/api/resources/options", body: OPTIONS }]);
+    renderWithQuery(
+      <ResourceTable
+        actions
+        rows={[ROW({ id: "r-1", code: "ADS-001", can_edit: true }), ROW({ id: "r-2", code: "ADS-002" })]}
+      />,
+    );
+    await userEvent.click(screen.getByRole("button", { name: /Đổi trạng thái ADS-001/ }));
+    expect(await screen.findByRole("dialog")).toBeInTheDocument();
+    // A row the viewer cannot edit: a plain pill, no button.
+    expect(screen.queryByRole("button", { name: /Đổi trạng thái ADS-002/ })).not.toBeInTheDocument();
+  });
+});

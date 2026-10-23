@@ -4,7 +4,7 @@ import Link from "next/link";
 import type { ResourceRow } from "@/lib/api";
 import { Pill } from "@/components/states";
 import { NO_ROW_NAV, useRowNavigation } from "@/components/task-table";
-import { ResourceRowActions } from "@/components/resource-actions";
+import { ResourceRowActions, ResourceStatusButton } from "@/components/resource-actions";
 import {
   alertTone,
   employmentTone,
@@ -31,8 +31,8 @@ export const RESOURCE_COLUMNS = [
   "Tên",
   "Ban",
   "Người được bàn giao",
-  "Trạng thái nhân viên",
   "Trạng thái",
+  "Trạng thái nhân viên",
   "Bàn giao",
 ] as const;
 
@@ -152,6 +152,17 @@ export function ResourceTable({
                     <span className="text-xs text-[var(--text-muted)]">Phòng Tài nguyên</span>
                   )}
                 </td>
+                {actions && row.can_edit ? (
+                  // 2026-10-23: a click on the status changes it - for whoever
+                  // may edit this resource; never opens the profile.
+                  <td {...NO_ROW_NAV} className="whitespace-nowrap">
+                    <ResourceStatusButton row={row} />
+                  </td>
+                ) : (
+                  <td className="whitespace-nowrap">
+                    <Pill tone={statusTone(row.status.status_group)}>{row.status.name}</Pill>
+                  </td>
+                )}
                 <td className="whitespace-nowrap">
                   {row.holder ? (
                     <Pill tone={employmentTone(row.holder.employment_status)}>
@@ -160,9 +171,6 @@ export function ResourceTable({
                   ) : (
                     <span className="text-xs text-[var(--text-muted)]">–</span>
                   )}
-                </td>
-                <td className="whitespace-nowrap">
-                  <Pill tone={statusTone(row.status.status_group)}>{row.status.name}</Pill>
                 </td>
                 <td className="whitespace-nowrap text-xs">{row.handover.name}</td>
               </tr>

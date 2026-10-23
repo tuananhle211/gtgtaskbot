@@ -38,6 +38,7 @@ from meobot.domain.orders.script_rules import (
     MAX_FOOTER_LENGTH,
     MAX_RULES_LENGTH,
 )
+from meobot.domain.orders.task_codes import DEFAULT_TASK_FORMS
 from meobot.domain.org.models import DepartmentFunction, Grant, Seat
 
 
@@ -122,6 +123,34 @@ class LibraryLink(BaseModel):
     icon: str | None = Field(default=None, max_length=8)
 
 
+class TaskFormSetting(BaseModel):
+    """0074: one form ("hình thức") a task-code line may take, with the % of
+    the code's points it scores and the phases (node types) it is offered in."""
+
+    model_config = ConfigDict(extra="ignore", frozen=True)
+
+    key: str = Field(min_length=1, max_length=30)
+    label: str = Field(min_length=1, max_length=80)
+    pct: int = Field(ge=0, le=1000)
+    note: str = Field(default="", max_length=300)
+    phases: tuple[str, ...] = ()
+    active: bool = True
+
+
+def _default_task_forms() -> tuple[TaskFormSetting, ...]:
+    return tuple(
+        TaskFormSetting(
+            key=form.key,
+            label=form.label,
+            pct=form.pct,
+            note=form.note,
+            phases=tuple(phase.value for phase in form.phases),
+            active=form.active,
+        )
+        for form in DEFAULT_TASK_FORMS
+    )
+
+
 class UnitSettings(BaseModel):
     """The per-unit knobs, stored as JSON in ``org_units.settings``.
 
@@ -165,10 +194,14 @@ class UnitSettings(BaseModel):
     #: is handed out, not taken off anybody's day, not shown. Only the OWNER
     #: switches it.
     effort_enabled: bool = True
-    #: 0058: design codes ("mã task design") on orders that visit Design: the script
-    #: step picks them when handing in, a designer's change waits for the
-    #: Design Leader. Off = hand-ins ask for none and nothing waits on them.
+    #: 0058 / 0074: task codes ("mã task công việc") on every production step:
+    #: suggested on the order, the actual list handed in, a different one waits
+    #: for the phase's Trưởng phòng, points counted when the step is done. Off =
+    #: hand-ins ask for none, nothing waits on them and nothing is scored.
     design_codes_enabled: bool = True
+    #: 0074: the forms ("hình thức") a task-code line may take, per phase. The
+    #: OWNER / an ADMIN edits them on "Danh mục điểm".
+    task_forms: tuple[TaskFormSetting, ...] = Field(default_factory=_default_task_forms)
     #: The AI reads "Khung nhập kịch bản" when an order is placed or sent
     #: again: a script that breaks ``script_review_rules`` goes straight back
     #: to the orderer, before any head is asked. Off = no check.

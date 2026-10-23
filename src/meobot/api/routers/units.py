@@ -13,7 +13,7 @@ import uuid
 from datetime import date
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, Query, status
+from fastapi import APIRouter, Depends, Query, Request, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from meobot.api.deps import (
@@ -44,6 +44,9 @@ from meobot.api.schemas.units import (
     PlatformResponse,
     RoleOptionResponse,
     TagMemberRequest,
+    TaskFormResponse,
+    TaskFormsRequest,
+    TaskFormsResponse,
     UnitHealthResponse,
     UnitHealthWarning,
     UnitMemberListResponse,
@@ -69,6 +72,7 @@ from meobot.application.orders.design_code_service import (
     DesignCodeService,
     has_birthday_orders,
     in_design_team,
+    managed_phases,
     manages_design_codes,
 )
 from meobot.application.orders.design_library_service import (
@@ -81,18 +85,30 @@ from meobot.application.orders.effort_service import EffortService, ban_stats
 from meobot.application.org import departments
 from meobot.application.org.seats import load_seats
 from meobot.application.resources.access import resource_access
+from meobot.application.resources.requests import ResourceRequestService
+from meobot.application.resources.service import ResourceService
 from meobot.application.units.admin import ROLES_BY_UNIT, UnitAdminService
 from meobot.application.units.directory import NOT_VISIBLE, UnitDirectoryService
 from meobot.core.errors import ValidationError
 from meobot.domain.identity.labels import role_label
-from meobot.domain.units.errors import UnitNotFoundError
+from meobot.domain.identity.models import Actor, Role
+from meobot.domain.orders.models import OrderNodeType
+from meobot.domain.orders.task_codes import DEFAULT_FORM, TASK_PHASES
+from meobot.domain.units.errors import UnitAccessDeniedError, UnitNotFoundError, UnitValidationError
 from meobot.domain.units.labels import (
     LEAD_ROLE_LABELS,
     unit_label,
     unit_role_label,
     unit_short_label,
 )
-from meobot.domain.units.models import LibraryLink, UnitCode, UnitMemberRole, UnitSettings
+from meobot.domain.units.models import (
+    LibraryLink,
+    TaskFormSetting,
+    UnitCode,
+    UnitMemberRole,
+    UnitMembership,
+    UnitSettings,
+)
 
 router = APIRouter(prefix="/api/units", tags=["units"])
 
@@ -234,6 +250,8 @@ async def my_units(
         manage_library=manages_library(membership),
         view=in_design_team(membership) and not membership.sees_all,
         manage_codes=membership.has(UnitCode.ADS) and manages_design_codes(membership),
+        task_phases=[phase.value for phase in managed_phases(membership)],
+        manage_forms=membership.is_owner,
         birthday=membership.has(UnitCode.ADS)
         and has_birthday_orders(membership, await directory.settings(UnitCode.ADS)),
     )
@@ -245,9 +263,19 @@ async def my_units(
         can_edit_members=can_edit_members,
         design=design,
         seats=[DepartmentSeatResponse.from_domain(seat) for seat in membership.seats],
-        resources=ResourceAccessResponse.from_access(
-            await resource_access(directory.session, membership)
-        ),
+        resources=await _resources_block(directory.session, actor, membership),
+    )
+
+
+async def _resources_block(
+    session: AsyncSession, actor: Actor, membership: UnitMembership
+) -> ResourceAccessResponse:
+    """The resources module's flags, and how many "Đề xuất tài nguyên" wait on
+    the caller (the menu's badge)."""
+    access = await resource_access(session, membership)
+    requests = ResourceRequestService(ResourceService(session, AuditService(session)))
+    return ResourceAccessResponse.from_access(
+        access, requests_awaiting=await requests.awaiting_count(actor, access)
     )
 
 
@@ -554,22 +582,40 @@ def _design_unit(code: str) -> None:
 
 
 @router.get("/{code}/design-codes", response_model=DesignCodeListResponse)
+@router.get("/{code}/task-codes", response_model=DesignCodeListResponse)
 async def design_codes(
     code: str,
+    request: Request,
     actor: CurrentActorDep,
     catalogue: DesignCodesDep,
+    directory: UnitDirectoryDep,
     include_inactive: Annotated[bool, Query()] = False,
+    phase: Annotated[str | None, Query()] = None,
 ) -> DesignCodeListResponse:
-    """The Design team's catalogue. Every ORD member reads the active codes;
-    the retired ones (``include_inactive``) are for whoever keeps it - the
-    Design Leader, the OWNER, an ADMIN (403 ``design_code_forbidden``)."""
+    """The task-code catalogue ("Danh mục điểm"), with the forms. Every ORD
+    member reads the active codes (``phase`` narrows it to one step); the
+    retired ones (``include_inactive``) are for whoever keeps that phase - its
+    Trưởng phòng, the OWNER, an ADMIN (403 ``design_code_forbidden``).
+    ``/design-codes`` is the older name and defaults to Design."""
     _design_unit(code)
-    rows = await catalogue.catalogue(actor=actor, include_inactive=include_inactive)
-    return DesignCodeListResponse(codes=[DesignCodeResponse.from_row(row) for row in rows])
+    wanted = _phase(phase)
+    if wanted is None and request.url.path.endswith("/design-codes"):
+        wanted = OrderNodeType.THIET_KE
+    rows = await catalogue.catalogue(actor=actor, include_inactive=include_inactive, phase=wanted)
+    settings = await directory.settings(UnitCode.ADS)
+    return DesignCodeListResponse(
+        codes=[DesignCodeResponse.from_row(row) for row in rows],
+        forms=[TaskFormResponse.model_validate(form) for form in settings.task_forms],
+    )
 
 
 @router.post(
     "/{code}/design-codes",
+    response_model=DesignCodeResponse,
+    status_code=status.HTTP_201_CREATED,
+)
+@router.post(
+    "/{code}/task-codes",
     response_model=DesignCodeResponse,
     status_code=status.HTTP_201_CREATED,
 )
@@ -581,11 +627,18 @@ async def create_design_code(
     catalogue: DesignCodesDep,
 ) -> DesignCodeResponse:
     _design_unit(code)
+    phase = _phase(body.phase)
     row = await catalogue.create(
         actor=actor,
         request_id=request_id,
         code=body.code,
         name=body.name,
+        phase=phase or OrderNodeType.THIET_KE,
+        points=body.points,
+        unit_label=body.unit_label,
+        examples=body.examples,
+        note=body.note,
+        free_points=body.free_points,
         active=body.active,
         sort_order=body.sort_order,
     )
@@ -593,6 +646,7 @@ async def create_design_code(
 
 
 @router.patch("/{code}/design-codes/{code_id}", response_model=DesignCodeResponse)
+@router.patch("/{code}/task-codes/{code_id}", response_model=DesignCodeResponse)
 async def update_design_code(
     code: str,
     code_id: uuid.UUID,
@@ -601,7 +655,7 @@ async def update_design_code(
     request_id: RequestIdDep,
     catalogue: DesignCodesDep,
 ) -> DesignCodeResponse:
-    """Rename, re-code, reorder or (de)activate. There is no delete."""
+    """Change any field, reorder or (de)activate. There is no delete."""
     _design_unit(code)
     row = await catalogue.update(
         actor=actor,
@@ -609,10 +663,97 @@ async def update_design_code(
         code_id=code_id,
         code=body.code,
         name=body.name,
+        points=body.points,
+        unit_label=body.unit_label,
+        examples=body.examples,
+        note=body.note,
         active=body.active,
         sort_order=body.sort_order,
     )
     return DesignCodeResponse.from_row(row)
+
+
+@router.get("/{code}/task-forms", response_model=TaskFormsResponse)
+async def task_forms(
+    code: str, actor: CurrentActorDep, directory: UnitDirectoryDep
+) -> TaskFormsResponse:
+    """0074: the forms ("hình thức") a task-code line may take, per phase."""
+    _design_unit(code)
+    await directory.require(actor, UnitCode.ADS)
+    settings = await directory.settings(UnitCode.ADS)
+    return TaskFormsResponse(
+        forms=[TaskFormResponse.model_validate(form) for form in settings.task_forms]
+    )
+
+
+@router.put("/{code}/task-forms", response_model=TaskFormsResponse)
+async def update_task_forms(
+    code: str,
+    body: TaskFormsRequest,
+    actor: CurrentActorDep,
+    request_id: RequestIdDep,
+    admin: AdminDep,
+) -> TaskFormsResponse:
+    """0074: replace the forms - the OWNER alone (403 ``task_form_forbidden``).
+    "Làm mới" (``NEW``, 100%) stays and stays on; keys are unique; phases are
+    node types that carry task codes (422 ``task_form_invalid``)."""
+    _design_unit(code)
+    if actor.role is not Role.OWNER:
+        raise UnitAccessDeniedError(
+            "Chỉ chủ sở hữu (OWNER) mới sửa được bảng hình thức.",
+            details={"reason": "task_form_forbidden"},
+        )
+    forms = _checked_forms(body.forms)
+    updated = await admin.update_settings(
+        actor=actor,
+        request_id=request_id,
+        code=UnitCode.ADS,
+        patch={
+            "task_forms": tuple(TaskFormSetting.model_validate(form.model_dump()) for form in forms)
+        },
+    )
+    return TaskFormsResponse(
+        forms=[TaskFormResponse.model_validate(form) for form in updated.task_forms]
+    )
+
+
+def _phase(value: str | None) -> OrderNodeType | None:
+    if value is None or not value.strip():
+        return None
+    try:
+        phase = OrderNodeType(value.strip().upper())
+    except ValueError as error:
+        raise UnitValidationError(
+            "Pha không hợp lệ.", details={"reason": "invalid_phase", "field": "phase"}
+        ) from error
+    if phase not in TASK_PHASES:
+        raise UnitValidationError(
+            "Pha không hợp lệ.", details={"reason": "invalid_phase", "field": "phase"}
+        )
+    return phase
+
+
+def _checked_forms(forms: list[TaskFormResponse]) -> list[TaskFormResponse]:
+    def invalid(message: str) -> UnitValidationError:
+        return UnitValidationError(
+            message, details={"reason": "task_form_invalid", "field": "forms"}
+        )
+
+    phases = {phase.value for phase in TASK_PHASES}
+    keys = [form.key.strip().upper() for form in forms]
+    if len(set(keys)) != len(keys):
+        raise invalid("Mỗi hình thức một mã riêng.")
+    cleaned: list[TaskFormResponse] = []
+    for key, form in zip(keys, forms, strict=True):
+        if not key or not form.label.strip():
+            raise invalid("Hình thức cần mã và tên.")
+        if any(phase not in phases for phase in form.phases):
+            raise invalid("Pha áp dụng không hợp lệ.")
+        cleaned.append(form.model_copy(update={"key": key, "label": form.label.strip()}))
+    new = next((form for form in cleaned if form.key == DEFAULT_FORM), None)
+    if new is None or not new.active or new.pct != 100:
+        raise invalid("“Làm mới” (100%) luôn có và luôn bật.")
+    return cleaned
 
 
 # --- the Design team's library ("Thư viện") ----------------------------------------

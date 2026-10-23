@@ -51,6 +51,9 @@ class ResourceAccessResponse(BaseModel):
     delete: bool = False
     #: The "Danh sách tài nguyên" menu entry: more than one's own to see.
     view_list: bool = False
+    #: "Đề xuất tài nguyên" waiting on this person (2026-10-22: the menu's
+    #: badge). Only on ``/api/units/me``; 0 elsewhere.
+    requests_awaiting: int = 0
     #: Edit EVERY resource and change any holder; one's own (and a head's
     #: department's people's) are editable without it - see ``can_edit``.
     edit: bool = False
@@ -60,8 +63,11 @@ class ResourceAccessResponse(BaseModel):
     hr: bool = False
 
     @classmethod
-    def from_access(cls, access: ResourceAccess) -> ResourceAccessResponse:
+    def from_access(
+        cls, access: ResourceAccess, *, requests_awaiting: int = 0
+    ) -> ResourceAccessResponse:
         return cls(
+            requests_awaiting=requests_awaiting,
             view=access.any_view,
             view_all=access.view_all,
             create=access.create,

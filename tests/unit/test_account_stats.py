@@ -25,7 +25,7 @@ from meobot.application.account.stats_service import (
     MemberStats,
     resolve_month,
 )
-from meobot.db.models.order import Order, OrderEvent, OrderNode
+from meobot.db.models.order import Order, OrderEvent, OrderNode, OrderNodePoints
 from meobot.db.models.org_unit import OrgUnit
 from meobot.db.models.pr import PrApprovalEvent, PrContentItem
 from meobot.db.models.pr_content_version import PrContentVersion
@@ -120,6 +120,27 @@ async def _node(
     )
     world.session.add(node)
     await world.session.flush()
+    if (
+        status is OrderNodeStatus.HOAN_THANH
+        and assignee is not None
+        and approved_at is not None
+        and order.video_kind_points is not None
+        and node_type is not OrderNodeType.GAN_LINK
+    ):
+        # 0074: a done step's points are the task codes' (order_node_points);
+        # the test gives each done production step the order's number.
+        world.session.add(
+            OrderNodePoints(
+                node_id=node.id,
+                order_id=order.id,
+                user_id=assignee.id,
+                phase=node_type,
+                items=[],
+                points=int(order.video_kind_points),
+                first_completed_at=at(approved_at),
+            )
+        )
+        await world.session.flush()
     return node
 
 
@@ -162,7 +183,7 @@ async def build(world: World) -> Team:
         stage=OrderStage.COMPLETED,
         submitted_at="2026-09-02T03:00:00",
         completed_at="2026-09-20T03:00:00",
-        points="2.5",
+        points="25",
     )
     a_script = await _node(
         world,
@@ -331,11 +352,11 @@ async def test_01_every_figure_for_september(world: World) -> None:
     stats = {user_id: _core(item) for user_id, item in found.items()}
 
     assert stats[team.writer.id] == MemberStats(
-        month="2026-09", points=2.5, nodes_done=2, first_pass_rate=1.0
+        month="2026-09", points=25, nodes_done=2, first_pass_rate=1.0
     )
     assert stats[team.editor.id] == MemberStats(
         month="2026-09",
-        points=2.5,  # the design node only: the edit closed in October locally
+        points=25,  # the design node only: the edit closed in October locally
         nodes_done=1,
         nodes_in_progress=2,  # B's edit and D's design; C was cancelled
         revisions=2,  # a design return and a video return on their link node
@@ -366,7 +387,7 @@ async def test_02_other_months_count_their_own(world: World) -> None:
     assert august[world.owner.id].pr_contents_owned == 1
 
     october = await service.stats_for_one(team.editor.id, _month("2026-10"))
-    assert october.nodes_done == 1 and october.points == 2.5 and october.first_pass_rate == 1.0
+    assert october.nodes_done == 1 and october.points == 25 and october.first_pass_rate == 1.0
     assert october.month == "2026-10"
 
 
@@ -392,8 +413,9 @@ async def test_03_one_query_per_figure_whoever_is_asked(world: World) -> None:
         many = len(statements)
     finally:
         event.remove(sync_engine, "before_cursor_execute", count)
-    # Eight figures, plus four for ORD effort and the score's benchmark.
-    assert one == many == 12
+    # Nine figures (0074: the task-code points apart), plus four for ORD effort
+    # and the score's benchmark.
+    assert one == many == 13
 
 
 def test_04_months_are_vietnamese_and_validated() -> None:
@@ -478,7 +500,7 @@ async def test_06_member_rows_carry_the_month_asked_for(world: World) -> None:
     assert writer["role_label"] == "Biên tập"
     assert writer["has_custom_password"] is False and writer["locked"] is False
     assert writer["last_login_at"] is None
-    assert writer["stats"]["nodes_done"] == 2 and writer["stats"]["points"] == 2.5
+    assert writer["stats"]["nodes_done"] == 2 and writer["stats"]["points"] == 25
     assert rows["Trưởng phòng Ads"]["role_label"] == "Trưởng phòng ADS"
     assert set(writer["stats"]) == {
         "month",

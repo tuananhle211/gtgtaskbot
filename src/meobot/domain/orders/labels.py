@@ -6,6 +6,7 @@ from meobot.domain.orders.models import (
     OrderEventKind,
     OrderNodeStatus,
     OrderNodeType,
+    OrderReturnReason,
     OrderStage,
     OrderVideoType,
     production_nodes,
@@ -82,8 +83,8 @@ EVENT_LABELS: dict[OrderEventKind, str] = {
     OrderEventKind.CANCELLED: "Huỷ order",
     OrderEventKind.PLAN_SET: "Đặt token / deadline",
     OrderEventKind.DEADLINE_EXCEEDED: "Quá deadline mong muốn",
-    OrderEventKind.DESIGN_CODES_SET: "Chốt mã task design",
-    OrderEventKind.DESIGN_CODES_PROPOSED: "Yêu cầu thay đổi mã task design",
+    OrderEventKind.DESIGN_CODES_SET: "Chốt mã task công việc",
+    OrderEventKind.DESIGN_CODES_PROPOSED: "Nộp khác mã task đề xuất",
     OrderEventKind.BIRTHDAY_EDITED: "Sửa thông tin order sinh nhật",
 }
 
@@ -113,12 +114,21 @@ def event_label(value: OrderEventKind) -> str:
     return EVENT_LABELS[value]
 
 
+#: 0074: the three reasons "Không duyệt" offers.
+RETURN_REASON_LABELS: dict[OrderReturnReason, str] = {
+    OrderReturnReason.CHANGED_REQUEST: "Do thay đổi yêu cầu",
+    OrderReturnReason.WRONG_CODES: "Mã công việc chưa hợp lý",
+    OrderReturnReason.WORKER_FAULT: "Làm lỗi",
+}
+
+
 __all__ = [
     "EVENT_LABELS",
     "NODE_STATUS_LABELS",
     "NODE_TYPE_LABELS",
     "PROCESS_SEPARATOR",
     "PROCESS_STEP_LABELS",
+    "RETURN_REASON_LABELS",
     "STAGE_LABELS",
     "VIDEO_TYPE_LABELS",
     "event_label",
