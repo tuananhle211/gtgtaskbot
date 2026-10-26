@@ -37,6 +37,16 @@ from meobot.domain.orders.permissions import (
     allowed_scopes,
 )
 from meobot.domain.org.models import MODULE_ORDER, MODULE_PR, DepartmentFunction, Position
+from meobot.domain.performance.models import (
+    MODULE_PERFORMANCE,
+    PERFORMANCE_OWN_MEANING,
+    PERFORMANCE_OWNER_ONLY,
+    PERFORMANCE_PERMISSION_LABELS,
+    PERFORMANCE_SCOPE_LABELS,
+    PerformancePermission,
+    default_performance_grants,
+    performance_allowed_scopes,
+)
 from meobot.domain.pr.membership import CAPABILITY_INFO, role_capabilities
 from meobot.domain.pr.policy import GRANT_BACKED, PrCapability
 from meobot.domain.resources.models import (
@@ -87,6 +97,8 @@ class ModuleSpec:
     defaults: Callable[[DepartmentFunction], dict[Position, dict[str, str]]] | None = None
     #: A permission's own words for its scopes, where the generic ones mislead.
     scope_labels: Mapping[Any, Mapping[str, str]] = field(default_factory=dict)
+    #: Permissions the OWNER alone holds by role (not an ADMIN) and grants.
+    owner_only: frozenset[str] = frozenset()
 
     def permission(self, key: str) -> str:
         """The permission named ``key`` (the module's own, or a common one);
@@ -185,6 +197,17 @@ MODULES: Mapping[str, ModuleSpec] = MappingProxyType(
             scopes=resource_allowed_scopes,
             scope_labels=RESOURCE_SCOPE_LABELS,
             defaults=default_resource_grants,
+        ),
+        MODULE_PERFORMANCE: ModuleSpec(
+            module=MODULE_PERFORMANCE,
+            label="Điểm hiệu suất",
+            permissions=PerformancePermission,
+            labels=PERFORMANCE_PERMISSION_LABELS,
+            own_meaning=PERFORMANCE_OWN_MEANING,
+            scopes=performance_allowed_scopes,
+            scope_labels=PERFORMANCE_SCOPE_LABELS,
+            defaults=default_performance_grants,
+            owner_only=PERFORMANCE_OWNER_ONLY,
         ),
     }
 )

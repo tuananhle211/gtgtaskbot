@@ -177,6 +177,7 @@ class PrReviewFinding(BaseModel):
             except ValueError:
                 return _CATEGORY_ALIASES.get(key, PrReviewCategory.CONTENT_QUALITY)
         return PrReviewCategory.CONTENT_QUALITY
+
     message: str = Field(min_length=1, max_length=1000)
     suggestion: str | None = Field(default=None, max_length=1000)
 

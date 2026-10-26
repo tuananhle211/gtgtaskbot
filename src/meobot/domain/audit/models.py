@@ -465,6 +465,8 @@ class AuditAction(StrEnum):
     USER_AVATAR_REMOVED = "user.avatar.removed"
     #: The person's member code (0063): before / after, by the OWNER / ADMIN.
     USER_MEMBER_CODE_UPDATED = "user.member_code.updated"
+    #: "Hệ số điểm" (0076): a member's points coefficient from a month on.
+    USER_POINT_COEFFICIENT_SET = "user.point_coefficient.set"
 
     # Units (PR / Ads) and the Ads order engine.
     UNIT_MEMBER_TAGGED = "unit.member.tagged"

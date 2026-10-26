@@ -399,6 +399,7 @@ describe("the legal pages are reachable from the panel without crowding it", () 
     // No "/tasks" for a PR-only person: the order board follows the ORD seat / grant.
     expect(destinations).toEqual([
       "/dashboard",
+      "/performance/me",
       "/pr/content",
       "/pr/work",
       "/pr/tasks",

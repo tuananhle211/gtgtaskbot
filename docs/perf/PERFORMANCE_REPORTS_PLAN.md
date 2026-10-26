@@ -1,6 +1,6 @@
 # Plan — Xem điểm & báo cáo hiệu suất (nhân viên / trưởng phòng / ban giám đốc)
 
-Trạng thái: **plan, CHƯA làm — chỉ code khi anh/chị bảo "code"**. 2026-10-23. Đã trả lời hết câu hỏi (mục 0).
+Trạng thái: **đợt 1 ĐÃ CODE (2026-10-24, migration 0075, chưa commit)** — quyền `PERFORMANCE`, `order_node_points.department_id`, API `/api/performance/*`, tab "Hiệu suất" trang cá nhân, "Điểm của tôi", "Phòng của tôi", "Toàn công ty", xuất Excel. **2026-10-26: thêm "Hệ số điểm"** (migration 0076): mỗi thành viên một hệ số theo tháng (mặc định 1, áp từ tháng chọn trở đi), báo cáo chỉ hiện điểm sau hệ số, chỉ OWNER cấu hình (quyền `PERFORMANCE COEFFICIENT`, OWNER-only). Plan 2026-10-23, câu hỏi đã chốt ở mục 0.
 
 ## 0. Đã chốt (2026-10-23)
 

@@ -35,6 +35,7 @@ from meobot.application.account.member_code import write_member_code
 from meobot.application.account.password_reset_service import PasswordResetService
 from meobot.application.account.stats_service import AccountStatsService, MemberStats, Month
 from meobot.application.audit_service import AuditService
+from meobot.application.org.access import Access
 from meobot.application.org.departments import department_people, head_team
 from meobot.application.org.seats import load_seats
 from meobot.application.units.directory import manager_fits
@@ -64,6 +65,7 @@ from meobot.domain.identity.labels import role_label
 from meobot.domain.identity.models import Actor, Role
 from meobot.domain.orders.models import ACTIVE_NODE_STATUSES, TERMINAL_STAGES
 from meobot.domain.org.models import Position, Seat
+from meobot.domain.performance.models import MODULE_PERFORMANCE, PerformancePermission
 from meobot.domain.units.labels import unit_role_label
 from meobot.domain.units.member_code import normalise_member_code
 from meobot.domain.units.models import FUNCTION_ROLES, UnitCode, UnitMemberRole, UnitMembership
@@ -345,6 +347,12 @@ class AccountService:
         if actor.user_id is None:
             return False
         if user_id == actor.user_id:
+            return True
+        access = membership.access
+        if (
+            isinstance(access, Access)
+            and access.scope(MODULE_PERFORMANCE, PerformancePermission.VIEW.value) == "ALL"
+        ):
             return True
         if not any(seat.position is Position.HEAD for seat in membership.seats):
             return False

@@ -3440,6 +3440,8 @@ export interface UnitsMe {
   design?: DesignAccess | null;
   /** What this person may do in "Tài nguyên" (0065). Optional: an older API omits it. */
   resources?: ResourcesAccess | null;
+  /** The points reports' screens ("Hiệu suất"). Optional: an older API omits it. */
+  performance?: PerformanceAccess | null;
   /**
    * May open other people's profile pages (`/people/<id>`, 2026-10-19): the
    * OWNER / ADMIN, or a head of some department. Names are drawn as links
@@ -3992,6 +3994,137 @@ export interface DesignCodeItem {
   free?: boolean;
   examples?: string | null;
   unit_label?: string | null;
+}
+
+/**
+ * The points reports ("Hiệu suất", `docs/perf/PERFORMANCE_REPORTS_PLAN.md`):
+ * `view_team` = "Phòng của tôi" (a Trưởng phòng's direct reports, or any
+ * department for the company viewers), `view_all` = "Toàn công ty" (OWNER /
+ * ADMIN / a `PERFORMANCE` grant), `export` = the Excel file.
+ */
+export interface PerformanceAccess {
+  view_team: boolean;
+  view_all: boolean;
+  export: boolean;
+  /** "Hệ số điểm": the OWNER (or a `PERFORMANCE COEFFICIENT` grant). Optional: older APIs omit it. */
+  manage_coefficients?: boolean;
+}
+
+/**
+ * "Hệ số điểm" (0076): a member's points count `coefficient` times from a
+ * month on (1 when none is set). Coefficients travel as strings ("1.50").
+ */
+export interface PointCoefficientRow {
+  user_id: Uuid;
+  name: string;
+  member_code: string | null;
+  departments: string[];
+  coefficient: string;
+  /** `YYYY-MM` the coefficient in force started; `null` = the default 1. */
+  effective_month: string | null;
+  note: string | null;
+  /** A change already set for a later month. */
+  next_coefficient: string | null;
+  next_month: string | null;
+}
+
+export interface PointCoefficientChange {
+  id: Uuid;
+  user_id: Uuid;
+  coefficient: string;
+  effective_month: string;
+  note: string | null;
+  created_by: string | null;
+  created_at: string;
+}
+
+export interface PerformanceFigures {
+  points: number;
+  steps_done: number;
+  /** Dự kiến: the steps still under way - beside the total, never in it. */
+  pending_points: number;
+  pending_count: number;
+  returns_fault: number;
+  returns_other: number;
+  returns_codes: number;
+  late_count: number;
+  with_deadline: number;
+  on_time_rate: number | null;
+  previous_points: number;
+}
+
+export type PerformanceLineStatus = "EARNED" | "PENDING_REVIEW" | "IN_PROGRESS";
+
+export interface PerformanceLine {
+  node_id: Uuid;
+  order_id: Uuid;
+  order_code: string;
+  order_title: string;
+  phase: string;
+  phase_label: string;
+  items: DesignCodeItem[];
+  points: number;
+  status: PerformanceLineStatus;
+  at: string | null;
+}
+
+export interface PerformancePerson {
+  user_id: Uuid;
+  name: string;
+  month: string;
+  departments: string[];
+  figures: PerformanceFigures;
+  by_phase: Record<string, number>;
+  /** Days 1-7, 8-14, 15-21, 22-28, 29-end. */
+  by_week: number[];
+  lines: PerformanceLine[];
+}
+
+export interface PerformanceTeamRow {
+  user_id: Uuid;
+  name: string;
+  departments: string[];
+  figures: PerformanceFigures;
+}
+
+export interface PerformanceTrendPoint {
+  month: string;
+  points: number;
+  by_department: Record<string, number>;
+}
+
+export interface PerformanceTeam {
+  month: string;
+  department_id: Uuid | null;
+  departments: Array<{ id: Uuid; name: string }>;
+  rows: PerformanceTeamRow[];
+  totals: PerformanceFigures;
+  trend: PerformanceTrendPoint[];
+  view_all: boolean;
+  export: boolean;
+}
+
+export interface PerformanceDepartmentRow {
+  department_id: Uuid | null;
+  name: string;
+  people: number;
+  points: number;
+  steps_done: number;
+  average: number;
+  late_count: number;
+  on_time_rate: number | null;
+}
+
+export interface PerformanceOverview {
+  month: string;
+  points: number;
+  steps_done: number;
+  people: number;
+  departments: PerformanceDepartmentRow[];
+  top: PerformanceTeamRow[];
+  codes: Array<{ phase: string; code: string; name: string; quantity: number; points: number }>;
+  trend: PerformanceTrendPoint[];
+  export: boolean;
 }
 
 /** What an action sends for one code: the row, a quantity >= 1, its form, and
@@ -6617,6 +6750,31 @@ export const api = {
   /** "Xoá tài nguyên" (0071): 204; 403 `resource_forbidden` outside the Phòng Tài nguyên. */
   deleteResource: (id: Uuid, note?: string) =>
     del<void>(`/api/resources/${id}${query({ note })}`),
+  /**
+   * "Hiệu suất": one person's month (`"me"` = the caller). 403
+   * `performance_forbidden` for somebody else's unless they report to the
+   * caller (or the caller sees the company).
+   */
+  performancePerson: (userId: Uuid | "me", month?: string) =>
+    get<PerformancePerson>(`/api/performance/people/${userId}${query({ month })}`),
+  performanceTeam: (month?: string, departmentId?: Uuid) =>
+    get<PerformanceTeam>(`/api/performance/team${query({ month, department_id: departmentId })}`),
+  performanceOverview: (month?: string) =>
+    get<PerformanceOverview>(`/api/performance/overview${query({ month })}`),
+  /** 403 `performance_coefficient_forbidden` for anybody but the OWNER. */
+  pointCoefficients: (month?: string) =>
+    get<{ month: string; rows: PointCoefficientRow[] }>(
+      `/api/performance/coefficients${query({ month })}`,
+    ),
+  pointCoefficientHistory: (userId: Uuid) =>
+    get<PointCoefficientChange[]>(`/api/performance/coefficients/${userId}`),
+  /** 422 `coefficient_invalid` (0,01-10, two decimals; `details.field`). */
+  setPointCoefficient: (
+    userId: Uuid,
+    body: { coefficient: string; month: string; note?: string | null },
+  ) => put<PointCoefficientChange>(`/api/performance/coefficients/${userId}`, body),
+  performanceExportUrl: (month?: string, departmentId?: Uuid) =>
+    `/api/performance/export.xlsx${query({ month, department_id: departmentId })}`,
   resourceExportUrl: (filters: ResourceFilters = {}) =>
     `/api/resources/export.xlsx${query(filters)}`,
   /**

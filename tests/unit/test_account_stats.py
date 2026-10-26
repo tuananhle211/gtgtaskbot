@@ -414,8 +414,8 @@ async def test_03_one_query_per_figure_whoever_is_asked(world: World) -> None:
     finally:
         event.remove(sync_engine, "before_cursor_execute", count)
     # Nine figures (0074: the task-code points apart), plus four for ORD effort
-    # and the score's benchmark.
-    assert one == many == 13
+    # and the score's benchmark, plus the points coefficients (0076).
+    assert one == many == 14
 
 
 def test_04_months_are_vietnamese_and_validated() -> None:

@@ -56,7 +56,7 @@ def rows_of(body: dict[str, Any], module: str) -> dict[str, dict[str, Any]]:
 
 
 async def test_01_the_registry_and_the_pr_defaults_mirror_the_old_role_matrix() -> None:
-    assert list(MODULES) == ["ORDER", "PR", "RESOURCES"]
+    assert list(MODULES) == ["ORDER", "PR", "RESOURCES", "PERFORMANCE"]
     for spec in MODULES.values():
         assert CommonPermission.MANAGE_PERMISSIONS.value in spec.permission_keys()
         assert spec.allowed(CommonPermission.MANAGE_PERMISSIONS.value) == {"NONE", "OWN", "ALL"}

@@ -79,6 +79,7 @@ type NavIcon =
   | "import"
   | "settings"
   | "salary"
+  | "performance"
   | "account";
 
 /** The screen every unit shares besides the order boards. */
@@ -173,6 +174,31 @@ function resourcesBranch(me: UnitsMe | undefined): NavGroup | null {
       // 2026-10-22: the requests waiting on this person.
       badge: screen.href === "/resources/requests" ? me?.resources?.requests_awaiting : undefined,
     })),
+  };
+}
+
+/**
+ * "Hiệu suất" (the points reports): everybody's own month; "Phòng của tôi"
+ * for a Trưởng phòng (their direct reports) or a company viewer; "Toàn công
+ * ty" for the OWNER / ADMIN / a `PERFORMANCE` grant; "Hệ số điểm" for the
+ * OWNER (`performance` on `/api/units/me`).
+ */
+function performanceBranch(me: UnitsMe | undefined): NavGroup {
+  return {
+    label: "Hiệu suất",
+    icon: "performance",
+    children: [
+      { href: "/performance/me", label: "Điểm của tôi", icon: "mine" },
+      ...(me?.performance?.view_team
+        ? [{ href: "/performance/team", label: "Phòng của tôi", icon: "people" as NavIcon }]
+        : []),
+      ...(me?.performance?.view_all
+        ? [{ href: "/performance/company", label: "Toàn công ty", icon: "report" as NavIcon }]
+        : []),
+      ...(me?.performance?.manage_coefficients
+        ? [{ href: "/performance/coefficients", label: "Hệ số điểm", icon: "settings" as NavIcon }]
+        : []),
+    ],
   };
 }
 
@@ -283,6 +309,7 @@ export function navFor(me: UnitsMe | undefined, sessionRole?: string): NavEntry[
     ...(orders ? [orderBoards(me, sessionRole)] : []),
     ...(effort ? EFFORT_NAV : []),
     ...(resources ? [resources] : []),
+    performanceBranch(me),
     ...(pr ? [PR_GROUP] : []),
     ...(admin ? [ADMIN_NAV] : []),
     ...(library ? [library] : []),
@@ -383,6 +410,13 @@ function Icon({ name }: { name: NavIcon }) {
         <rect x="3" y="4" width="18" height="6" rx="1.5" />
         <rect x="3" y="14" width="18" height="6" rx="1.5" />
         <path d="M7 7h.01M7 17h.01" />
+      </>
+    ),
+    performance: (
+      <>
+        <path d="M3 20h18" />
+        <path d="M4 16l5-5 4 3 7-8" />
+        <path d="M15 6h5v5" />
       </>
     ),
     salary: (

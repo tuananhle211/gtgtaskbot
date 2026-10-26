@@ -713,7 +713,13 @@ describe("the Effort entry in the nav", () => {
     ]);
     renderWithQuery(<Shell>{null}</Shell>);
     const effort = await screen.findByRole("link", { name: /Effort/ });
-    expect(navHrefs()).toEqual(["/dashboard", "/tasks", "/tasks/task-codes", "/tasks/effort"]);
+    expect(navHrefs()).toEqual([
+      "/dashboard",
+      "/tasks",
+      "/tasks/task-codes",
+      "/tasks/effort",
+      "/performance/me",
+    ]);
     expect(effort).toHaveAttribute("aria-current", "page");
     expect(screen.getByRole("link", { name: /Order tổng/ })).not.toHaveAttribute("aria-current");
   });
@@ -737,7 +743,7 @@ describe("the Effort entry in the nav", () => {
     renderWithQuery(<Shell>{null}</Shell>);
     await screen.findByText(/Le Trưởng Nhóm|Thành viên|Nhân viên/);
     await waitFor(() =>
-      expect(navHrefs()).toEqual(["/dashboard", "/tasks", "/tasks/task-codes"]),
+      expect(navHrefs()).toEqual(["/dashboard", "/tasks", "/tasks/task-codes", "/performance/me"]),
     );
     expect(screen.queryByRole("link", { name: /Effort/ })).not.toBeInTheDocument();
   });

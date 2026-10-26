@@ -155,7 +155,9 @@ describe('the "Thư viện" branch of the nav', () => {
       "/tasks/birthday",
       "/tasks/task-codes",
     ]);
-    expect(hrefs.slice(4)).toEqual(links.map((link) => link.getAttribute("href")));
+    // Then "Hiệu suất", then the library's links.
+    expect(hrefs[4]).toBe("/performance/me");
+    expect(hrefs.slice(5)).toEqual(links.map((link) => link.getAttribute("href")));
   });
 
   it("leads each entry with its icon, else the name's initials", async () => {

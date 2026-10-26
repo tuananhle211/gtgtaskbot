@@ -155,7 +155,9 @@ describe('the "Bảng order" branch of the nav', () => {
   it('holds "Order tổng" and "Danh mục điểm" without the design flags, and no "Tạo order" entry', async () => {
     shell();
     await screen.findByText("Phòng ban của bạn");
-    await waitFor(() => expect(navHrefs()).toEqual(["/dashboard", "/tasks", "/tasks/task-codes"]));
+    await waitFor(() =>
+      expect(navHrefs()).toEqual(["/dashboard", "/tasks", "/tasks/task-codes", "/performance/me"]),
+    );
     const branch = within(primary()).getByRole("group", { name: "Bảng order" });
     expect(within(branch).getByRole("button", { name: "Bảng order" })).toHaveAttribute(
       "aria-expanded",
@@ -178,7 +180,13 @@ describe('the "Bảng order" branch of the nav', () => {
       "href",
       "/tasks/birthday",
     );
-    expect(navHrefs()).toEqual(["/dashboard", "/tasks", "/tasks/birthday", "/tasks/task-codes"]);
+    expect(navHrefs()).toEqual([
+      "/dashboard",
+      "/tasks",
+      "/tasks/birthday",
+      "/tasks/task-codes",
+      "/performance/me",
+    ]);
   });
 
   it('lists "Danh mục điểm" for everybody in the order flow (0074)', async () => {

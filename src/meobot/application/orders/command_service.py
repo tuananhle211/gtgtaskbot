@@ -49,6 +49,7 @@ from meobot.application.orders.script_review import (
 )
 from meobot.application.orders.token_ledger import OrderTokenLedgerService
 from meobot.application.orders.work_recorder import OrderWorkRecorder
+from meobot.application.org.seats import load_seats, points_department
 from meobot.application.pr_support import lock_row, record_pr_event
 from meobot.application.units.directory import ROLE_FOR_NODE, UnitDirectoryService
 from meobot.core.config import Settings
@@ -1996,6 +1997,7 @@ class OrderCommandService:
                 )
             ).all()
         }
+        seats = await load_seats(self._session, [user_id for user_id, _ in people])
         for user_id, items in people:
             if not items:
                 continue
@@ -2007,6 +2009,7 @@ class OrderCommandService:
                         order_id=order.id,
                         user_id=user_id,
                         phase=node.node_type,
+                        department_id=points_department(seats.get(user_id, ()), node.node_type),
                         items=items_to_json(items),
                         points=total_points(items),
                         first_completed_at=now,

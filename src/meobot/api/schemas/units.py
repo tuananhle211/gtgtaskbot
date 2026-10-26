@@ -14,6 +14,7 @@ from decimal import Decimal
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from meobot.api.schemas.performance import PerformanceAccessResponse
 from meobot.api.schemas.resources import ResourceAccessResponse
 from meobot.application.orders.effort_service import BanStats, EffortGrid
 from meobot.application.units.directory import UnitMemberRow
@@ -249,6 +250,8 @@ class UnitMeResponse(BaseModel):
     #: the OWNER / ADMIN, or a head of some department (their own people).
     #: Names are drawn as links only for them.
     can_view_profiles: bool = False
+    #: The points reports: "Phòng của tôi" / "Toàn công ty" / the Excel file.
+    performance: PerformanceAccessResponse = PerformanceAccessResponse()
 
     @classmethod
     def from_domain(
@@ -262,11 +265,14 @@ class UnitMeResponse(BaseModel):
         design: DesignAccessResponse | None = None,
         seats: list[DepartmentSeatResponse] | None = None,
         resources: ResourceAccessResponse | None = None,
+        performance: PerformanceAccessResponse | None = None,
     ) -> UnitMeResponse:
         entries = sorted(entries, key=lambda entry: stream_rank(entry.code))
         heads = any(seat.position is Position.HEAD for seat in membership.seats)
         return cls(
-            can_view_profiles=membership.sees_all or heads,
+            can_view_profiles=membership.sees_all
+            or heads
+            or bool(performance and performance.view_all),
             units=entries,
             default_unit=entries[0].code if entries else None,
             can_view_all=membership.sees_all,
@@ -285,6 +291,7 @@ class UnitMeResponse(BaseModel):
             ),
             design=design or DesignAccessResponse(),
             resources=resources or ResourceAccessResponse(),
+            performance=performance or PerformanceAccessResponse(),
         )
 
 

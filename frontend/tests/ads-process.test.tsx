@@ -154,7 +154,10 @@ const submit = () => screen.getByRole("button", { name: "Gửi order" });
 const desiredDeadline = () => screen.getByLabelText(/Deadline mong muốn/);
 const FUTURE_DEADLINE = "2099-12-01T17:00";
 
-async function fillBasics() {
+/** The basics of a sendable order. Nothing is ticked when the form opens
+ * (2026-10-24): with no step ticked yet, Dựng is ticked here (``tick: false``
+ * leaves the process alone). */
+async function fillBasics({ tick = true }: { tick?: boolean } = {}) {
   await userEvent.type(
     await screen.findByRole("textbox", { name: /Tên kịch bản/ }),
     "Video serum",
@@ -164,6 +167,12 @@ async function fillBasics() {
     "Key: da căng bóng",
   );
   fireEvent.change(desiredDeadline(), { target: { value: FUTURE_DEADLINE } });
+  const boxes = ["Biên kịch", "Design", "Dựng"].map((name) =>
+    screen.getByRole("checkbox", { name }),
+  );
+  if (tick && boxes.every((box) => !(box as HTMLInputElement).checked)) {
+    await userEvent.click(screen.getByRole("checkbox", { name: "Dựng" }));
+  }
 }
 
 const DESIGN_CODE = "dddddddd-dddd-dddd-dddd-dddddddddddd";
@@ -201,7 +210,6 @@ describe("a Design-only order", () => {
     ]);
     renderWithQuery(<NewOrderPage />);
     await userEvent.click(await screen.findByRole("checkbox", { name: "Design" }));
-    await userEvent.click(screen.getByRole("checkbox", { name: "Dựng" }));
     await fillBasics();
     // No kind / platform / duration, no script source, no AI check, no approver.
     expect(screen.queryByRole("combobox", { name: /Loại video/ })).not.toBeInTheDocument();
@@ -234,7 +242,7 @@ describe("a Design-only order", () => {
 });
 
 describe("the create form's Quy trình", () => {
-  it("starts with Order and Dựng, and Order cannot be unticked", async () => {
+  it("starts with only Order ticked, which cannot be unticked, and no error yet", async () => {
     stubCreateForm();
     renderWithQuery(<NewOrderPage />);
     const order = await screen.findByRole("checkbox", { name: /^Order/ });
@@ -243,21 +251,23 @@ describe("the create form's Quy trình", () => {
     await userEvent.click(order);
     expect(order).toBeChecked();
     expect(screen.getByText("(luôn có)")).toBeInTheDocument();
-    expect(screen.getByRole("checkbox", { name: "Dựng" })).toBeChecked();
-    expect(screen.getByRole("checkbox", { name: "Biên kịch" })).not.toBeChecked();
-    expect(screen.getByRole("checkbox", { name: "Design" })).not.toBeChecked();
-    expect(route()).toBe("Order › Dựng › Người order duyệt final");
+    // Nothing else ticked by default (2026-10-24) - and nothing red on opening.
+    for (const name of ["Biên kịch", "Design", "Dựng"]) {
+      expect(screen.getByRole("checkbox", { name })).not.toBeChecked();
+      expect(screen.getByRole("checkbox", { name })).toHaveAttribute("aria-invalid", "false");
+    }
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+    expect(route()).toBe("Order › Người order duyệt final");
   });
 
   it("changes the route as boxes are ticked", async () => {
     stubCreateForm();
     renderWithQuery(<NewOrderPage />);
     await userEvent.click(await screen.findByRole("checkbox", { name: "Biên kịch" }));
-    expect(route()).toBe(
-      "Order › Biên kịch › Dựng › Người order duyệt final",
-    );
+    expect(route()).toBe("Order › Biên kịch › Người order duyệt final");
 
     await userEvent.click(screen.getByRole("checkbox", { name: "Design" }));
+    await userEvent.click(screen.getByRole("checkbox", { name: "Dựng" }));
     expect(route()).toBe(
       "Order › Biên kịch › Design › Dựng › Người order duyệt final",
     );
@@ -270,6 +280,7 @@ describe("the create form's Quy trình", () => {
     const fetchMock = stubCreateForm();
     renderWithQuery(<NewOrderPage />);
     await userEvent.click(await screen.findByRole("checkbox", { name: "Biên kịch" }));
+    await userEvent.click(screen.getByRole("checkbox", { name: "Dựng" }));
     await fillBasics();
     await userEvent.type(
       screen.getByRole("textbox", { name: /Link thiết kế/ }),
@@ -332,18 +343,31 @@ describe("the create form's Quy trình", () => {
     expect(submit()).toBeEnabled();
   });
 
-  it("blocks the submit with a hint when no production node is ticked", async () => {
-    stubCreateForm({ kinds: [] });
+  it("says in red that a step is missing only when Gửi order is pressed", async () => {
+    const stub = stubCreateForm({ kinds: [] });
     renderWithQuery(<NewOrderPage />);
-    await fillBasics();
-    await userEvent.click(screen.getByRole("checkbox", { name: "Design" }));
+    await fillBasics({ tick: false });
+    // Nothing ticked, nothing red yet; the button may be pressed.
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
     expect(submit()).toBeEnabled();
-    await userEvent.click(screen.getByRole("checkbox", { name: "Design" }));
+    await userEvent.click(submit());
+    // Pressed: no confirmation, nothing sent - the boxes and an alert say why.
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+    expect(screen.getByRole("alert")).toHaveTextContent(
+      "Chọn ít nhất một công đoạn: Biên kịch, Design hoặc Dựng.",
+    );
+    expect(screen.getByRole("checkbox", { name: "Biên kịch" })).toHaveAttribute(
+      "aria-invalid",
+      "true",
+    );
+    expect(screen.getByText(/Chưa gửi được: hãy tích ít nhất một công đoạn/)).toBeInTheDocument();
+    expect(calls(stub).some((call) => call.method === "POST")).toBe(false);
+    // Ticking one clears it, and the button asks before sending again.
     await userEvent.click(screen.getByRole("checkbox", { name: "Dựng" }));
-    expect(submit()).toBeDisabled();
-    expect(
-      screen.getByText("Chọn ít nhất một công đoạn: Biên kịch, Design hoặc Dựng."),
-    ).toBeInTheDocument();
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+    expect(screen.queryByText(/Chưa gửi được/)).not.toBeInTheDocument();
+    await userEvent.click(submit());
+    expect(await screen.findByRole("dialog")).toBeInTheDocument();
   });
 
   // "Người duyệt order" comes from GET /api/orders/approvers: who approves

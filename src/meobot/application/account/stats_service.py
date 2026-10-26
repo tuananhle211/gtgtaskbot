@@ -50,6 +50,7 @@ from __future__ import annotations
 
 import re
 import uuid
+from collections import defaultdict
 from collections.abc import Iterable
 from dataclasses import dataclass
 from datetime import date, datetime, time, timedelta
@@ -61,6 +62,7 @@ from sqlalchemy import and_, case, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from meobot.application.orders.effort_service import daily_budget, working_share
+from meobot.application.performance.coefficients import load_coefficients
 from meobot.core.time import utcnow
 from meobot.db.models.order import Order, OrderEvent, OrderNode, OrderNodePoints, OrderTokenLedger
 from meobot.db.models.org_unit import OrgUnit, OrgUnitMember
@@ -206,17 +208,21 @@ class AccountStatsService:
         )
         merge(done.all(), "nodes_done", "first_pass", "with_deadline", "met")
 
-        # 0074: the task-code points earned on steps first done in the month.
+        # 0074: the task-code points earned on steps first done in the month,
+        # each step after the person's coefficient for it (0076).
         earned = await self._session.execute(
-            select(OrderNodePoints.user_id, func.coalesce(func.sum(OrderNodePoints.points), 0))
-            .where(
+            select(OrderNodePoints.user_id, OrderNodePoints.points).where(
                 OrderNodePoints.user_id.in_(ids),
                 OrderNodePoints.first_completed_at >= month.start,
                 OrderNodePoints.first_completed_at < month.end,
             )
-            .group_by(OrderNodePoints.user_id)
         )
-        merge(earned.all(), "points")
+        book = await load_coefficients(self._session, ids)
+        first = date(month.year, month.month, 1)
+        totals: dict[uuid.UUID, int] = defaultdict(int)
+        for user_id, points in earned.all():
+            totals[user_id] += book.weigh(user_id, points, first)
+        merge(totals.items(), "points")
 
         in_progress = await self._session.execute(
             select(OrderNode.assignee_user_id, func.count(OrderNode.id))

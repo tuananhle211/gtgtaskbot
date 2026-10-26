@@ -169,7 +169,8 @@ async def test_02_grants_are_edited_per_module(world: World) -> None:
     )
     assert unknown.status_code == 422
     catalog = owner(world).get("/api/departments/catalog").json()
-    assert [item["module"] for item in catalog["modules"]] == ["ORDER", "PR", "RESOURCES"]
+    modules = [item["module"] for item in catalog["modules"]]
+    assert modules == ["ORDER", "PR", "RESOURCES", "PERFORMANCE"]
     # A department created later has the module's defaults from the start.
     made = owner(world).post("/api/departments", json={"code": "HR", "name": "Nhân sự"})
     assert made.status_code == 201

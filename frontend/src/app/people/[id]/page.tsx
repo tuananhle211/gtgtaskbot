@@ -7,6 +7,7 @@ import { keepPreviousData, useQuery } from "@tanstack/react-query";
 import { api, ApiError, type MemberRow } from "@/lib/api";
 import { Avatar } from "@/components/avatar";
 import { DepartmentTags } from "@/components/department-tags";
+import { PerformancePanel } from "@/components/performance";
 import { StatCards } from "@/components/stat-cards";
 import { ErrorBox, Loading, Pill } from "@/components/states";
 import { formatWhen, monthLabel } from "@/lib/labels";
@@ -97,6 +98,8 @@ export default function PersonPage() {
             </label>
           </div>
           {page.isFetching ? <Loading label="Đang tải số liệu…" /> : null}
+          <PerformancePanel userId={person.user_id} month={month} />
+          <h3 className="pt-2 text-base font-semibold tracking-tight">Chỉ số công việc</h3>
           <StatCards stats={person.stats} showEffort={effortOn} />
         </section>
       ) : (

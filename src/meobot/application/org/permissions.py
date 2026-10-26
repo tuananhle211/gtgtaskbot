@@ -190,6 +190,8 @@ class PersonalPermissionService:
         for key in spec.permission_keys():
             if key == CommonPermission.MANAGE_PERMISSIONS.value or key in spec.personal_only:
                 continue
+            if key in spec.owner_only and not mine.is_owner:
+                continue
             allowed = [scope for scope in ("OWN", "ALL") if scope in spec.allowed(key)]
             if mine.sees_all:
                 found[key] = allowed

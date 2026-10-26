@@ -15,6 +15,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from meobot.db.models.department import Department, DepartmentMember, DepartmentPermission
+from meobot.domain.orders.models import OrderNodeType
 from meobot.domain.org.models import DepartmentFunction, Grant, Position, Seat
 
 
@@ -96,4 +97,15 @@ def grants_of(
     return tuple(grants)
 
 
-__all__ = ["HEAD_ORDER_GRANT", "grants_of", "load_grants", "load_seats"]
+__all__ = ["HEAD_ORDER_GRANT", "grants_of", "load_grants", "load_seats", "points_department"]
+
+
+def points_department(seats: Iterable[Seat], phase: OrderNodeType) -> uuid.UUID | None:
+    """0075: the department a step's points count for - the person's
+    department whose production step is ``phase`` (a Dựng step: the Dựng
+    department), else the first one they sit in, else none."""
+    ordered = list(seats)
+    for seat in ordered:
+        if seat.node is phase:
+            return seat.department_id
+    return ordered[0].department_id if ordered else None

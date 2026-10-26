@@ -237,6 +237,29 @@ export const startProductionConfirmation = (): ConfirmSpec => ({
  * assignment. `current` is who holds it now, which is the only thing that makes
  * a reassignment different from an assignment.
  */
+/**
+ * "Hệ số điểm" (0076): from a month on, a member's points count this many
+ * times. Months before keep theirs.
+ */
+export function pointCoefficientConfirmation({
+  name,
+  coefficient,
+  month,
+}: {
+  name: string;
+  /** As typed, e.g. "1,5". */
+  coefficient: string;
+  /** "Tháng 10/2026". */
+  month: string;
+}): ConfirmSpec {
+  return {
+    title: `Đặt hệ số ${coefficient} cho ${name}?`,
+    description: `Từ ${month.toLowerCase()} trở đi, điểm của ${name} được nhân ${coefficient}. Các tháng trước giữ hệ số cũ.`,
+    confirmLabel: "Lưu hệ số",
+    variant: "primary",
+  };
+}
+
 export function assignProducerConfirmation({
   name,
   current,

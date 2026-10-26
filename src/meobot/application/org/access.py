@@ -92,9 +92,14 @@ class Access:
         return tuple(grant for grant in self.grants if grant.module == module)
 
     def scope(self, module: str, permission: str) -> str:
-        """``ALL`` / ``OWN`` / ``NONE``: the widest scope held."""
-        if self.sees_all:
+        """``ALL`` / ``OWN`` / ``NONE``: the widest scope held. An OWNER-only
+        permission (``ModuleSpec.owner_only``) is not an ADMIN's by role."""
+        if self.is_owner:
             return "ALL"
+        if self.is_admin:
+            spec = MODULES.get(module)
+            if spec is None or permission not in spec.owner_only:
+                return "ALL"
         found = "NONE"
         for grant in self.grants:
             if grant.module != module or grant.permission != permission:

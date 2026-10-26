@@ -115,6 +115,11 @@ const nextConfig = {
         source: "/api/resources/:path*",
         destination: `${target}/api/resources/:path*`,
       },
+      // The points reports ("Hiệu suất").
+      {
+        source: "/api/performance/:path*",
+        destination: `${target}/api/performance/:path*`,
+      },
       // The magic-link landing route. Handled by FastAPI, which sets the cookie
       // and redirects to /pr - a page this app serves.
       { source: "/auth/login", destination: `${target}/auth/login` },

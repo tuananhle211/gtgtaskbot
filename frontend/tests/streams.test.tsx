@@ -144,6 +144,7 @@ describe("an account with no stream", () => {
     const primary = screen.getByRole("navigation", { name: "Điều hướng chính" });
     expect(within(primary).getAllByRole("link").map((link) => link.getAttribute("href"))).toEqual([
       "/dashboard",
+      "/performance/me",
     ]);
   });
 });

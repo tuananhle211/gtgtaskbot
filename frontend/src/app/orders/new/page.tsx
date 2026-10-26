@@ -291,12 +291,21 @@ function AdsOrderForm({
     desired_deadline: editing ? toLocalInput(editing.desired_deadline_at) : defaultDeadlineInput(),
   });
   const initialDeadline = toLocalInput(editing?.desired_deadline_at);
-  // "Quy trình": Order is always on and not part of the list; Dựng starts ticked.
-  // A returned order keeps its process: its nodes already exist.
+  // "Quy trình": Order is always on and not part of the list; nothing else
+  // starts ticked (2026-10-24) - the orderer picks. A returned order keeps its
+  // process: its nodes already exist.
   const [ticked, setTicked] = useState<ProcessNode[]>(
-    editing ? ((editing.process ?? []) as ProcessNode[]) : ["DUNG"],
+    editing ? ((editing.process ?? []) as ProcessNode[]) : [],
   );
+  // "Gửi order" pressed with no step ticked: only then is it flagged in red.
+  const [triedSend, setTriedSend] = useState(false);
+  const processRef = useRef<HTMLFieldSetElement>(null);
   const nodes = orderedProcess(ticked);
+  // A new order needs at least one production step ticked (an edited one keeps
+  // its process, so it always has one). Said in red only once "Gửi order" was
+  // pressed without one, not as soon as the form opens.
+  const noNode = nodes.length === 0;
+  const flagNoNode = noNode && triedSend;
   const code = processCode(nodes);
   // Only Design ticked: no ORD approval (straight to the Design Leader), the
   // design codes stand for kind / platform / duration, and the script box is a
@@ -472,7 +481,7 @@ function AdsOrderForm({
             className={`mt-1 ${field}`}
           />
         </label>
-        <fieldset>
+        <fieldset ref={processRef}>
           <legend className="text-sm font-medium">2 · Quy trình</legend>
           <div className="mt-1.5 flex flex-wrap gap-2.5">
             <label className="flex min-h-12 items-center gap-2 rounded-lg border-2 border-dashed border-[var(--border)] px-4 text-[15px] text-[var(--text-muted)]">
@@ -493,7 +502,9 @@ function AdsOrderForm({
                 key={item.node}
                 className={`flex min-h-12 min-w-28 cursor-pointer items-center gap-2 rounded-lg border-2 px-4 text-[15px] font-semibold transition-colors ${nodes.includes(item.node)
                   ? "border-[var(--accent)] bg-[var(--accent-soft)] text-[var(--accent-strong)] shadow-sm"
-                  : "border-[var(--border)] hover:border-[var(--accent)] hover:bg-[var(--accent-soft)]"
+                  : flagNoNode
+                    ? "border-[var(--bad)] hover:bg-[var(--bad-soft)]"
+                    : "border-[var(--border)] hover:border-[var(--accent)] hover:bg-[var(--accent-soft)]"
                   }`}
               >
                 <input
@@ -501,6 +512,8 @@ function AdsOrderForm({
                   checked={nodes.includes(item.node)}
                   onChange={() => toggleNode(item.node)}
                   disabled={editing !== undefined}
+                  aria-invalid={flagNoNode}
+                  aria-describedby={flagNoNode ? "process-required" : undefined}
                   className="size-[18px] accent-[var(--accent)]"
                 />
                 {item.label}
@@ -519,10 +532,26 @@ function AdsOrderForm({
               order này và tạo order mới.
             </p>
           ) : null}
-          {nodes.length === 0 ? (
-            <p role="alert" className="mt-1 text-xs text-[var(--bad)]">
+          {flagNoNode ? (
+            <div
+              id="process-required"
+              role="alert"
+              className="mt-2 flex items-start gap-2 rounded-lg border border-[var(--bad)] bg-[var(--bad-soft)] px-3 py-2 text-sm font-medium text-[var(--bad)]"
+            >
+              <svg
+                aria-hidden
+                viewBox="0 0 24 24"
+                className="mt-0.5 size-4 shrink-0"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth={2}
+                strokeLinecap="round"
+              >
+                <circle cx="12" cy="12" r="9" />
+                <path d="M12 7.5v5.5M12 16.5h.01" />
+              </svg>
               Chọn ít nhất một công đoạn: Biên kịch, Design hoặc Dựng.
-            </p>
+            </div>
           ) : null}
         </fieldset>
         {designCodes && nodes.length > 0 ? (
@@ -796,9 +825,9 @@ function AdsOrderForm({
           />
         </label>
         <div className="flex flex-wrap items-center justify-end gap-2">
-          {nodes.length === 0 ? (
-            <span className="text-xs text-[var(--text-muted)]">
-              Chưa chọn công đoạn sản xuất nào.
+          {flagNoNode ? (
+            <span role="status" className="text-sm font-medium text-[var(--bad)]">
+              Chưa gửi được: hãy tích ít nhất một công đoạn ở mục 2 · Quy trình.
             </span>
           ) : null}
           <Link
@@ -807,6 +836,20 @@ function AdsOrderForm({
           >
             Huỷ
           </Link>
+          {noNode && !editing ? (
+            // No step ticked yet: pressing it says what is missing (in red,
+            // at the process boxes) instead of opening the confirmation.
+            <button
+              type="button"
+              onClick={() => {
+                setTriedSend(true);
+                processRef.current?.scrollIntoView?.({ block: "center", behavior: "smooth" });
+              }}
+              className="min-h-11 rounded-lg bg-[var(--accent)] px-4 text-sm font-medium text-[var(--accent-text)] hover:opacity-90 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--accent)]"
+            >
+              Gửi order
+            </button>
+          ) : (
           <ConfirmButton
             spec={
               editing
@@ -832,6 +875,7 @@ function AdsOrderForm({
           >
             {editing ? "Gửi lại order" : "Gửi order"}
           </ConfirmButton>
+          )}
         </div>
         {reviewsScript && !mayGo ? (
           <p data-testid="needs-script-check" className="text-right text-xs text-[var(--warn)]">

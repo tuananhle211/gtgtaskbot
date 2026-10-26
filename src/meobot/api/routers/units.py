@@ -23,6 +23,7 @@ from meobot.api.deps import (
     UnitMembershipDep,
     get_session,
 )
+from meobot.api.schemas.performance import PerformanceAccessResponse
 from meobot.api.schemas.resources import ResourceAccessResponse
 from meobot.api.schemas.units import (
     BanStatsResponse,
@@ -84,6 +85,8 @@ from meobot.application.orders.design_library_service import (
 from meobot.application.orders.effort_service import EffortService, ban_stats
 from meobot.application.org import departments
 from meobot.application.org.seats import load_seats
+from meobot.application.performance.access import performance_access
+from meobot.application.performance.coefficients import may_set_coefficients
 from meobot.application.resources.access import resource_access
 from meobot.application.resources.requests import ResourceRequestService
 from meobot.application.resources.service import ResourceService
@@ -91,7 +94,7 @@ from meobot.application.units.admin import ROLES_BY_UNIT, UnitAdminService
 from meobot.application.units.directory import NOT_VISIBLE, UnitDirectoryService
 from meobot.core.errors import ValidationError
 from meobot.domain.identity.labels import role_label
-from meobot.domain.identity.models import Actor, Role
+from meobot.domain.identity.models import Actor
 from meobot.domain.orders.models import OrderNodeType
 from meobot.domain.orders.task_codes import DEFAULT_FORM, TASK_PHASES
 from meobot.domain.units.errors import UnitAccessDeniedError, UnitNotFoundError, UnitValidationError
@@ -264,6 +267,10 @@ async def my_units(
         design=design,
         seats=[DepartmentSeatResponse.from_domain(seat) for seat in membership.seats],
         resources=await _resources_block(directory.session, actor, membership),
+        performance=PerformanceAccessResponse.from_access(
+            await performance_access(directory.session, membership),
+            manage_coefficients=may_set_coefficients(membership),
+        ),
     )
 
 
@@ -693,12 +700,13 @@ async def update_task_forms(
     actor: CurrentActorDep,
     request_id: RequestIdDep,
     admin: AdminDep,
+    membership: UnitMembershipDep,
 ) -> TaskFormsResponse:
     """0074: replace the forms - the OWNER alone (403 ``task_form_forbidden``).
     "Làm mới" (``NEW``, 100%) stays and stays on; keys are unique; phases are
     node types that carry task codes (422 ``task_form_invalid``)."""
     _design_unit(code)
-    if actor.role is not Role.OWNER:
+    if not membership.is_owner:
         raise UnitAccessDeniedError(
             "Chỉ chủ sở hữu (OWNER) mới sửa được bảng hình thức.",
             details={"reason": "task_form_forbidden"},

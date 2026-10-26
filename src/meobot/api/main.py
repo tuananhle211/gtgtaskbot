@@ -24,6 +24,7 @@ from meobot.api.routers import (
     invites,
     notifications,
     orders,
+    performance,
     permissions,
     pr,
     pr_content_work,
@@ -214,6 +215,9 @@ def _include_web_facing_routers(app: FastAPI) -> None:
     app.include_router(resources.router)
     # The personal permission layer (0066): who holds what, and grants on top.
     app.include_router(permissions.router)
+    # The points reports ("Hiệu suất"): open to every signed-in account,
+    # each route decides whose points the caller sees.
+    app.include_router(performance.router)
     # The Ads order engine, behind the Ads unit gate the same way the PR
     # routers sit behind the PR one.
     app.include_router(orders.router, dependencies=[Depends(require_unit(UnitCode.ADS))])

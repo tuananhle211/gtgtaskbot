@@ -53,6 +53,7 @@ from sqlalchemy.orm import Mapped, mapped_column
 
 from meobot.core.time import utcnow
 from meobot.db.base import Base, JSONColumn, TimestampMixin, UUIDPrimaryKeyMixin, value_enum
+from meobot.db.models.department import DEPARTMENTS
 from meobot.db.models.org_unit import ORG_UNITS, UNIT_DURATIONS, UNIT_PLATFORMS, UNIT_VIDEO_KINDS
 from meobot.db.models.pr import RESTRICT, USERS_TABLE
 from meobot.db.models.pr_work import WORK_TYPES
@@ -469,6 +470,7 @@ class OrderNodePoints(Base, UUIDPrimaryKeyMixin):
     __table_args__ = (
         UniqueConstraint("node_id", "user_id", name="uq_order_node_points_node_user"),
         Index("ix_order_node_points_user_completed", "user_id", "first_completed_at"),
+        Index("ix_order_node_points_department_completed", "department_id", "first_completed_at"),
     )
 
     node_id: Mapped[uuid.UUID] = mapped_column(
@@ -482,6 +484,11 @@ class OrderNodePoints(Base, UUIDPrimaryKeyMixin):
     )
     phase: Mapped[OrderNodeType] = mapped_column(
         value_enum(OrderNodeType, name="order_node_points_phase", length=10), nullable=False
+    )
+    #: 0075: the department these points count for - the person's department
+    #: of the step's phase, else their first; fixed when the step is done.
+    department_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey(f"{DEPARTMENTS}.id", ondelete=RESTRICT), nullable=True
     )
     items: Mapped[list[dict[str, Any]]] = mapped_column(JSONColumn, nullable=False)
     points: Mapped[int] = mapped_column(Integer, nullable=False)
