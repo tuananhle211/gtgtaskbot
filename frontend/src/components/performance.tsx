@@ -8,6 +8,7 @@ import {
   ApiError,
   type PerformanceFigures,
   type PerformanceLine,
+  type PerformanceCodeRow,
   type PerformanceLineStatus,
   type PerformanceTrendPoint,
 } from "@/lib/api";
@@ -285,6 +286,107 @@ export function PhaseSplit({ byPhase }: { byPhase: Record<string, number> }) {
   );
 }
 
+/**
+ * How many of each task code a department (or a head's people) did in the
+ * month: grouped by step, each group with its subtotal, then the total.
+ */
+export function CodeTable({
+  rows,
+  title = "Số lượng theo mã task",
+  showPeople = true,
+}: {
+  rows: PerformanceCodeRow[];
+  title?: string;
+  /** "Số người": pointless on one person's page. */
+  showPeople?: boolean;
+}) {
+  const groups = PHASES.map((phase) => ({ phase, rows: rows.filter((row) => row.phase === phase) })).filter(
+    (group) => group.rows.length > 0,
+  );
+  const quantity = rows.reduce((sum, row) => sum + row.quantity, 0);
+  const points = rows.reduce((sum, row) => sum + row.points, 0);
+  return (
+    <section className="panel overflow-hidden" aria-labelledby="performance-codes">
+      <header className="flex flex-wrap items-baseline justify-between gap-2 border-b border-[var(--border)] px-4 py-3">
+        <h3 id="performance-codes" className="text-base font-semibold">
+          {title}
+        </h3>
+        <p className="text-xs text-[var(--text-muted)]">Các bước đã xong trong tháng · điểm sau hệ số</p>
+      </header>
+      {rows.length === 0 ? (
+        <div className="p-4">
+          <Empty message="Chưa có mã task nào được tính trong tháng." />
+        </div>
+      ) : (
+        <div className="overflow-x-auto">
+          <table className="w-full min-w-[42rem] text-sm">
+            <thead>
+              <tr className="border-b border-[var(--border)] text-left text-xs uppercase tracking-wide text-[var(--text-muted)]">
+                <th className="px-4 py-2 font-medium">Mã task</th>
+                <th className="px-4 py-2 font-medium">Tên / ví dụ</th>
+                <th className="px-4 py-2 font-medium">Hình thức</th>
+                <th className="px-4 py-2 text-right font-medium">Số lượng</th>
+                {showPeople ? <th className="px-4 py-2 text-right font-medium">Số người</th> : null}
+                <th className="px-4 py-2 text-right font-medium">Điểm</th>
+              </tr>
+            </thead>
+            {groups.map((group) => {
+              const style = phaseStyle(group.phase);
+              return (
+                <tbody key={group.phase} className="divide-y divide-[var(--border)] border-b border-[var(--border)]">
+                  <tr className="bg-[var(--surface-muted)]">
+                    <th scope="rowgroup" colSpan={3} className="px-4 py-2 text-left text-xs font-semibold">
+                      <span className="inline-flex items-center gap-2">
+                        <span aria-hidden="true" className={`h-2.5 w-2.5 rounded-sm ${style.bar}`} />
+                        {PHASE_NAMES[group.phase]}
+                      </span>
+                    </th>
+                    <td className="px-4 py-2 text-right text-xs font-semibold tabular-nums">
+                      {formatScore(group.rows.reduce((sum, row) => sum + row.quantity, 0))}
+                    </td>
+                    {showPeople ? <td /> : null}
+                    <td className="px-4 py-2 text-right text-xs font-semibold tabular-nums">
+                      {formatScore(group.rows.reduce((sum, row) => sum + row.points, 0))}
+                    </td>
+                  </tr>
+                  {group.rows.map((row) => (
+                    <tr key={`${row.code}-${row.form ?? ""}`}>
+                      <td className="px-4 py-2.5">
+                        <span className={`inline-flex items-center rounded-full border px-2 py-0.5 text-xs font-semibold ${style.chip}`}>
+                          {row.code}
+                        </span>
+                      </td>
+                      <td className="max-w-[20rem] truncate px-4 py-2.5 text-xs text-[var(--text-muted)]" title={row.name}>
+                        {row.name || "–"}
+                      </td>
+                      <td className="px-4 py-2.5 text-xs">{row.form_label ?? (row.free ? "–" : "Làm mới")}</td>
+                      <td className="px-4 py-2.5 text-right font-semibold tabular-nums">{formatScore(row.quantity)}</td>
+                      {showPeople ? (
+                        <td className="px-4 py-2.5 text-right tabular-nums text-[var(--text-muted)]">{row.people ?? "–"}</td>
+                      ) : null}
+                      <td className="px-4 py-2.5 text-right tabular-nums">{formatScore(row.points)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              );
+            })}
+            <tfoot>
+              <tr className="font-semibold">
+                <td colSpan={3} className="px-4 py-2.5">
+                  Tổng
+                </td>
+                <td className="px-4 py-2.5 text-right tabular-nums">{formatScore(quantity)}</td>
+                {showPeople ? <td /> : null}
+                <td className="px-4 py-2.5 text-right tabular-nums">{formatScore(points)}</td>
+              </tr>
+            </tfoot>
+          </table>
+        </div>
+      )}
+    </section>
+  );
+}
+
 const STATUS_LABEL: Record<PerformanceLineStatus, string> = {
   EARNED: "Đã tính",
   PENDING_REVIEW: "Chờ duyệt mã",
@@ -439,6 +541,7 @@ export function PerformancePanel({ userId, month }: { userId: string; month: str
         />
         <PhaseSplit byPhase={data.by_phase} />
       </div>
+      <CodeTable rows={data.codes ?? []} showPeople={false} />
       <PerformanceLines lines={data.lines} />
     </div>
   );

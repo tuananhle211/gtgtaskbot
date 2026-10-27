@@ -156,7 +156,7 @@ describe('the "Bảng order" branch of the nav', () => {
     shell();
     await screen.findByText("Phòng ban của bạn");
     await waitFor(() =>
-      expect(navHrefs()).toEqual(["/dashboard", "/tasks", "/tasks/task-codes", "/performance/me"]),
+      expect(navHrefs()).toEqual(["/dashboard", "/performance/me", "/performance/timeline", "/tasks", "/tasks/task-codes"]),
     );
     const branch = within(primary()).getByRole("group", { name: "Bảng order" });
     expect(within(branch).getByRole("button", { name: "Bảng order" })).toHaveAttribute(
@@ -182,10 +182,10 @@ describe('the "Bảng order" branch of the nav', () => {
     );
     expect(navHrefs()).toEqual([
       "/dashboard",
+      "/performance/me", "/performance/timeline",
       "/tasks",
       "/tasks/birthday",
       "/tasks/task-codes",
-      "/performance/me",
     ]);
   });
 

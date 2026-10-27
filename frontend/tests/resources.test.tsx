@@ -164,10 +164,10 @@ describe("the Tài nguyên nav branch", () => {
       "/resources/settings",
     ]);
     const nav = navFor(ME, "EMPLOYEE");
-    const branch = nav.find((entry) => "children" in entry && entry.label === "Tài nguyên");
+    const branch = nav.find((entry) => "children" in entry && entry.label === "Phòng Tài nguyên");
     expect(branch).toBeDefined();
     const none = navFor({ ...ME, resources: null }, "EMPLOYEE");
-    expect(none.some((entry) => "children" in entry && entry.label === "Tài nguyên")).toBe(false);
+    expect(none.some((entry) => "children" in entry && entry.label === "Phòng Tài nguyên")).toBe(false);
   });
 
   it("warns about text that looks like a password", () => {

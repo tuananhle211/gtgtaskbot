@@ -20,6 +20,8 @@ from meobot.application.performance.report_service import (
     PersonLine,
     PersonReport,
     TeamRow,
+    TimelineBar,
+    TimelineGroup,
     TrendPoint,
 )
 
@@ -121,6 +123,8 @@ class PersonReportResponse(BaseModel):
     by_phase: dict[str, int]
     by_week: list[int]
     lines: list[PersonLineResponse]
+    #: How many of each task code they did in the month.
+    codes: list[CodeRowResponse] = []
 
     @classmethod
     def from_domain(cls, report: PersonReport) -> PersonReportResponse:
@@ -133,6 +137,7 @@ class PersonReportResponse(BaseModel):
             by_phase=report.by_phase,
             by_week=list(report.by_week),
             lines=[PersonLineResponse.from_domain(line) for line in report.lines],
+            codes=[CodeRowResponse.from_domain(row) for row in report.codes],
         )
 
 
@@ -175,6 +180,9 @@ class TeamResponse(BaseModel):
     rows: list[TeamRowResponse]
     totals: FiguresResponse
     trend: list[TrendPointResponse]
+    #: How many of each task code the people above did (the department's
+    #: points only when a department is chosen), by phase / code / form.
+    codes: list[CodeRowResponse] = []
     #: Whether the caller sees the company (the department filter lists all).
     view_all: bool
     export: bool
@@ -206,15 +214,34 @@ class DepartmentRowResponse(BaseModel):
 
 class CodeRowResponse(BaseModel):
     phase: str
+    phase_label: str
+    #: The catalogue code, or "Việc khác".
     code: str
     name: str
+    form: str
+    #: ``None`` for "Làm mới" and free lines.
+    form_label: str | None
+    free: bool
     quantity: int
+    #: After each person's coefficient.
     points: int
+    people: int
+    steps: int
 
     @classmethod
     def from_domain(cls, row: CodeRow) -> CodeRowResponse:
         return cls(
-            phase=row.phase, code=row.code, name=row.name, quantity=row.quantity, points=row.points
+            phase=row.phase,
+            phase_label=row.phase_label,
+            code=row.code,
+            name=row.name,
+            form=row.form,
+            form_label=row.form_label,
+            free=row.free,
+            quantity=row.quantity,
+            points=row.points,
+            people=row.people,
+            steps=row.steps,
         )
 
 
@@ -313,3 +340,71 @@ class SetCoefficientRequest(BaseModel):
     #: ``YYYY-MM``: from this month on.
     month: str = Field(min_length=7, max_length=7)
     note: str | None = Field(default=None, max_length=500)
+
+
+class TimelineBarResponse(BaseModel):
+    node_id: uuid.UUID
+    order_code: str
+    order_title: str
+    phase: str
+    phase_label: str
+    start: datetime
+    #: ``None`` while still being worked on.
+    done_at: datetime | None
+    deadline_at: datetime | None
+    #: EARNED / PENDING_REVIEW / IN_PROGRESS.
+    status: str
+    late: bool
+    #: After the coefficient.
+    points: int
+    codes: list[str]
+
+    @classmethod
+    def from_domain(cls, bar: TimelineBar) -> TimelineBarResponse:
+        return cls(
+            node_id=bar.node_id,
+            order_code=bar.order_code,
+            order_title=bar.order_title,
+            phase=bar.phase,
+            phase_label=bar.phase_label,
+            start=bar.start,
+            done_at=bar.done_at,
+            deadline_at=bar.deadline_at,
+            status=bar.status,
+            late=bar.late,
+            points=bar.points,
+            codes=list(bar.codes),
+        )
+
+
+class TimelineGroupResponse(BaseModel):
+    user_id: uuid.UUID
+    name: str
+    departments: list[str]
+    points: int
+    pending_points: int
+    bars: list[TimelineBarResponse]
+    #: Steps handed to them ahead that the order has not reached yet.
+    upcoming: int = 0
+
+    @classmethod
+    def from_domain(cls, group: TimelineGroup) -> TimelineGroupResponse:
+        return cls(
+            user_id=group.user_id,
+            name=group.name,
+            departments=list(group.departments),
+            points=group.points,
+            pending_points=group.pending_points,
+            bars=[TimelineBarResponse.from_domain(bar) for bar in group.bars],
+            upcoming=group.upcoming,
+        )
+
+
+class TimelineResponse(BaseModel):
+    """ "Tiến độ" (Gantt): each person's steps in the month."""
+
+    month: str
+    department_id: uuid.UUID | None
+    departments: list[DepartmentOptionResponse]
+    groups: list[TimelineGroupResponse]
+    view_all: bool

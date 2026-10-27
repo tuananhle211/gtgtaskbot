@@ -4078,6 +4078,8 @@ export interface PerformancePerson {
   /** Days 1-7, 8-14, 15-21, 22-28, 29-end. */
   by_week: number[];
   lines: PerformanceLine[];
+  /** How many of each task code they did in the month. Optional: older APIs omit it. */
+  codes?: PerformanceCodeRow[];
 }
 
 export interface PerformanceTeamRow {
@@ -4093,6 +4095,63 @@ export interface PerformanceTrendPoint {
   by_department: Record<string, number>;
 }
 
+/** One task code (in one form) over a set of counted steps. */
+export interface PerformanceCodeRow {
+  phase: string;
+  phase_label?: string;
+  /** The catalogue code, or "Việc khác". */
+  code: string;
+  name: string;
+  form?: string;
+  /** `null` for "Làm mới" and free lines. */
+  form_label?: string | null;
+  free?: boolean;
+  quantity: number;
+  /** After each person's coefficient. */
+  points: number;
+  people?: number;
+  steps?: number;
+}
+
+/** One step of one person on the Gantt chart ("Tiến độ"). */
+export interface TimelineBar {
+  node_id: Uuid;
+  order_code: string;
+  order_title: string;
+  phase: string;
+  phase_label: string;
+  /** When the person took it. */
+  start: string;
+  /** `null` while still being worked on. */
+  done_at: string | null;
+  deadline_at: string | null;
+  /** `UPCOMING`: handed to them ahead, the order has not reached the step (start = now). */
+  status: PerformanceLineStatus | "UPCOMING";
+  late: boolean;
+  /** After the coefficient. */
+  points: number;
+  codes: string[];
+}
+
+export interface TimelineGroup {
+  user_id: Uuid;
+  name: string;
+  departments: string[];
+  points: number;
+  pending_points: number;
+  bars: TimelineBar[];
+  /** Steps handed to them ahead. Optional: older APIs omit it. */
+  upcoming?: number;
+}
+
+export interface PerformanceTimeline {
+  month: string;
+  department_id: Uuid | null;
+  departments: Array<{ id: Uuid; name: string }>;
+  groups: TimelineGroup[];
+  view_all: boolean;
+}
+
 export interface PerformanceTeam {
   month: string;
   department_id: Uuid | null;
@@ -4100,6 +4159,8 @@ export interface PerformanceTeam {
   rows: PerformanceTeamRow[];
   totals: PerformanceFigures;
   trend: PerformanceTrendPoint[];
+  /** How many of each task code (the chosen department's points only). Optional: older APIs omit it. */
+  codes?: PerformanceCodeRow[];
   view_all: boolean;
   export: boolean;
 }
@@ -4122,7 +4183,7 @@ export interface PerformanceOverview {
   people: number;
   departments: PerformanceDepartmentRow[];
   top: PerformanceTeamRow[];
-  codes: Array<{ phase: string; code: string; name: string; quantity: number; points: number }>;
+  codes: PerformanceCodeRow[];
   trend: PerformanceTrendPoint[];
   export: boolean;
 }
@@ -6759,6 +6820,9 @@ export const api = {
     get<PerformancePerson>(`/api/performance/people/${userId}${query({ month })}`),
   performanceTeam: (month?: string, departmentId?: Uuid) =>
     get<PerformanceTeam>(`/api/performance/team${query({ month, department_id: departmentId })}`),
+  /** "Tiến độ" (Gantt): one's own steps; a head's reports too; a company viewer any department. */
+  performanceTimeline: (month?: string, departmentId?: Uuid) =>
+    get<PerformanceTimeline>(`/api/performance/timeline${query({ month, department_id: departmentId })}`),
   performanceOverview: (month?: string) =>
     get<PerformanceOverview>(`/api/performance/overview${query({ month })}`),
   /** 403 `performance_coefficient_forbidden` for anybody but the OWNER. */

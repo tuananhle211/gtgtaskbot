@@ -16,7 +16,7 @@ from openpyxl.utils import get_column_letter
 from openpyxl.worksheet.worksheet import Worksheet
 
 from meobot.application.performance.coefficients import weigh
-from meobot.application.performance.report_service import TeamRow
+from meobot.application.performance.report_service import CodeRow, TeamRow
 from meobot.core.time import ensure_utc
 from meobot.db.models.order import Order, OrderNodePoints
 from meobot.domain.orders.design_codes import items_from_json
@@ -49,11 +49,23 @@ DETAIL_COLUMNS = (
 )
 
 
+CODE_COLUMNS = (
+    ("Bước", 12),
+    ("Mã task", 12),
+    ("Tên / ví dụ", 44),
+    ("Hình thức", 18),
+    ("Số lượng", 10),
+    ("Số người", 10),
+    ("Điểm", 10),
+)
+
+
 def report_workbook(
     *,
     month: str,
     team: Sequence[TeamRow],
     details: Sequence[tuple[OrderNodePoints, Order, Decimal]],
+    codes: Sequence[CodeRow] = (),
     names: Mapping[uuid.UUID, str],
     departments: Mapping[uuid.UUID, str],
     tz: ZoneInfo,
@@ -109,6 +121,24 @@ def report_workbook(
                 ]
             )
     _shape(detail, DETAIL_COLUMNS, header_row=1)
+
+    by_code = book.create_sheet("Theo mã task")
+    by_code.append([label for label, _ in CODE_COLUMNS])
+    for code_row in codes:
+        by_code.append(
+            [
+                code_row.phase_label,
+                code_row.code,
+                code_row.name,
+                code_row.form_label or ("" if code_row.free else "Làm mới"),
+                code_row.quantity,
+                code_row.people,
+                code_row.points,
+            ]
+        )
+    quantity = sum(code_row.quantity for code_row in codes)
+    by_code.append(["Tổng", "", "", "", quantity, "", sum(code_row.points for code_row in codes)])
+    _shape(by_code, CODE_COLUMNS, header_row=1)
     buffer = io.BytesIO()
     book.save(buffer)
     return buffer.getvalue()

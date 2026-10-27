@@ -81,6 +81,10 @@ async def test_01_everybody_sees_their_own_month(world: World) -> None:
     earned = next(line for line in body["lines"] if line["status"] == "EARNED")
     assert earned["phase_label"] == "Dựng" and earned["items"][0]["code"] == "D3"
     assert earned["items"][0]["points"] == 240
+    # Their own count of each task code.
+    assert [(row["code"], row["quantity"], row["points"]) for row in body["codes"]] == [
+        ("D3", 1, 240)
+    ]
 
     # Nobody else's, and no team / company screen for a plain member.
     assert get(world, ads.editor, f"/api/performance/people/{ads.writer.id}").status_code == 403
@@ -172,7 +176,7 @@ async def test_04_the_owner_and_an_admin_see_the_company_and_export(world: World
     assert sheet.status_code == 200
     assert "diem-hieu-suat-" in sheet.headers["content-disposition"]
     book = load_workbook(io.BytesIO(sheet.content))
-    assert book.sheetnames == ["Tổng hợp", "Chi tiết"]
+    assert book.sheetnames == ["Tổng hợp", "Chi tiết", "Theo mã task"]
     names = [row[0].value for row in book["Tổng hợp"].iter_rows(min_row=3)]
     assert ads.editor.full_name in names and names[-1] == "Tổng"
     details = list(book["Chi tiết"].iter_rows(min_row=2, values_only=True))
@@ -316,3 +320,106 @@ async def test_09_a_coefficient_is_0_01_to_10_with_two_decimals(world: World, va
     refused = put_coefficient(world, world.owner, ads.editor, coefficient=value, month="2026-10")
     assert refused.status_code == 422, refused.json()
     assert refused.json()["details"]["reason"] == "coefficient_invalid"
+
+
+async def test_10_a_department_s_report_counts_each_task_code(world: World) -> None:
+    ads, _ = await coded_world(world)
+    await dung_done(world, ads)
+    await dung_done(world, ads)
+    await report_to(world, ads.editor.id, ads.lead_dung.id)
+    # The head: their reports' codes - two D3 by one editor.
+    team = get(world, ads.lead_dung, "/api/performance/team").json()
+    assert [
+        (row["phase_label"], row["code"], row["form_label"], row["quantity"], row["people"])
+        for row in team["codes"]
+    ] == [("Dựng", "D3", None, 2, 1)]
+    assert team["codes"][0]["points"] == 480 and team["codes"][0]["steps"] == 2
+
+    # The company viewer, by department: only the points counted there.
+    dung = (
+        await world.session.scalars(
+            select(Department.id).where(Department.function == DepartmentFunction.DUNG)
+        )
+    ).first()
+    everybody = get(world, world.owner, "/api/performance/team").json()["codes"]
+    assert [(row["code"], row["quantity"]) for row in everybody] == [("N3", 2), ("D3", 2)]
+    narrowed = get(world, world.owner, f"/api/performance/team?department_id={dung}").json()
+    assert [(row["code"], row["quantity"]) for row in narrowed["codes"]] == [("D3", 2)]
+
+    # After the coefficient, like every other figure; in the Excel file too.
+    month = team["month"]
+    put_coefficient(world, world.owner, ads.editor, coefficient="1.5", month=month)
+    team = get(world, ads.lead_dung, "/api/performance/team").json()
+    assert team["codes"][0]["points"] == 720
+    sheet = get(world, world.owner, f"/api/performance/export.xlsx?department_id={dung}")
+    rows = list(
+        load_workbook(io.BytesIO(sheet.content))["Theo mã task"].iter_rows(values_only=True)
+    )
+    assert rows[0][:5] == ("Bước", "Mã task", "Tên / ví dụ", "Hình thức", "Số lượng")
+    assert rows[1][0:2] == ("Dựng", "D3") and rows[1][3] == "Làm mới" and rows[1][4:] == (2, 1, 720)
+    assert rows[-1][0] == "Tổng" and rows[-1][6] == 720
+
+
+async def test_11_the_gantt_shows_each_person_s_steps_in_the_month(world: World) -> None:
+    ads, _ = await coded_world(world)
+    await dung_done(world, ads)
+    await at_dung(world, ads)  # a second one, taken, not handed in
+
+    mine = get(world, ads.editor, "/api/performance/timeline").json()
+    assert [group["name"] for group in mine["groups"]] == [ads.editor.full_name]
+    bars = mine["groups"][0]["bars"]
+    done = next(bar for bar in bars if bar["status"] == "EARNED")
+    open_ = next(bar for bar in bars if bar["status"] == "IN_PROGRESS")
+    assert done["phase"] == "DUNG" and done["codes"] == ["D3"] and done["points"] == 240
+    assert done["done_at"] is not None and done["start"] <= done["done_at"]
+    assert open_["done_at"] is None and open_["points"] == 240 and open_["late"] is False
+    assert mine["groups"][0]["points"] == 240 and mine["groups"][0]["pending_points"] == 240
+    # A plain member sees only their own; no department view.
+    refused = get(world, ads.editor, f"/api/performance/timeline?department_id={uuid.uuid4()}")
+    assert refused.status_code == 403
+
+    # A Trưởng phòng: themselves, then their direct reports.
+    await report_to(world, ads.editor.id, ads.lead_dung.id)
+    head = get(world, ads.lead_dung, "/api/performance/timeline").json()
+    assert [group["name"] for group in head["groups"]] == [
+        ads.lead_dung.full_name,
+        ads.editor.full_name,
+    ]
+    # The company: only people with a step in the month, points after coefficients.
+    put_coefficient(world, world.owner, ads.editor, coefficient="2", month=mine["month"])
+    company = get(world, world.owner, "/api/performance/timeline").json()
+    groups = {group["name"]: group for group in company["groups"]}
+    assert set(groups) == {ads.writer.full_name, ads.editor.full_name}
+    assert groups[ads.editor.full_name]["points"] == 480
+    assert groups[ads.writer.full_name]["bars"][0]["phase_label"] == "Biên kịch"
+
+
+async def test_12_the_gantt_shows_what_is_ahead(world: World) -> None:
+    from tests.unit.test_order_commands import create
+
+    ads, _ = await coded_world(world)
+    await at_dung(world, ads)  # open, taken now
+    # Handed to the editor ahead; the order is still at Biên kịch.
+    ahead = create(
+        world,
+        ads,
+        video_type="BD",
+        preassigned={"BIEN_TAP": str(ads.writer.id), "DUNG": str(ads.editor.id)},
+    )
+    mine = get(world, ads.editor, "/api/performance/timeline").json()
+    group = mine["groups"][0]
+    upcoming = [bar for bar in group["bars"] if bar["status"] == "UPCOMING"]
+    assert [bar["order_code"] for bar in upcoming] == [ahead["order"]["code"]]
+    # Its deadline is the order's wish while the step has none; not in "dự kiến".
+    assert upcoming[0]["deadline_at"].startswith("2030-01-01")
+    assert upcoming[0]["codes"] == ["D3"] and upcoming[0]["points"] == 240
+    assert group["upcoming"] == 1 and group["pending_points"] == 240
+
+    # A later month still shows what runs into it (open steps up to their
+    # deadline, steps ahead up to theirs); a past month shows nothing ahead.
+    later = next_month(next_month(mine["month"]))
+    ahead_view = get(world, ads.editor, f"/api/performance/timeline?month={later}").json()
+    statuses = sorted(bar["status"] for bar in ahead_view["groups"][0]["bars"])
+    assert "UPCOMING" in statuses
+    past = get(world, ads.editor, "/api/performance/timeline?month=2026-01").json()
+    assert past["groups"][0]["bars"] == []

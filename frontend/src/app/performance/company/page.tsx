@@ -189,13 +189,14 @@ function CompanyPerformance() {
           ) : (
             <ul className="divide-y divide-[var(--border)]">
               {data.codes.map((row) => (
-                <li key={`${row.phase}-${row.code}`} className="flex items-center gap-3 px-4 py-2.5 text-sm">
+                <li key={`${row.phase}-${row.code}-${row.form ?? ""}`} className="flex items-center gap-3 px-4 py-2.5 text-sm">
                   <span
                     className={`inline-flex shrink-0 items-center rounded-full border px-2 py-0.5 text-xs font-semibold ${phaseStyle(row.phase).chip}`}
                     title={PHASE_NAMES[row.phase]}
                   >
                     {row.code}
                   </span>
+                  {row.form_label ? <span className="shrink-0 text-xs">{row.form_label}</span> : null}
                   <span className="min-w-0 flex-1 truncate text-xs text-[var(--text-muted)]" title={row.name}>
                     {row.name || PHASE_NAMES[row.phase]}
                   </span>

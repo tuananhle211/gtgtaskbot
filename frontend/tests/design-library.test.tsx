@@ -149,15 +149,15 @@ describe('the "Thư viện" branch of the nav', () => {
     const hrefs = within(primary())
       .getAllByRole("link")
       .map((link) => link.getAttribute("href"));
-    expect(hrefs.slice(0, 4)).toEqual([
+    expect(hrefs.slice(0, 6)).toEqual([
       "/dashboard",
+      "/performance/me", "/performance/timeline",
       "/tasks",
       "/tasks/birthday",
       "/tasks/task-codes",
     ]);
-    // Then "Hiệu suất", then the library's links.
-    expect(hrefs[4]).toBe("/performance/me");
-    expect(hrefs.slice(5)).toEqual(links.map((link) => link.getAttribute("href")));
+    // Then the library's links.
+    expect(hrefs.slice(6)).toEqual(links.map((link) => link.getAttribute("href")));
   });
 
   it("leads each entry with its icon, else the name's initials", async () => {

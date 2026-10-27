@@ -7,11 +7,13 @@
 import { describe, expect, it, vi } from "vitest";
 import { screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { Shell } from "@/components/shell";
+import { Shell, navFor } from "@/components/shell";
 import MyPerformancePage from "@/app/performance/me/page";
 import TeamPerformancePage from "@/app/performance/team/page";
 import CompanyPerformancePage from "@/app/performance/company/page";
 import CoefficientsPage from "@/app/performance/coefficients/page";
+import TimelinePage from "@/app/performance/timeline/page";
+import { barGeometry, monthFrame, packLanes } from "@/components/performance-gantt";
 import { renderWithQuery, SESSION, stubFetch } from "./helpers";
 
 vi.mock("next/navigation", () => ({
@@ -54,6 +56,9 @@ const PERSON = {
   figures: FIGURES,
   by_phase: { DUNG: 240 },
   by_week: [0, 240, 0, 0, 0],
+  codes: [
+    { phase: "DUNG", phase_label: "Dựng", code: "D3", name: "Video 90 giây - 3 phút", form: "NEW", form_label: null, free: false, quantity: 1, points: 240, people: 1, steps: 1 },
+  ],
   lines: [
     {
       node_id: "n1",
@@ -107,6 +112,10 @@ describe("Điểm của tôi", () => {
     // The weeks and the phases.
     expect(screen.getByRole("listitem", { name: "Ngày 8-14: 240 điểm" })).toBeInTheDocument();
     expect(within(screen.getByRole("list", { name: "Điểm theo bước" })).getByText("Dựng").parentElement?.parentElement).toHaveTextContent("100%");
+    // Their own count of each task code, without a "Số người" column.
+    const codes = screen.getByRole("region", { name: "Số lượng theo mã task" });
+    expect(within(codes).getByText("D3").closest("tr")).toHaveTextContent(/D3.*Làm mới\s*1\s*240/);
+    expect(within(codes).queryByText("Số người")).not.toBeInTheDocument();
   });
 });
 
@@ -136,6 +145,33 @@ describe("Phòng của tôi", () => {
     expect(within(table).getByText(/Tổng · 1 người/)).toBeInTheDocument();
     expect(screen.queryByRole("link", { name: /Xuất Excel/ })).not.toBeInTheDocument();
     expect(screen.getByRole("listitem", { name: "T10: 240 điểm" })).toBeInTheDocument();
+  });
+
+  it("lists how many of each task code, by step, with subtotals and the total", async () => {
+    stubFetch([
+      {
+        match: "/api/performance/team",
+        body: {
+          ...TEAM,
+          codes: [
+            { phase: "BIEN_TAP", code: "N3", name: "Kịch bản đến 3 phút", form: "NEW", form_label: null, free: false, quantity: 2, points: 240, people: 1, steps: 2 },
+            { phase: "DUNG", code: "D3", name: "Video 90 giây - 3 phút", form: "NEW", form_label: null, free: false, quantity: 3, points: 720, people: 2, steps: 3 },
+            { phase: "DUNG", code: "D3", name: "Video 90 giây - 3 phút", form: "ANIMATED", form_label: "Animated (125%)", free: false, quantity: 1, points: 300, people: 1, steps: 1 },
+          ],
+        },
+      },
+      { match: "/api/units/me", body: UNITS_ME },
+    ]);
+    renderWithQuery(<TeamPerformancePage />);
+    const table = await screen.findByRole("region", { name: "Số lượng theo mã task" });
+    const groups = within(table).getAllByRole("rowgroup").filter((group) => group.tagName === "TBODY");
+    expect(groups).toHaveLength(2);
+    expect(within(groups[0]).getAllByRole("row")[0]).toHaveTextContent("Biên kịch");
+    const dung = within(groups[1]).getAllByRole("row");
+    // The step's subtotal first, then one row per code and form.
+    expect(dung[0]).toHaveTextContent(/Dựng\s*4\s*1\.020/);
+    expect(dung[2]).toHaveTextContent("Animated (125%)");
+    expect(within(table).getByText("Tổng").closest("tr")).toHaveTextContent(/Tổng\s*6\s*1\.260/);
   });
 
   it("offers the Excel file to whoever may export", async () => {
@@ -215,12 +251,12 @@ describe("the Hiệu suất branch of the nav", () => {
   };
 
   it("gives everybody their own month", async () => {
-    expect(await branchLinks({ view_team: false, view_all: false, export: false }, 1)).toEqual(["/performance/me"]);
+    expect(await branchLinks({ view_team: false, view_all: false, export: false }, 2)).toEqual(["/performance/me", "/performance/timeline"]);
   });
 
   it("adds the team for a Trưởng phòng and the company for a company viewer", async () => {
-    expect(await branchLinks({ view_team: true, view_all: true, export: true }, 3)).toEqual([
-      "/performance/me",
+    expect(await branchLinks({ view_team: true, view_all: true, export: true }, 4)).toEqual([
+      "/performance/me", "/performance/timeline",
       "/performance/team",
       "/performance/company",
     ]);
@@ -228,7 +264,7 @@ describe("the Hiệu suất branch of the nav", () => {
 
   it('adds "Hệ số điểm" for the OWNER', async () => {
     expect(
-      await branchLinks({ view_team: true, view_all: true, export: true, manage_coefficients: true }, 4),
+      await branchLinks({ view_team: true, view_all: true, export: true, manage_coefficients: true }, 5),
     ).toContain("/performance/coefficients");
   });
 });
@@ -301,5 +337,140 @@ describe("Hệ số điểm", () => {
     ]);
     renderWithQuery(<CoefficientsPage />);
     expect(await screen.findByRole("alert")).toHaveTextContent("Không xem được trang này");
+  });
+});
+
+describe("the order of the nav", () => {
+  it("is Dashboard, Hiệu suất, Bảng order, Phòng PR, Phòng Tài nguyên, then Quản trị last", () => {
+    const me = {
+      ...UNITS_ME,
+      can_view_all: true,
+      resources: { view: true, view_all: true, view_list: true },
+    } as unknown as Parameters<typeof navFor>[0];
+    const labels = navFor(me, "OWNER").map((entry) => entry.label);
+    expect(labels.filter((label) => label !== "Effort")).toEqual([
+      "Dashboard",
+      "Hiệu suất",
+      "Bảng order",
+      "Phòng PR",
+      "Phòng Tài nguyên",
+      "Quản trị",
+    ]);
+  });
+});
+
+const TIMELINE = {
+  month: "2026-10",
+  department_id: null,
+  departments: [],
+  view_all: false,
+  groups: [
+    {
+      user_id: "u-editor",
+      name: "Editor C",
+      departments: ["Media Dựng"],
+      points: 240,
+      pending_points: 480,
+      bars: [
+        {
+          node_id: "n1",
+          order_code: "K7Q2M",
+          order_title: "Video ra mắt",
+          phase: "DUNG",
+          phase_label: "Dựng",
+          start: "2026-10-05T02:00:00Z",
+          done_at: "2026-10-08T09:00:00Z",
+          deadline_at: "2026-10-09T10:00:00Z",
+          status: "EARNED",
+          late: false,
+          points: 240,
+          codes: ["D3"],
+        },
+        {
+          node_id: "n2",
+          order_code: "P4X9A",
+          order_title: "Video thứ hai",
+          phase: "THIET_KE",
+          phase_label: "Design",
+          start: "2026-10-12T02:00:00Z",
+          done_at: null,
+          deadline_at: "2026-10-14T10:00:00Z",
+          status: "IN_PROGRESS",
+          late: true,
+          points: 480,
+          codes: ["T3", "T1 x2"],
+        },
+      ],
+    },
+  ],
+};
+
+describe("Tiến độ (Gantt)", () => {
+  it("draws one group per person and one bar per step, with its codes and points", async () => {
+    stubFetch([
+      { match: "/api/performance/timeline", body: TIMELINE },
+      { match: "/api/units/me", body: UNITS_ME },
+    ]);
+    renderWithQuery(<TimelinePage />);
+    const person = await screen.findByRole("group", { name: "Editor C" });
+    expect(person).toHaveTextContent("240 điểm");
+    expect(person).toHaveTextContent("dự kiến 480");
+    expect(person).toHaveTextContent("2 task");
+    // Folded by default: no step rows until the person is opened.
+    expect(within(person).queryByRole("link", { name: /K7Q2M · Video ra mắt/ })).not.toBeInTheDocument();
+    await userEvent.click(within(person).getByRole("button", { name: "Mở task của Editor C" }));
+    const done = within(person).getByRole("link", { name: /K7Q2M · Video ra mắt\. Dựng · Đã xong/ });
+    expect(done).toHaveAttribute("href", "/tasks/K7Q2M");
+    expect(done).toHaveTextContent("05/10 - 08/10 · D3 · 240đ");
+    const open = within(person).getByRole("link", { name: /P4X9A.*Đang làm · trễ hạn/ });
+    expect(open).toHaveAccessibleName(/Mã task: T3, T1 x2/);
+    expect(open).toHaveTextContent("12/10 - hạn 14/10");
+    // The month's 31 days are on the axis.
+    expect(screen.getByText("31")).toBeInTheDocument();
+
+    await userEvent.click(within(person).getByRole("button", { name: "Thu gọn task của Editor C" }));
+    expect(within(person).queryByRole("link", { name: /K7Q2M · Video ra mắt/ })).not.toBeInTheDocument();
+  });
+
+  it("places a bar on the month's days and clips what falls outside", () => {
+    const frame = monthFrame("2026-10");
+    expect(frame.days).toBe(31);
+    expect(frame.dayList[0]).toMatchObject({ day: 1, label: "T5" });
+    const bar = TIMELINE.groups[0].bars[0] as Parameters<typeof barGeometry>[0];
+    // 05/10 09:00 VN to 08/10 16:00 VN.
+    const geometry = barGeometry(bar, frame, Date.parse("2026-10-20T00:00:00Z"))!;
+    expect(geometry.left).toBeCloseTo(((4 + 9 / 24) / 31) * 100, 3);
+    expect(geometry.width).toBeCloseTo(((3 + 7 / 24) / 31) * 100, 3);
+    // Started in September, open: from the 1st to now.
+    const started = { ...bar, start: "2026-09-20T00:00:00Z", done_at: null };
+    expect(barGeometry(started, frame, Date.parse("2026-10-02T17:00:00Z"))!.left).toBe(0);
+    // Done before the month: not drawn.
+    expect(barGeometry({ ...bar, start: "2026-09-01T00:00:00Z", done_at: "2026-09-03T00:00:00Z" }, frame, 0)).toBeNull();
+    // Open: solid up to now, then on to its deadline ("dự kiến"), ◆ there.
+    const open = { ...bar, start: "2026-10-10T17:00:00Z", done_at: null, deadline_at: "2026-10-20T17:00:00Z" };
+    const planned = barGeometry(open, frame, Date.parse("2026-10-15T17:00:00Z"))!;
+    expect(planned.left).toBeCloseTo((10 / 31) * 100, 3);
+    expect(planned.width).toBeCloseTo((10 / 31) * 100, 3);
+    expect(planned.actual).toBeCloseTo(0.5, 3);
+    expect(planned.deadline).toBeCloseTo((20 / 31) * 100, 3);
+    // Next month still shows it while its deadline runs into it.
+    const later = { ...open, deadline_at: "2026-11-05T17:00:00Z" };
+    expect(barGeometry(later, monthFrame("2026-11"), Date.parse("2026-10-15T17:00:00Z"))!.left).toBe(0);
+    // Ahead (not reached yet): nothing behind us, all planned.
+    const ahead = { ...open, status: "UPCOMING" as const, start: "2026-10-15T17:00:00Z" };
+    expect(barGeometry(ahead, frame, Date.parse("2026-10-15T17:00:00Z"))!.actual).toBe(0);
+  });
+
+  it("packs a folded person's bars into as few lanes as fit", () => {
+    const lanes = packLanes([
+      { left: 0, width: 10 },
+      { left: 5, width: 10 },
+      { left: 12, width: 5 },
+      { left: 20, width: 5 },
+    ]);
+    expect(lanes.map((lane) => lane.map((item) => item.left))).toEqual([
+      [0, 12, 20],
+      [5],
+    ]);
   });
 });

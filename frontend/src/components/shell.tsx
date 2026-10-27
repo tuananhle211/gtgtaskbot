@@ -80,6 +80,7 @@ type NavIcon =
   | "settings"
   | "salary"
   | "performance"
+  | "timeline"
   | "account";
 
 /** The screen every unit shares besides the order boards. */
@@ -165,7 +166,7 @@ function resourcesBranch(me: UnitsMe | undefined): NavGroup | null {
   const screens = resourceScreens(me);
   if (screens.length === 0) return null;
   return {
-    label: "Tài nguyên",
+    label: "Phòng Tài nguyên",
     icon: "resource",
     children: screens.map((screen) => ({
       href: screen.href,
@@ -189,6 +190,7 @@ function performanceBranch(me: UnitsMe | undefined): NavGroup {
     icon: "performance",
     children: [
       { href: "/performance/me", label: "Điểm của tôi", icon: "mine" },
+      { href: "/performance/timeline", label: "Tiến độ (Gantt)", icon: "timeline" },
       ...(me?.performance?.view_team
         ? [{ href: "/performance/team", label: "Phòng của tôi", icon: "people" as NavIcon }]
         : []),
@@ -304,15 +306,17 @@ export function navFor(me: UnitsMe | undefined, sessionRole?: string): NavEntry[
   // "Bảng order" follows the order module's permissions (an ORD seat or grant
   // gives the ADS entry), like every other branch; it stays while `me` loads.
   const orders = !me || seesAll || me.units.some((unit) => unit.code === "ADS");
+  // The order (2026-10-26): Dashboard, Hiệu suất, Bảng order (+ Effort),
+  // Phòng PR, Phòng Tài nguyên, Thư viện - and Quản trị last.
   return [
     DASHBOARD_NAV,
+    performanceBranch(me),
     ...(orders ? [orderBoards(me, sessionRole)] : []),
     ...(effort ? EFFORT_NAV : []),
-    ...(resources ? [resources] : []),
-    performanceBranch(me),
     ...(pr ? [PR_GROUP] : []),
-    ...(admin ? [ADMIN_NAV] : []),
+    ...(resources ? [resources] : []),
     ...(library ? [library] : []),
+    ...(admin ? [ADMIN_NAV] : []),
   ];
 }
 
@@ -410,6 +414,13 @@ function Icon({ name }: { name: NavIcon }) {
         <rect x="3" y="4" width="18" height="6" rx="1.5" />
         <rect x="3" y="14" width="18" height="6" rx="1.5" />
         <path d="M7 7h.01M7 17h.01" />
+      </>
+    ),
+    timeline: (
+      <>
+        <path d="M3 5h18M3 19h18" />
+        <rect x="4" y="8" width="8" height="3" rx="1" />
+        <rect x="9" y="13" width="10" height="3" rx="1" />
       </>
     ),
     performance: (

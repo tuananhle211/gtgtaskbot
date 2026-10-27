@@ -8,6 +8,7 @@ import { PageHeader, Select } from "@/components/pr";
 import { PersonLink } from "@/components/person-link";
 import {
   BAR_FILL,
+  CodeTable,
   ColumnChart,
   ExportLink,
   MonthField,
@@ -105,6 +106,7 @@ function TeamPerformance() {
       <Tiles label="Tổng của phòng" tiles={figureTiles(data.totals)} />
       <ColumnChart title="Tổng điểm 6 tháng gần nhất" data={trendColumns(data.trend)} />
       <TeamTable rows={data.rows} totals={data.totals} />
+      <CodeTable rows={data.codes ?? []} />
     </div>
   );
 }

@@ -6,6 +6,8 @@
   (or everybody) for the company viewers;
 * ``/overview`` - "Toàn công ty": departments, top 10, codes, the trend;
 * ``/export.xlsx`` - the same people as ``/team``, as the department's sheet;
+* ``/timeline`` - "Tiến độ" (Gantt): each person's steps in the month, the
+  same people as ``/team`` plus the caller (everybody: their own);
 * ``/coefficients`` - "Hệ số điểm" (0076): each member's coefficient by
   month; read and set by the OWNER (``PERFORMANCE COEFFICIENT``).
 """
@@ -29,6 +31,7 @@ from meobot.api.deps import (
     get_session,
 )
 from meobot.api.schemas.performance import (
+    CodeRowResponse,
     CoefficientChangeResponse,
     CoefficientRowResponse,
     CoefficientsResponse,
@@ -40,6 +43,8 @@ from meobot.api.schemas.performance import (
     SetCoefficientRequest,
     TeamResponse,
     TeamRowResponse,
+    TimelineGroupResponse,
+    TimelineResponse,
     TrendPointResponse,
 )
 from meobot.application.account.stats_service import Month, resolve_month
@@ -174,6 +179,9 @@ async def team_report(
     rows = await service.team(people, period)
     whole_company = access.view_all and department_id is None
     trend = await service.trend(period, user_ids=None if whole_company else people)
+    codes = await service.codes(
+        None if whole_company else people, period, department_id=department_id
+    )
     return TeamResponse(
         month=period.label,
         department_id=department_id,
@@ -181,8 +189,44 @@ async def team_report(
         rows=[TeamRowResponse.from_domain(row) for row in rows],
         totals=FiguresResponse.from_domain(_sum(row.figures for row in rows)),
         trend=[TrendPointResponse.from_domain(point) for point in trend],
+        codes=[CodeRowResponse.from_domain(row) for row in codes],
         view_all=access.view_all,
         export=access.export,
+    )
+
+
+@router.get("/timeline", response_model=TimelineResponse)
+async def timeline_report(
+    session: SessionDep,
+    membership: UnitMembershipDep,
+    app_settings: SettingsDep,
+    month: str | None = Query(default=None, max_length=7),
+    department_id: uuid.UUID | None = Query(default=None),
+) -> TimelineResponse:
+    """The Gantt chart: everybody their own steps; a Trưởng phòng also their
+    direct reports; a company viewer a department, or everybody who has a
+    step in the month."""
+    access = await _access(session, membership)
+    service = PerformanceReportService(session, tz=app_settings.timezone)
+    period = service.month(month)
+    options: list[DepartmentOptionResponse] = []
+    people: list[uuid.UUID] = [access.user_id] if access.user_id is not None else []
+    whole_company = False
+    if access.view_team:
+        team, options = await _team_people(session, service, access, department_id, period)
+        whole_company = access.view_all and department_id is None
+        people = team if access.view_all else list(dict.fromkeys([*people, *team]))
+    elif department_id is not None:
+        raise PerformanceForbiddenError("Chỉ Trưởng phòng xem được tiến độ của phòng.")
+    groups = await service.timeline(people, period)
+    if whole_company:
+        groups = tuple(group for group in groups if group.bars)
+    return TimelineResponse(
+        month=period.label,
+        department_id=department_id,
+        departments=options,
+        groups=[TimelineGroupResponse.from_domain(group) for group in groups],
+        view_all=access.view_all,
     )
 
 
@@ -221,6 +265,7 @@ async def export_report(
     people, _ = await _team_people(session, service, access, department_id, period)
     team = await service.team(people, period)
     details = await service.detail_rows(people, period)
+    codes = await service.codes(people, period, department_id=department_id)
     names = await service.names({row.user_id for row, _, _ in details})
     departments = await service.department_names(
         {row.department_id for row, _, _ in details if row.department_id is not None}
@@ -229,6 +274,7 @@ async def export_report(
         month=period.label,
         team=team,
         details=details,
+        codes=codes,
         names=names,
         departments=departments,
         tz=app_settings.timezone,
