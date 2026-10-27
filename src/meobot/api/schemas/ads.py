@@ -10,7 +10,7 @@ from pydantic import BaseModel, Field
 from meobot.application.ads.accounts_service import AccountView
 from meobot.application.ads.dashboard_service import Dashboard, SeriesPoint
 from meobot.application.ads.revenue_service import EntryLine
-from meobot.application.ads.team_service import Figures, TeamReport
+from meobot.application.ads.team_service import Figures, History, TeamReport
 from meobot.db.models.ads import AdsConnection
 from meobot.domain.ads.models import BRAND_LABELS, AdsBrand, ads_ratio_tone
 
@@ -436,6 +436,8 @@ class SourceResponse(BaseModel):
     key: str
     label: str
     revenue: float | None
+    #: Without the 8% VAT ("Doanh thu hoa hồng").
+    revenue_net: float | None = None
 
 
 class AlertResponse(BaseModel):
@@ -477,8 +479,6 @@ class TeamReportResponse(BaseModel):
     marketers: list[MarketerResponse]
     facebook: FiguresResponse
     attention: list[AlertResponse]
-    months: list[MonthLineResponse]
-    days: list[DayLineResponse]
     connection_id: uuid.UUID | None = None
     connections: list[ConnectionOption] = []
     #: ``filtered``: a BM is picked, revenue is not split that way.
@@ -500,7 +500,12 @@ class TeamReportResponse(BaseModel):
             team_kpi_rate=report.team_kpi_rate,
             month_progress=report.month_progress,
             sources=[
-                SourceResponse(key=item.key, label=item.label, revenue=item.revenue)
+                SourceResponse(
+                    key=item.key,
+                    label=item.label,
+                    revenue=item.revenue,
+                    revenue_net=item.revenue_net,
+                )
                 for item in report.sources
             ],
             marketers=[
@@ -529,19 +534,6 @@ class TeamReportResponse(BaseModel):
                 )
                 for item in report.attention
             ],
-            months=[
-                MonthLineResponse(
-                    month=line.month,
-                    figures=FiguresResponse.from_figures(line.figures),
-                    kpi=line.kpi,
-                    kpi_rate=line.kpi_rate,
-                )
-                for line in report.months
-            ],
-            days=[
-                DayLineResponse(day=line.day, figures=FiguresResponse.from_figures(line.figures))
-                for line in report.days
-            ],
             connection_id=report.connection_id,
             connections=[
                 ConnectionOption(id=row.id, name=row.name, site=row.site)
@@ -555,6 +547,43 @@ def brand_options() -> list[BrandOption]:
     return [BrandOption(value=brand.value, label=BRAND_LABELS[brand]) for brand in AdsBrand]
 
 
+class HistoryResponse(BaseModel):
+    """ "Báo cáo tháng" + "Báo cáo ngày" of the team (``user_id`` null) or one
+    marketer."""
+
+    month: str
+    start: date
+    end: date
+    user_id: uuid.UUID | None
+    months: list[MonthLineResponse]
+    days: list[DayLineResponse]
+    #: ``filtered``: a BM is picked, revenue is not split that way.
+    revenue_note: str | None = None
+
+    @classmethod
+    def from_history(cls, history: History) -> HistoryResponse:
+        return cls(
+            month=f"{history.month.start:%Y-%m}",
+            start=history.month.start,
+            end=history.month.end,
+            user_id=history.user_id,
+            months=[
+                MonthLineResponse(
+                    month=line.month,
+                    figures=FiguresResponse.from_figures(line.figures),
+                    kpi=line.kpi,
+                    kpi_rate=line.kpi_rate,
+                )
+                for line in history.months
+            ],
+            days=[
+                DayLineResponse(day=line.day, figures=FiguresResponse.from_figures(line.figures))
+                for line in history.days
+            ],
+            revenue_note=history.revenue_note,
+        )
+
+
 __all__ = [
     "AdsAccountsResponse",
     "AdsConnectionResponse",
@@ -565,6 +594,7 @@ __all__ = [
     "AdsSyncResponse",
     "AssignAdsAccountRequest",
     "CreateAdsConnectionRequest",
+    "HistoryResponse",
     "UpdateAdsConnectionRequest",
     "brand_options",
 ]

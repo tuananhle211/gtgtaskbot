@@ -1,6 +1,7 @@
 /**
- * Phòng Ads, step 1 (0078): the nav branch, "Kết nối BM" (OWNER), the staff
- * dashboard and "Tài khoản QC".
+ * Phòng Ads (0078-0079): the nav branch, "Kết nối BM" (OWNER), Dashboard Ads
+ * (one page: "Tổng team" for a manager, one marketer, "Báo cáo chi tiết"),
+ * "Tài khoản QC", revenue and KPI.
  */
 import { describe, expect, it, vi } from "vitest";
 import { screen, waitFor, within } from "@testing-library/react";
@@ -10,7 +11,6 @@ import AdsDashboardPage from "@/app/ads/page";
 import AdsAccountsPage from "@/app/ads/accounts/page";
 import AdsRevenuePage from "@/app/ads/revenue/page";
 import AdsKpiPage from "@/app/ads/kpi/page";
-import AdsTeamPage from "@/app/ads/team/page";
 import { adminTabsFor } from "@/components/admin-tabs";
 import { navFor } from "@/components/shell";
 import type { UnitsMe } from "@/lib/api";
@@ -37,6 +37,76 @@ const me = (ads: Record<string, boolean> | null) =>
     can_view_all: false,
     ads,
   }) as unknown as UnitsMe;
+
+const figures = (over: Record<string, unknown> = {}) => ({
+  spend: 0,
+  invoice: 0,
+  phones: 0,
+  revenue: null,
+  revenue_net: null,
+  cost_per_phone: null,
+  ads_ratio: null,
+  ads_ratio_real: null,
+  ...over,
+});
+
+/** Báo cáo tháng + ngày: September done, October to the 26th. */
+const HISTORY = {
+  month: "2026-10",
+  start: "2026-10-01",
+  end: "2026-10-31",
+  user_id: null,
+  months: [
+    {
+      month: "2026-09-01",
+      figures: figures({
+        spend: 3_560_000_000,
+        invoice: 4_000_000_000,
+        phones: 2_160,
+        cost_per_phone: 1_648_148,
+        revenue: 7_000_000_000,
+        revenue_net: 6_481_481_481,
+        ads_ratio: 0.617,
+        ads_ratio_real: 0.571,
+      }),
+      kpi: 10_000_000_000,
+      kpi_rate: 0.7,
+    },
+    {
+      month: "2026-10-01",
+      figures: figures({ spend: 4_390_000_000, phones: 2_280 }),
+      kpi: null,
+      kpi_rate: null,
+    },
+  ],
+  days: [
+    {
+      day: "2026-10-25",
+      figures: figures({
+        spend: 100_000_000,
+        phones: 50,
+        cost_per_phone: 2_000_000,
+        revenue: 81_000_000,
+        revenue_net: 75_000_000,
+      }),
+    },
+    {
+      day: "2026-10-26",
+      figures: figures({
+        spend: 1_234_567,
+        phones: 1,
+        cost_per_phone: 1_234_567,
+      }),
+    },
+  ],
+  revenue_note: null,
+};
+
+/** The page asks who is looking first: a member sees their own dashboard. */
+const MEMBER = [
+  { match: "/api/units/me", body: { ads: { view: true, view_all: false } } },
+  { match: "/api/ads/history", body: HISTORY },
+];
 
 const hrefs = (entries: ReturnType<typeof navFor>) =>
   entries.flatMap((entry) =>
@@ -324,6 +394,7 @@ const DASHBOARD = {
 describe("Dashboard Ads", () => {
   it("shows the KPIs with their change, the chart and the accounts", async () => {
     const stub = stubFetch([
+      ...MEMBER,
       { match: "/api/ads/dashboard", body: DASHBOARD },
       { match: "/api/auth/session", body: SESSION },
     ]);
@@ -363,20 +434,94 @@ describe("Dashboard Ads", () => {
       screen.getByRole("button", { name: "Xem biểu đồ" }),
     ).toBeInTheDocument();
     expect(
-      screen.getByRole("columnheader", { name: "Ads / DT" }),
+      within(screen.getByRole("region", { name: "Xu hướng" })).getByRole(
+        "columnheader",
+        { name: "Ads / DT" },
+      ),
     ).toBeInTheDocument();
     expect(screen.getByText("22.000.000 ₫")).toBeInTheDocument();
-    // Picking a person narrows the query.
-    await userEvent.selectOptions(screen.getByLabelText("Người"), "u-1");
-    await waitFor(() =>
-      expect(
-        calls(stub).some(
-          (call) =>
-            call.url.includes("/api/ads/dashboard") &&
-            call.url.includes("user_id=u-1"),
-        ),
-      ).toBe(true),
+    // A member: no picker, no banner - and their own reports at the end.
+    expect(screen.queryByLabelText("Xem chi tiết theo")).toBeNull();
+    expect(screen.queryByTestId("person-banner")).toBeNull();
+    expect(
+      await screen.findByRole("button", { name: /Báo cáo tháng/ }),
+    ).toBeInTheDocument();
+    const history = calls(stub).find((call) =>
+      call.url.includes("/api/ads/history"),
     );
+    expect(history?.url).toContain("month=2026-10");
+    expect(history?.url).not.toContain("user_id");
+  });
+
+  it("Báo cáo chi tiết: the months table, the daily table, waiting cells", async () => {
+    stubFetch([...MEMBER, { match: "/api/ads/dashboard", body: DASHBOARD }]);
+    renderWithQuery(<AdsDashboardPage />);
+    // Folded by default, Báo cáo ngày first, each header summing it up.
+    const dayFold = await screen.findByRole("button", { name: /Báo cáo ngày/ });
+    const monthFold = screen.getByRole("button", { name: /Báo cáo tháng/ });
+    expect(dayFold.compareDocumentPosition(monthFold)).toBe(
+      Node.DOCUMENT_POSITION_FOLLOWING,
+    );
+    expect(dayFold).toHaveAttribute("aria-expanded", "false");
+    expect(dayFold).toHaveTextContent(
+      "Lũy kế 101,2 tr · 51 SĐT · doanh thu 81 tr · đến 26/10",
+    );
+    expect(monthFold).toHaveTextContent(
+      "Xu hướng T9 – T10 · T10: chi phí 4,39 tỷ",
+    );
+    expect(screen.queryByTestId("report-day")).toBeNull();
+    expect(screen.queryByTestId("report-month")).toBeNull();
+    await userEvent.click(monthFold);
+    const months = screen.getByTestId("report-month");
+    // The running month is starred, with how far it goes.
+    expect(
+      within(months).getByRole("columnheader", { name: "T10*" }),
+    ).toBeInTheDocument();
+    expect(months).toHaveTextContent("* T10 tính đến 26/10, chưa có KPI.");
+    expect(within(months).getByText("3,56 tỷ")).toBeInTheDocument();
+    expect(within(months).getByText("70,0%")).toBeInTheDocument();
+    expect(within(months).queryByText("Ads / DT hoa hồng")).toBeNull();
+    expect(within(months).getByText("57,1%")).toHaveClass("text-[var(--warn)]");
+    expect(within(months).getByText("chưa nhập")).toBeInTheDocument();
+    // Nobody enters customers or bills yet: one waiting cell per row.
+    expect(
+      within(months).getByText(
+        "Chưa có dữ liệu · chưa nhập khách, lịch và kết quả chốt",
+      ),
+    ).toBeInTheDocument();
+    expect(
+      within(months).getByText("Chưa có dữ liệu · chưa nhập bill"),
+    ).toBeInTheDocument();
+    expect(
+      within(months).getByRole("img", {
+        name: "Chi phí, doanh thu và KPI theo tháng theo thời gian",
+      }),
+    ).toBeInTheDocument();
+
+    await userEvent.click(dayFold);
+    const days = screen.getByTestId("report-day");
+    expect(within(days).getByTestId("day-total")).toHaveTextContent(
+      "101.234.567 ₫",
+    );
+    const day = within(days).getByTestId("day-2026-10-25");
+    expect(day).toHaveTextContent("100.000.000 ₫");
+    expect(day).toHaveTextContent("81.000.000 ₫");
+    // 100 tr ÷ 75 tr hoa hồng = 133,3%: over the line.
+    expect(within(day).getByText("133,3%")).toHaveClass("text-[var(--bad)]");
+    expect(within(days).getByTestId("over-limit")).toHaveTextContent("1 ngày");
+    expect(days).toHaveTextContent(
+      "Ngày 26/10 đã có chi tiêu, chưa có doanh thu.",
+    );
+    expect(within(days).getByTestId("facebook-month")).toHaveTextContent(
+      "101,2 tr",
+    );
+    expect(within(days).getByTestId("other-sources")).toHaveTextContent(
+      "Chưa kết nối",
+    );
+    // Its header folds it again; the other stays open.
+    await userEvent.click(dayFold);
+    expect(screen.queryByTestId("report-day")).toBeNull();
+    expect(screen.getByTestId("report-month")).toBeInTheDocument();
   });
 });
 
@@ -449,9 +594,10 @@ describe("Tài khoản QC", () => {
   });
 });
 
-describe("step 2: revenue, KPI, Dashboard tổng", () => {
+describe("step 2: revenue, KPI, Tổng team", () => {
   it("the dashboard leads with revenue and colours Ads / Doanh thu", async () => {
     stubFetch([
+      ...MEMBER,
       {
         match: "/api/ads/dashboard",
         body: {
@@ -476,6 +622,7 @@ describe("step 2: revenue, KPI, Dashboard tổng", () => {
 
   it("a brand filter says revenue cannot be split that way", async () => {
     stubFetch([
+      ...MEMBER,
       {
         match: "/api/ads/dashboard",
         body: { ...DASHBOARD, revenue_note: "filtered" },
@@ -489,6 +636,7 @@ describe("step 2: revenue, KPI, Dashboard tổng", () => {
 
   it("a person's accounts in several BMs are filtered apart", async () => {
     const stub = stubFetch([
+      ...MEMBER,
       {
         match: "/api/ads/dashboard",
         body: {
@@ -607,18 +755,7 @@ describe("step 2: revenue, KPI, Dashboard tổng", () => {
     ).not.toBeInTheDocument();
   });
 
-  it("Dashboard tổng: revenue split, KPI progress, Facebook ranking, the table", async () => {
-    const figures = (over: Record<string, unknown>) => ({
-      spend: 0,
-      invoice: 0,
-      phones: 0,
-      revenue: null,
-      revenue_net: null,
-      cost_per_phone: null,
-      ads_ratio: null,
-      ads_ratio_real: null,
-      ...over,
-    });
+  it("Tổng team: revenue split, KPI progress, Facebook ranking, the table", async () => {
     const report = {
       month: "2026-10-01",
       start: "2026-10-01",
@@ -648,6 +785,12 @@ describe("step 2: revenue, KPI, Dashboard tổng", () => {
         { key: "sg", label: "Doanh số SG", revenue: 10_000_000 },
         { key: "s:HN", label: "Doanh số chuyển miền", revenue: 2_000_000 },
         { key: "s:HOTLINE", label: "Hotline", revenue: 2_000_000 },
+        {
+          key: "s:GOOGLE",
+          label: "Google",
+          revenue: 3_240_000,
+          revenue_net: 3_000_000,
+        },
       ],
       marketers: [
         {
@@ -695,21 +838,13 @@ describe("step 2: revenue, KPI, Dashboard tổng", () => {
           phones: 0,
         },
       ],
-      months: [
-        {
-          month: "2026-10-01",
-          figures: figures({ spend: 3_500_000, revenue: 14_000_000 }),
-          kpi: 20_000_000,
-          kpi_rate: 0.7,
-        },
-      ],
-      days: [{ day: "2026-10-26", figures: figures({ spend: 1_234_567 }) }],
       connections: [
         { id: "bm-1", name: "BM Apex", site: "Sài Gòn" },
         { id: "bm-2", name: "BM Hà Nội", site: "Hà Nội" },
       ],
     };
     const stub = stubFetch([
+      { match: "/api/ads/history", body: HISTORY },
       {
         // One BM: no revenue (entered per person, not per BM).
         match: "connection_id=bm-2",
@@ -725,8 +860,10 @@ describe("step 2: revenue, KPI, Dashboard tổng", () => {
         },
       },
       { match: "/api/ads/team", body: report },
+      { match: "/api/units/me", body: { ads: { view: true, view_all: true } } },
+      { match: "/api/ads/dashboard", body: DASHBOARD },
     ]);
-    renderWithQuery(<AdsTeamPage />);
+    renderWithQuery(<AdsDashboardPage />);
     const revenue = await screen.findByTestId("team-revenue");
     expect(revenue).toHaveTextContent("14.000.000 ₫");
     expect(revenue).toHaveTextContent("HN chuyển HCM 2.000.000 ₫");
@@ -744,15 +881,34 @@ describe("step 2: revenue, KPI, Dashboard tổng", () => {
     expect(screen.getByTestId("alert-u-2")).toHaveTextContent(
       "chưa có doanh thu",
     );
+    // Khối 2 · by ad source: Facebook ranked, Google / TikTok wait for spend.
+    const facebook = screen.getByTestId("source-facebook");
+    expect(facebook).toHaveTextContent("Facebook Ads");
+    expect(facebook).toHaveTextContent("2 marketing");
+    expect(within(facebook).getByTestId("rank-u-1")).toHaveTextContent(
+      "Mạnh Ngọc12 tr3 tr25,0%",
+    );
+    expect(
+      within(within(facebook).getByTestId("rank-u-1")).getByText("25,0%"),
+    ).toHaveClass("text-[var(--good)]");
+    const google = screen.getByTestId("source-google");
+    expect(google).toHaveTextContent("chưa kết nối tài khoản");
+    expect(google).toHaveTextContent("Doanh thu3 tr");
+    expect(google).toHaveTextContent("Xếp hạng marketing Google Ads");
+    expect(screen.getByTestId("source-tiktok")).toHaveTextContent(
+      "Doanh thuchưa nhập",
+    );
     const row = screen.getByTestId("marketer-u-1");
     expect(within(row).getByText("25,0%")).toHaveClass("text-[var(--good)]");
     expect(within(row).getByText(/120,0%/)).toBeInTheDocument();
-    expect(
-      within(row).getByRole("link", { name: "Mạnh Ngọc" }),
-    ).toHaveAttribute("href", "/ads?user_id=u-1");
     expect(screen.getByText("TỔNG FACEBOOK ADS")).toBeInTheDocument();
-    expect(screen.getByTestId("month-2026-10")).toHaveTextContent("T10/2026");
-    expect(screen.getByText("1.234.567 ₫")).toBeInTheDocument();
+    // The team's reports close the page.
+    await userEvent.click(
+      await screen.findByRole("button", { name: /Báo cáo ngày/ }),
+    );
+    expect(screen.getByTestId("day-2026-10-26")).toHaveTextContent(
+      "1.234.567 ₫",
+    );
     // The cơ sở filter narrows the query.
     await userEvent.selectOptions(screen.getByLabelText("Cơ sở"), "hn");
     await waitFor(() =>
@@ -779,5 +935,105 @@ describe("step 2: revenue, KPI, Dashboard tổng", () => {
     expect(screen.queryByTestId("marketer-u-1")).toBeNull();
     expect(screen.getByTestId("marketer-u-2")).toBeInTheDocument();
     expect(screen.queryByTestId("alert-u-2")).toBeNull();
+    await waitFor(() =>
+      expect(
+        calls(stub).some(
+          (call) =>
+            call.url.includes("/api/ads/history") &&
+            call.url.includes("connection_id=bm-2"),
+        ),
+      ).toBe(true),
+    );
+  });
+
+  it("Xem chi tiết theo opens one marketer, ← Về khối tổng comes back", async () => {
+    const report = {
+      month: "2026-10",
+      start: "2026-10-01",
+      end: "2026-10-31",
+      site: "all",
+      current: figures({ spend: 3_500_000, revenue: 20_000_000 }),
+      before: figures(),
+      revenue_hcm: null,
+      revenue_hn_transfer: null,
+      marketers_hn: null,
+      team_kpi: null,
+      team_kpi_rate: null,
+      month_progress: 0.84,
+      sources: [],
+      marketers: [
+        {
+          user_id: "u-2",
+          name: "Hoàng Anh",
+          member_code: null,
+          figures: figures({ spend: 500_000, revenue: 5_000_000 }),
+          kpi: null,
+          kpi_rate: null,
+          ads_ratio: 0.1,
+          tone: "good",
+        },
+        {
+          user_id: "u-1",
+          name: "Mạnh Ngọc",
+          member_code: "NGOC01",
+          figures: figures({ spend: 3_000_000, revenue: 15_000_000 }),
+          kpi: null,
+          kpi_rate: null,
+          ads_ratio: 0.2,
+          tone: "good",
+        },
+      ],
+      facebook: figures({ spend: 3_500_000, revenue: 20_000_000 }),
+      attention: [],
+      connections: [],
+    };
+    const stub = stubFetch([
+      { match: "/api/ads/team", body: report },
+      { match: "/api/units/me", body: { ads: { view: true, view_all: true } } },
+      { match: "/api/ads/history", body: HISTORY },
+      { match: "/api/ads/dashboard", body: DASHBOARD },
+    ]);
+    renderWithQuery(<AdsDashboardPage />);
+    const picker = await screen.findByLabelText("Xem chi tiết theo");
+    // Ranked by the month's revenue.
+    expect(
+      within(picker)
+        .getAllByRole("option")
+        .map((option) => option.textContent),
+    ).toEqual([
+      "Tổng team (mặc định)",
+      "1. Mạnh Ngọc · Ads/DT 20,0%",
+      "2. Hoàng Anh · Ads/DT 10,0%",
+    ]);
+    await userEvent.selectOptions(picker, "u-1");
+    const banner = await screen.findByTestId("person-banner");
+    expect(banner).toHaveTextContent(
+      "Đang xem dashboard nhân viên của Mạnh Ngọc",
+    );
+    expect(banner).toHaveTextContent(
+      "Hạng 1/2 theo doanh thu T10 · đóng góp 75,0% doanh thu team",
+    );
+    await screen.findByTestId("kpi-spend");
+    expect(
+      calls(stub).some(
+        (call) =>
+          call.url.includes("/api/ads/dashboard") &&
+          call.url.includes("user_id=u-1"),
+      ),
+    ).toBe(true);
+    await waitFor(() =>
+      expect(
+        calls(stub).some(
+          (call) =>
+            call.url.includes("/api/ads/history") &&
+            call.url.includes("user_id=u-1"),
+        ),
+      ).toBe(true),
+    );
+    await userEvent.click(
+      within(banner).getByRole("button", { name: "← Về khối tổng" }),
+    );
+    expect(await screen.findByTestId("team-revenue")).toBeInTheDocument();
+    expect(screen.queryByTestId("person-banner")).toBeNull();
   });
 });

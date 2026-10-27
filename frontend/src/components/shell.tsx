@@ -220,9 +220,6 @@ function adsBranch(me: UnitsMe | undefined, sessionRole?: string): NavGroup | nu
     icon: "ads",
     children: [
       { href: "/ads", label: "Dashboard Ads", icon: "dashboard" },
-      ...(me.ads.view_all
-        ? [{ href: "/ads/team", label: "Dashboard tổng", icon: "report" as NavIcon }]
-        : []),
       ...(me.ads.edit_revenue
         ? [
             { href: "/ads/revenue", label: "Nhập doanh thu", icon: "request" as NavIcon },

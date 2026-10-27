@@ -81,7 +81,7 @@ function Editor({ data }: { data: AdsKpiMonth }) {
             spec={{
               title: `Lưu KPI tháng ${monthNumber}/${year}?`,
               description:
-                "Chỉ tiêu mới áp dụng ngay trên Dashboard tổng; ô để trống là bỏ chỉ tiêu.",
+                "Chỉ tiêu mới áp dụng ngay trên Dashboard Ads; ô để trống là bỏ chỉ tiêu.",
               confirmLabel: "Lưu KPI",
             }}
           >

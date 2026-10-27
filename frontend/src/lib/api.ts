@@ -4070,6 +4070,19 @@ export interface AdsAlert {
   phones: number;
 }
 
+/** "Báo cáo tháng" (April to the month) + "Báo cáo ngày" (its days). */
+export interface AdsHistory {
+  month: string;
+  start: string;
+  end: string;
+  /** null = the team; a member always gets their own id. */
+  user_id: Uuid | null;
+  months: Array<{ month: string; figures: AdsFigures; kpi: number | null; kpi_rate: number | null }>;
+  days: Array<{ day: string; figures: AdsFigures }>;
+  /** `filtered`: a BM is picked - no revenue (entered per person). */
+  revenue_note?: string | null;
+}
+
 export interface AdsTeamReport {
   month: string;
   start: string;
@@ -4086,7 +4099,13 @@ export interface AdsTeamReport {
   team_kpi_rate: number | null;
   /** Share of the month gone (0-1). */
   month_progress: number;
-  sources: Array<{ key: string; label: string; revenue: number | null }>;
+  sources: Array<{
+    key: string;
+    label: string;
+    revenue: number | null;
+    /** Without the 8% VAT ("Doanh thu hoa hồng"). */
+    revenue_net?: number | null;
+  }>;
   marketers: Array<{
     user_id: Uuid;
     name: string;
@@ -4100,8 +4119,6 @@ export interface AdsTeamReport {
   }>;
   facebook: AdsFigures;
   attention: AdsAlert[];
-  months: Array<{ month: string; figures: AdsFigures; kpi: number | null; kpi_rate: number | null }>;
-  days: Array<{ day: string; figures: AdsFigures }>;
   /** The BM picked (`connection_id`), and every BM to pick from. */
   connection_id?: Uuid | null;
   connections?: Array<{ id: Uuid; name: string; site: string }>;
@@ -5686,6 +5703,10 @@ export const api = {
   /** Quản lý A (a Trưởng phòng / OWNER / ADMIN; a member 404). */
   adsTeam: (params: { month?: string; site?: string; connection_id?: string } = {}) =>
     get<AdsTeamReport>(`/api/ads/team${query(params)}`),
+  /** Báo cáo tháng + ngày: the team, or `user_id` (a member: always their own). */
+  adsHistory: (
+    params: { month?: string; user_id?: string; connection_id?: string; site?: string } = {},
+  ) => get<AdsHistory>(`/api/ads/history${query(params)}`),
 
   // Departments ("Phòng ban"). Read: OWNER / ADMIN (else 403
   // `department_forbidden`); every write: the OWNER.

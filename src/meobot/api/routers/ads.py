@@ -28,6 +28,7 @@ from meobot.api.schemas.ads import (
     AssignAdsAccountRequest,
     CreateAdsConnectionRequest,
     EntryLineResponse,
+    HistoryResponse,
     KpiMonthResponse,
     PersonOption,
     RevenueDayResponse,
@@ -459,6 +460,25 @@ async def team_report(
         access, month=_month(month).start, site=site, connection_id=connection_id
     )
     return TeamReportResponse.from_report(report)
+
+
+@router.get("/history", response_model=HistoryResponse)
+async def history(
+    actor: CurrentActorDep,
+    session: SessionDep,
+    month: Annotated[str | None, Query(max_length=7)] = None,
+    user_id: Annotated[uuid.UUID | None, Query()] = None,
+    connection_id: Annotated[uuid.UUID | None, Query()] = None,
+    site: Annotated[str, Query(pattern="^(all|hcm|hn)$")] = "all",
+) -> HistoryResponse:
+    """ "Báo cáo tháng" (April to ``month``) and "Báo cáo ngày" (its days): the
+    team or one marketer (a Trưởng phòng / the OWNER / an ADMIN); a member
+    always gets their own."""
+    access = await _access(session, actor)
+    data = await AdsTeamService(session).history(
+        access, month=_month(month).start, user_id=user_id, connection_id=connection_id, site=site
+    )
+    return HistoryResponse.from_history(data)
 
 
 __all__ = ["router"]

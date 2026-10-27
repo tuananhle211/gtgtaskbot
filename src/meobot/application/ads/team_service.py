@@ -11,7 +11,9 @@ Quản lý), for one month.
   attention (Ads / Doanh thu above 60%, or spend with no revenue). Google Ads
   and TikTok Ads come later (chốt 27/10: left out for now).
 * **Khối 3** - the detail table per marketer.
-* **Báo cáo tháng** (April to the month) and **Báo cáo ngày** (each day).
+* **Báo cáo tháng** (April to the month) and **Báo cáo ngày** (each day) -
+  :meth:`AdsTeamService.history`, for the team or one marketer (their own
+  revenue SG + HN, their KPI); a member gets their own.
 
 ``site`` narrows the revenue: ``hcm`` without the "HN chuyển HCM" source, ``hn``
 that source alone. ``connection_id`` narrows everything to one BM's ad accounts:
@@ -29,6 +31,7 @@ from collections.abc import Iterable
 from dataclasses import dataclass, field
 from datetime import date, timedelta
 from decimal import Decimal
+from typing import Any
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -114,6 +117,8 @@ class SourceLine:
     key: str
     label: str
     revenue: float | None
+    #: The same without the 8% VAT ("Doanh thu hoa hồng"), for Khối 2.
+    revenue_net: float | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -164,8 +169,6 @@ class TeamReport:
     marketers: list[MarketerLine]
     facebook: Figures
     attention: list[Alert] = field(default_factory=list)
-    months: list[MonthLine] = field(default_factory=list)
-    days: list[DayLine] = field(default_factory=list)
     #: The BM filter in force and every BM to pick from.
     connection_id: uuid.UUID | None = None
     connections: list[AdsConnection] = field(default_factory=list)
@@ -175,6 +178,19 @@ class TeamReport:
     @property
     def team_kpi_rate(self) -> float | None:
         return ratio(self.current.revenue or 0, self.team_kpi) if self.team_kpi else None
+
+
+@dataclass(frozen=True, slots=True)
+class History:
+    """ "Báo cáo tháng" and "Báo cáo ngày" of the team or one marketer."""
+
+    month: Period
+    #: ``None`` = the team.
+    user_id: uuid.UUID | None
+    months: list[MonthLine]
+    days: list[DayLine]
+    #: ``filtered`` = a BM is picked: no revenue (not split by BM).
+    revenue_note: str | None = None
 
 
 def month_period(first: date) -> Period:
@@ -194,32 +210,68 @@ def _in_site(row: RevenueRow, site: str) -> bool:
     return True
 
 
+@dataclass(slots=True)
+class _Book:
+    """A window's synced rows and revenue lines, already narrowed to a BM or a
+    marketer."""
+
+    accounts: dict[str, AdsAccount]
+    spend_rows: list[Any]
+    charge_rows: list[Any]
+    revenue_rows: list[RevenueRow]
+    site: str = "all"
+    #: One marketer: their own revenue (SG + HN), not the site's.
+    person: uuid.UUID | None = None
+
+    def figures(self, span: Period) -> Figures:
+        figures = Figures()
+        for day, _account_id, spend, phones in self.spend_rows:
+            if span.start <= day <= span.end:
+                figures.spend += float(spend)
+                figures.phones += phones
+        for day, account_id, amount in self.charge_rows:
+            if span.start <= day <= span.end:
+                account = self.accounts[account_id]
+                figures.invoice += float(amount * invoice_factor(account.name, account.brand, day))
+        for row in self.revenue_rows:
+            if not span.start <= row.day <= span.end:
+                continue
+            if self.person is not None:
+                if row.gross:
+                    figures.add_revenue(row.gross, row.day)
+            # The site's revenue: a marketer's SG part, a source's amount.
+            elif _in_site(row, self.site) and row.amount:
+                figures.add_revenue(row.amount, row.day)
+        return figures
+
+
+def _month_days(period: Period) -> list[date]:
+    """The month's days up to today (a month not begun yet: its first day)."""
+    last = max(vn_today(), period.start)
+    return [
+        day
+        for day in (period.start + timedelta(days=offset) for offset in range(period.days))
+        if day <= last
+    ]
+
+
 class AdsTeamService:
     def __init__(self, session: AsyncSession) -> None:
         self._session = session
 
-    async def report(
+    async def _book(
         self,
-        access: AdsAccess,
+        window: Period,
         *,
-        month: date,
-        site: str = "all",
         connection_id: uuid.UUID | None = None,
-    ) -> TeamReport:
-        access.require_view()
-        if not access.view_all:
-            raise AdsNotVisibleError()
-        site = site if site in SITES else "all"
-        period = month_period(month)
-        previous = month_period(period.start - timedelta(days=1))
-        first_month = period.start.replace(month=min(REPORT_FROM_MONTH, period.start.month))
-        window = Period(start=first_month, end=period.end)
-
-        filtered = connection_id is not None
+        person: uuid.UUID | None = None,
+        site: str = "all",
+    ) -> _Book:
         accounts = {
             account.account_id: account
             for account in await self._session.scalars(select(AdsAccount))
-            if not filtered or account.connection_id == connection_id
+            if (connection_id is None or account.connection_id == connection_id)
+            and (person is None or account.user_id == person)
         }
         spend_rows = [
             row
@@ -242,26 +294,87 @@ class AdsTeamService:
             )
             if row.account_id in accounts
         ]
-        revenue_service = AdsRevenueService(self._session, AuditService(self._session))
-        revenue_rows = [] if filtered else await revenue_service.rows(window.start, window.end)
+        revenue_rows: list[RevenueRow] = []
+        if connection_id is None:
+            revenue_rows = [
+                row
+                for row in await AdsRevenueService(self._session, AuditService(self._session)).rows(
+                    window.start, window.end
+                )
+                if person is None or row.user_id == person
+            ]
+        return _Book(accounts, spend_rows, charge_rows, revenue_rows, site=site, person=person)
 
-        def team(span: Period) -> Figures:
-            figures = Figures()
-            for day, _account_id, spend, phones in spend_rows:
-                if span.start <= day <= span.end:
-                    figures.spend += float(spend)
-                    figures.phones += phones
-            for day, account_id, amount in charge_rows:
-                if span.start <= day <= span.end:
-                    account = accounts[account_id]
-                    figures.invoice += float(
-                        amount * invoice_factor(account.name, account.brand, day)
-                    )
-            for row in revenue_rows:
-                # The site's revenue: a marketer's SG part, a source's amount.
-                if span.start <= row.day <= span.end and _in_site(row, site) and row.amount:
-                    figures.add_revenue(row.amount, row.day)
-            return figures
+    async def history(
+        self,
+        access: AdsAccess,
+        *,
+        month: date,
+        user_id: uuid.UUID | None = None,
+        connection_id: uuid.UUID | None = None,
+        site: str = "all",
+    ) -> History:
+        """ "Báo cáo tháng" (April, or January, to the month) and "Báo cáo
+        ngày" (the month's days): the team, or one marketer - a member always
+        their own."""
+        access.require_view()
+        person = user_id if access.view_all else access.user_id
+        period = month_period(month)
+        first_month = period.start.replace(month=min(REPORT_FROM_MONTH, period.start.month))
+        book = await self._book(
+            Period(start=first_month, end=period.end),
+            connection_id=connection_id,
+            person=person,
+            site=site if site in SITES else "all",
+        )
+        revenue_service = AdsRevenueService(self._session, AuditService(self._session))
+        kpi_key = f"u:{person}" if person is not None else TEAM_KEY
+        months: list[MonthLine] = []
+        cursor = first_month
+        while cursor <= period.start:
+            span = month_period(cursor)
+            amounts = {} if connection_id else await revenue_service.kpi_amounts(span.start)
+            months.append(
+                MonthLine(
+                    span.start,
+                    book.figures(span),
+                    float(amounts[kpi_key]) if kpi_key in amounts else None,
+                )
+            )
+            cursor = span.end + timedelta(days=1)
+        return History(
+            month=period,
+            user_id=person,
+            months=months,
+            days=[
+                DayLine(day, book.figures(Period(start=day, end=day)))
+                for day in _month_days(period)
+            ],
+            revenue_note="filtered" if connection_id else None,
+        )
+
+    async def report(
+        self,
+        access: AdsAccess,
+        *,
+        month: date,
+        site: str = "all",
+        connection_id: uuid.UUID | None = None,
+    ) -> TeamReport:
+        access.require_view()
+        if not access.view_all:
+            raise AdsNotVisibleError()
+        site = site if site in SITES else "all"
+        period = month_period(month)
+        previous = month_period(period.start - timedelta(days=1))
+        filtered = connection_id is not None
+        book = await self._book(
+            Period(start=previous.start, end=period.end), connection_id=connection_id, site=site
+        )
+        accounts, spend_rows, charge_rows = book.accounts, book.spend_rows, book.charge_rows
+        revenue_rows = book.revenue_rows
+        revenue_service = AdsRevenueService(self._session, AuditService(self._session))
+        team = book.figures
 
         current = team(period)
         before = team(previous)
@@ -272,18 +385,31 @@ class AdsTeamService:
             return float(sum(items, Decimal(0))) if items else None
 
         transfer = total(row.amount for row in in_month if row.source is RevenueSource.HN)
+
+        def source_line(key: str, label: str, rows: list[RevenueRow]) -> SourceLine:
+            return SourceLine(
+                key,
+                label,
+                total(row.amount for row in rows),
+                total(commission_revenue(row.amount, row.day) for row in rows),
+            )
+
         sources = [
-            SourceLine(
+            source_line(
                 "sg",
                 "Doanh số SG",
-                total(row.amount for row in in_month if row.user_id is not None and row.amount),
+                [row for row in in_month if row.user_id is not None and row.amount],
             ),
-            SourceLine("s:HN", "Doanh số chuyển miền", transfer),
+            source_line(
+                "s:HN",
+                "Doanh số chuyển miền",
+                [row for row in in_month if row.source is RevenueSource.HN],
+            ),
             *[
-                SourceLine(
+                source_line(
                     f"s:{source.value}",
                     REVENUE_SOURCE_LABELS[source],
-                    total(row.amount for row in in_month if row.source is source),
+                    [row for row in in_month if row.source is source],
                 )
                 for source in RevenueSource
                 if source is not RevenueSource.HN
@@ -369,26 +495,6 @@ class AdsTeamService:
             key=lambda alert: (alert.kind != "no_revenue", -(alert.ads_ratio or 0.0), -alert.spend)
         )
 
-        months: list[MonthLine] = []
-        cursor = window.start
-        while cursor <= period.start:
-            span = month_period(cursor)
-            amounts = {} if filtered else await revenue_service.kpi_amounts(span.start)
-            months.append(
-                MonthLine(
-                    span.start,
-                    team(span),
-                    float(amounts[TEAM_KEY]) if TEAM_KEY in amounts else None,
-                )
-            )
-            cursor = span.end + timedelta(days=1)
-
-        days = [
-            DayLine(day, team(Period(start=day, end=day)))
-            for day in (period.start + timedelta(days=offset) for offset in range(period.days))
-            if day <= max(vn_today(), period.start)
-        ]
-
         today = vn_today()
         if today > period.end:
             progress = 1.0
@@ -414,8 +520,6 @@ class AdsTeamService:
             marketers=marketers,
             facebook=facebook,
             attention=attention[:5],
-            months=months,
-            days=days,
             connection_id=connection_id,
             connections=list(
                 await self._session.scalars(select(AdsConnection).order_by(AdsConnection.name))
@@ -429,6 +533,7 @@ __all__ = [
     "Alert",
     "DayLine",
     "Figures",
+    "History",
     "MarketerLine",
     "MonthLine",
     "SourceLine",

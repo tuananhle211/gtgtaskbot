@@ -508,6 +508,8 @@ async def test_11_kpis_and_the_team_dashboard(world: World) -> None:
     sources = {source["key"]: source["revenue"] for source in report["sources"]}
     assert sources["sg"] == 10_800_000 and sources["s:HN"] == 1_080_000
     assert sources["s:HOTLINE"] == 2_160_000 and sources["s:GOOGLE"] is None
+    nets = {source["key"]: source["revenue_net"] for source in report["sources"]}
+    assert round(nets["s:HOTLINE"]) == 2_000_000 and nets["s:GOOGLE"] is None
     first = report["marketers"][0]
     assert first["name"] == "Mạnh Ngọc" and first["figures"]["revenue"] == 11_880_000
     assert round(first["kpi_rate"], 3) == 1.188 and first["tone"] == "good"
@@ -515,9 +517,25 @@ async def test_11_kpis_and_the_team_dashboard(world: World) -> None:
         "Hoàng Anh": "no_revenue"
     }
     assert report["facebook"]["spend"] == 3_000_000 + 500_000
-    assert report["months"][0]["month"] == "2026-04-01"
-    assert report["months"][-1]["month"] == "2026-10-01"
-    assert report["months"][-1]["kpi_rate"] == 0.5
+    history = world.client.get("/api/ads/history", params={"month": "2026-10"}).json()
+    assert history["user_id"] is None
+    assert history["months"][0]["month"] == "2026-04-01"
+    assert history["months"][-1]["month"] == "2026-10-01"
+    assert history["months"][-1]["kpi_rate"] == 0.5
+    assert history["months"][-1]["figures"]["revenue"] == 14_040_000
+    assert history["days"][0]["day"] == "2026-10-01"
+    by_day = {line["day"]: line["figures"] for line in history["days"]}
+    assert by_day[D2.isoformat()]["revenue"] == 14_040_000
+    assert by_day[D1.isoformat()]["spend"] == 1_000_000
+    # One marketer: their accounts, their own revenue (SG + HN), their KPI.
+    mine = world.client.get(
+        "/api/ads/history", params={"month": "2026-10", "user_id": str(ngoc.id)}
+    ).json()
+    october = mine["months"][-1]
+    assert mine["user_id"] == str(ngoc.id)
+    assert october["figures"]["spend"] == 3_000_000
+    assert october["figures"]["revenue"] == 11_880_000
+    assert october["kpi"] == 10_000_000 and round(october["kpi_rate"], 3) == 1.188
     hcm = world.client.get("/api/ads/team", params={"month": "2026-10", "site": "hcm"}).json()
     assert hcm["current"]["revenue"] == 12_960_000
     only_hn = world.client.get("/api/ads/team", params={"month": "2026-10", "site": "hn"}).json()
@@ -525,6 +543,12 @@ async def test_11_kpis_and_the_team_dashboard(world: World) -> None:
 
     world.act_as(ngoc)
     assert world.client.get("/api/ads/team").status_code == 404
+    # A member's reports are always their own, whoever they ask for.
+    own = world.client.get(
+        "/api/ads/history", params={"month": "2026-10", "user_id": str(uuid.uuid4())}
+    ).json()
+    assert own["user_id"] == str(ngoc.id)
+    assert own["months"][-1]["figures"]["revenue"] == 11_880_000
     denied = world.client.put("/api/ads/kpi", json={"month": "2026-10", "entries": {"team": 1}})
     assert denied.status_code == 403
 
@@ -662,8 +686,15 @@ async def test_14_every_report_filters_by_bm(world: World) -> None:
     assert hanoi["current"]["spend"] == 500_000 and hanoi["current"]["revenue"] is None
     assert [line["name"] for line in hanoi["marketers"]] == ["Hoàng Anh"]
     assert hanoi["facebook"]["spend"] == 500_000 and hanoi["attention"] == []
-    assert hanoi["team_kpi"] is None and hanoi["months"][-1]["figures"]["spend"] == 500_000
-    assert sum(line["figures"]["spend"] for line in hanoi["days"]) == 500_000
+    assert hanoi["team_kpi"] is None
+    reports = world.client.get(
+        "/api/ads/history", params={"month": "2026-10", "connection_id": str(second.id)}
+    ).json()
+    assert reports["revenue_note"] == "filtered"
+    assert reports["months"][-1]["figures"]["spend"] == 500_000
+    assert reports["months"][-1]["figures"]["revenue"] is None
+    assert reports["months"][-1]["kpi"] is None
+    assert sum(line["figures"]["spend"] for line in reports["days"]) == 500_000
 
     apex = world.client.get(
         "/api/ads/team", params={"month": "2026-10", "connection_id": str(first.id)}

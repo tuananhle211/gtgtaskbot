@@ -157,12 +157,21 @@ export function SeriesChart({
   measure,
   label,
   revenueLine = false,
+  target,
+  labelOf = (point) => formatShortDate(point.start),
+  tooltip,
 }: {
   points: AdsSeriesPoint[];
   measure: SeriesMeasure;
   label: string;
   /** Spend bars with the revenue as a line on the same money axis (one unit, one axis). */
   revenueLine?: boolean;
+  /** A target per bucket (the month's KPI), dashed, on the same money axis. */
+  target?: Array<number | null>;
+  /** The bucket's name on the axis and in the tooltip (default its date). */
+  labelOf?: (point: AdsSeriesPoint) => string;
+  /** The tooltip's lines under the bucket's name (default the day's figures). */
+  tooltip?: (point: AdsSeriesPoint, index: number) => React.ReactNode;
 }) {
   const [active, setActive] = useState<number | null>(null);
   const width = 960;
@@ -173,7 +182,14 @@ export function SeriesChart({
   const plotHeight = height - top - bottom;
   const values = points.map((point) => measureOf(point, measure));
   const line = revenueLine ? points.map((point) => point.revenue ?? null) : [];
-  const max = Math.max(...values, ...line.map((value) => value ?? 0), 0) || 1;
+  const goals = target ?? [];
+  const max =
+    Math.max(
+      ...values,
+      ...line.map((value) => value ?? 0),
+      ...goals.map((value) => value ?? 0),
+      0,
+    ) || 1;
   const step = (width - left) / Math.max(points.length, 1);
   const bar = Math.max(4, Math.min(28, step - 2));
   const ticks = [0, 0.5, 1].map((share) => share * max);
@@ -239,7 +255,7 @@ export function SeriesChart({
               onMouseLeave={() => setActive(null)}
               onFocus={() => setActive(index)}
               onBlur={() => setActive(null)}
-              aria-label={`${formatShortDate(point.start)}: ${formatMeasure(value, measure)}`}
+              aria-label={`${labelOf(point)}: ${formatMeasure(value, measure)}`}
             >
               {/* A hit target taller and wider than the bar. */}
               <rect
@@ -264,7 +280,7 @@ export function SeriesChart({
                   fontSize={12}
                   fill="var(--text-muted)"
                 >
-                  {formatShortDate(point.start)}
+                  {labelOf(point)}
                 </text>
               ) : null}
             </g>
@@ -301,6 +317,21 @@ export function SeriesChart({
             )}
           </g>
         ) : null}
+        {goals.map((value, index) =>
+          value === null ? null : (
+            <line
+              key={`goal-${index}`}
+              aria-hidden="true"
+              x1={left + index * step + 4}
+              x2={left + (index + 1) * step - 4}
+              y1={top + plotHeight - (value / max) * plotHeight}
+              y2={top + plotHeight - (value / max) * plotHeight}
+              stroke="var(--text)"
+              strokeWidth={2}
+              strokeDasharray="5 4"
+            />
+          ),
+        )}
         <line
           x1={left}
           x2={width}
@@ -315,16 +346,24 @@ export function SeriesChart({
           role="status"
           className="pointer-events-none absolute right-2 top-2 rounded-lg border border-[var(--border)] bg-[var(--surface)] px-3 py-2 text-xs shadow-[var(--shadow-pop)]"
         >
-          <div className="font-semibold">Từ {formatShortDate(shown.start)}</div>
-          <div>Chi tiêu: {money(shown.spend)}</div>
-          <div>
-            Doanh số: {money(shown.revenue)} · Ads / DT:{" "}
-            {percent(shown.ads_ratio)}
+          <div className="font-semibold">
+            {tooltip ? labelOf(shown) : `Từ ${formatShortDate(shown.start)}`}
           </div>
-          <div>
-            SĐT: {count(shown.phones)} · Mess: {count(shown.messages)}
-          </div>
-          <div>Chi phí / SĐT: {money(shown.cost_per_phone)}</div>
+          {tooltip ? (
+            tooltip(shown, active ?? 0)
+          ) : (
+            <>
+              <div>Chi tiêu: {money(shown.spend)}</div>
+              <div>
+                Doanh số: {money(shown.revenue)} · Ads / DT:{" "}
+                {percent(shown.ads_ratio)}
+              </div>
+              <div>
+                SĐT: {count(shown.phones)} · Mess: {count(shown.messages)}
+              </div>
+              <div>Chi phí / SĐT: {money(shown.cost_per_phone)}</div>
+            </>
+          )}
         </div>
       ) : null}
     </div>
