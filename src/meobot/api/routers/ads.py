@@ -448,12 +448,16 @@ async def team_report(
     session: SessionDep,
     month: Annotated[str | None, Query(max_length=7)] = None,
     site: Annotated[str, Query(pattern="^(all|hcm|hn)$")] = "all",
+    connection_id: Annotated[uuid.UUID | None, Query()] = None,
 ) -> TeamReportResponse:
     """ "Dashboard tổng" for one month (a Trưởng phòng ADS, the OWNER / an
     ADMIN; a member 404 ``ads_not_visible``). ``site`` narrows the revenue:
-    ``hcm`` without "HN chuyển HCM", ``hn`` that alone."""
+    ``hcm`` without "HN chuyển HCM", ``hn`` that alone; ``connection_id`` one
+    BM's accounts (then no revenue)."""
     access = await _access(session, actor)
-    report = await AdsTeamService(session).report(access, month=_month(month).start, site=site)
+    report = await AdsTeamService(session).report(
+        access, month=_month(month).start, site=site, connection_id=connection_id
+    )
     return TeamReportResponse.from_report(report)
 
 

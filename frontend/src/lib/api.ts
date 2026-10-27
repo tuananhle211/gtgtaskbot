@@ -4102,6 +4102,11 @@ export interface AdsTeamReport {
   attention: AdsAlert[];
   months: Array<{ month: string; figures: AdsFigures; kpi: number | null; kpi_rate: number | null }>;
   days: Array<{ day: string; figures: AdsFigures }>;
+  /** The BM picked (`connection_id`), and every BM to pick from. */
+  connection_id?: Uuid | null;
+  connections?: Array<{ id: Uuid; name: string; site: string }>;
+  /** `filtered`: a BM is picked - revenue is entered per person, not per BM. */
+  revenue_note?: string | null;
 }
 
 export interface AdsDashboardQuery {
@@ -5679,7 +5684,7 @@ export const api = {
   saveAdsKpi: (month: string, entries: Record<string, number | string | null>) =>
     put<AdsKpiMonth>("/api/ads/kpi", { month, entries }),
   /** Quản lý A (a Trưởng phòng / OWNER / ADMIN; a member 404). */
-  adsTeam: (params: { month?: string; site?: string } = {}) =>
+  adsTeam: (params: { month?: string; site?: string; connection_id?: string } = {}) =>
     get<AdsTeamReport>(`/api/ads/team${query(params)}`),
 
   // Departments ("Phòng ban"). Read: OWNER / ADMIN (else 403

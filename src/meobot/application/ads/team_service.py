@@ -14,7 +14,11 @@ Quản lý), for one month.
 * **Báo cáo tháng** (April to the month) and **Báo cáo ngày** (each day).
 
 ``site`` narrows the revenue: ``hcm`` without the "HN chuyển HCM" source, ``hn``
-that source alone. Customers, bookings and bill figures are not entered yet.
+that source alone. ``connection_id`` narrows everything to one BM's ad accounts:
+spend, charges, phone numbers and the marketers holding an account there; the
+revenue is entered per person, not per BM, so it is left out (``revenue_note``
+``filtered``, as on the staff dashboard). Customers, bookings and bill figures
+are not entered yet.
 """
 
 from __future__ import annotations
@@ -34,7 +38,7 @@ from meobot.application.ads.accounts_service import ads_people
 from meobot.application.ads.revenue_service import TEAM_KEY, AdsRevenueService, RevenueRow
 from meobot.application.ads.sync_service import vn_today
 from meobot.application.audit_service import AuditService
-from meobot.db.models.ads import AdsAccount, AdsChargeDaily, AdsSpendDaily
+from meobot.db.models.ads import AdsAccount, AdsChargeDaily, AdsConnection, AdsSpendDaily
 from meobot.db.models.user import User
 from meobot.domain.ads.models import (
     ADS_RATIO_WATCH,
@@ -162,6 +166,11 @@ class TeamReport:
     attention: list[Alert] = field(default_factory=list)
     months: list[MonthLine] = field(default_factory=list)
     days: list[DayLine] = field(default_factory=list)
+    #: The BM filter in force and every BM to pick from.
+    connection_id: uuid.UUID | None = None
+    connections: list[AdsConnection] = field(default_factory=list)
+    #: ``filtered`` = a BM is picked: no revenue (not split by BM).
+    revenue_note: str | None = None
 
     @property
     def team_kpi_rate(self) -> float | None:
@@ -189,7 +198,14 @@ class AdsTeamService:
     def __init__(self, session: AsyncSession) -> None:
         self._session = session
 
-    async def report(self, access: AdsAccess, *, month: date, site: str = "all") -> TeamReport:
+    async def report(
+        self,
+        access: AdsAccess,
+        *,
+        month: date,
+        site: str = "all",
+        connection_id: uuid.UUID | None = None,
+    ) -> TeamReport:
         access.require_view()
         if not access.view_all:
             raise AdsNotVisibleError()
@@ -199,12 +215,15 @@ class AdsTeamService:
         first_month = period.start.replace(month=min(REPORT_FROM_MONTH, period.start.month))
         window = Period(start=first_month, end=period.end)
 
+        filtered = connection_id is not None
         accounts = {
             account.account_id: account
             for account in await self._session.scalars(select(AdsAccount))
+            if not filtered or account.connection_id == connection_id
         }
-        spend_rows = list(
-            await self._session.execute(
+        spend_rows = [
+            row
+            for row in await self._session.execute(
                 select(
                     AdsSpendDaily.day,
                     AdsSpendDaily.account_id,
@@ -212,16 +231,19 @@ class AdsTeamService:
                     AdsSpendDaily.phones,
                 ).where(AdsSpendDaily.day >= window.start, AdsSpendDaily.day <= window.end)
             )
-        )
-        charge_rows = list(
-            await self._session.execute(
+            if row.account_id in accounts
+        ]
+        charge_rows = [
+            row
+            for row in await self._session.execute(
                 select(AdsChargeDaily.day, AdsChargeDaily.account_id, AdsChargeDaily.amount).where(
                     AdsChargeDaily.day >= window.start, AdsChargeDaily.day <= window.end
                 )
             )
-        )
+            if row.account_id in accounts
+        ]
         revenue_service = AdsRevenueService(self._session, AuditService(self._session))
-        revenue_rows = await revenue_service.rows(window.start, window.end)
+        revenue_rows = [] if filtered else await revenue_service.rows(window.start, window.end)
 
         def team(span: Period) -> Figures:
             figures = Figures()
@@ -284,8 +306,12 @@ class AdsTeamService:
         for row in in_month:
             if row.user_id is not None and row.gross:
                 by_person[row.user_id].add_revenue(row.gross, row.day)
-        kpis = await revenue_service.kpi_amounts(period.start)
+        kpis = {} if filtered else await revenue_service.kpi_amounts(period.start)
         staff = {user.id: user for user in await ads_people(self._session)}
+        if filtered:
+            # One BM: the people holding an account in it.
+            holders = {account.user_id for account in accounts.values() if account.user_id}
+            staff = {user_id: user for user_id, user in staff.items() if user_id in holders}
         missing = set(by_person) - set(staff)
         if missing:
             for user in await self._session.scalars(select(User).where(User.id.in_(missing))):
@@ -317,7 +343,8 @@ class AdsTeamService:
                 )
 
         attention: list[Alert] = []
-        for line in marketers:
+        # Without revenue (a BM picked) every spender would look "no revenue".
+        for line in [] if filtered else marketers:
             numbers = line.current
             if numbers.spend <= 0:
                 continue
@@ -346,7 +373,7 @@ class AdsTeamService:
         cursor = window.start
         while cursor <= period.start:
             span = month_period(cursor)
-            amounts = await revenue_service.kpi_amounts(span.start)
+            amounts = {} if filtered else await revenue_service.kpi_amounts(span.start)
             months.append(
                 MonthLine(
                     span.start,
@@ -389,6 +416,11 @@ class AdsTeamService:
             attention=attention[:5],
             months=months,
             days=days,
+            connection_id=connection_id,
+            connections=list(
+                await self._session.scalars(select(AdsConnection).order_by(AdsConnection.name))
+            ),
+            revenue_note="filtered" if filtered else None,
         )
 
 

@@ -479,6 +479,10 @@ class TeamReportResponse(BaseModel):
     attention: list[AlertResponse]
     months: list[MonthLineResponse]
     days: list[DayLineResponse]
+    connection_id: uuid.UUID | None = None
+    connections: list[ConnectionOption] = []
+    #: ``filtered``: a BM is picked, revenue is not split that way.
+    revenue_note: str | None = None
 
     @classmethod
     def from_report(cls, report: TeamReport) -> TeamReportResponse:
@@ -538,6 +542,12 @@ class TeamReportResponse(BaseModel):
                 DayLineResponse(day=line.day, figures=FiguresResponse.from_figures(line.figures))
                 for line in report.days
             ],
+            connection_id=report.connection_id,
+            connections=[
+                ConnectionOption(id=row.id, name=row.name, site=row.site)
+                for row in report.connections
+            ],
+            revenue_note=report.revenue_note,
         )
 
 

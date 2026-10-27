@@ -200,6 +200,26 @@ function Workspace({
               ))}
           </Select>
         </label>
+        {data.connections.length ? (
+          <label className={LABEL}>
+            <span>BM</span>
+            <Select
+              aria-label="BM"
+              value={filters.connection_id ?? ""}
+              onChange={(event) =>
+                set({ connection_id: event.target.value || undefined })
+              }
+            >
+              <option value="">Tất cả BM</option>
+              {data.connections.map((connection) => (
+                <option key={connection.id} value={connection.id}>
+                  {connection.name}
+                  {connection.site ? ` · ${connection.site}` : ""}
+                </option>
+              ))}
+            </Select>
+          </label>
+        ) : null}
       </section>
 
       <section aria-label="Chỉ số chính" className="space-y-2">
@@ -218,7 +238,7 @@ function Workspace({
               </div>
               <div className="mt-1 text-xs text-[var(--text-muted)]">
                 {filtered
-                  ? "Doanh số không chia theo pháp nhân: bỏ bộ lọc Pháp nhân để xem doanh số và Ads / DT."
+                  ? "Doanh số nhập theo người, không chia theo pháp nhân hay BM: bỏ bộ lọc Pháp nhân / BM để xem doanh số và Ads / DT."
                   : "Chưa có doanh số nào được nhập cho khoảng ngày này (Phòng Ads › Nhập doanh thu)."}
               </div>
             </div>

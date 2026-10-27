@@ -625,3 +625,70 @@ async def test_13_two_syncs_meeting_the_same_new_accounts(world: World) -> None:
     assert report.status == "SUCCESS" and report.accounts == 3
     renamed = await world.session.get(AdsAccount, "111")
     assert renamed is not None and renamed.name == "[COREMIND] TK 1 - đổi tên"
+
+
+async def test_14_every_report_filters_by_bm(world: World) -> None:
+    """Pick a BM: spend, charges and the marketers narrow to its accounts; the
+    revenue (entered per person, not per BM) is left out."""
+    from meobot.db.models.ads import AdsConnection
+
+    _, ngoc, anh = await staffed(world)
+    world.client.put(
+        "/api/ads/revenue", json={"day": D2.isoformat(), "entries": {f"u:{ngoc.id}": 5_400_000}}
+    )
+    first = (await world.session.execute(select(AdsConnection))).scalar_one()
+    second = AdsConnection(name="BM Hà Nội", business_id="999", site="Hà Nội", token_encrypted="x")
+    world.session.add(second)
+    await world.session.flush()
+    account = await world.session.get(AdsAccount, "222")
+    assert account is not None
+    account.connection_id = second.id
+    await world.session.flush()
+
+    params = {"start": D1.isoformat(), "end": D2.isoformat()}
+    staff = world.client.get(
+        "/api/ads/dashboard", params={**params, "connection_id": str(second.id)}
+    ).json()
+    assert [line["account_id"] for line in staff["accounts"]] == ["222"]
+    assert staff["revenue"] is None and staff["revenue_note"] == "filtered"
+
+    whole = world.client.get("/api/ads/team", params={"month": "2026-10"}).json()
+    assert whole["revenue_note"] is None and whole["connection_id"] is None
+    assert {row["name"] for row in whole["connections"]} == {"BM Apex", "BM Hà Nội"}
+    assert whole["current"]["spend"] == 3_500_000
+
+    hanoi = world.client.get(
+        "/api/ads/team", params={"month": "2026-10", "connection_id": str(second.id)}
+    ).json()
+    assert hanoi["connection_id"] == str(second.id) and hanoi["revenue_note"] == "filtered"
+    assert hanoi["current"]["spend"] == 500_000 and hanoi["current"]["revenue"] is None
+    assert [line["name"] for line in hanoi["marketers"]] == ["Hoàng Anh"]
+    assert hanoi["facebook"]["spend"] == 500_000 and hanoi["attention"] == []
+    assert hanoi["team_kpi"] is None and hanoi["months"][-1]["figures"]["spend"] == 500_000
+    assert sum(line["figures"]["spend"] for line in hanoi["days"]) == 500_000
+
+    apex = world.client.get(
+        "/api/ads/team", params={"month": "2026-10", "connection_id": str(first.id)}
+    ).json()
+    assert apex["current"]["spend"] == 3_000_000
+    assert [line["user_id"] for line in apex["marketers"]] == [str(ngoc.id)]
+    assert str(anh.id) not in {line["user_id"] for line in apex["marketers"]}
+
+    # One person, accounts in several BMs: their own page lists those BMs and
+    # filters them apart.
+    other = await world.session.get(AdsAccount, "333")
+    assert other is not None
+    other.connection_id = second.id
+    other.user_id = ngoc.id
+    await world.session.flush()
+    world.act_as(ngoc)
+    mine = world.client.get("/api/ads/dashboard", params=params).json()
+    assert {row["name"] for row in mine["connections"]} == {"BM Apex", "BM Hà Nội"}
+    apex_only = world.client.get(
+        "/api/ads/dashboard", params={**params, "connection_id": str(first.id)}
+    ).json()
+    assert [line["account_id"] for line in apex_only["accounts"]] == ["111"]
+    assert {kpi["key"]: kpi["value"] for kpi in apex_only["kpis"]}["spend"] == 3_000_000
+    world.act_as(anh)
+    theirs = world.client.get("/api/ads/dashboard", params=params).json()
+    assert [row["name"] for row in theirs["connections"]] == ["BM Hà Nội"]

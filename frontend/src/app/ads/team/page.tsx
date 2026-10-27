@@ -24,16 +24,24 @@ import { formatDate, formatShortDate } from "@/lib/datetime";
  * source, spend and charges; Khối 2 = Facebook Ads (ranking, who needs
  * attention; Google / TikTok Ads come later); Khối 3 = the table per
  * marketer; then "Báo cáo tháng" and "Báo cáo ngày". Customer, booking and
- * bill figures are not entered yet: their cards say so. A Trưởng phòng ADS,
+ * bill figures are not entered yet: their cards say so. "BM" narrows every
+ * block and table to one BM's accounts; revenue is entered per person, not
+ * per BM, so its cards then wait ("Không tách theo BM"). A Trưởng phòng ADS,
  * the OWNER / an ADMIN.
  */
 export default function AdsTeamPage() {
   const [month, setMonth] = useState("");
   const [site, setSite] = useState("all");
+  const [connection, setConnection] = useState("");
   const router = useRouter();
   const report = useQuery({
-    queryKey: ["ads", "team", month, site],
-    queryFn: () => api.adsTeam({ month: month || undefined, site }),
+    queryKey: ["ads", "team", month, site, connection],
+    queryFn: () =>
+      api.adsTeam({
+        month: month || undefined,
+        site,
+        connection_id: connection || undefined,
+      }),
     retry: false,
     placeholderData: (previous) => previous,
   });
@@ -70,6 +78,24 @@ export default function AdsTeamPage() {
             <option value="hn">HN chuyển HCM</option>
           </Select>
         </label>
+        {report.data?.connections?.length ? (
+          <label className={LABEL}>
+            <span>BM</span>
+            <Select
+              aria-label="BM"
+              value={connection}
+              onChange={(event) => setConnection(event.target.value)}
+            >
+              <option value="">Tất cả BM</option>
+              {report.data.connections.map((row) => (
+                <option key={row.id} value={row.id}>
+                  {row.name}
+                  {row.site ? ` · ${row.site}` : ""}
+                </option>
+              ))}
+            </Select>
+          </label>
+        ) : null}
         {report.data?.marketers.length ? (
           <label className={LABEL}>
             <span>Xem chi tiết theo</span>
@@ -176,12 +202,28 @@ function Tile({
   );
 }
 
-function Missing({ label, note }: { label: string; note: string }) {
+/** A waiting card: figures not entered yet, or not split by the BM picked. */
+function Missing({
+  label,
+  note,
+  value = "Chưa có dữ liệu",
+  testid,
+  wide = false,
+}: {
+  label: string;
+  note: string;
+  value?: string;
+  testid?: string;
+  wide?: boolean;
+}) {
   return (
-    <div className="rounded-xl border border-dashed border-[var(--border)] bg-[var(--surface)] p-4">
+    <div
+      data-testid={testid}
+      className={`rounded-xl border border-dashed border-[var(--border)] bg-[var(--surface)] p-4 ${wide ? "sm:col-span-2" : ""}`}
+    >
       <div className="text-sm text-[var(--text-muted)]">{label}</div>
       <div className="mt-1 text-lg font-semibold text-[var(--text-muted)]">
-        Chưa có dữ liệu
+        {value}
       </div>
       <div className="mt-1 text-xs text-[var(--text-muted)]">{note}</div>
     </div>
@@ -203,70 +245,69 @@ function Ratio({ value }: { value: number | null }) {
   );
 }
 
+const BY_BM = "Không tách theo BM";
+const BY_BM_NOTE =
+  "Doanh số nhập theo người, không theo BM: chọn “Tất cả BM” để xem.";
+
 function Report({ data }: { data: AdsTeamReport }) {
   const now = data.current;
   const before = data.before;
-  const sourceTotal = data.sources.reduce(
-    (sum, source) => sum + (source.revenue ?? 0),
-    0,
-  );
+  const byBm = data.revenue_note === "filtered";
   return (
     <>
       <section aria-label="Chỉ số tổng" className="space-y-2">
         <h2 className="brand-eyebrow">Khối 1 · Chỉ số tổng</h2>
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
-          <Tile
-            testid="team-revenue"
-            wide
-            label="Doanh thu xét KPI"
-            value={now.revenue === null ? "Chưa nhập" : money(now.revenue)}
-            change={delta(now.revenue, before.revenue)}
-            sub={`Cơ sở HCM ${money(data.revenue_hcm)} · HN chuyển HCM ${money(data.revenue_hn_transfer)} · DT hoa hồng ${money(now.revenue_net)}`}
-          />
-          <Tile
-            testid="team-ratio"
-            label="Ads / Doanh thu"
-            value={percent(now.ads_ratio)}
-            change={pointsDelta(now.ads_ratio, before.ads_ratio)}
-            sub="Lập hoá đơn ÷ DT hoa hồng · ngưỡng ≤ 40%"
-          />
-          <KpiProgress data={data} />
-          <div data-testid="team-sources" className={`${CARD} sm:col-span-2`}>
-            <div className="text-sm text-[var(--text-muted)]">
-              Doanh số theo nguồn
-            </div>
-            {sourceTotal ? (
-              <ul className="mt-2 space-y-1.5 text-sm">
-                {data.sources
-                  .filter((source) => source.revenue)
-                  .map((source) => (
-                    <li
-                      key={source.key}
-                      className="grid grid-cols-[minmax(0,1fr)_7rem_3.5rem] items-center gap-2"
-                    >
-                      <span className="truncate">{source.label}</span>
-                      <span className="text-right tabular-nums">
-                        {compactMoney(source.revenue ?? 0)}
-                      </span>
-                      <span className="text-right text-xs tabular-nums text-[var(--text-muted)]">
-                        {percent((source.revenue ?? 0) / sourceTotal)}
-                      </span>
-                    </li>
-                  ))}
-              </ul>
-            ) : (
-              <p className="mt-1 text-sm text-[var(--text-muted)]">
-                Chưa nhập doanh thu tháng này.
-              </p>
-            )}
-            {data.marketers_hn ? (
-              <p className="mt-2 text-xs text-[var(--text-muted)]">
-                Ngoài ra Marketing có {money(data.marketers_hn)} doanh số HN
-                (khách SG làm tại HN): tính KPI của họ, không tính doanh thu cơ
-                sở HCM.
-              </p>
-            ) : null}
-          </div>
+          {byBm ? (
+            <>
+              <Missing
+                testid="team-revenue"
+                wide
+                label="Doanh thu xét KPI"
+                value={BY_BM}
+                note={BY_BM_NOTE}
+              />
+              <Missing
+                testid="team-ratio"
+                label="Ads / Doanh thu"
+                value={BY_BM}
+                note="Cần doanh số để tính."
+              />
+              <Missing
+                testid="team-kpi"
+                label="Tiến độ KPI"
+                value={BY_BM}
+                note="KPI đặt cho cả phòng và từng người, không theo BM."
+              />
+              <Missing
+                testid="team-sources"
+                wide
+                label="Doanh số theo nguồn"
+                value={BY_BM}
+                note={BY_BM_NOTE}
+              />
+            </>
+          ) : (
+            <>
+              <Tile
+                testid="team-revenue"
+                wide
+                label="Doanh thu xét KPI"
+                value={now.revenue === null ? "Chưa nhập" : money(now.revenue)}
+                change={delta(now.revenue, before.revenue)}
+                sub={`Cơ sở HCM ${money(data.revenue_hcm)} · HN chuyển HCM ${money(data.revenue_hn_transfer)} · DT hoa hồng ${money(now.revenue_net)}`}
+              />
+              <Tile
+                testid="team-ratio"
+                label="Ads / Doanh thu"
+                value={percent(now.ads_ratio)}
+                change={pointsDelta(now.ads_ratio, before.ads_ratio)}
+                sub="Lập hoá đơn ÷ DT hoa hồng · ngưỡng ≤ 40%"
+              />
+              <KpiProgress data={data} />
+              <Sources data={data} />
+            </>
+          )}
           <Tile
             label="Chi phí Ads"
             value={money(now.spend)}
@@ -281,12 +322,20 @@ function Report({ data }: { data: AdsTeamReport }) {
                 : "Chưa có hoá đơn Meta"
             }
           />
-          <Tile
-            label="Ads / DT thực"
-            value={percent(now.ads_ratio_real)}
-            change={pointsDelta(now.ads_ratio_real, before.ads_ratio_real)}
-            sub="Lập hoá đơn ÷ doanh thu xét KPI"
-          />
+          {byBm ? (
+            <Missing
+              label="Ads / DT thực"
+              value={BY_BM}
+              note="Cần doanh số để tính."
+            />
+          ) : (
+            <Tile
+              label="Ads / DT thực"
+              value={percent(now.ads_ratio_real)}
+              change={pointsDelta(now.ads_ratio_real, before.ads_ratio_real)}
+              sub="Lập hoá đơn ÷ doanh thu xét KPI"
+            />
+          )}
           <Tile
             label="SĐT · Chi phí / SĐT"
             value={`${count(now.phones)} · ${money(now.cost_per_phone)}`}
@@ -361,6 +410,50 @@ function Report({ data }: { data: AdsTeamReport }) {
         </div>
       </details>
     </>
+  );
+}
+
+function Sources({ data }: { data: AdsTeamReport }) {
+  const sourceTotal = data.sources.reduce(
+    (sum, source) => sum + (source.revenue ?? 0),
+    0,
+  );
+  return (
+    <div data-testid="team-sources" className={`${CARD} sm:col-span-2`}>
+      <div className="text-sm text-[var(--text-muted)]">
+        Doanh số theo nguồn
+      </div>
+      {sourceTotal ? (
+        <ul className="mt-2 space-y-1.5 text-sm">
+          {data.sources
+            .filter((source) => source.revenue)
+            .map((source) => (
+              <li
+                key={source.key}
+                className="grid grid-cols-[minmax(0,1fr)_7rem_3.5rem] items-center gap-2"
+              >
+                <span className="truncate">{source.label}</span>
+                <span className="text-right tabular-nums">
+                  {compactMoney(source.revenue ?? 0)}
+                </span>
+                <span className="text-right text-xs tabular-nums text-[var(--text-muted)]">
+                  {percent((source.revenue ?? 0) / sourceTotal)}
+                </span>
+              </li>
+            ))}
+        </ul>
+      ) : (
+        <p className="mt-1 text-sm text-[var(--text-muted)]">
+          Chưa nhập doanh thu tháng này.
+        </p>
+      )}
+      {data.marketers_hn ? (
+        <p className="mt-2 text-xs text-[var(--text-muted)]">
+          Ngoài ra Marketing có {money(data.marketers_hn)} doanh số HN (khách SG
+          làm tại HN): tính KPI của họ, không tính doanh thu cơ sở HCM.
+        </p>
+      ) : null}
+    </div>
   );
 }
 

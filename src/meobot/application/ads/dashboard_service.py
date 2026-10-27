@@ -282,9 +282,16 @@ class AdsDashboardService:
             key=lambda point: (point.spend / point.phones) if point.phones else float("inf"),
             default=None,
         )
-        connections = list(
-            await self._session.scalars(select(AdsConnection).order_by(AdsConnection.name))
-        )
+        # The BMs to pick from: one person's accounts are often spread over
+        # several BMs - list those, not every BM of the company.
+        bms = select(AdsConnection).order_by(AdsConnection.name)
+        if person is not None:
+            bms = bms.where(
+                AdsConnection.id.in_(
+                    select(AdsAccount.connection_id).where(AdsAccount.user_id == person)
+                )
+            )
+        connections = list(await self._session.scalars(bms))
         last_synced = await self._session.scalar(select(func.max(AdsConnection.last_spend_sync_at)))
         return Dashboard(
             period=period,

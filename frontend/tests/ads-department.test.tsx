@@ -487,6 +487,36 @@ describe("step 2: revenue, KPI, Dashboard tổng", () => {
     );
   });
 
+  it("a person's accounts in several BMs are filtered apart", async () => {
+    const stub = stubFetch([
+      {
+        match: "/api/ads/dashboard",
+        body: {
+          ...DASHBOARD,
+          connections: [
+            { id: "bm-1", name: "BM Apex", site: "Sài Gòn" },
+            { id: "bm-2", name: "BM Hà Nội", site: "Hà Nội" },
+          ],
+        },
+      },
+    ]);
+    renderWithQuery(<AdsDashboardPage />);
+    const pick = await screen.findByLabelText("BM");
+    expect(
+      within(pick).getByRole("option", { name: "BM Hà Nội · Hà Nội" }),
+    ).toBeInTheDocument();
+    await userEvent.selectOptions(pick, "bm-2");
+    await waitFor(() =>
+      expect(
+        calls(stub).some(
+          (call) =>
+            call.url.includes("/api/ads/dashboard") &&
+            call.url.includes("connection_id=bm-2"),
+        ),
+      ).toBe(true),
+    );
+  });
+
   it("the head types a day's revenue and saves only what changed", async () => {
     const day = {
       day: "2026-10-26",
@@ -589,96 +619,112 @@ describe("step 2: revenue, KPI, Dashboard tổng", () => {
       ads_ratio_real: null,
       ...over,
     });
-    const stub = stubFetch([
-      {
-        match: "/api/ads/team",
-        body: {
-          month: "2026-10-01",
-          start: "2026-10-01",
-          end: "2026-10-31",
-          site: "all",
-          current: figures({
-            spend: 3_500_000,
-            invoice: 3_600_000,
-            revenue: 14_000_000,
-            revenue_net: 12_962_963,
-            ads_ratio: 0.25,
-            ads_ratio_real: 0.257,
-            phones: 15,
-          }),
-          before: figures({
+    const report = {
+      month: "2026-10-01",
+      start: "2026-10-01",
+      end: "2026-10-31",
+      site: "all",
+      current: figures({
+        spend: 3_500_000,
+        invoice: 3_600_000,
+        revenue: 14_000_000,
+        revenue_net: 12_962_963,
+        ads_ratio: 0.25,
+        ads_ratio_real: 0.257,
+        phones: 15,
+      }),
+      before: figures({
+        spend: 3_000_000,
+        revenue: 10_000_000,
+        ads_ratio: 0.3,
+      }),
+      revenue_hcm: 12_000_000,
+      revenue_hn_transfer: 2_000_000,
+      marketers_hn: 1_000_000,
+      team_kpi: 20_000_000,
+      team_kpi_rate: 0.7,
+      month_progress: 0.84,
+      sources: [
+        { key: "sg", label: "Doanh số SG", revenue: 10_000_000 },
+        { key: "s:HN", label: "Doanh số chuyển miền", revenue: 2_000_000 },
+        { key: "s:HOTLINE", label: "Hotline", revenue: 2_000_000 },
+      ],
+      marketers: [
+        {
+          user_id: "u-1",
+          name: "Mạnh Ngọc",
+          member_code: "NGOC01",
+          figures: figures({
             spend: 3_000_000,
-            revenue: 10_000_000,
-            ads_ratio: 0.3,
-          }),
-          revenue_hcm: 12_000_000,
-          revenue_hn_transfer: 2_000_000,
-          marketers_hn: 1_000_000,
-          team_kpi: 20_000_000,
-          team_kpi_rate: 0.7,
-          month_progress: 0.84,
-          sources: [
-            { key: "sg", label: "Doanh số SG", revenue: 10_000_000 },
-            { key: "s:HN", label: "Doanh số chuyển miền", revenue: 2_000_000 },
-            { key: "s:HOTLINE", label: "Hotline", revenue: 2_000_000 },
-          ],
-          marketers: [
-            {
-              user_id: "u-1",
-              name: "Mạnh Ngọc",
-              member_code: "NGOC01",
-              figures: figures({
-                spend: 3_000_000,
-                revenue: 12_000_000,
-                revenue_net: 12_000_000,
-                ads_ratio: 0.25,
-                phones: 15,
-              }),
-              kpi: 10_000_000,
-              kpi_rate: 1.2,
-              ads_ratio: 0.25,
-              tone: "good",
-            },
-            {
-              user_id: "u-2",
-              name: "Hoàng Anh",
-              member_code: null,
-              figures: figures({ spend: 500_000 }),
-              kpi: null,
-              kpi_rate: null,
-              ads_ratio: null,
-              tone: null,
-            },
-          ],
-          facebook: figures({
-            spend: 3_500_000,
             revenue: 12_000_000,
             revenue_net: 12_000_000,
-            ads_ratio: 0.29,
+            ads_ratio: 0.25,
             phones: 15,
           }),
-          attention: [
-            {
-              user_id: "u-2",
-              name: "Hoàng Anh",
-              kind: "no_revenue",
-              spend: 500_000,
-              revenue: null,
-              ads_ratio: null,
-              phones: 0,
-            },
-          ],
-          months: [
-            {
-              month: "2026-10-01",
-              figures: figures({ spend: 3_500_000, revenue: 14_000_000 }),
-              kpi: 20_000_000,
-              kpi_rate: 0.7,
-            },
-          ],
-          days: [{ day: "2026-10-26", figures: figures({ spend: 1_234_567 }) }],
+          kpi: 10_000_000,
+          kpi_rate: 1.2,
+          ads_ratio: 0.25,
+          tone: "good",
+        },
+        {
+          user_id: "u-2",
+          name: "Hoàng Anh",
+          member_code: null,
+          figures: figures({ spend: 500_000 }),
+          kpi: null,
+          kpi_rate: null,
+          ads_ratio: null,
+          tone: null,
+        },
+      ],
+      facebook: figures({
+        spend: 3_500_000,
+        revenue: 12_000_000,
+        revenue_net: 12_000_000,
+        ads_ratio: 0.29,
+        phones: 15,
+      }),
+      attention: [
+        {
+          user_id: "u-2",
+          name: "Hoàng Anh",
+          kind: "no_revenue",
+          spend: 500_000,
+          revenue: null,
+          ads_ratio: null,
+          phones: 0,
+        },
+      ],
+      months: [
+        {
+          month: "2026-10-01",
+          figures: figures({ spend: 3_500_000, revenue: 14_000_000 }),
+          kpi: 20_000_000,
+          kpi_rate: 0.7,
+        },
+      ],
+      days: [{ day: "2026-10-26", figures: figures({ spend: 1_234_567 }) }],
+      connections: [
+        { id: "bm-1", name: "BM Apex", site: "Sài Gòn" },
+        { id: "bm-2", name: "BM Hà Nội", site: "Hà Nội" },
+      ],
+    };
+    const stub = stubFetch([
+      {
+        // One BM: no revenue (entered per person, not per BM).
+        match: "connection_id=bm-2",
+        body: {
+          ...report,
+          connection_id: "bm-2",
+          revenue_note: "filtered",
+          current: figures({ spend: 500_000, phones: 3 }),
+          marketers: [report.marketers[1]],
+          attention: [],
+          team_kpi: null,
+          team_kpi_rate: null,
         },
       },
+      { match: "/api/ads/team", body: report },
     ]);
     renderWithQuery(<AdsTeamPage />);
     const revenue = await screen.findByTestId("team-revenue");
@@ -717,5 +763,21 @@ describe("step 2: revenue, KPI, Dashboard tổng", () => {
         ),
       ).toBe(true),
     );
+    // A BM: every block narrows, the revenue cards wait.
+    await userEvent.selectOptions(screen.getByLabelText("BM"), "bm-2");
+    await waitFor(() =>
+      expect(screen.getByTestId("team-revenue")).toHaveTextContent(
+        "Không tách theo BM",
+      ),
+    );
+    expect(screen.getByTestId("team-kpi")).toHaveTextContent(
+      "Không tách theo BM",
+    );
+    expect(screen.getByTestId("team-sources")).toHaveTextContent(
+      "Không tách theo BM",
+    );
+    expect(screen.queryByTestId("marketer-u-1")).toBeNull();
+    expect(screen.getByTestId("marketer-u-2")).toBeInTheDocument();
+    expect(screen.queryByTestId("alert-u-2")).toBeNull();
   });
 });
