@@ -577,7 +577,11 @@ const ROLES: Record<string, string> = {
  */
 const TRANSITION_LABELS: Record<string, string> = {
   BRIEFING: "Chuyển sang Brief",
-  SCRIPTING: "Bắt đầu viết kịch bản",
+  // Reached forwards from Brief, and backwards from AI review when the author
+  // pulls a draft back to rewrite it (a review that did not pass or could not
+  // run). Worded to read naturally both ways - "go to the writing step" - so
+  // the page needs no stage-branching of its own to say "sửa lại".
+  SCRIPTING: "Viết kịch bản",
   AI_REVIEW: "Gửi đi AI review",
   // The direct submission: the finished script goes to the Team Lead and the
   // AI review is skipped. Worded as the business step being chosen, not as the

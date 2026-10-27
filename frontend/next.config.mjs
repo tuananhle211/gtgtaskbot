@@ -103,6 +103,11 @@ const nextConfig = {
       // "Kết nối AI" (0064): the OWNER's AI connections and their routes.
       { source: "/api/ai", destination: `${target}/api/ai` },
       { source: "/api/ai/:path*", destination: `${target}/api/ai/:path*` },
+      // "Tác vụ định kỳ" (0077).
+      { source: "/api/cron", destination: `${target}/api/cron` },
+      { source: "/api/cron/:path*", destination: `${target}/api/cron/:path*` },
+      // Phòng Ads (0078).
+      { source: "/api/ads/:path*", destination: `${target}/api/ads/:path*` },
       // Resources ("Quản lý tài nguyên", 0065): the list is the bare
       // collection route, like /api/orders; the rest sits under it.
       // The personal permission layer (0066).

@@ -20,6 +20,8 @@ import { api, type UnitsMe } from "@/lib/api";
  * * **Kết nối AI** (`/admin/ai`, OWNER only) - the AI services the app calls
  *   (ChatGPT, Gemini, DeepSeek, 9router...) and which serves which purpose.
  *
+ * "Tác vụ định kỳ" and "Kết nối BM" live in the Phòng Ads menu (27/10).
+ *
  * The PR team's own "Thành viên & Phân quyền (PR)" stays in the PR menu, untouched.
  * Who sees which tab is a convenience; every route and write is checked again
  * on the server.

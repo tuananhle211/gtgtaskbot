@@ -12,15 +12,18 @@ thu / lịch / khách do Trưởng phòng nhập tay (tạm thời), mọi công
 | Dữ liệu | Nguồn | Tần suất |
 |---|---|---|
 | Danh sách TK quảng cáo của từng BM | Meta: `/{business_id}/owned_ad_accounts` + `client_ad_accounts` | mỗi lượt đồng bộ |
-| Chi tiêu, số mess, SĐT (lượt `omni_purchase`) theo TK × ngày | Meta: `/act_{id}/insights?level=account&time_increment=1` (gọi gom batch 50 TK) | **08:00 và 21:30**, mỗi lượt kéo lại **3 ngày gần nhất** (Meta còn chỉnh số hôm qua) + nút "Đồng bộ ngay" |
-| Tiền lập hoá đơn theo TK | *Câu hỏi mở* — xem mục 8 | — |
-| Doanh thu, lịch nóng / gối / tối ưu, khách đến cửa, khách bong (theo Marketing × ngày) + nguồn ngoài Ads (Hotline, HN chuyển, Google, Tiktok, Chưa gán) | **Trưởng phòng nhập tay** trên app (màn "Nhập kết quả") | hằng ngày |
+| Chi tiêu, số mess, SĐT (lượt `omni_purchase`, **tạm giữ như script cũ**) theo TK × ngày | Meta: `/act_{id}/insights?level=account&time_increment=1` (gọi gom batch 50 TK) | **08:00**: điền số **hôm qua**; **23:00**: quét lại **hôm qua** (Meta chỉnh số trong ngày) — ghi đè đúng ngày đó. Nút "Đồng bộ ngay" + "Kéo lại khoảng ngày" (bù) |
+| Tiền lập hoá đơn theo TK × ngày (**giao dịch thật**, chốt 27/10: cách A) | Meta: `/act_{id}/activities?fields=event_time,event_type,extra_data` — sự kiện `ad_account_billing_charge`, bỏ trùng theo `extra_data.transaction_id`, số tiền `extra_data.new_value`, ngày theo giờ VN (như `dungKhoLHDCuaSo` của script) | **08:00**, cửa sổ **5 ngày** gần nhất (thay đúng các ngày trong cửa sổ); ngày 1-3 hằng tháng kéo lại trọn tháng trước |
+| **Doanh thu** (theo Marketing × ngày) + nguồn ngoài Ads (Hotline, HN chuyển, Google, Tiktok, Chưa gán) — **chỉ doanh thu** (chốt 27/10) | **Trưởng phòng nhập tay** trên app (màn "Nhập doanh thu") | hằng ngày |
 | KPI doanh thu tháng (team + từng người) | Trưởng phòng nhập | hằng tháng |
-| Lịch sử T4 → nay (cho xu hướng tháng) | Nhập 1 lần từ kho `LICH_SU` + `LICH_SU_DS` của Sheet cũ (file Excel tải về) | 1 lần |
+| Lịch sử T4 → nay (cho xu hướng tháng) | Nhập 1 lần từ kho `LICH_SU` + `LICH_SU_LHD` + doanh thu `LICH_SU_DS` của Sheet cũ (file Excel tải về) | 1 lần |
 
-Token: **System User token** của BM (quyền `ads_read` + `business_management`), OWNER dán trên app, lưu **mã hoá**
-(như Kết nối AI, `SecretBox`), chỉ hiện "••••abcd". Không dùng lại token cá nhân trong `Mã.gs` (đã lộ, phải rotate).
-Client Meta ads riêng (`integrations/meta_ads/`), không đụng client Page của PR (PR đóng băng).
+Lịch nóng / gối / tối ưu, khách đến cửa, khách bong **chưa có nguồn** → các chỉ số dựa vào chúng (Bill TB, tỷ lệ chốt,
+cơ cấu khách, tỷ lệ bong) **ẩn** cho tới khi có; màn hình chừa chỗ, không đổi bố cục khi thêm sau.
+
+Token: **System User token** của từng BM (quyền `ads_read` + `business_management`), OWNER dán trên màn **Kết nối BM**
+(mục 4.5), lưu **mã hoá** (như Kết nối AI, `SecretBox`), chỉ hiện "••••abcd". Không dùng lại token cá nhân trong `Mã.gs`
+(đã lộ, phải rotate). Client Meta ads riêng (`integrations/meta_ads/`), không đụng client Page của PR (PR đóng băng).
 
 ## 2. Gán số cho người
 
@@ -74,10 +77,22 @@ Client Meta ads riêng (`integrations/meta_ads/`), không đụng client Page c�
 - **Khối 3 · Diễn biến theo ngày**: biểu đồ chi tiêu / doanh thu; thẻ "Chi tiêu đang giảm", "Ngày Ads/DT vượt 100%"; bảng 7 ngày gần nhất, "Xem cả tháng" mở đủ 31 ngày; ngày chưa nhập doanh thu ghi "chờ cập nhật".
 
 ### 4.4 Màn phụ
-- **Nhập kết quả** `/ads/results`: chọn ngày → lưới Marketing × (Khách, Nóng, Gối, Tối ưu, Bong, Doanh thu, DT HN, DT MB) + các dòng nguồn ◆; lưu nháp / lưu; sửa được ngày cũ (có lịch sử sửa). Ô trống = chưa nhập (khác 0).
+- **Nhập doanh thu** `/ads/revenue`: chọn ngày (hoặc tuần) → lưới Marketing × **Doanh thu** (+ cột tuỳ chọn DT HN chuyển HCM) + các dòng nguồn ◆; lưu; sửa được ngày cũ (có lịch sử sửa). Ô trống = chưa nhập (khác 0); dán được cả cột từ Excel.
 - **KPI** `/ads/kpi`: tháng × (team, từng người).
-- **Tài khoản QC** `/ads/accounts`: mọi TK đồng bộ về — tên, ID, BM, trạng thái, thương hiệu, nhân viên phụ trách, chi tháng này; lọc "Chưa gán".
-- **Cài đặt Ads** (Quản trị, OWNER) `/admin/ads`: BM + token (thêm / thử kết nối / thu hồi), nhật ký đồng bộ, hệ số + ngưỡng, nhập lịch sử từ Excel.
+- **Tài khoản QC** `/ads/accounts`: mọi TK đồng bộ về — tên, ID, BM, cơ sở, trạng thái, thương hiệu, nhân viên phụ trách, chi tháng này, hoá đơn tháng này; lọc "Chưa gán".
+
+### 4.5 Kết nối BM (menu cấu hình, chốt 27/10) — menu **Phòng Ads › "Kết nối BM"** `/ads/connections`, OWNER (cùng nhánh: **"Tác vụ định kỳ"** `/ads/jobs`, OWNER / ADMIN; `/admin/ads`, `/admin/cron` tự chuyển sang)
+Giống "Kết nối AI" (`/admin/ai`):
+- Danh sách BM: **Tên**, **Business ID**, **Cơ sở** (Sài Gòn / Hà Nội / … — danh mục cơ sở sửa được; nhiều BM có thể cùng một cơ sở), token "••••abcd", **Trạng thái kết nối** (lần thử gần nhất: ✓ / ✗ + lý do + thời điểm), số TK quảng cáo, **lần đồng bộ gần nhất** (chi tiêu / hoá đơn, OK / lỗi), Bật / Tắt.
+- **Thêm / Sửa BM** (Modal): tên, Business ID, cơ sở, token (để trống khi sửa = giữ token cũ), ghi chú.
+- **Test kết nối**: một lệnh nhỏ (`/{business_id}?fields=id,name` + đếm `owned_ad_accounts` / `client_ad_accounts`, `max_retries 0`) → "Kết nối được · BM <tên Meta> · 132 tài khoản" hoặc lỗi Meta dịch ra tiếng Việt (token hết hạn, thiếu quyền `ads_read`, sai Business ID…); kết quả lưu `last_test_*`.
+- **Đồng bộ ngay** (từng BM / tất cả) + **Kéo lại khoảng ngày** (chi tiêu / hoá đơn, tối đa 93 ngày).
+- **Nhật ký đồng bộ**: lượt, BM, loại (chi tiêu / hoá đơn), khoảng ngày, số TK OK / lỗi, số dòng, thời gian chạy, lỗi.
+- Xoá BM: chỉ khi chưa có dữ liệu, còn lại = Tắt (giữ lịch sử).
+- Audit `ads.connection.*` (không bao giờ ghi token). Lọc "Cơ sở" trên các màn dashboard đọc từ cơ sở của BM.
+
+### 4.6 Cài đặt Ads (OWNER) — cùng tab, khối dưới
+Hệ số (VAT, phí, doanh thu xét KPI) + ngưỡng màu Ads/DT, luật loại khỏi tổng, nhập lịch sử từ Excel.
 
 Giao diện theo skill `apexmed-ui` (token màu sáng / tối của app, font app), biểu đồ theo skill `dataviz`;
 số tiền `1.250.000.000 ₫`, ngày `dd/mm/yyyy`. Đầu mỗi màn: "Đồng bộ Meta lúc HH:mm · doanh thu nhập đến dd/mm".
@@ -109,24 +124,25 @@ Module `ADS` trong `domain/org/modules.py` `MODULES`:
 
 ## 7. Các đợt
 
+Trạng thái 27/10: **đợt 1 xong** (0078), **đợt 2 xong** (0079: `/ads/revenue` Nhập doanh thu, `/ads/kpi` KPI doanh thu, `/ads/team` Hiệu suất Marketing, Doanh số + Ads/DT trên `/ads`; doanh thu nhập = số trên đối soát, Ads/DT = chi tiêu ÷ doanh thu, KPI đạt = doanh thu ÷ KPI). Còn đợt 3.
+
 | Đợt | Nội dung | Ước lượng |
 |---|---|---|
-| **1** | Kết nối Meta (BM, token, đồng bộ, TK QC + gán người) + màn **Nhân viên** (4.1, phần chi tiêu / mess / SĐT) | 2 buổi |
-| **2** | Nhập kết quả + KPI → doanh thu / Ads/DT / lịch / khách trên 4.1 + màn **Quản lý A** | 2 buổi |
+| **1** | **Kết nối BM** (4.5: nhiều BM, cơ sở, token mã hoá, test kết nối) + đồng bộ chi tiêu 08:00 / 23:00 + hoá đơn 08:00 + TK QC + gán người + màn **Nhân viên** (4.1, chi tiêu / mess / SĐT / hoá đơn / đối soát) | 2,5 buổi |
+| **2** | Nhập doanh thu + KPI → Doanh số, Ads/DT trên 4.1 + màn **Quản lý A** | 1,5 buổi |
 | **3** | Màn **Quản lý B** (tháng, xu hướng, ngày) + nhập lịch sử T4 → nay từ Excel | 1,5 buổi |
 | 4 | Tiền lập hoá đơn + đối soát (khi chốt nguồn, mục 8) | tuỳ nguồn |
 
 Mỗi đợt xong: chạy trên dev, bạn duyệt rồi mới làm đợt sau.
 
-## 8. Câu hỏi mở
+## 8. Đã chốt (27/10)
 
-1. **Tiền lập hoá đơn** (cột "Số tiền lập hoá đơn / Chênh lệch / Đối soát"): (a) kéo giao dịch thanh toán thật từ Meta
-   (API billing không ổn định — script cũ đã vất vả), (b) tạm tính = chi tiêu × VAT × phí (1,10 × 1,011 / 1,021 như Sheet) —
-   khi đó cột "Đối soát" chưa có ý nghĩa, hay (c) kế toán nhập số hoá đơn tháng theo TK?
-2. **"SĐT thu được"** = lượt `omni_purchase` của Meta như script cũ? (thiết kế ghi "% mess ra số").
-3. **Nhập kết quả theo ngày** cho từng Marketing có nặng với Trưởng phòng không? Thay thế: nhập theo tuần, hoặc
-   tải file Excel mẫu lên.
-4. **BM**: những BM nào (ID), và đã có System User token chưa (bạn đã xác nhận "Có").
+1. Tiền lập hoá đơn = **giao dịch thật từ Meta** (cách A), quét 08:00. "Số tiền lập hoá đơn" trên màn = số gốc Meta ×
+   hệ số VAT × phí như Sheet (hệ số sửa được); cột "Chênh lệch" = hoá đơn − chi tiêu, "Đối soát" = khớp khi chênh ≤ ngưỡng.
+2. SĐT = `omni_purchase` (tạm thời).
+3. Trưởng phòng **chỉ nhập doanh thu**.
+4. Có System User token; BM cấu hình trên menu **Kết nối BM** (nhiều BM, gắn cơ sở, test kết nối).
+5. Lịch: chi phí 08:00 (hôm qua) + 23:00 (quét lại hôm qua); hoá đơn 08:00.
 
 ## 9. Ngoài phạm vi
 

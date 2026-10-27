@@ -368,6 +368,8 @@ def _event_label(event_type: str) -> str:
         "hr_more_info_requested": "Yêu cầu bổ sung thông tin",
         "hr_attendance_update": "Cập nhật nhân sự",
         "announcement_reminder": "Nhắc xác nhận thông báo",
+        "cron_job_failed": "Tác vụ định kỳ bị lỗi",
+        "cron_job_recovered": "Tác vụ định kỳ đã chạy lại",
     }.get(event_type, "Tin nhắn")
 
 

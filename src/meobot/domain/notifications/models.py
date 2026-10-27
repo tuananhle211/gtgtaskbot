@@ -239,6 +239,12 @@ class NotificationEvent(StrEnum):
     DESTINATION_RECOVERED = "destination_recovered"
     #: A registered destination that stopped accepting messages.
     DESTINATION_UNHEALTHY = "destination_unhealthy"
+    # --- Job monitor (0077) -----------------------------------------------
+    #: A scheduled job failed (no retry left) or did not run: to the OWNER,
+    #: with a "Chạy lại" button. One per incident.
+    CRON_JOB_FAILED = "cron_job_failed"
+    #: The job ran fine again after an incident that was reported.
+    CRON_JOB_RECOVERED = "cron_job_recovered"
     # --- 0.6.0a2.1 --------------------------------------------------------
     # --- PR workflow, Step 1F.2.3b ----------------------------------------
     #: A Head approval landed and the piece now needs somebody to produce it.

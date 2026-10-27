@@ -74,6 +74,10 @@ EXPECTED_MANUAL_EDGES: frozenset[tuple[PrWorkflowStage, PrWorkflowStage]] = froz
         (PrWorkflowStage.IDEA, PrWorkflowStage.BRIEFING),
         (PrWorkflowStage.BRIEFING, PrWorkflowStage.SCRIPTING),
         (PrWorkflowStage.SCRIPTING, PrWorkflowStage.AI_REVIEW),
+        # The author pulls a draft back from AI review to rewrite it - an AI
+        # review that did not pass, could not run, or a change of mind. Also a
+        # REVISION_REQUIRED outcome forwards; MANUAL here lets a human drive it.
+        (PrWorkflowStage.AI_REVIEW, PrWorkflowStage.SCRIPTING),
         # Step 1F.2.10. The direct submission: a finished script handed to the
         # Team Lead with the AI review skipped. It enters the first human gate;
         # it decides nothing there, and every later gate is unchanged.
@@ -600,3 +604,25 @@ def test_a_stale_request_for_the_retired_stage_is_refused_by_name() -> None:
     assert caught.value.details["target"] == "MEASURED"
     # And the refusal still names where the content *can* go.
     assert "ARCHIVED" in caught.value.details["allowed"]
+
+
+def test_the_author_may_pull_a_draft_back_from_ai_review_to_edit() -> None:
+    """AI review that did not pass or could not run leaves content at
+    ``AI_REVIEW``; the author may take it back to ``SCRIPTING`` to rewrite.
+
+    The edge is manually drivable (so ``request_transition`` accepts it and
+    ``available-actions`` offers it) and also reachable forwards as the
+    ``REVISION_REQUIRED`` outcome, so it carries both triggers.
+    """
+    assert can_transition_content(
+        PrWorkflowStage.AI_REVIEW,
+        PrWorkflowStage.SCRIPTING,
+        trigger=PrTransitionTrigger.MANUAL,
+    )
+    assert can_transition_content(
+        PrWorkflowStage.AI_REVIEW,
+        PrWorkflowStage.SCRIPTING,
+        trigger=PrTransitionTrigger.AI_REVIEW,
+    )
+    # SCRIPTING is editable, so the member can rewrite once it lands there.
+    assert PrWorkflowStage.SCRIPTING in EDITABLE_STAGES

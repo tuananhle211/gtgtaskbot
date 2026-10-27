@@ -1773,3 +1773,35 @@ async def test_51_the_panel_is_scoped_to_the_draft_on_screen(world: WebWorld) ->
     assert body["run"] is None
     assert body["review"] is None
     assert body["active"] is False
+
+
+@pytest.mark.asyncio
+async def test_52_the_author_pulls_a_stuck_review_back_to_edit(world: WebWorld) -> None:
+    """AI review that did not pass or could not run leaves content at
+    ``AI_REVIEW``; the author may take it back to ``SCRIPTING`` to rewrite.
+
+    The panel offers the move (a ``TRANSITION`` to ``SCRIPTING``) and the write
+    performs it, landing on an editable stage - so a member is never stuck
+    behind a review that cannot clear.
+    """
+    world.act_as(world.lead)
+    content_id = await _make_content(world)
+    await _at_ai_review(world, content_id)
+
+    body = world.client.get(f"/api/pr/contents/{content_id}/available-actions").json()
+    targets = {
+        action["target_stage"]
+        for action in body["available_actions"]
+        if action["action"] == "TRANSITION"
+    }
+    assert PrWorkflowStage.SCRIPTING.value in targets
+
+    moved = world.client.post(
+        f"/api/pr/contents/{content_id}/transition",
+        json={"target_stage": PrWorkflowStage.SCRIPTING.value},
+    )
+    assert moved.status_code == 200, moved.text
+    assert moved.json()["content"]["workflow_stage"] == PrWorkflowStage.SCRIPTING.value
+    # Editable again: the panel offers "Chỉnh sửa nội dung".
+    after = world.client.get(f"/api/pr/contents/{content_id}/available-actions").json()
+    assert "EDIT_CONTENT" in {a["action"] for a in after["available_actions"]}

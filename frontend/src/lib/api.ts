@@ -3442,6 +3442,8 @@ export interface UnitsMe {
   resources?: ResourcesAccess | null;
   /** The points reports' screens ("Hiệu suất"). Optional: an older API omits it. */
   performance?: PerformanceAccess | null;
+  /** Phòng Ads (0078): only the ADS department (+ OWNER / ADMIN). */
+  ads?: AdsAccess | null;
   /**
    * May open other people's profile pages (`/people/<id>`, 2026-10-19): the
    * OWNER / ADMIN, or a head of some department. Names are drawn as links
@@ -3753,6 +3755,363 @@ export interface AiTestResult {
   message: string;
   latency_ms: number;
   connection: AiConnection;
+}
+
+// --- "Tác vụ định kỳ" (0077) -------------------------------------------------
+
+/** OK / FAILING / PARTIAL / LATE / RUNNING / NEVER / OFF. */
+export type CronJobState = "OK" | "FAILING" | "PARTIAL" | "LATE" | "RUNNING" | "NEVER" | "OFF";
+
+export interface CronIncident {
+  id: Uuid;
+  /** FAILED or LATE (did not run on schedule). */
+  kind: string;
+  opened_at: string;
+  closed_at: string | null;
+  failures: number;
+  last_error: string | null;
+  alerted_at: string | null;
+  recovery_alerted_at: string | null;
+  rerun_requested_at: string | null;
+}
+
+export interface CronJob {
+  /** The Celery task name, e.g. `notifications.drain_outbox`. */
+  key: string;
+  label: string;
+  group: string;
+  description: string;
+  /** "mỗi 20 giây", "hằng ngày 08:00 · 23:00". */
+  schedule_label: string;
+  state: CronJobState;
+  state_label: string;
+  /** False = not tracked, no alert (the schedule still runs it). */
+  enabled: boolean;
+  retries: number;
+  retry_delay_minutes: number;
+  alert_after: number;
+  keep_successes: boolean;
+  last_started_at: string | null;
+  last_finished_at: string | null;
+  last_status: string | null;
+  last_status_label: string | null;
+  last_message: string | null;
+  last_duration_ms: number | null;
+  last_success_at: string | null;
+  consecutive_failures: number;
+  running_since: string | null;
+  open_incident: CronIncident | null;
+}
+
+export interface CronOverview {
+  now: string;
+  summary: { total: number; ok: number; failing: number; late: number; running: number; off: number };
+  jobs: CronJob[];
+  /** The OWNER: may change policies. An ADMIN reads and re-runs. */
+  can_manage: boolean;
+}
+
+export interface CronRun {
+  id: Uuid;
+  trigger: string;
+  trigger_label: string;
+  attempt: number;
+  started_at: string;
+  finished_at: string | null;
+  duration_ms: number | null;
+  status: string;
+  status_label: string;
+  message: string | null;
+  error: string | null;
+}
+
+export interface CronJobHistory {
+  job: CronJob;
+  runs: CronRun[];
+  incidents: CronIncident[];
+}
+
+export interface CronJobPolicyBody {
+  enabled?: boolean;
+  retries?: number;
+  retry_delay_minutes?: number;
+  alert_after?: number;
+  keep_successes?: boolean;
+}
+
+// --- Phòng Ads (0078) --------------------------------------------------------
+
+export interface AdsAccess {
+  view: boolean;
+  /** Every marketer's numbers (a Trưởng phòng ADS, the OWNER / ADMIN). */
+  view_all: boolean;
+  /** Gives ad accounts to people. */
+  manage_accounts: boolean;
+  /** "Kết nối BM": the OWNER. */
+  manage_connections: boolean;
+  /** "Nhập doanh thu" / "KPI" (0079): a Trưởng phòng ADS, the OWNER / ADMIN. */
+  edit_revenue?: boolean;
+}
+
+export interface AdsConnection {
+  id: Uuid;
+  name: string;
+  business_id: string;
+  site: string;
+  note: string | null;
+  /** "••••abcd": never the token. */
+  token_hint: string;
+  active: boolean;
+  meta_name: string | null;
+  account_count: number;
+  last_tested_at: string | null;
+  last_test_ok: boolean | null;
+  last_test_message: string | null;
+  last_spend_sync_at: string | null;
+  last_spend_sync_ok: boolean | null;
+  last_spend_sync_message: string | null;
+  last_charge_sync_at: string | null;
+  last_charge_sync_ok: boolean | null;
+  last_charge_sync_message: string | null;
+}
+
+export interface AdsConnections {
+  connections: AdsConnection[];
+  /** False: the server has no encryption key, tokens cannot be stored. */
+  secret_ready: boolean;
+  sites: string[];
+}
+
+export interface AdsConnectionBody {
+  name: string;
+  business_id: string;
+  site: string;
+  token: string;
+  note?: string | null;
+}
+
+export interface AdsConnectionTest {
+  ok: boolean;
+  message: string;
+  latency_ms: number;
+  connection: AdsConnection;
+}
+
+export interface AdsPersonOption {
+  user_id: Uuid;
+  name: string;
+  member_code: string | null;
+}
+
+export interface AdsOption {
+  value: string;
+  label: string;
+}
+
+export interface AdsAccount {
+  account_id: string;
+  name: string;
+  connection_id: Uuid;
+  connection_name: string;
+  site: string;
+  status: number | null;
+  active: boolean;
+  brand: string;
+  brand_label: string;
+  user_id: Uuid | null;
+  user_name: string | null;
+  spend: number;
+  charged: number;
+  last_seen_at: string | null;
+}
+
+export interface AdsAccounts {
+  month: string;
+  accounts: AdsAccount[];
+  people: AdsPersonOption[];
+  brands: AdsOption[];
+  can_manage: boolean;
+}
+
+export interface AdsKpi {
+  key: string;
+  label: string;
+  value: number | null;
+  previous: number | null;
+  /** Relative change against the period before (0.084 = +8,4%). */
+  change: number | null;
+  /** A cost: going down is good. */
+  lower_is_better: boolean;
+}
+
+export interface AdsSeriesPoint {
+  start: string;
+  spend: number;
+  messages: number;
+  phones: number;
+  cost_per_phone: number | null;
+  /** "Doanh số xét KPI" of the bucket; `revenue_net` = without the 8% VAT. */
+  revenue?: number | null;
+  revenue_net?: number | null;
+  ads_ratio?: number | null;
+}
+
+export interface AdsAccountLine {
+  account_id: string;
+  name: string;
+  connection_name: string;
+  site: string;
+  brand: string;
+  brand_label: string;
+  user_id: Uuid | null;
+  user_name: string | null;
+  spend: number;
+  messages: number;
+  phones: number;
+  /** Meta's charges, before VAT / fees. */
+  charged: number;
+  /** "Số tiền lập hoá đơn": charges x VAT x fee. */
+  invoice: number;
+  /** Charges minus spend. */
+  difference: number;
+  matched: boolean;
+  card_last4?: string | null;
+  /** "LHĐ / chi tiêu". */
+  invoice_ratio?: number | null;
+  /** One value per entry of the dashboard's `days`. */
+  spend_by_day?: number[];
+  invoice_by_day?: number[];
+}
+
+export interface AdsHighlights {
+  best_revenue_day: AdsSeriesPoint | null;
+  /** Days with spend and no revenue entered. */
+  zero_revenue_days: AdsSeriesPoint[];
+  last5_spend: number;
+  last5_days: number;
+  earlier_daily_spend: number | null;
+}
+
+export interface AdsDashboard {
+  start: string;
+  end: string;
+  previous_start: string;
+  previous_end: string;
+  grouping: "day" | "week" | "month";
+  user_id: Uuid | null;
+  kpis: AdsKpi[];
+  series: AdsSeriesPoint[];
+  best_day: AdsSeriesPoint | null;
+  review_day: AdsSeriesPoint | null;
+  accounts: AdsAccountLine[];
+  people: AdsPersonOption[];
+  connections: Array<{ id: Uuid; name: string; site: string }>;
+  sites: string[];
+  brands: AdsOption[];
+  last_synced_at: string | null;
+  /** Entered by the Trưởng phòng (0079); null = none entered for the period. */
+  revenue: number | null;
+  /** "filtered": a brand / BM / cơ sở filter is on - revenue is not split that way. */
+  revenue_note?: string | null;
+  /** "Doanh thu hoa hồng": the revenue without the 8% VAT. */
+  revenue_net?: number | null;
+  highlights?: AdsHighlights | null;
+  /** The days of the per-day tables (empty above 62 days). */
+  days?: string[];
+}
+
+export interface AdsEntryLine {
+  /** `u:<user id>`, `s:<source>` or `team`. */
+  key: string;
+  label: string;
+  user_id: Uuid | null;
+  source: string | null;
+  member_code: string | null;
+  /** null = not entered (not the same as 0). A marketer's "Doanh số SG". */
+  amount: number | null;
+  /** A marketer's "Doanh số HN" (saved as `<key>:hn`). */
+  amount_hn?: number | null;
+}
+
+export interface AdsRevenueDay {
+  day: string;
+  lines: AdsEntryLine[];
+  total: number | null;
+}
+
+export interface AdsKpiMonth {
+  month: string;
+  lines: AdsEntryLine[];
+  can_edit: boolean;
+}
+
+export interface AdsFigures {
+  spend: number;
+  invoice: number;
+  phones: number;
+  /** "Doanh thu xét KPI" (VAT included); `revenue_net` = "Doanh thu hoa hồng". */
+  revenue: number | null;
+  revenue_net: number | null;
+  cost_per_phone: number | null;
+  /** Charges (else spend) ÷ commission revenue. */
+  ads_ratio: number | null;
+  /** Charges ÷ revenue VAT included. */
+  ads_ratio_real: number | null;
+}
+
+export interface AdsAlert {
+  user_id: Uuid;
+  name: string;
+  /** high_ratio / no_revenue. */
+  kind: string;
+  spend: number;
+  revenue: number | null;
+  ads_ratio: number | null;
+  phones: number;
+}
+
+export interface AdsTeamReport {
+  month: string;
+  start: string;
+  end: string;
+  /** all / hcm / hn. */
+  site: string;
+  current: AdsFigures;
+  before: AdsFigures;
+  revenue_hcm: number | null;
+  revenue_hn_transfer: number | null;
+  /** The marketers' HN part: their KPI, not the site's revenue. */
+  marketers_hn: number | null;
+  team_kpi: number | null;
+  team_kpi_rate: number | null;
+  /** Share of the month gone (0-1). */
+  month_progress: number;
+  sources: Array<{ key: string; label: string; revenue: number | null }>;
+  marketers: Array<{
+    user_id: Uuid;
+    name: string;
+    member_code: string | null;
+    figures: AdsFigures;
+    kpi: number | null;
+    kpi_rate: number | null;
+    ads_ratio: number | null;
+    /** good / watch / bad. */
+    tone: string | null;
+  }>;
+  facebook: AdsFigures;
+  attention: AdsAlert[];
+  months: Array<{ month: string; figures: AdsFigures; kpi: number | null; kpi_rate: number | null }>;
+  days: Array<{ day: string; figures: AdsFigures }>;
+}
+
+export interface AdsDashboardQuery {
+  start?: string;
+  end?: string;
+  group?: "day" | "week" | "month";
+  user_id?: string;
+  brand?: string;
+  connection_id?: string;
+  site?: string;
 }
 
 export interface Department {
@@ -5277,6 +5636,51 @@ export const api = {
    * `ai_route_too_long` / `ai_route_unknown_connection`.
    */
   setAiRoutes: (routes: Record<string, Uuid[]>) => put<AiOverview>("/api/ai/routes", { routes }),
+
+  // "Tác vụ định kỳ" (0077): OWNER / ADMIN read and re-run (403 `cron_forbidden`);
+  // policy edits: the OWNER.
+  cronOverview: () => get<CronOverview>("/api/cron"),
+  cronJob: (key: string) => get<CronJobHistory>(`/api/cron/jobs/${encodeURIComponent(key)}`),
+  /** 202: queued the way the schedule would. 409 `cron_job_running` while it runs. */
+  rerunCronJob: (key: string) =>
+    post<{ task_id: string; job: CronJob }>(`/api/cron/jobs/${encodeURIComponent(key)}/run`),
+  /** The OWNER's: retries 0-5, delay 1-720 minutes, alert after 1-100 failures. */
+  updateCronJob: (key: string, body: CronJobPolicyBody) =>
+    patch<CronJob>(`/api/cron/jobs/${encodeURIComponent(key)}`, body),
+
+  // Phòng Ads (0078). "Kết nối BM": the OWNER (403 `ads_connection_forbidden`);
+  // the rest: the ADS department (+ OWNER / ADMIN), else 404 `ads_not_visible`.
+  adsConnections: () => get<AdsConnections>("/api/ads/connections"),
+  /** 201. 422 `ads_name_missing` / `ads_business_id_invalid` / `ads_business_id_taken` / `ads_token_missing`. */
+  createAdsConnection: (body: AdsConnectionBody) => post<AdsConnection>("/api/ads/connections", body),
+  /** A blank `token` keeps the stored one. */
+  updateAdsConnection: (id: Uuid, body: Partial<AdsConnectionBody> & { active?: boolean }) =>
+    patch<AdsConnection>(`/api/ads/connections/${id}`, body),
+  /** 204; 409 `ads_connection_in_use` once it has accounts (switch it off instead). */
+  deleteAdsConnection: (id: Uuid) => del<void>(`/api/ads/connections/${id}`),
+  /** Asks Meta for the BM and its accounts. A failure is `ok: false` + why. */
+  testAdsConnection: (id: Uuid) => post<AdsConnectionTest>(`/api/ads/connections/${id}/test`),
+  /** "Đồng bộ ngay" (no dates) / "Kéo lại khoảng ngày" (≤ 93 days). 409 `cron_job_running`. */
+  adsSync: (body: { kind: "spend" | "charges"; since?: string; until?: string; connection_id?: Uuid }) =>
+    post<{ task_id: string; job_key: string }>("/api/ads/sync", body),
+  adsAccounts: (params: { month?: string; connection_id?: string; unassigned?: boolean; q?: string } = {}) =>
+    get<AdsAccounts>(`/api/ads/accounts${query(params)}`),
+  /** `user_id: null` = "Chưa gán". 422 `ads_assignee_invalid`; 403 `ads_account_forbidden`. */
+  assignAdsAccount: (accountId: string, body: { user_id?: Uuid | null; brand?: string }) =>
+    patch<AdsAccount>(`/api/ads/accounts/${encodeURIComponent(accountId)}`, body),
+  adsDashboard: (params: AdsDashboardQuery = {}) =>
+    get<AdsDashboard>(`/api/ads/dashboard${query(params)}`),
+  // 0079: revenue and KPIs entered by a Trưởng phòng ADS (else 403 `ads_revenue_forbidden`).
+  adsRevenue: (day?: string) => get<AdsRevenueDay>(`/api/ads/revenue${query({ day })}`),
+  /** `key -> amount`; null or "" clears a line. 422 `ads_revenue_invalid`. */
+  saveAdsRevenue: (day: string, entries: Record<string, number | string | null>) =>
+    put<AdsRevenueDay>("/api/ads/revenue", { day, entries }),
+  adsKpi: (month?: string) => get<AdsKpiMonth>(`/api/ads/kpi${query({ month })}`),
+  saveAdsKpi: (month: string, entries: Record<string, number | string | null>) =>
+    put<AdsKpiMonth>("/api/ads/kpi", { month, entries }),
+  /** Quản lý A (a Trưởng phòng / OWNER / ADMIN; a member 404). */
+  adsTeam: (params: { month?: string; site?: string } = {}) =>
+    get<AdsTeamReport>(`/api/ads/team${query(params)}`),
 
   // Departments ("Phòng ban"). Read: OWNER / ADMIN (else 403
   // `department_forbidden`); every write: the OWNER.

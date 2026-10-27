@@ -117,6 +117,9 @@ ACTION_CODES: dict[str, str] = {
     "disp.list.each": "dd",
     "disp.list.healthy": "de",
     "disp.edit": "df",
+    # --- Job monitor (0077) ----------------------------------------------
+    #: "Chạy lại" under a failed-job alert. The entity is the incident.
+    "cron.rerun": "cj",
 }
 _CODE_TO_ACTION: dict[str, str] = {code: name for name, code in ACTION_CODES.items()}
 

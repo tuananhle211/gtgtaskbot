@@ -26,6 +26,7 @@ from meobot.bot.handlers import (
     chat_router,
     commands_router,
     conversation_router,
+    cron_router,
     dispatch_router,
     drive_router,
     group_admin_router,
@@ -159,6 +160,8 @@ def build_dispatcher(settings: Settings, database: Database) -> Dispatcher:
     # the broader Member router.
     dispatcher.include_router(notifications_router)
     dispatcher.include_router(read_receipts_router)
+    # 0077: "🔄 Chạy lại" under a failed-job alert (callback only).
+    dispatcher.include_router(cron_router)
     dispatcher.include_router(group_admin_router)
     # Reminders before HR: "nhắc" is a common word, and the reminder patterns
     # are the most specific reading of it.

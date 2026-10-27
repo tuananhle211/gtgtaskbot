@@ -19,6 +19,7 @@ from meobot.bot.handlers.access import router as access_router
 from meobot.bot.handlers.chat import router as chat_router
 from meobot.bot.handlers.commands import router as commands_router
 from meobot.bot.handlers.conversation import router as conversation_router
+from meobot.bot.handlers.cron import router as cron_router
 from meobot.bot.handlers.dispatch import router as dispatch_router
 from meobot.bot.handlers.drive import router as drive_router
 from meobot.bot.handlers.group_admin import router as group_admin_router
@@ -39,6 +40,7 @@ __all__ = [
     "chat_router",
     "commands_router",
     "conversation_router",
+    "cron_router",
     "dispatch_router",
     "drive_router",
     "group_admin_router",

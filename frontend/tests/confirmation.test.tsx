@@ -1002,6 +1002,8 @@ describe("173. the confirmation policy has a maintainable regression strategy", 
         "Hộp thoại form Thêm / Sửa tài nguyên (mục Tài nguyên, 0065): nút Thêm tài nguyên / Lưu thay đổi trong form chính là bước xác nhận (policy parameter-modal). Tạo một tài nguyên mới hoặc sửa các trường mô tả; không đổi người giữ, không đổi trạng thái (hai thao tác đó có hộp thoại riêng ghi lịch sử).",
       "components/resource-dialogs.tsx":
         "Ba hộp thoại form trên hồ sơ tài nguyên (Đổi người được bàn giao, Cập nhật trạng thái, Đánh dấu đã rà soát): nút gửi trong mỗi form là bước xác nhận (policy parameter-modal) vì form thu lý do / trạng thái / ghi chú bắt buộc. Mỗi lần gửi ghi thêm một dòng lịch sử chỉ-thêm, không ghi đè gì.",
+      "app/ads/accounts/page.tsx":
+        "Tài khoản QC (Phòng Ads, 0078): ô chọn Người phụ trách / Thương hiệu trên từng dòng lưu ngay một trường của một tài khoản quảng cáo (policy parameter-modal, như ô mã nhân viên). Không xoá, không đổi số liệu Meta; chọn lại là đổi lại được ngay, mỗi lần đổi có ghi audit.",
       "app/pr/work/mapping.tsx":
         "Form ba lựa chọn (cột mốc, loại nội dung, loại công việc); nút lưu trong form chính là bước xác nhận — xem ACTION_INVENTORY, policy parameter-modal. Lưu ánh xạ không viết lại lịch sử: công việc đã COUNTED trong kỳ đã đóng giữ nguyên, chỉ các lần chiếu sau dùng ánh xạ mới. M3.1 tách tệp này ra khỏi kpi.tsx, và trước đó nó lọt qua kiểm tra này chỉ vì ở chung tệp với các hộp thoại KPI.",
     };

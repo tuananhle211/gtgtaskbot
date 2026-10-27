@@ -81,6 +81,7 @@ type NavIcon =
   | "salary"
   | "performance"
   | "timeline"
+  | "ads"
   | "account";
 
 /** The screen every unit shares besides the order boards. */
@@ -205,6 +206,39 @@ function performanceBranch(me: UnitsMe | undefined): NavGroup {
 }
 
 /**
+ * "Phòng Ads" (0078): the ad-spend dashboard and the ad accounts, for the ADS
+ * department and the OWNER / ADMIN (`ads.view` on `/api/units/me`), "Hiệu
+ * suất Marketing" (`view_all`), "Nhập doanh thu" / "KPI" (`edit_revenue`); its
+ * settings sit in the same branch (27/10): "Kết nối BM" for the OWNER
+ * (`ads.manage_connections`), "Tác vụ định kỳ" for the OWNER / ADMIN.
+ */
+function adsBranch(me: UnitsMe | undefined, sessionRole?: string): NavGroup | null {
+  if (!me?.ads?.view) return null;
+  const manages = sessionRole === "OWNER" || sessionRole === "ADMIN";
+  return {
+    label: "Phòng Ads",
+    icon: "ads",
+    children: [
+      { href: "/ads", label: "Dashboard Ads", icon: "dashboard" },
+      ...(me.ads.view_all
+        ? [{ href: "/ads/team", label: "Dashboard tổng", icon: "report" as NavIcon }]
+        : []),
+      ...(me.ads.edit_revenue
+        ? [
+            { href: "/ads/revenue", label: "Nhập doanh thu", icon: "request" as NavIcon },
+            { href: "/ads/kpi", label: "KPI doanh thu", icon: "mine" as NavIcon },
+          ]
+        : []),
+      { href: "/ads/accounts", label: "Tài khoản QC", icon: "inventory" },
+      ...(me.ads.manage_connections
+        ? [{ href: "/ads/connections", label: "Kết nối BM", icon: "settings" as NavIcon }]
+        : []),
+      ...(manages ? [{ href: "/ads/jobs", label: "Tác vụ định kỳ", icon: "timeline" as NavIcon }] : []),
+    ],
+  };
+}
+
+/**
  * Where an account still on the default password is sent, from every screen.
  * The API refuses everything else until the password changes (403
  * `password_change_required`); this only spares the person a page of refusals.
@@ -303,16 +337,18 @@ export function navFor(me: UnitsMe | undefined, sessionRole?: string): NavEntry[
   const effort = seesOrdEffort(me, sessionRole);
   const library = libraryBranch(me);
   const resources = resourcesBranch(me);
+  const ads = adsBranch(me, sessionRole);
   // "Bảng order" follows the order module's permissions (an ORD seat or grant
   // gives the ADS entry), like every other branch; it stays while `me` loads.
   const orders = !me || seesAll || me.units.some((unit) => unit.code === "ADS");
   // The order (2026-10-26): Dashboard, Hiệu suất, Bảng order (+ Effort),
-  // Phòng PR, Phòng Tài nguyên, Thư viện - and Quản trị last.
+  // Phòng Ads (0078), Phòng PR, Phòng Tài nguyên, Thư viện - and Quản trị last.
   return [
     DASHBOARD_NAV,
     performanceBranch(me),
     ...(orders ? [orderBoards(me, sessionRole)] : []),
     ...(effort ? EFFORT_NAV : []),
+    ...(ads ? [ads] : []),
     ...(pr ? [PR_GROUP] : []),
     ...(resources ? [resources] : []),
     ...(library ? [library] : []),
@@ -421,6 +457,13 @@ function Icon({ name }: { name: NavIcon }) {
         <path d="M3 5h18M3 19h18" />
         <rect x="4" y="8" width="8" height="3" rx="1" />
         <rect x="9" y="13" width="10" height="3" rx="1" />
+      </>
+    ),
+    ads: (
+      <>
+        <path d="M3 10v4a1 1 0 0 0 1 1h3l6 4V5L7 9H4a1 1 0 0 0-1 1z" />
+        <path d="M17 9a4 4 0 0 1 0 6" />
+        <path d="M20 6.5a8 8 0 0 1 0 11" />
       </>
     ),
     performance: (

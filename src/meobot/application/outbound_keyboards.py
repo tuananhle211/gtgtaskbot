@@ -61,6 +61,8 @@ async def _markup_for(
         return await _quota_request_markup(session, settings, message)
     if message.event_type == NotificationEvent.ANNOUNCEMENT_PUBLISHED.value:
         return await _announcement_markup(session, settings, message)
+    if message.event_type == NotificationEvent.CRON_JOB_FAILED.value:
+        return _cron_rerun_markup(settings, message)
     return None
 
 
@@ -141,6 +143,17 @@ async def _announcement_markup(
         version=announcement.version if announcement is not None else 1,
     )
     return keyboard.model_dump(exclude_none=True) if keyboard is not None else None
+
+
+def _cron_rerun_markup(settings: Settings, message: OutboundMessage) -> dict[str, Any] | None:
+    """ "🔄 Chạy lại" under a failed-job alert (0077), signed for the OWNER's
+    private chat the alert is delivered to."""
+    from meobot.bot.cron_keyboards import rerun_keyboard
+
+    keyboard = rerun_keyboard(
+        incident_id=_require_id(message), chat_id=message.telegram_chat_id, settings=settings
+    )
+    return keyboard.model_dump(exclude_none=True)
 
 
 def _require_id(message: OutboundMessage) -> uuid.UUID:

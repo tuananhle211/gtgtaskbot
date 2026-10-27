@@ -55,8 +55,9 @@ const PANEL_LIMIT = 15;
 /**
  * Where a notification goes when clicked, or `null` if it links nowhere.
  *
- * Both kinds open the one task screen: `/api/tasks/{ref}` accepts a PR content
- * id and an order id as the ref, so the target id is enough.
+ * Both task kinds open the one task screen: `/api/tasks/{ref}` accepts a PR
+ * content id and an order id as the ref, so the target id is enough. A job
+ * alert (`cron_job`) opens "Tác vụ định kỳ".
  */
 export function notificationHref(item: AppNotification): string | null {
   if (
@@ -65,6 +66,8 @@ export function notificationHref(item: AppNotification): string | null {
   ) {
     return `/tasks/${item.target_id}`;
   }
+  // 0077: a failed scheduled job opens the monitor screen.
+  if (item.target_kind === "cron_job") return "/ads/jobs";
   return null;
 }
 

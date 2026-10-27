@@ -26,6 +26,7 @@ from meobot.api.deps import (
 from meobot.api.schemas.performance import PerformanceAccessResponse
 from meobot.api.schemas.resources import ResourceAccessResponse
 from meobot.api.schemas.units import (
+    AdsAccessResponse,
     BanStatsResponse,
     CreateDesignCodeRequest,
     CreateDurationRequest,
@@ -68,6 +69,7 @@ from meobot.api.schemas.units import (
     unit_entry,
 )
 from meobot.application.account.avatar_service import avatar_urls
+from meobot.application.ads.access import ads_access
 from meobot.application.audit_service import AuditService
 from meobot.application.orders.design_code_service import (
     DesignCodeService,
@@ -271,6 +273,18 @@ async def my_units(
             await performance_access(directory.session, membership),
             manage_coefficients=may_set_coefficients(membership),
         ),
+        ads=_ads_block(membership),
+    )
+
+
+def _ads_block(membership: UnitMembership) -> AdsAccessResponse:
+    access = ads_access(membership)
+    return AdsAccessResponse(
+        view=access.view,
+        view_all=access.view_all,
+        manage_accounts=access.manage_accounts,
+        manage_connections=access.manage_connections,
+        edit_revenue=access.edit_revenue,
     )
 
 

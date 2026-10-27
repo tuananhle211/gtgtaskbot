@@ -163,6 +163,9 @@ class Settings(BaseSettings):
     #: instead of waiting for a real message to fail against them. Never sends
     #: a visible test message, and never probes a private chat.
     notification_destination_health_enabled: bool = True
+    #: The job monitor ("Tác vụ định kỳ", 0077): record every scheduled run
+    #: from the worker's Celery signals. Never active in eager mode.
+    cron_monitor_enabled: bool = True
     notification_destination_health_interval_seconds: int = Field(default=1800, ge=300, le=86400)
     #: Bounded so a deployment with many groups spreads its probes over several
     #: sweeps rather than making one burst of API calls.

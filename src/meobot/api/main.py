@@ -15,9 +15,11 @@ from meobot.api.middleware import RequestContextMiddleware
 from meobot.api.routers import (
     access,
     account,
+    ads,
     ai,
     board,
     conversations,
+    cron,
     departments,
     drive,
     health,
@@ -208,6 +210,10 @@ def _include_web_facing_routers(app: FastAPI) -> None:
     app.include_router(units.router)
     app.include_router(departments.router)
     app.include_router(ai.router)
+    # "Tác vụ định kỳ" (0077): OWNER / ADMIN, checked inside.
+    app.include_router(cron.router)
+    # Phòng Ads (0078): the ADS department only, checked inside.
+    app.include_router(ads.router)
     # Resources ("Quản lý tài nguyên", 0065). Not behind a unit gate: who
     # sees what is the departments' grants, checked inside the service.
     # Đề xuất tài nguyên: before the resources router (its ``/{resource_id}``).

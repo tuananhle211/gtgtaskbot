@@ -6,6 +6,15 @@ Importing this package registers every table on ``Base.metadata`` - Alembic's
 
 from meobot.db.models.access import GroupMemberResponsePolicy, PendingGuestAccessRequest
 from meobot.db.models.actor_profile import ActorProfileRow
+from meobot.db.models.ads import (
+    AdsAccount,
+    AdsChargeDaily,
+    AdsConnection,
+    AdsKpi,
+    AdsRevenueChange,
+    AdsRevenueDaily,
+    AdsSpendDaily,
+)
 from meobot.db.models.ai_connection import AiConnection, AiRoute
 from meobot.db.models.audit_log import AuditLog
 from meobot.db.models.confirmation_request import ConfirmationRequestRow
@@ -15,6 +24,7 @@ from meobot.db.models.conversation import (
     ConversationThread,
 )
 from meobot.db.models.conversation_state import ConversationState
+from meobot.db.models.cron import CronJob, CronJobIncident, CronJobRun
 from meobot.db.models.deferred import DeferredGuestMessage
 from meobot.db.models.department import Department, DepartmentMember, DepartmentPermission
 from meobot.db.models.dispatch import (
@@ -172,6 +182,13 @@ from meobot.db.models.web_session import WebSession, WebSessionKind
 
 __all__ = [
     "ActorProfileRow",
+    "AdsAccount",
+    "AdsChargeDaily",
+    "AdsConnection",
+    "AdsKpi",
+    "AdsRevenueChange",
+    "AdsRevenueDaily",
+    "AdsSpendDaily",
     "AiConnection",
     "AiRoute",
     "Announcement",
@@ -184,6 +201,9 @@ __all__ = [
     "ConversationSummary",
     "ConversationThread",
     "CreatedSpreadsheet",
+    "CronJob",
+    "CronJobIncident",
+    "CronJobRun",
     "DailyAiUsage",
     "DeferredGuestMessage",
     "DeliveryAttempt",

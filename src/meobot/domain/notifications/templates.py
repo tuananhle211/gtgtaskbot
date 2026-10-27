@@ -241,6 +241,30 @@ Tình trạng:
 TasksBot tạm thời chưa gửi được tin vào đây."""
 
 
+def _cron_job_failed(payload: dict[str, Any]) -> str:
+    return f"""⚠️ TÁC VỤ ĐỊNH KỲ BỊ LỖI
+
+Tác vụ:
+{payload["job_label"]}
+
+Tình trạng:
+{payload["problem"]}
+
+Chi tiết:
+{payload["detail"] or "(không có)"}
+
+Bấm "Chạy lại" để chạy ngay, hoặc mở mục Tác vụ định kỳ trong menu Phòng Ads."""
+
+
+def _cron_job_recovered(payload: dict[str, Any]) -> str:
+    return f"""✅ TÁC VỤ ĐÃ CHẠY LẠI BÌNH THƯỜNG
+
+Tác vụ:
+{payload["job_label"]}
+
+{payload["detail"]}"""
+
+
 def _destination_recovered(payload: dict[str, Any]) -> str:
     return f"""✅ NƠI NHẬN ĐÃ HOẠT ĐỘNG TRỞ LẠI
 
@@ -597,6 +621,21 @@ TEMPLATES: dict[str, MessageTemplate] = {
             classification=PrivacyClassification.MANAGEMENT_ONLY,
             required=("destination_label",),
             renderer=_destination_recovered,
+        ),
+        # --- Job monitor (0077) -------------------------------------------
+        MessageTemplate(
+            key="cron.job_failed",
+            version=1,
+            classification=PrivacyClassification.MANAGEMENT_ONLY,
+            required=("job_label", "problem", "detail"),
+            renderer=_cron_job_failed,
+        ),
+        MessageTemplate(
+            key="cron.job_recovered",
+            version=1,
+            classification=PrivacyClassification.MANAGEMENT_ONLY,
+            required=("job_label", "detail"),
+            renderer=_cron_job_recovered,
         ),
         # --- 0.6.0a3: one announcement, several groups --------------------
         MessageTemplate(

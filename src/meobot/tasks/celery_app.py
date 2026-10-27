@@ -18,6 +18,7 @@ from __future__ import annotations
 from typing import Any
 
 from celery import Celery, Task
+from celery.schedules import crontab
 from celery.signals import setup_logging, task_prerun
 from kombu import Queue
 
@@ -60,6 +61,8 @@ celery_app = Celery(
         "meobot.tasks.pr_content_work",
         "meobot.tasks.pr_channel_sync",
         "meobot.tasks.pr_work_recurring",
+        "meobot.tasks.cron_monitor",
+        "meobot.tasks.ads",
     ],
 )
 
@@ -99,6 +102,9 @@ celery_app.conf.update(
         "scripts.push_decision_to_sheet": {"queue": QUEUE_INTEGRATIONS},
         "scripts.*": {"queue": QUEUE_DEFAULT},
         "conversations.*": {"queue": QUEUE_DEFAULT},
+        "cron.*": {"queue": QUEUE_DEFAULT},
+        # Phòng Ads talks to Meta: the third-party queue.
+        "ads.*": {"queue": QUEUE_INTEGRATIONS},
         "notifications.*": {"queue": QUEUE_NOTIFICATIONS},
         # PR AI review is a third-party call, so it shares the queue that
         # exists to keep a slow provider from starving everything else.
@@ -266,6 +272,34 @@ celery_app.conf.update(
             "task": "notifications.purge_deferred_guest_messages",
             "schedule": 3600.0,
             "options": {"queue": QUEUE_NOTIFICATIONS, "expires": 1800},
+        },
+        # --- Job monitor (0077) -------------------------------------------
+        # Catalogues the beat's jobs and reports the ones that did not run
+        # when they should have. Every job is recorded by the signals in
+        # ``meobot.tasks.cron_monitor``; this only looks for silence.
+        "cron-watchdog": {
+            "task": "cron.watchdog",
+            "schedule": 300.0,
+            "options": {"queue": QUEUE_DEFAULT, "expires": 240},
+        },
+        "cron-purge-runs": {
+            "task": "cron.purge_runs",
+            "schedule": 86400.0,
+            "options": {"queue": QUEUE_DEFAULT, "expires": 3600},
+        },
+        # --- Phòng Ads (0078) ---------------------------------------------
+        # The beat runs in UTC: 01:00 / 16:00 UTC = 08:00 / 23:00 in Vietnam.
+        # 08:00 fills yesterday's spend; 23:00 reads the same day again.
+        "ads-sync-spend": {
+            "task": "ads.sync_spend",
+            "schedule": crontab(hour="1,16", minute="0"),
+            "options": {"queue": QUEUE_INTEGRATIONS, "expires": 3 * 3600},
+        },
+        # 08:05: billing charges over the last five days.
+        "ads-sync-charges": {
+            "task": "ads.sync_charges",
+            "schedule": crontab(hour="1", minute="5"),
+            "options": {"queue": QUEUE_INTEGRATIONS, "expires": 3 * 3600},
         },
     },
 )

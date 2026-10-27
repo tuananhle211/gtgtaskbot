@@ -219,6 +219,17 @@ class DesignAccessResponse(BaseModel):
     manage_library: bool = False
 
 
+class AdsAccessResponse(BaseModel):
+    """Phòng Ads (0078): the nav's "Phòng Ads" branch, "Tài khoản QC" for a
+    Trưởng phòng ADS, "Kết nối BM" for the OWNER."""
+
+    view: bool = False
+    view_all: bool = False
+    manage_accounts: bool = False
+    manage_connections: bool = False
+    edit_revenue: bool = False
+
+
 class UnitMeResponse(BaseModel):
     """What the shell needs to draw the unit switch and the nav."""
 
@@ -252,6 +263,7 @@ class UnitMeResponse(BaseModel):
     can_view_profiles: bool = False
     #: The points reports: "Phòng của tôi" / "Toàn công ty" / the Excel file.
     performance: PerformanceAccessResponse = PerformanceAccessResponse()
+    ads: AdsAccessResponse = AdsAccessResponse()
 
     @classmethod
     def from_domain(
@@ -266,6 +278,7 @@ class UnitMeResponse(BaseModel):
         seats: list[DepartmentSeatResponse] | None = None,
         resources: ResourceAccessResponse | None = None,
         performance: PerformanceAccessResponse | None = None,
+        ads: AdsAccessResponse | None = None,
     ) -> UnitMeResponse:
         entries = sorted(entries, key=lambda entry: stream_rank(entry.code))
         heads = any(seat.position is Position.HEAD for seat in membership.seats)
@@ -292,6 +305,7 @@ class UnitMeResponse(BaseModel):
             design=design or DesignAccessResponse(),
             resources=resources or ResourceAccessResponse(),
             performance=performance or PerformanceAccessResponse(),
+            ads=ads or AdsAccessResponse(),
         )
 
 

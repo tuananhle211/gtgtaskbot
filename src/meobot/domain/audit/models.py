@@ -486,6 +486,22 @@ class AuditAction(StrEnum):
     AI_CONNECTION_DELETED = "ai.connection.deleted"
     AI_CONNECTION_TESTED = "ai.connection.tested"
     AI_ROUTES_UPDATED = "ai.routes.updated"
+    #: "Tác vụ định kỳ" (0077): a manual re-run, a policy edit.
+    CRON_JOB_RERUN = "cron.job.rerun"
+    CRON_JOB_UPDATED = "cron.job.updated"
+    #: "Kết nối BM" (0078): never the token; a test records whether Meta answered.
+    ADS_CONNECTION_CREATED = "ads.connection.created"
+    ADS_CONNECTION_UPDATED = "ads.connection.updated"
+    ADS_CONNECTION_DELETED = "ads.connection.deleted"
+    ADS_CONNECTION_TESTED = "ads.connection.tested"
+    #: An ad account given to a marketer (or its brand changed).
+    ADS_ACCOUNT_ASSIGNED = "ads.account.assigned"
+    #: "Đồng bộ ngay" / "Kéo lại khoảng ngày" from the screen.
+    ADS_SYNC_REQUESTED = "ads.sync.requested"
+    #: Revenue / KPI entered by the Trưởng phòng (0079); the per-line history
+    #: is ``ads_revenue_changes``.
+    ADS_REVENUE_SAVED = "ads.revenue.saved"
+    ADS_KPI_SAVED = "ads.kpi.saved"
 
     # Resources ("Quản lý tài nguyên", 0065).
     RESOURCE_CREATED = "resource.created"

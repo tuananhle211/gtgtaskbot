@@ -291,6 +291,17 @@ def _content_transitions() -> Mapping[
         (PrWorkflowStage.IDEA, PrWorkflowStage.BRIEFING),
         (PrWorkflowStage.BRIEFING, PrWorkflowStage.SCRIPTING),
         (PrWorkflowStage.SCRIPTING, PrWorkflowStage.AI_REVIEW),
+        # The author takes a draft back to edit it. An AI review that did not
+        # pass, could not run (a provider error leaves the content at
+        # ``AI_REVIEW`` with no verdict), or simply a change of mind: while the
+        # content sits at ``AI_REVIEW`` it is not approved, so the person who
+        # may submit it may also pull it back to ``SCRIPTING`` to rewrite and
+        # resubmit. The edge also exists forwards as the ``REVISION_REQUIRED``
+        # outcome (``AI_REVIEW`` trigger); here it gains ``MANUAL`` so a human
+        # may drive it, like ``TEAM_LEAD_REVIEW -> CANCELLED``. An active run
+        # becomes ``SUPERSEDED`` when the draft then changes - the executor's
+        # staleness check - so nothing is reviewed against text that moved.
+        (PrWorkflowStage.AI_REVIEW, PrWorkflowStage.SCRIPTING),
         # Step 1F.2.10. The **direct** submission: a finished script handed to
         # the Team Lead without asking the AI first. Deliberately the same
         # destination the AI path reaches - see ``DIRECT_TEAM_LEAD_SUBMISSION``
