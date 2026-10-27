@@ -57,12 +57,10 @@ def test_01_brand_fee_and_matching() -> None:
     assert brand_of("GPI TECH SG 01") is AdsBrand.GPI
     assert brand_of("Apexmed - Hoàng Anh") is AdsBrand.APEX
     assert brand_of("Tài khoản lẻ") is AdsBrand.OTHER
-    # VAT from July 2026 for the three brands; rented groups pay 1% more.
+    # "Số tiền lập hoá đơn" = what Meta charged: no VAT, no card fee (27/10).
     rented = "[COREMIND] (XH-SG-VAT)TK 2"
-    vat_and_rent = Decimal("1.10") * Decimal("1.021")
-    assert invoice_factor(rented, AdsBrand.COREMIND, date(2026, 10, 1)) == vat_and_rent
-    assert invoice_factor("TK 1", AdsBrand.COREMIND, date(2026, 6, 30)) == Decimal("1.011")
-    assert invoice_factor("TK 1", AdsBrand.OTHER, date(2026, 10, 1)) == Decimal("1.011")
+    assert invoice_factor(rented, AdsBrand.COREMIND, date(2026, 10, 1)) == 1
+    assert invoice_factor("TK 1", AdsBrand.OTHER, date(2026, 6, 30)) == 1
     assert matches(Decimal(1_000_000), Decimal(1_009_000))
     assert not matches(Decimal(1_000_000), Decimal(1_100_000))
     assert matches(Decimal(100_000), Decimal(108_000))  # within the 10.000 ₫ floor
@@ -352,7 +350,7 @@ async def test_07_only_the_ads_department_sees_it(world: World) -> None:
     line = board["accounts"][0]
     assert line["charged"] == 1_000_000 and line["difference"] == -2_000_000
     assert line["matched"] is False
-    assert line["invoice"] == round(1_000_000 * 1.10 * 1.011, 2)
+    assert line["invoice"] == 1_000_000
     assert board["best_day"]["start"] == D1.isoformat()
     assert board["revenue"] is None
     assert [point["start"] for point in board["series"]] == [D1.isoformat(), D2.isoformat()]

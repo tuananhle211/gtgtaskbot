@@ -140,7 +140,7 @@ class AdsChargeDaily(Base):
     account_id: Mapped[str] = mapped_column(
         ForeignKey(f"{ADS_ACCOUNTS}.account_id", ondelete=RESTRICT), primary_key=True
     )
-    #: What Meta charged, before VAT / fees (see ``invoice_factor``).
+    #: What Meta charged (= "Số tiền lập hoá đơn", ``invoice_factor`` 1).
     amount: Mapped[Decimal] = mapped_column(Numeric(16, 2), nullable=False)
     charges: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     synced_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)

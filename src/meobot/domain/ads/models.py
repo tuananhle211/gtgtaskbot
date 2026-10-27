@@ -46,13 +46,6 @@ BRAND_LABELS: dict[AdsBrand, str] = {
     AdsBrand.OTHER: "Khác",
 }
 
-#: VAT on Meta's charge for the three brands, from this month on.
-VAT_FROM = date(2026, 7, 1)
-VAT_RATE = Decimal("1.10")
-#: Bank fee on every charge; account groups that are rented add 1%.
-FEE_BASE = Decimal("1.011")
-FEE_RENTED = Decimal("1.021")
-RENTED_MARKERS = ("XH-SG-VAT", "XH-VAT-SG", "Q-SG")
 #: A charge matches the spend within 1%, or 10.000 ₫ for small accounts.
 MATCH_RATIO = Decimal("0.01")
 MATCH_FLOOR = Decimal("10000")
@@ -79,11 +72,10 @@ def brand_of(account_name: str | None) -> AdsBrand:
 
 
 def invoice_factor(account_name: str | None, brand: AdsBrand, day: date) -> Decimal:
-    """What a Meta charge is multiplied by to give "Số tiền lập hoá đơn"."""
-    vat = VAT_RATE if day >= VAT_FROM and brand is not AdsBrand.OTHER else Decimal(1)
-    folded = fold(account_name)
-    fee = FEE_RENTED if any(marker in folded for marker in RENTED_MARKERS) else FEE_BASE
-    return vat * fee
+    """What a Meta charge is multiplied by to give "Số tiền lập hoá đơn":
+    1 (chốt 27/10: no VAT, no card fee - the amount Meta charged, by day and
+    by month alike). Kept as the one place to change should a factor return."""
+    return Decimal(1)
 
 
 def matches(spend: Decimal, charged: Decimal) -> bool:

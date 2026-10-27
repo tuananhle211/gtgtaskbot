@@ -137,8 +137,8 @@ Mỗi đợt xong: chạy trên dev, bạn duyệt rồi mới làm đợt sau.
 
 ## 8. Đã chốt (27/10)
 
-1. Tiền lập hoá đơn = **giao dịch thật từ Meta** (cách A), quét 08:00. "Số tiền lập hoá đơn" trên màn = số gốc Meta ×
-   hệ số VAT × phí như Sheet (hệ số sửa được); cột "Chênh lệch" = hoá đơn − chi tiêu, "Đối soát" = khớp khi chênh ≤ ngưỡng.
+1. Tiền lập hoá đơn = **giao dịch thật từ Meta** (cách A), quét 08:00. "Số tiền lập hoá đơn" trên màn = số gốc Meta,
+   hệ số 1 theo ngày và theo tháng (chốt 27/10: bỏ VAT 10% và phí thẻ; một chỗ duy nhất `invoice_factor`); cột "Chênh lệch" = hoá đơn − chi tiêu, "Đối soát" = khớp khi chênh ≤ ngưỡng.
 2. SĐT = `omni_purchase` (tạm thời).
 3. Trưởng phòng **chỉ nhập doanh thu**.
 4. Có System User token; BM cấu hình trên menu **Kết nối BM** (nhiều BM, gắn cơ sở, test kết nối).
