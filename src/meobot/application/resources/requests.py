@@ -34,7 +34,9 @@ from meobot.application.resources.access import (
     ResourceValidationError,
 )
 from meobot.application.resources.excel import department_of_seats
+from meobot.application.resources.request_notifications import ResourceRequestNotificationService
 from meobot.application.resources.service import ResourceInput, ResourceService
+from meobot.core.config import Settings
 from meobot.core.errors import ConflictError
 from meobot.core.time import utcnow
 from meobot.db.models.department import Department
@@ -158,9 +160,17 @@ def parse_lines(text: str) -> list[tuple[int, str, str | None]]:
 
 
 class ResourceRequestService:
-    def __init__(self, service: ResourceService) -> None:
+    def __init__(self, service: ResourceService, settings: Settings | None = None) -> None:
         self._service = service
         self._session: AsyncSession = service.session
+        # Notifications need Settings (outbox + web base url). The read-only
+        # caller (the nav badge's awaiting_count, units.py) builds the service
+        # without them and simply sends nothing.
+        self._notify = (
+            ResourceRequestNotificationService(self._session, settings)
+            if settings is not None
+            else None
+        )
 
     # --- who -------------------------------------------------------------------------
 
@@ -557,6 +567,11 @@ class ResourceRequestService:
             )
         await self._session.flush()
         await self._audit(actor, AuditAction.RESOURCE_REQUEST_CREATED, row, {"code": row.code})
+        # No head above the requester: the ticket skipped straight to the Phòng
+        # Tài nguyên's desk, so tell them now (otherwise it waits for a head to
+        # approve, which is where the notice fires instead - see ``decide``).
+        if self._notify is not None and row.stage is RequestStage.FUNDING:
+            await self._notify.submitted_to_resource_team(actor=actor, row=row)
         return row
 
     async def decide(
@@ -628,6 +643,13 @@ class ResourceRequestService:
             row,
             {"code": row.code, "action": action, "stage": row.stage.value},
         )
+        if self._notify is not None:
+            if action == "approve":
+                # The head approved: now it is the Phòng Tài nguyên's turn.
+                await self._notify.submitted_to_resource_team(actor=actor, row=row)
+            elif action == "deliver":
+                # Bought and stocked: ask the requester to confirm receipt.
+                await self._notify.delivered_to_requester(actor=actor, row=row)
         return row
 
     async def _deliver(

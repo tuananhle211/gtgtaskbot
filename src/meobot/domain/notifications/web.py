@@ -70,6 +70,8 @@ WEB_TITLES: Mapping[NotificationEvent, str] = MappingProxyType(
         NotificationEvent.ORDER_FINAL_RETURNED: "Sản phẩm cần sửa lại",
         NotificationEvent.ORDER_COMPLETED: "Order đã hoàn thành",
         NotificationEvent.ORDER_CANCELLED: "Order đã bị huỷ",
+        NotificationEvent.RESOURCE_REQUEST_SUBMITTED: "Có phiếu đề xuất tài nguyên",
+        NotificationEvent.RESOURCE_REQUEST_DELIVERED: "Tài nguyên đã về, xác nhận đã nhận",
     }
 )
 

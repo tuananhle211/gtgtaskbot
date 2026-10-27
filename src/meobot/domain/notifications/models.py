@@ -229,6 +229,13 @@ class NotificationEvent(StrEnum):
     QUOTA_REQUEST_SUBMITTED = "quota_request_submitted"
     #: The owner's answer to a quota request.
     QUOTA_REQUEST_DECIDED = "quota_request_decided"
+    # --- Resource requests (0070) -----------------------------------------
+    #: A resource request has reached the Phòng Tài nguyên's desk (Duyệt chi):
+    #: to everyone seated in a RESOURCES department.
+    RESOURCE_REQUEST_SUBMITTED = "resource_request_submitted"
+    #: The resources were bought and stocked: to the requester, to confirm they
+    #: received them (the "Xác nhận nhận" step).
+    RESOURCE_REQUEST_DELIVERED = "resource_request_delivered"
     #: A Guest's held-back first question, answered after approval.
     GUEST_REPLY = "guest_reply"
     #: One firing of a user-defined reminder.

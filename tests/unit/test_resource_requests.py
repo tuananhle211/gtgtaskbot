@@ -173,3 +173,63 @@ async def test_03_budget_and_date_are_optional(world: World) -> None:
     created = world.client.post("/api/resources/requests", json=data)
     assert created.status_code == 201, created.json()
     assert created.json()["budget"] is None and created.json()["needed_by"] is None
+
+
+async def _events_for(world: World, user: User) -> set[str]:
+    from sqlalchemy import select
+
+    from meobot.db.models.user_notification import UserNotification
+
+    rows = await world.session.scalars(
+        select(UserNotification).where(UserNotification.recipient_user_id == user.id)
+    )
+    return {row.event_type for row in rows}
+
+
+async def test_10_notifications_reach_the_resource_team_and_the_requester(world: World) -> None:
+    """The Phòng Tài nguyên is told when a ticket reaches their desk; the
+    requester is told to confirm once the resources are stocked."""
+    people = await cast(world)
+    ads = people.ads
+    catalog = options(world, people.tn_head)
+    assert seat(world, "ADS", ads.orderer, manager_user_id=str(ads.head.id)).status_code == 200
+
+    # Created with a head above: it sits at HEAD_REVIEW, so the Phòng Tài
+    # nguyên is not told yet - their turn has not come.
+    world.act_as(ads.orderer)
+    request = world.client.post("/api/resources/requests", json=body(catalog)).json()
+    assert request["stage"] == "HEAD_REVIEW"
+    assert "resource_request_submitted" not in await _events_for(world, people.tn_head)
+
+    # The head approves -> FUNDING -> the whole Phòng Tài nguyên is told.
+    assert act(world, ads.head, request, "approve").status_code == 200
+    assert "resource_request_submitted" in await _events_for(world, people.tn_head)
+    assert "resource_request_submitted" in await _events_for(world, people.tn_staff)
+    # Not sent to the requester or an outsider.
+    assert "resource_request_submitted" not in await _events_for(world, ads.orderer)
+
+    # Duyệt chi, then Mua & nhập kho -> the requester is asked to confirm.
+    assert act(world, people.tn_staff, request, "fund").status_code == 200
+    delivered = act(
+        world,
+        people.tn_staff,
+        request,
+        "deliver",
+        lines="111 | https://fb.com/111\n222 | https://fb.com/222",
+        actual_cost=900_000,
+    )
+    assert delivered.status_code == 200, delivered.json()
+    assert "resource_request_delivered" in await _events_for(world, ads.orderer)
+
+
+async def test_11_a_headless_request_tells_the_resource_team_at_once(world: World) -> None:
+    """No head above the requester: the ticket skips to FUNDING on creation, so
+    the Phòng Tài nguyên is told right away."""
+    people = await cast(world)
+    catalog = options(world, people.tn_head)
+    # The director reports to nobody and heads BGD, so there is no head above
+    # them for a resource request -> created straight at FUNDING.
+    world.act_as(people.director)
+    request = world.client.post("/api/resources/requests", json=body(catalog)).json()
+    assert request["stage"] == "FUNDING"
+    assert "resource_request_submitted" in await _events_for(world, people.tn_head)

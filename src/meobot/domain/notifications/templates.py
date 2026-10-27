@@ -713,6 +713,18 @@ TEMPLATES: dict[str, MessageTemplate] = {
             optional=("note",),
             renderer=_order_update,
         ),
+        # --- Resource requests (0070) ------------------------------------
+        # PERSONAL_PRIVATE: names a person's request and who is expected to act
+        # on it. Same neutral shape as an order hand-off (what happened, which
+        # ticket, a link), so it reuses ``_order_update``.
+        MessageTemplate(
+            key="resources.request",
+            version=1,
+            classification=PrivacyClassification.PERSONAL_PRIVATE,
+            required=("heading", "title", "code", "body", "link"),
+            optional=("note",),
+            renderer=_order_update,
+        ),
         # --- Account (0046) ---------------------------------------------
         # A credential: only ever the owner's private chat, and the outbox
         # blanks it once the row is settled.

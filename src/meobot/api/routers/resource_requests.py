@@ -14,12 +14,18 @@ from typing import Literal
 from fastapi import APIRouter, Query, status
 from pydantic import BaseModel, Field
 
-from meobot.api.deps import CurrentActorDep, ResourceAccessDep, ResourceServiceDep
+from meobot.api.deps import (
+    CurrentActorDep,
+    ResourceAccessDep,
+    ResourceServiceDep,
+    SettingsDep,
+)
 from meobot.application.resources.requests import (
     RequestInput,
     RequestView,
     ResourceRequestService,
 )
+from meobot.core.config import Settings
 from meobot.domain.resources.requests import MAX_QUANTITY, SITE_LABELS, RequestSite
 
 router = APIRouter(prefix="/api/resources/requests", tags=["resources"])
@@ -203,8 +209,12 @@ class ActionBody(BaseModel):
     supplier: str | None = Field(default=None, max_length=200)
 
 
-def _service(service: ResourceServiceDep) -> ResourceRequestService:
-    return ResourceRequestService(service)
+def _service(
+    service: ResourceServiceDep, settings: Settings | None = None
+) -> ResourceRequestService:
+    """The request service. ``settings`` is passed by the write routes so they
+    send notifications; the read routes omit it and send nothing."""
+    return ResourceRequestService(service, settings)
 
 
 @router.get("", response_model=RequestListOut)
@@ -252,8 +262,9 @@ async def create_request(
     actor: CurrentActorDep,
     access: ResourceAccessDep,
     service: ResourceServiceDep,
+    settings: SettingsDep,
 ) -> RequestOut:
-    requests = _service(service)
+    requests = _service(service, settings)
     row = await requests.create(
         actor,
         access,
@@ -289,11 +300,12 @@ async def act_on_request(
     actor: CurrentActorDep,
     access: ResourceAccessDep,
     service: ResourceServiceDep,
+    settings: SettingsDep,
 ) -> RequestOut:
     """One step: ``approve`` / ``reject`` (head step, or the spend step),
     ``fund`` (Duyệt chi), ``deliver`` (Mua & nhập kho: ``lines``,
     ``actual_cost``, ``supplier``), ``confirm`` (the requester), ``cancel``."""
-    requests = _service(service)
+    requests = _service(service, settings)
     await requests.decide(
         actor,
         access,

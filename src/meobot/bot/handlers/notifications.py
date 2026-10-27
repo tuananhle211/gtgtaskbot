@@ -370,6 +370,8 @@ def _event_label(event_type: str) -> str:
         "announcement_reminder": "Nhắc xác nhận thông báo",
         "cron_job_failed": "Tác vụ định kỳ bị lỗi",
         "cron_job_recovered": "Tác vụ định kỳ đã chạy lại",
+        "resource_request_submitted": "Phiếu đề xuất tài nguyên",
+        "resource_request_delivered": "Tài nguyên đã về, xác nhận nhận",
     }.get(event_type, "Tin nhắn")
 
 
