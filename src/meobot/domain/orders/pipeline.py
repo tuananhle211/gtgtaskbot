@@ -468,6 +468,10 @@ def available_actions(
         # A birthday order is never "pending": whoever placed it may take it
         # back for as long as it is not finished.
         or (is_owner and order.category is OrderCategory.BIRTHDAY)
+        # 2026-10-27: a Trưởng phòng's own order needs no approval, so it is
+        # never "pending" either: they may take it back until somebody has
+        # pressed "Nhận việc" on a step.
+        or (is_owner and may.holds(AdsPermission.ORDER_APPROVE) and nobody_took(nodes))
         # A Design-only order skips the ORD head: the Design Leader stands in
         # for them and may turn it down; its orderer may take it back until
         # the Leader has handed it out (= approved it).
@@ -482,6 +486,16 @@ def available_actions(
     ):
         add(OrderActionKind.CANCEL)
     return tuple(actions)
+
+
+def nobody_took(nodes: tuple[NodeView, ...]) -> bool:
+    """No step has been accepted ("Nhận việc") by anybody yet - nor handed
+    in, sent back or finished, which all come after an accept."""
+    taken = (OrderNodeStatus.CHO_DUYET, OrderNodeStatus.DANG_SUA, OrderNodeStatus.HOAN_THANH)
+    return all(
+        node.accepted_at is None and not node.accepted_user_ids and node.status not in taken
+        for node in nodes
+    )
 
 
 def assert_allowed(

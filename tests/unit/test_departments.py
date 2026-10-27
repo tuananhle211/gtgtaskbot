@@ -268,6 +268,47 @@ async def test_05_every_head_approves_and_may_be_chosen(world: World) -> None:
     assert own.json()["order"]["stage"] != "ORDER_PENDING"
 
 
+async def test_05b_a_head_takes_back_their_own_order_until_somebody_accepts(
+    world: World,
+) -> None:
+    """2026-10-27: a Trưởng phòng's own order needs no approval, so it is never
+    "pending" - they may still cancel it until a step has been accepted."""
+    ads = await ads_world(world)
+    _, head, staff = await hcns(world, ads)
+    grant(world, "HCNS", {"HEAD": {"ORDER_CREATE": "ALL"}, "MEMBER": {"ORDER_CREATE": "ALL"}})
+
+    def cancellable(user: User, placed: dict[str, Any]) -> bool:
+        world.act_as(user)
+        detail = world.client.get(f"/api/orders/{placed['order']['id']}").json()
+        return any(item["kind"] == "CANCEL" for item in detail["available_actions"])
+
+    own = order(world, head).json()
+    assert own["order"]["stage"] == "DUNG" and cancellable(head, own)
+    cancelled = act(world, head, "/cancel", own, note="Đặt nhầm")
+    assert cancelled["order"]["stage"] == "CANCELLED"
+
+    # Handed out but not accepted yet: still theirs to take back.
+    own = order(world, head).json()
+    dung = next(item for item in own["nodes"] if item["node_type"] == "DUNG")["id"]
+    own = act(
+        world, ads.lead_dung, f"/nodes/{dung}/assign", own, assignee_user_id=str(ads.editor.id)
+    )
+    assert cancellable(head, own)
+    # Once the editor presses "Nhận việc", no more.
+    own = act(world, ads.editor, f"/nodes/{dung}/accept", own)
+    assert not cancellable(head, own)
+    world.act_as(head)
+    refused = world.client.post(
+        f"/api/orders/{own['order']['id']}/cancel",
+        json={"version": own["order"]["version"], "note": "Thôi"},
+    )
+    assert refused.status_code == 403
+    # Not their staff's approved order, accepted or not: that rule stays.
+    placed = order(world, staff).json()
+    placed = act(world, head, "/approve", placed)
+    assert not cancellable(staff, placed)
+
+
 async def test_06_several_heads_each_approve_the_staff_who_report_to_them(world: World) -> None:
     ads = await ads_world(world)
     second = await person(world, "Trưởng phòng ADS chi nhánh 2", Role.EMPLOYEE)

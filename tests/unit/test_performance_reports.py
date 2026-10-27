@@ -378,13 +378,24 @@ async def test_11_the_gantt_shows_each_person_s_steps_in_the_month(world: World)
     refused = get(world, ads.editor, f"/api/performance/timeline?department_id={uuid.uuid4()}")
     assert refused.status_code == 403
 
-    # A Trưởng phòng: themselves, then their direct reports.
-    await report_to(world, ads.editor.id, ads.lead_dung.id)
+    # Every Trưởng phòng sees every department (2026-10-27): everybody with a
+    # step in the month, or one department's people.
     head = get(world, ads.lead_dung, "/api/performance/timeline").json()
-    assert [group["name"] for group in head["groups"]] == [
-        ads.lead_dung.full_name,
+    assert {group["name"] for group in head["groups"]} == {
+        ads.writer.full_name,
         ads.editor.full_name,
-    ]
+    }
+    assert head["view_all"] is True and head["departments"]
+    bien_tap = (
+        await world.session.scalars(
+            select(Department.id).where(Department.function == DepartmentFunction.BIEN_TAP)
+        )
+    ).first()
+    one = get(world, ads.lead_dung, f"/api/performance/timeline?department_id={bien_tap}")
+    assert one.status_code == 200
+    assert [g["name"] for g in one.json()["groups"] if g["bars"]] == [ads.writer.full_name]
+    # The points reports still keep them to their own people.
+    assert get(world, ads.lead_dung, f"/api/performance/people/{ads.writer.id}").status_code == 403
     # The company: only people with a step in the month, points after coefficients.
     put_coefficient(world, world.owner, ads.editor, coefficient="2", month=mine["month"])
     company = get(world, world.owner, "/api/performance/timeline").json()

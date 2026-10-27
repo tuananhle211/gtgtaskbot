@@ -16,7 +16,7 @@ from __future__ import annotations
 
 import uuid
 from collections.abc import Iterable
-from dataclasses import fields
+from dataclasses import fields, replace
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, Query, Response
@@ -203,10 +203,13 @@ async def timeline_report(
     month: str | None = Query(default=None, max_length=7),
     department_id: uuid.UUID | None = Query(default=None),
 ) -> TimelineResponse:
-    """The Gantt chart: everybody their own steps; a Trưởng phòng also their
-    direct reports; a company viewer a department, or everybody who has a
-    step in the month."""
+    """The Gantt chart: everybody their own steps; every Trưởng phòng
+    (2026-10-27) and the company viewers any department, or everybody who
+    has a step in the month."""
     access = await _access(session, membership)
+    if access.heads:
+        # The Gantt only: the points reports keep heads to their own people.
+        access = replace(access, view_all=True)
     service = PerformanceReportService(session, tz=app_settings.timezone)
     period = service.month(month)
     options: list[DepartmentOptionResponse] = []
