@@ -22,9 +22,10 @@ import { Select } from "@/components/pr";
  * after it was picked still reads and may be kept or removed; only the "add"
  * list is limited to what the catalogue offers now.
  *
- * - **Design** (`THIET_KE`) picks several codes, each with a quantity; the same
- *   code may come twice in two different forms (T1 làm mới x3 + T1 resize x6).
- * - **Biên kịch / Dựng** pick exactly one code, quantity 1.
+ * - **Design** (`THIET_KE`) and **Biên kịch** (2026-10-27) pick several codes,
+ *   each with a quantity; the same code may come twice in two different forms
+ *   (T1 làm mới x3 + T1 resize x6).
+ * - **Dựng** picks exactly one code, quantity 1.
  * - Every line picks one **form** ("hình thức") among the step's; its rule
  *   ("Áp dụng") is shown under it. A step with only "Làm mới" shows no choice.
  * - **"Việc khác"** (`free_points`) asks what was done and how many points.
@@ -44,7 +45,7 @@ const FIELD =
 const validQuantity = (quantity: number) =>
   Number.isInteger(quantity) && quantity >= 1 && quantity <= MAX_DESIGN_QUANTITY;
 
-const isSingle = (phase: TaskPhase) => phase !== "THIET_KE";
+const isSingle = (phase: TaskPhase) => phase === "DUNG";
 
 /**
  * Each step's own colour, so the three "Mã task công việc" cards never look
@@ -292,11 +293,18 @@ export function DesignCodesPicker({
   const title = label ?? `Mã task công việc ${TASK_PHASE_LABELS[phase]}`;
   const style = phaseStyle(phase);
   const offered = formsFor(forms, phase);
-  const chosenSingle = new Set(value.map((item) => item.code_id));
+  const chosen = new Set(value.map((item) => item.code_id));
   // Design may add a code again (in another form) and several "Việc khác";
-  // a single-code step offers every code but the one it has.
+  // a single-code step offers every code but the one it has; a step with only
+  // "Làm mới" (Biên kịch) does not offer a code it already has twice.
+  const oneForm = forms.length > 0 && offered.length <= 1;
   const addable = [...options]
-    .filter((option) => option.active && !(single && chosenSingle.has(option.id)))
+    .filter(
+      (option) =>
+        option.active &&
+        !(single && chosen.has(option.id)) &&
+        !(oneForm && !option.free_points && chosen.has(option.id)),
+    )
     .sort(
       (a, b) =>
         Number(!!a.free_points) - Number(!!b.free_points) ||
@@ -309,7 +317,7 @@ export function DesignCodesPicker({
     const option = options.find((candidate) => candidate.id === id);
     if (!option) return;
     const item = fromOption(option);
-    // A single-code step swaps its code; Design adds a line.
+    // A single-code step (Dựng) swaps its code; Design and Biên kịch add a line.
     onChange(single ? [item] : [...value, item]);
   };
   const update = (index: number, patch: Partial<DesignCodeItem>) =>

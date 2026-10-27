@@ -29,11 +29,9 @@ TASK_PHASES: tuple[OrderNodeType, ...] = (
     OrderNodeType.DUNG,
 )
 
-#: Biên kịch and Dựng take exactly one code per node, quantity 1; Design takes
-#: several, each with a quantity.
-SINGLE_CODE_PHASES: frozenset[OrderNodeType] = frozenset(
-    {OrderNodeType.BIEN_TAP, OrderNodeType.DUNG}
-)
+#: Dựng takes exactly one code per node, quantity 1; Design and (2026-10-27)
+#: Biên kịch take several, each with a quantity.
+SINGLE_CODE_PHASES: frozenset[OrderNodeType] = frozenset({OrderNodeType.DUNG})
 
 PHASE_LABELS: dict[OrderNodeType, str] = {
     OrderNodeType.BIEN_TAP: "Biên kịch",

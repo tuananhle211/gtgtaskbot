@@ -32,7 +32,7 @@ pytestmark = pytest.mark.asyncio
 
 async def coded_world(world: World) -> tuple[Ads, dict[str, str]]:
     """The design world (codes on, N3 120 / D3 240 suggested), plus D4 480,
-    a Design code worth 90 and the Dựng step without review."""
+    a Design code worth 90, N1 15 and the Dựng step without review."""
     ads, codes = await design_world(world)
     ads.unit.settings = {**(ads.unit.settings or {}), "review_dung": False}
     await world.session.flush()
@@ -40,6 +40,7 @@ async def coded_world(world: World) -> tuple[Ads, dict[str, str]]:
     for phase, code, points in (
         ("DUNG", "D4", 480),
         ("THIET_KE", "T1", 90),
+        ("BIEN_TAP", "N1", 15),
     ):
         made = world.client.post(
             "/api/units/ADS/task-codes",
@@ -184,6 +185,27 @@ async def test_02_the_order_suggests_a_code_per_step_with_its_points(world: Worl
         refused = world.client.post("/api/orders", json={**base, "task_codes": task_codes})
         assert refused.status_code == 422, refused.json()
         assert error_reason(refused.json()) == reason
+    # Biên kịch takes several codes, each with a quantity (2026-10-27).
+    several = world.client.post(
+        "/api/orders",
+        json={
+            **base,
+            "task_codes": {
+                "BIEN_TAP": [
+                    {"code_id": codes["N3"]},
+                    {"code_id": codes["N1"], "quantity": 2},
+                ]
+            },
+        },
+    )
+    assert several.status_code == 201, several.json()
+    page = task(world, ads.orderer, several.json()["order"]["code"])
+    bien_tap = next(step for step in page["task_codes"] if step["phase"] == "BIEN_TAP")
+    assert [(item["code"], item["quantity"]) for item in bien_tap["suggested"]] == [
+        ("N3", 1),
+        ("N1", 2),
+    ]
+    assert bien_tap["suggested_points"] == 120 + 2 * 15
     # No suggestion at all is fine; "Loại video" / "Thời lượng" are not asked.
     assert world.client.post("/api/orders", json={**base, "task_codes": {}}).status_code == 201
     made = world.client.post(

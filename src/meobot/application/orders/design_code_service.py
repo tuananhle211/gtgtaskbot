@@ -258,7 +258,7 @@ class DesignCodeService:
         order already carries (``keep``): a code retired after it was picked
         may stay on the order, with its old snapshot. Its form must be one the
         phase offers. A "Việc khác" line needs what was done and its points.
-        Biên kịch and Dựng take exactly one code, quantity 1."""
+        Dựng takes exactly one code, quantity 1 (``is_single``)."""
         if len(picks) > MAX_ITEMS:
             raise OrderValidationError(
                 f"Mỗi order tối đa {MAX_ITEMS} mã task.",

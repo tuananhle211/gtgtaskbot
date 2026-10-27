@@ -3,7 +3,7 @@
  *
  * - "Danh mục điểm": read by the whole order flow, a step's codes kept by its
  *   Trưởng phòng (`design.task_phases`), the forms by the OWNER / ADMIN;
- * - the picker: one code for Biên kịch / Dựng, a form per line with its rule
+ * - the picker: one code for Dựng, several for Design and Biên kịch, a form per line with its rule
  *   under it, "Việc khác" with its work and points, the line and total points;
  * - the task page: each step's codes and points, a different hand-in waiting
  *   with how it differs;
@@ -250,6 +250,28 @@ describe("the task-code picker", () => {
     expect(screen.getByTestId("form-note")).toHaveTextContent("Chỉ dùng cho D1-D7.");
     expect(screen.getByTestId("design-code-points")).toHaveTextContent("720 điểm");
     expect(picks()).toEqual([{ code_id: D4.id, quantity: 1, form: "AFTER_EFFECTS" }]);
+  });
+
+  it("lets Biên kịch take several codes, each with a quantity (2026-10-27)", async () => {
+    const n3 = code({ id: "c-n3", phase: "BIEN_TAP", code: "N3", name: "Kịch bản", title: "Kịch bản", points: 120 });
+    const n1 = code({ id: "c-n1", phase: "BIEN_TAP", code: "N1", name: "Caption", title: "Caption", points: 15 });
+    renderWithQuery(<Harness phase="BIEN_TAP" options={[n3, n1]} />);
+    const add = () => screen.getByRole("combobox", { name: "Mã task công việc Biên kịch" });
+    await userEvent.selectOptions(add(), n3.id);
+    // N3 is on the list: only N1 is left to add (one form, no twice).
+    expect(within(add()).queryByRole("option", { name: /^N3/ })).not.toBeInTheDocument();
+    await userEvent.selectOptions(add(), n1.id);
+    expect(screen.getAllByTestId("design-code-item")).toHaveLength(2);
+    const quantity = screen.getByRole("spinbutton", { name: "Số lượng · N1" });
+    await userEvent.clear(quantity);
+    await userEvent.type(quantity, "4");
+    expect(valid()).toBe("true");
+    // 120 + 15 x 4 = 180.
+    expect(screen.getByTestId("design-codes-total")).toHaveTextContent("180 điểm");
+    expect(picks()).toEqual([
+      { code_id: n3.id, quantity: 1 },
+      { code_id: n1.id, quantity: 4 },
+    ]);
   });
 
   it("gives Biên kịch no form to choose", async () => {
