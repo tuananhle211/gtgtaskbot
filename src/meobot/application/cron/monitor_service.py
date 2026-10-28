@@ -27,6 +27,8 @@ from meobot.core.config import Settings
 from meobot.core.errors import AuthorizationError, ConflictError, NotFoundError, ValidationError
 from meobot.core.time import ensure_utc, utcnow
 from meobot.db.models.cron import CronJob, CronJobIncident, CronJobRun
+from meobot.db.models.user import User
+from meobot.domain.access.models import UserStatus
 from meobot.domain.audit.models import AuditAction, AuditResult
 from meobot.domain.cron.models import (
     RUNNING_STALE_SECONDS,
@@ -79,6 +81,10 @@ class CronPolicyError(ValidationError):
         super().__init__(message, details={"reason": "cron_policy_invalid", "field": field})
 
 
+#: How many extra people one job may alert.
+MAX_RECIPIENTS = 20
+
+
 @dataclass(frozen=True, slots=True)
 class JobView:
     job: CronJob
@@ -86,6 +92,8 @@ class JobView:
     state: CronJobState
     late: bool
     open_incident: CronJobIncident | None
+    #: The job's extra alert recipients still active, in the order chosen.
+    recipients: tuple[User, ...] = ()
 
 
 @dataclass(frozen=True, slots=True)
@@ -159,8 +167,22 @@ class CronMonitorService:
             if incident_ids
             else {}
         )
+        wanted = {value for row in rows for value in row.notify_user_ids or []}
+        people = {
+            str(user.id): user
+            for user in await self._session.scalars(
+                select(User).where(
+                    User.id.in_(_uuids(wanted)),
+                    User.status == UserStatus.ACTIVE,
+                    User.deleted_at.is_(None),
+                )
+            )
+        }
         views = [
             JobView(
+                recipients=tuple(
+                    people[value] for value in row.notify_user_ids or [] if value in people
+                ),
                 job=row,
                 spec=self._recorder.spec(row.key),
                 state=job_state(
@@ -277,6 +299,8 @@ class CronMonitorService:
         retry_delay_minutes: int | None = None,
         alert_after: int | None = None,
         keep_successes: bool | None = None,
+        notify: bool | None = None,
+        notify_user_ids: list[uuid.UUID] | None = None,
     ) -> CronJob:
         self._require_owner(actor)
         job = await self._session.get(CronJob, key)
@@ -299,6 +323,10 @@ class CronMonitorService:
             job.alert_after = alert_after
         if keep_successes is not None:
             job.keep_successes = keep_successes
+        if notify is not None:
+            job.notify = notify
+        if notify_user_ids is not None:
+            job.notify_user_ids = await self._recipients(notify_user_ids)
         if any(value is not None for value in (retries, retry_delay_minutes, alert_after)):
             job.policy_custom = True
         if enabled is not None:
@@ -319,9 +347,57 @@ class CronMonitorService:
         )
         return job
 
+    async def _recipients(self, user_ids: list[uuid.UUID]) -> list[str]:
+        """The chosen extra recipients, deduplicated, each an active account
+        (else 422 ``cron_policy_invalid`` on ``notify_user_ids``)."""
+        chosen = list(dict.fromkeys(user_ids))
+        if len(chosen) > MAX_RECIPIENTS:
+            raise CronPolicyError(
+                f"Tối đa {MAX_RECIPIENTS} người nhận thông báo.", "notify_user_ids"
+            )
+        if not chosen:
+            return []
+        found = set(
+            await self._session.scalars(
+                select(User.id).where(
+                    User.id.in_(chosen),
+                    User.status == UserStatus.ACTIVE,
+                    User.deleted_at.is_(None),
+                )
+            )
+        )
+        if len(found) != len(chosen):
+            raise CronPolicyError("Người nhận phải là tài khoản đang hoạt động.", "notify_user_ids")
+        return [str(user_id) for user_id in chosen]
+
+    async def people(self, *, actor: Actor) -> list[User]:
+        """Who may be chosen as a recipient: every active account (the OWNER's
+        screen only)."""
+        if actor.role is not Role.OWNER:
+            return []
+        return list(
+            await self._session.scalars(
+                select(User)
+                .where(User.status == UserStatus.ACTIVE, User.deleted_at.is_(None))
+                .order_by(User.full_name)
+            )
+        )
+
+
+def _uuids(values: object) -> list[uuid.UUID]:
+    found: list[uuid.UUID] = []
+    for value in values if isinstance(values, list | set | tuple) else []:
+        try:
+            found.append(uuid.UUID(str(value)))
+        except ValueError:
+            continue
+    return found
+
 
 def _snap(job: CronJob) -> dict[str, object]:
     return {
+        "notify": job.notify,
+        "notify_user_ids": list(job.notify_user_ids or []),
         "enabled": job.enabled,
         "retries": job.retries,
         "retry_delay_seconds": job.retry_delay_seconds,

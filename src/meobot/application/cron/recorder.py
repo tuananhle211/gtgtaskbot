@@ -10,9 +10,13 @@ The rules (chốt 27/10):
 * a failed (or ``PARTIAL``) run opens an incident, or adds to the open one;
 * the job's policy may queue a retry (a daily job: twice, 30 minutes apart);
 * with nothing left to retry and enough failures in a row (a frequent job: 5)
-  the OWNER is told - once per incident, with a "Chạy lại" button;
-* the next good run closes the incident, and says so if it had been reported;
-* a job that has not run when it should have opens a ``LATE`` incident.
+  and the job's alerts on (``CronJob.notify``, 0080), the OWNER and the job's
+  extra recipients are told - once per incident, the OWNER with a "Chạy lại"
+  button;
+* the next good run closes the incident quietly (only failures are sent,
+  chốt 28/10);
+* a job that has not run when it should have opens a ``LATE`` incident,
+  reported the same way.
 """
 
 from __future__ import annotations
@@ -27,7 +31,7 @@ from zoneinfo import ZoneInfo
 from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from meobot.application.cron.alerts import CronAlerts
+from meobot.application.cron.alerts import CronAlerts, department_heads
 from meobot.application.cron.schedule import (
     ScheduledJob,
     expected_after,
@@ -141,7 +145,13 @@ class CronRecorder:
         job = await self._session.get(CronJob, key)
         if job is not None:
             return job
-        policy = default_policy(self.spec(key).period_seconds)
+        spec = self.spec(key)
+        policy = default_policy(spec.period_seconds)
+        recipients = (
+            await department_heads(self._session, spec.notify_department)
+            if spec.notify_department
+            else []
+        )
         job = CronJob(
             key=key,
             enabled=True,
@@ -150,6 +160,8 @@ class CronRecorder:
             alert_after=policy.alert_after,
             keep_successes=policy.keep_successes,
             consecutive_failures=0,
+            notify=spec.notify,
+            notify_user_ids=[str(user_id) for user_id in recipients],
         )
         self._session.add(job)
         await self._session.flush()
@@ -242,7 +254,7 @@ class CronRecorder:
             policy=_policy(job), attempt=attempt, consecutive=job.consecutive_failures
         )
         alerted = False
-        if decision.alert and incident.alerted_at is None:
+        if decision.alert and incident.alerted_at is None and job.notify:
             await self._alert_failed(job, spec, incident, outcome, attempt)
             alerted = True
         await self._session.flush()
@@ -272,13 +284,15 @@ class CronRecorder:
                 continue
             incident = await self._open_incident(job, CronIncidentKind.LATE, moment)
             incident.last_error = "Không chạy đúng lịch."
-            await CronAlerts(self._session, self._settings).failed(
-                incident,
-                job_label=spec.label,
-                problem=f"Không chạy đúng lịch ({spec.schedule_label})",
-                detail=f"Lần chạy gần nhất: {_vn(last)}. Có thể worker hoặc beat đang dừng.",
-            )
-            incident.alerted_at = moment
+            if job.notify:
+                await CronAlerts(self._session, self._settings).failed(
+                    incident,
+                    recipients=job.notify_user_ids,
+                    job_label=spec.label,
+                    problem=f"Không chạy đúng lịch ({spec.schedule_label})",
+                    detail=f"Lần chạy gần nhất: {_vn(last)}. Có thể worker hoặc beat đang dừng.",
+                )
+                incident.alerted_at = moment
             opened += 1
         await self._session.flush()
         return opened
@@ -343,15 +357,9 @@ class CronRecorder:
         if incident is None or incident.closed_at is not None:
             return False
         incident.closed_at = at
-        if incident.alerted_at is None:
-            return False
-        await CronAlerts(self._session, self._settings).recovered(
-            incident,
-            job_label=spec.label,
-            detail=f"Chạy thành công lúc {_vn(at)}.",
-        )
-        incident.recovery_alerted_at = at
-        return True
+        # Only failures are sent (chốt 28/10): a reported incident closes
+        # quietly, the screen shows it closed.
+        return incident.alerted_at is not None
 
     async def _alert_failed(
         self,
@@ -369,6 +377,7 @@ class CronRecorder:
             problem += f" · {job.consecutive_failures} lần liên tiếp"
         await CronAlerts(self._session, self._settings).failed(
             incident,
+            recipients=job.notify_user_ids,
             job_label=spec.label,
             problem=problem + tried,
             detail=short_error(outcome.error or outcome.message, 500),

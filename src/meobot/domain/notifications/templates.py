@@ -253,7 +253,14 @@ Tình trạng:
 Chi tiết:
 {payload["detail"] or "(không có)"}
 
-Bấm "Chạy lại" để chạy ngay, hoặc mở mục Tác vụ định kỳ trong menu Phòng Ads."""
+{_cron_rerun_hint(payload)}"""
+
+
+def _cron_rerun_hint(payload: dict[str, Any]) -> str:
+    """The OWNER may re-run; the job's other recipients are told who can."""
+    if payload.get("can_rerun") == "0":
+        return "Chủ sở hữu đã được báo và có thể chạy lại tác vụ."
+    return 'Bấm "Chạy lại" để chạy ngay, hoặc mở mục Tác vụ định kỳ trong menu Phòng Ads.'
 
 
 def _cron_job_recovered(payload: dict[str, Any]) -> str:
@@ -628,6 +635,7 @@ TEMPLATES: dict[str, MessageTemplate] = {
             version=1,
             classification=PrivacyClassification.MANAGEMENT_ONLY,
             required=("job_label", "problem", "detail"),
+            optional=("can_rerun",),
             renderer=_cron_job_failed,
         ),
         MessageTemplate(

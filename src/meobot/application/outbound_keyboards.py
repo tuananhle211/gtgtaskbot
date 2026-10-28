@@ -147,8 +147,12 @@ async def _announcement_markup(
 
 def _cron_rerun_markup(settings: Settings, message: OutboundMessage) -> dict[str, Any] | None:
     """ "🔄 Chạy lại" under a failed-job alert (0077), signed for the OWNER's
-    private chat the alert is delivered to."""
+    private chat the alert is delivered to. The job's other recipients (0080)
+    get none: only the OWNER may re-run."""
     from meobot.bot.cron_keyboards import rerun_keyboard
+
+    if (message.safe_payload_json or {}).get("can_rerun") == "0":
+        return None
 
     keyboard = rerun_keyboard(
         incident_id=_require_id(message), chat_id=message.telegram_chat_id, settings=settings

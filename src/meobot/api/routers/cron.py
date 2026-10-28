@@ -42,7 +42,12 @@ ServiceDep = Annotated[CronMonitorService, Depends(get_cron_service)]
 @router.get("", response_model=CronOverviewResponse)
 async def overview(actor: CurrentActorDep, service: ServiceDep) -> CronOverviewResponse:
     views = await service.overview(actor=actor)
-    return CronOverviewResponse.build(utcnow(), views, can_manage=actor.role is Role.OWNER)
+    return CronOverviewResponse.build(
+        utcnow(),
+        views,
+        can_manage=actor.role is Role.OWNER,
+        people=await service.people(actor=actor),
+    )
 
 
 @router.get("/jobs/{key}", response_model=CronJobHistoryResponse)
@@ -87,6 +92,8 @@ async def update_job(
         retry_delay_minutes=body.retry_delay_minutes,
         alert_after=body.alert_after,
         keep_successes=body.keep_successes,
+        notify=body.notify,
+        notify_user_ids=body.notify_user_ids,
     )
     view, _runs, _incidents = await service.history(actor=actor, key=key, limit=1)
     return CronJobResponse.from_view(view)

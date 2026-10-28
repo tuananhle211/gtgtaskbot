@@ -42,6 +42,15 @@ class CronJob(Base, TimestampMixin):
     policy_custom: Mapped[bool] = mapped_column(
         Boolean, nullable=False, default=False, server_default=text("false")
     )
+    #: Failures are sent (0080): to the OWNER, plus ``notify_user_ids``.
+    #: Off = the incident only shows on the screen.
+    notify: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False, server_default=text("false")
+    )
+    #: Who else gets the alert (user ids as text); empty = the OWNER alone.
+    notify_user_ids: Mapped[list[str]] = mapped_column(
+        JSONColumn, nullable=False, default=list, server_default=text("'[]'")
+    )
     # --- the summary --------------------------------------------------------
     last_started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     last_finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))

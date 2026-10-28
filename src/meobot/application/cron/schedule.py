@@ -37,6 +37,9 @@ class ScheduledJob:
     options: Mapping[str, Any] | None = None
     args: tuple[Any, ...] = ()
     kwargs: Mapping[str, Any] | None = None
+    #: The alert default of a new row (see ``JobLabel``).
+    notify: bool = False
+    notify_department: str | None = None
 
 
 def _seconds(value: Any) -> float | None:
@@ -105,6 +108,8 @@ def scheduled_jobs(beat_schedule: Mapping[str, Mapping[str, Any]]) -> list[Sched
             label=label.label,
             group=label.group,
             description=label.description,
+            notify=label.notify,
+            notify_department=label.notify_department,
             period_seconds=period,
             schedule_label=label_text,
             schedule=schedule,
@@ -122,6 +127,8 @@ def unscheduled_job(key: str) -> ScheduledJob:
         label=label.label,
         group=label.group,
         description=label.description,
+        notify=label.notify,
+        notify_department=label.notify_department,
         period_seconds=UNSCHEDULED_PERIOD_SECONDS,
         schedule_label="chạy khi được gọi",
     )

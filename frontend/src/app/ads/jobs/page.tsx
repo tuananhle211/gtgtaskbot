@@ -8,21 +8,24 @@ import {
   type CronJobPolicyBody,
   type CronJobState,
   type CronOverview,
+  type CronPerson,
 } from "@/lib/api";
 import { ConfirmButton } from "@/components/confirm";
 import { Modal, ModalBody, ModalFooter } from "@/components/modal";
-import { PageHeader } from "@/components/pr";
+import { PageHeader, Select } from "@/components/pr";
 import { ErrorBox, Loading, NoticeBox, Pill } from "@/components/states";
 import { formatDateTime, formatShortDateTime } from "@/lib/datetime";
 
 /**
  * "Phòng Ads › Tác vụ định kỳ" (0077; moved from Quản trị on 27/10): every scheduled job the worker runs,
  * whether its last run went fine, its history, and "Chạy lại". A failure is
- * retried by the job's policy and then reported to the OWNER on Telegram (with
- * the same "Chạy lại" button); a job that stops running shows "Trễ" here even
- * when the scheduler itself is down.
+ * retried by the job's policy and then - when the job's alerts are on (0080,
+ * "Tuỳ chỉnh") - reported on Telegram + the bell to the OWNER (with the same
+ * "Chạy lại" button) and the people chosen for that job; nobody chosen = the
+ * OWNER alone. Only failures are sent. A job that stops running shows "Trễ"
+ * here even when the scheduler itself is down.
  *
- * The OWNER and an ADMIN read and re-run; only the OWNER edits a policy.
+ * The OWNER and an ADMIN read and re-run; only the OWNER customises a job.
  */
 export default function CronPage() {
   const overview = useQuery({
@@ -35,7 +38,7 @@ export default function CronPage() {
     <div className="space-y-4">
       <PageHeader
         title="Tác vụ định kỳ"
-        subtitle="Các tác vụ hệ thống tự chạy theo lịch: lần chạy gần nhất thành công hay lỗi, lịch sử, và chạy lại khi cần. Lỗi được tự thử lại theo chính sách rồi báo chủ sở hữu qua Telegram."
+        subtitle="Các tác vụ hệ thống tự chạy theo lịch: lần chạy gần nhất thành công hay lỗi, lịch sử, và chạy lại khi cần. Lỗi được tự thử lại theo chính sách rồi báo qua Telegram cho người nhận đã chọn ở từng tác vụ (mặc định chỉ chủ sở hữu)."
       />
       {overview.isPending ? <Loading label="Đang tải tác vụ định kỳ…" /> : null}
       {overview.isError ? (
@@ -203,7 +206,11 @@ function Workspace({ data }: { data: CronOverview }) {
         <HistoryDialog job={historyOf} onClose={() => setHistoryOf(null)} />
       ) : null}
       {policyOf ? (
-        <PolicyDialog job={policyOf} onClose={() => setPolicyOf(null)} />
+        <PolicyDialog
+          job={policyOf}
+          people={data.people ?? []}
+          onClose={() => setPolicyOf(null)}
+        />
       ) : null}
     </>
   );
@@ -264,6 +271,21 @@ function JobRow({
             {job.description}
           </div>
         ) : null}
+        <div
+          className="mt-1 text-xs"
+          data-testid={`cron-notify-${job.key}`}
+          title={job.notify ? recipientsText(job) : undefined}
+        >
+          {job.notify ? (
+            <span className="text-[var(--accent-strong)]">
+              Báo lỗi: {recipientsText(job)}
+            </span>
+          ) : (
+            <span className="text-[var(--text-muted)]">
+              Không gửi thông báo
+            </span>
+          )}
+        </div>
       </td>
       <td className="whitespace-nowrap text-sm">{job.schedule_label}</td>
       <td>
@@ -321,7 +343,7 @@ function JobRow({
             spec={{
               title: `Chạy lại “${job.label}” ngay?`,
               description:
-                "Tác vụ được đưa vào hàng đợi như khi chạy theo lịch. Kết quả hiện ở đây sau vài giây; nếu vẫn lỗi, chủ sở hữu được báo.",
+                "Tác vụ được đưa vào hàng đợi như khi chạy theo lịch. Kết quả hiện ở đây sau vài giây; nếu vẫn lỗi và tác vụ bật thông báo, người nhận được báo.",
               confirmLabel: "Chạy lại",
             }}
           >
@@ -334,16 +356,22 @@ function JobRow({
             <button
               type="button"
               onClick={onPolicy}
-              aria-label={`Chính sách ${job.label}`}
+              aria-label={`Tuỳ chỉnh ${job.label}`}
               className={SECONDARY}
             >
-              Chính sách
+              Tuỳ chỉnh
             </button>
           ) : null}
         </div>
       </td>
     </tr>
   );
+}
+
+/** "Chủ sở hữu + Nguyễn Xuân Dũng, Ngô Trọng Huy". */
+function recipientsText(job: CronJob): string {
+  const names = job.recipients.map((person) => person.name);
+  return names.length ? `Chủ sở hữu + ${names.join(", ")}` : "Chủ sở hữu";
 }
 
 const SECONDARY =
@@ -468,7 +496,15 @@ function HistoryDialog({
 const FIELD =
   "min-h-11 w-full rounded-lg border border-[var(--border)] bg-[var(--surface)] px-3 text-sm text-[var(--text)]";
 
-function PolicyDialog({ job, onClose }: { job: CronJob; onClose: () => void }) {
+function PolicyDialog({
+  job,
+  people,
+  onClose,
+}: {
+  job: CronJob;
+  people: CronPerson[];
+  onClose: () => void;
+}) {
   const refresh = useRefreshCron();
   const [draft, setDraft] = useState({
     enabled: job.enabled,
@@ -476,7 +512,11 @@ function PolicyDialog({ job, onClose }: { job: CronJob; onClose: () => void }) {
     retryDelay: String(job.retry_delay_minutes || 30),
     alertAfter: String(job.alert_after),
     keepSuccesses: job.keep_successes,
+    notify: job.notify,
+    recipients: job.recipients,
   });
+  const chosen = new Set(draft.recipients.map((person) => person.user_id));
+  const addable = people.filter((person) => !chosen.has(person.user_id));
   const save = useMutation({
     mutationFn: (body: CronJobPolicyBody) => api.updateCronJob(job.key, body),
     onSuccess: () => {
@@ -491,13 +531,15 @@ function PolicyDialog({ job, onClose }: { job: CronJob; onClose: () => void }) {
       retry_delay_minutes: Number(draft.retryDelay),
       alert_after: Number(draft.alertAfter),
       keep_successes: draft.keepSuccesses,
+      notify: draft.notify,
+      notify_user_ids: draft.recipients.map((person) => person.user_id),
     });
   return (
     <Modal
       open
       onClose={onClose}
       busy={save.isPending}
-      title={`Chính sách · ${job.label}`}
+      title={`Tuỳ chỉnh · ${job.label}`}
     >
       <ModalBody className="space-y-3">
         {save.isError ? <NoticeBox error={save.error} /> : null}
@@ -509,7 +551,7 @@ function PolicyDialog({ job, onClose }: { job: CronJob; onClose: () => void }) {
               setDraft({ ...draft, enabled: event.target.checked })
             }
           />
-          Theo dõi và báo lỗi tác vụ này
+          Theo dõi tác vụ này (ghi lịch sử, phát hiện lỗi và trễ)
         </label>
         <div className="grid gap-3 sm:grid-cols-3">
           <label className="space-y-1 text-sm">
@@ -568,6 +610,90 @@ function PolicyDialog({ job, onClose }: { job: CronJob; onClose: () => void }) {
           Tắt theo dõi chỉ ngừng ghi nhận và báo lỗi; tác vụ vẫn chạy theo lịch
           trong hệ thống.
         </p>
+        <fieldset className="space-y-3 rounded-xl border border-[var(--border)] p-3">
+          <legend className="px-1 text-sm font-semibold">
+            Thông báo khi lỗi
+          </legend>
+          <label className="flex min-h-11 items-center gap-2 text-sm">
+            <input
+              type="checkbox"
+              checked={draft.notify}
+              onChange={(event) =>
+                setDraft({ ...draft, notify: event.target.checked })
+              }
+            />
+            Gửi thông báo khi tác vụ lỗi (Telegram + chuông)
+          </label>
+          {draft.notify ? (
+            <>
+              <div className="flex flex-wrap gap-1.5" aria-label="Người nhận">
+                <span className="inline-flex min-h-8 items-center rounded-full bg-[var(--accent-soft)] px-3 text-xs font-medium text-[var(--accent-strong)]">
+                  Chủ sở hữu · luôn nhận
+                </span>
+                {draft.recipients.map((person) => (
+                  <span
+                    key={person.user_id}
+                    className="inline-flex min-h-8 items-center gap-1 rounded-full border border-[var(--border)] bg-[var(--surface)] pl-3 text-xs"
+                  >
+                    {person.name}
+                    <button
+                      type="button"
+                      aria-label={`Bỏ ${person.name}`}
+                      onClick={() =>
+                        setDraft({
+                          ...draft,
+                          recipients: draft.recipients.filter(
+                            (item) => item.user_id !== person.user_id,
+                          ),
+                        })
+                      }
+                      className="grid h-8 w-8 place-items-center rounded-full text-[var(--text-muted)] hover:bg-[var(--surface-muted)] hover:text-[var(--bad)]"
+                    >
+                      ×
+                    </button>
+                  </span>
+                ))}
+              </div>
+              {addable.length ? (
+                <label className="block space-y-1 text-sm">
+                  <span className="text-[var(--text-muted)]">
+                    Thêm người nhận
+                  </span>
+                  <Select
+                    aria-label="Thêm người nhận"
+                    value=""
+                    onChange={(event) => {
+                      const person = people.find(
+                        (item) => item.user_id === event.target.value,
+                      );
+                      if (person)
+                        setDraft({
+                          ...draft,
+                          recipients: [...draft.recipients, person],
+                        });
+                    }}
+                  >
+                    <option value="">Chọn người…</option>
+                    {addable.map((person) => (
+                      <option key={person.user_id} value={person.user_id}>
+                        {person.name}
+                        {person.member_code ? ` (${person.member_code})` : ""}
+                      </option>
+                    ))}
+                  </Select>
+                </label>
+              ) : null}
+              <p className="text-xs text-[var(--text-muted)]">
+                Không thêm ai thì chỉ chủ sở hữu nhận. Chỉ báo khi lỗi, không
+                báo khi chạy lại được; chỉ chủ sở hữu bấm được “Chạy lại”.
+              </p>
+            </>
+          ) : (
+            <p className="text-xs text-[var(--text-muted)]">
+              Không ai được báo; lỗi vẫn hiện trên màn này.
+            </p>
+          )}
+        </fieldset>
       </ModalBody>
       <ModalFooter>
         <button
@@ -584,7 +710,7 @@ function PolicyDialog({ job, onClose }: { job: CronJob; onClose: () => void }) {
           disabled={save.isPending}
           className="min-h-11 rounded-lg bg-[var(--accent)] px-4 text-sm font-medium text-[var(--accent-text)] hover:opacity-90 disabled:opacity-50"
         >
-          {save.isPending ? "Đang lưu…" : "Lưu chính sách"}
+          {save.isPending ? "Đang lưu…" : "Lưu tuỳ chỉnh"}
         </button>
       </ModalFooter>
     </Modal>

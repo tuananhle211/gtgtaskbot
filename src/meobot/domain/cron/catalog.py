@@ -2,8 +2,11 @@
 
 The schedule itself lives in Celery's ``beat_schedule``
 (:mod:`meobot.tasks.celery_app`); this only says what each task is, in
-Vietnamese, and which group it sits in. A task scheduled without an entry here
-still shows up, under its technical name.
+Vietnamese, which group it sits in, and the alert default a new job row
+starts with (``notify``, ``notify_department``; chốt 28/10: only Phòng Ads'
+Meta pulls, told to the ADS heads). The OWNER changes both per job on the
+"Tác vụ định kỳ" screen. A task scheduled without an entry here still shows
+up, under its technical name.
 """
 
 from __future__ import annotations
@@ -16,6 +19,10 @@ class JobLabel:
     label: str
     group: str
     description: str = ""
+    #: A new row starts with failure alerts on (the OWNER is always told).
+    notify: bool = False
+    #: ...and these department heads (department code) as extra recipients.
+    notify_department: str | None = None
 
 
 GROUP_SYSTEM = "Hệ thống"
@@ -31,9 +38,7 @@ JOB_LABELS: dict[str, JobLabel] = {
     "conversations.cleanup_expired": JobLabel(
         "Dọn hội thoại hết hạn", GROUP_SYSTEM, "Xoá trạng thái hội thoại bot đã quá hạn."
     ),
-    "cron.watchdog": JobLabel(
-        "Canh tác vụ định kỳ", GROUP_SYSTEM, "Phát hiện tác vụ bị trễ, báo chủ sở hữu."
-    ),
+    "cron.watchdog": JobLabel("Canh tác vụ định kỳ", GROUP_SYSTEM, "Phát hiện tác vụ bị trễ."),
     "cron.purge_runs": JobLabel(
         "Dọn lịch sử tác vụ", GROUP_SYSTEM, "Xoá lịch sử chạy cũ theo hạn lưu."
     ),
@@ -83,10 +88,18 @@ JOB_LABELS: dict[str, JobLabel] = {
         "Gỡ AI review kẹt", GROUP_PR, "Trả lại các lượt AI review bị kẹt."
     ),
     "ads.sync_spend": JobLabel(
-        "Đồng bộ chi phí Meta", GROUP_ADS, "Chi tiêu, mess, SĐT hôm qua từ các BM (08:00, 23:00)."
+        "Đồng bộ chi phí Meta",
+        GROUP_ADS,
+        "Chi tiêu, mess, SĐT hôm qua từ các BM (08:00, 23:00).",
+        notify=True,
+        notify_department="ADS",
     ),
     "ads.sync_charges": JobLabel(
-        "Đồng bộ hoá đơn Meta", GROUP_ADS, "Các lần Meta trừ tiền trong 5 ngày gần nhất."
+        "Đồng bộ hoá đơn Meta",
+        GROUP_ADS,
+        "Các lần Meta trừ tiền trong 5 ngày gần nhất.",
+        notify=True,
+        notify_department="ADS",
     ),
     "pr.refresh_policy_sources": JobLabel(
         "Cập nhật chính sách nền tảng", GROUP_PR, "Tải lại chính sách TikTok / Meta / YouTube."

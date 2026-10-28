@@ -9,6 +9,7 @@ from pydantic import BaseModel, Field
 
 from meobot.application.cron.monitor_service import JobView
 from meobot.db.models.cron import CronJobIncident, CronJobRun
+from meobot.db.models.user import User
 from meobot.domain.cron.models import (
     RUN_STATUS_LABELS,
     STATE_LABELS,
@@ -43,6 +44,16 @@ class CronIncidentResponse(BaseModel):
         )
 
 
+class CronPersonResponse(BaseModel):
+    user_id: uuid.UUID
+    name: str
+    member_code: str | None = None
+
+    @classmethod
+    def from_user(cls, user: User) -> CronPersonResponse:
+        return cls(user_id=user.id, name=user.full_name, member_code=user.member_code)
+
+
 class CronJobResponse(BaseModel):
     key: str
     label: str
@@ -56,6 +67,9 @@ class CronJobResponse(BaseModel):
     retry_delay_minutes: int
     alert_after: int
     keep_successes: bool
+    #: Failure alerts on (0080): the OWNER, plus ``recipients``.
+    notify: bool
+    recipients: list[CronPersonResponse]
     last_started_at: datetime | None
     last_finished_at: datetime | None
     last_status: str | None
@@ -83,6 +97,8 @@ class CronJobResponse(BaseModel):
             retry_delay_minutes=job.retry_delay_seconds // 60,
             alert_after=job.alert_after,
             keep_successes=job.keep_successes,
+            notify=job.notify,
+            recipients=[CronPersonResponse.from_user(user) for user in view.recipients],
             last_started_at=job.last_started_at,
             last_finished_at=job.last_finished_at,
             last_status=job.last_status.value if job.last_status else None,
@@ -113,10 +129,17 @@ class CronOverviewResponse(BaseModel):
     jobs: list[CronJobResponse]
     #: The OWNER may change policies; an ADMIN reads and re-runs.
     can_manage: bool
+    #: Who may be picked as a recipient (the OWNER only; else empty).
+    people: list[CronPersonResponse] = []
 
     @classmethod
     def build(
-        cls, now: datetime, views: list[JobView], *, can_manage: bool
+        cls,
+        now: datetime,
+        views: list[JobView],
+        *,
+        can_manage: bool,
+        people: list[User] | None = None,
     ) -> CronOverviewResponse:
         def count(*states: CronJobState) -> int:
             return sum(1 for view in views if view.state in states)
@@ -133,6 +156,7 @@ class CronOverviewResponse(BaseModel):
             ),
             jobs=[CronJobResponse.from_view(view) for view in views],
             can_manage=can_manage,
+            people=[CronPersonResponse.from_user(user) for user in people or []],
         )
 
 
@@ -183,12 +207,17 @@ class UpdateCronJobRequest(BaseModel):
     retry_delay_minutes: int | None = Field(default=None, ge=1, le=720)
     alert_after: int | None = Field(default=None, ge=1, le=100)
     keep_successes: bool | None = None
+    #: Failure alerts on / off.
+    notify: bool | None = None
+    #: The extra recipients, replacing the list (``[]`` = the OWNER alone).
+    notify_user_ids: list[uuid.UUID] | None = Field(default=None, max_length=20)
 
 
 __all__ = [
     "CronJobHistoryResponse",
     "CronJobResponse",
     "CronOverviewResponse",
+    "CronPersonResponse",
     "CronRerunResponse",
     "UpdateCronJobRequest",
 ]

@@ -1,4 +1,5 @@
-"""The job monitor ("Tác vụ định kỳ", 0077): runs, incidents, alerts, "Chạy lại"."""
+"""The job monitor ("Tác vụ định kỳ", 0077): runs, incidents, alerts, "Chạy lại";
+per-job alerts and recipients (0080)."""
 
 from __future__ import annotations
 
@@ -18,8 +19,10 @@ from meobot.application.cron.monitor_service import (
 )
 from meobot.application.cron.recorder import CronRecorder, RunOutcome, outcome_of
 from meobot.application.cron.schedule import expected_after, scheduled_jobs
+from meobot.application.org.departments import place
 from meobot.bot.cron_keyboards import rerun_binding, rerun_keyboard
 from meobot.core.config import Settings
+from meobot.core.time import utcnow
 from meobot.db.models.cron import CronJob, CronJobIncident, CronJobRun
 from meobot.db.models.notifications import OutboundMessage
 from meobot.db.models.user import User
@@ -36,7 +39,9 @@ from meobot.domain.cron.models import (
 )
 from meobot.domain.identity.models import Role
 from meobot.domain.member.callbacks import MemberBinding, parse
+from meobot.domain.units.models import UnitCode, UnitMemberRole
 from tests.unit.pr_world import World
+from tests.unit.streams import ensure_units
 
 T0 = datetime(2026, 10, 27, 1, 0, tzinfo=UTC)
 OWNER_CHAT = 930_001
@@ -212,12 +217,12 @@ async def test_06_a_daily_failure_retries_then_tells_the_owner_once(
     assert again.alerted is False
     assert len(await alerts(session, "cron_job_failed")) == 1
 
-    # A good run closes it and says so.
+    # A good run closes it quietly: only failures are sent (28/10).
     ok = await succeed(recorder, DAILY, at=T0 + timedelta(days=1, hours=1))
     assert ok.recovered is True
-    assert len(await alerts(session, "cron_job_recovered")) == 1
+    assert await alerts(session, "cron_job_recovered") == []
     await session.refresh(incident)
-    assert incident.closed_at is not None and incident.recovery_alerted_at is not None
+    assert incident.closed_at is not None and incident.recovery_alerted_at is None
     assert job.open_incident_id is None and job.consecutive_failures == 0
     # Every run of a daily job is kept.
     runs = (await session.execute(select(CronJobRun))).scalars().all()
@@ -229,6 +234,9 @@ async def test_07_a_frequent_job_reports_after_five_failures_and_keeps_few_rows(
 ) -> None:
     settings = await owner_world(session, settings)
     recorder = CronRecorder(session, settings, jobs=JOBS)
+    # Only Phòng Ads' Meta pulls alert by default; the OWNER switches others on.
+    assert (await recorder.ensure(FREQUENT)).notify is False
+    (await recorder.ensure(FREQUENT)).notify = True
 
     for _ in range(3):
         await succeed(recorder, FREQUENT)
@@ -241,9 +249,13 @@ async def test_07_a_frequent_job_reports_after_five_failures_and_keeps_few_rows(
     assert len(await alerts(session, "cron_job_failed")) == 1
     assert len((await session.execute(select(CronJobRun))).scalars().all()) == 6
 
-    # A recovery before anyone was told sends nothing.
+    # A job with alerts off: its incidents stay on the screen, nobody is told.
     other = "system.periodic_heartbeat"
-    await fail(recorder, other)
+    for _ in range(6):
+        await fail(recorder, other)
+    assert len(await alerts(session, "cron_job_failed")) == 1
+    heartbeat = await session.get(CronJob, other)
+    assert heartbeat is not None and heartbeat.open_incident_id is not None
     assert (await succeed(recorder, other)).recovered is False
     assert await alerts(session, "cron_job_recovered") == []
 
@@ -253,6 +265,7 @@ async def test_08_a_silent_job_is_late_and_reported_once(
 ) -> None:
     settings = await owner_world(session, settings)
     recorder = CronRecorder(session, settings, jobs=JOBS)
+    (await recorder.ensure("system.periodic_heartbeat")).notify = True
     await succeed(recorder, "system.periodic_heartbeat", at=T0)
 
     assert await recorder.check_late(now=T0 + timedelta(minutes=8)) == 0
@@ -263,10 +276,11 @@ async def test_08_a_silent_job_is_late_and_reported_once(
     assert await recorder.check_late(now=T0 + timedelta(minutes=30)) == 0
     jobs = await recorder.jobs()
     assert recorder.late_keys(jobs, T0 + timedelta(minutes=30)) == {"system.periodic_heartbeat"}
-    # It runs again: closed, and the recovery is reported.
+    # It runs again: closed, without a message.
     assert (
         await succeed(recorder, "system.periodic_heartbeat", at=T0 + timedelta(minutes=31))
     ).recovered
+    assert await alerts(session, "cron_job_recovered") == []
 
 
 async def test_09_switched_off_records_nothing(session: AsyncSession, settings: Settings) -> None:
@@ -364,7 +378,8 @@ async def test_11_chay_lai_queues_once_and_refuses_while_running(world: World) -
 async def test_12_the_history_of_one_job(world: World) -> None:
     use_service(world, FakeSender())
     recorder = CronRecorder(world.session, world.settings, jobs=JOBS)
-    await fail(recorder, DAILY)
+    # Now, not T0: a run a day old would read "Trễ" by the real clock.
+    await fail(recorder, DAILY, at=utcnow() - timedelta(minutes=1))
     world.act_as(world.owner)
     body = world.client.get(f"/api/cron/jobs/{DAILY}").json()
     assert body["job"]["state"] == "FAILING" and body["job"]["consecutive_failures"] == 1
@@ -384,3 +399,98 @@ def test_13_the_telegram_button_works_only_in_the_chat_it_was_sent_to(settings: 
     assert payload.action == "cron.rerun"
     forwarded = MemberBinding(bot_id=0, telegram_user_id=1, chat_id=1)
     assert parse(data, secret=settings.callback_secret, binding=forwarded) is None
+
+
+# --- per-job alerts and recipients (0080) ------------------------------------
+
+
+async def test_14_the_owner_and_the_jobs_recipients_are_told_of_a_failure(
+    session: AsyncSession, settings: Settings
+) -> None:
+    settings = await owner_world(session, settings)
+    await ensure_units(session)
+
+    def person(name: str, chat: int, **over: Any) -> User:
+        return User(
+            telegram_user_id=chat,
+            full_name=name,
+            role=Role.EMPLOYEE,
+            active=True,
+            status=UserStatus.ACTIVE,
+            telegram_private_chat_id=chat,
+            private_chat_available=True,
+            **over,
+        )
+
+    head = person("Trưởng phòng Ads", 930_002)
+    extra = person("Kế toán", 930_003)
+    gone = person("Đã nghỉ", 930_004, deleted_at=T0)
+    session.add_all([head, extra, gone])
+    await session.flush()
+    await place(session, UnitCode.ADS, head.id, UnitMemberRole.HEAD)
+    recorder = CronRecorder(session, settings, jobs=JOBS)
+
+    # A Meta pull starts with alerts on and the ADS heads as recipients.
+    job = await recorder.ensure(DAILY)
+    assert job.notify is True and job.notify_user_ids == [str(head.id)]
+    job.notify_user_ids = [str(head.id), str(extra.id), str(gone.id)]
+
+    for attempt in (1, 2, 3):
+        await fail(recorder, DAILY, attempt=attempt, at=T0 + timedelta(minutes=30 * attempt))
+    messages = {row.telegram_chat_id: row for row in await alerts(session, "cron_job_failed")}
+    # A deleted account is skipped; the OWNER's copy alone offers "Chạy lại".
+    assert set(messages) == {OWNER_CHAT, 930_002, 930_003}
+    assert messages[OWNER_CHAT].safe_payload_json["can_rerun"] == "1"
+    assert messages[930_002].safe_payload_json["can_rerun"] == "0"
+    inbox = (await session.execute(select(UserNotification))).scalars().all()
+    assert {row.recipient_user_id for row in inbox} >= {head.id, extra.id}
+    assert gone.id not in {row.recipient_user_id for row in inbox}
+
+    from meobot.application.outbound_keyboards import _cron_rerun_markup
+    from meobot.domain.notifications.templates import render
+
+    assert _cron_rerun_markup(settings, messages[930_002]) is None
+    assert _cron_rerun_markup(settings, messages[OWNER_CHAT]) is not None
+    text = render("cron.job_failed", messages[930_002].safe_payload_json)
+    assert "Chủ sở hữu đã được báo" in text and "Bấm" not in text
+
+    # Alerts off: the next incident is not sent to anybody.
+    await succeed(recorder, DAILY, at=T0 + timedelta(hours=3))
+    job.notify = False
+    for attempt in (1, 2, 3):
+        await fail(recorder, DAILY, attempt=attempt, at=T0 + timedelta(hours=4, minutes=attempt))
+    assert len(await alerts(session, "cron_job_failed")) == 3
+
+
+async def test_15_the_owner_edits_a_jobs_alerts_on_the_screen(world: World) -> None:
+    use_service(world, FakeSender())
+    extra = User(full_name="Người nhận", role=Role.EMPLOYEE, status=UserStatus.ACTIVE)
+    gone = User(full_name="Đã xoá", role=Role.EMPLOYEE, status=UserStatus.ACTIVE, deleted_at=T0)
+    world.session.add_all([extra, gone])
+    await world.session.flush()
+    world.act_as(world.owner)
+    page = world.client.get("/api/cron").json()
+    by_key = {job["key"]: job for job in page["jobs"]}
+    assert by_key[DAILY]["notify"] is True and by_key[FREQUENT]["notify"] is False
+    people = {person["name"] for person in page["people"]}
+    assert "Người nhận" in people and "Đã xoá" not in people
+
+    body = world.client.patch(
+        f"/api/cron/jobs/{FREQUENT}",
+        json={"notify": True, "notify_user_ids": [str(extra.id), str(extra.id)]},
+    ).json()
+    assert body["notify"] is True
+    assert [person["name"] for person in body["recipients"]] == ["Người nhận"]
+    # Empty = the OWNER alone.
+    cleared = world.client.patch(f"/api/cron/jobs/{FREQUENT}", json={"notify_user_ids": []})
+    assert cleared.json()["recipients"] == [] and cleared.json()["notify"] is True
+    bad = world.client.patch(f"/api/cron/jobs/{FREQUENT}", json={"notify_user_ids": [str(gone.id)]})
+    assert bad.status_code == 422 and bad.json()["details"]["field"] == "notify_user_ids"
+
+    admin = User(full_name="Quản trị", role=Role.ADMIN, status=UserStatus.ACTIVE)
+    world.session.add(admin)
+    await world.session.flush()
+    world.act_as(admin)
+    assert world.client.get("/api/cron").json()["people"] == []
+    denied = world.client.patch(f"/api/cron/jobs/{FREQUENT}", json={"notify": False})
+    assert denied.status_code == 403

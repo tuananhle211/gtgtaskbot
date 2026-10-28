@@ -1,6 +1,7 @@
 /**
  * "Quản trị › Tác vụ định kỳ" (0077): every scheduled job, how its last run
- * went, its history, "Chạy lại"; the OWNER edits a job's policy.
+ * went, its history, "Chạy lại"; the OWNER customises a job (policy, failure
+ * alerts on / off, who besides the OWNER gets them - 0080).
  */
 import { describe, expect, it, vi } from "vitest";
 import { screen, waitFor, within } from "@testing-library/react";
@@ -39,6 +40,8 @@ const job = (over: Record<string, unknown> = {}) => ({
   retry_delay_minutes: 0,
   alert_after: 5,
   keep_successes: false,
+  notify: false,
+  recipients: [],
   last_started_at: "2026-10-27T01:00:00Z",
   last_finished_at: "2026-10-27T01:00:01Z",
   last_status: "SUCCESS",
@@ -64,6 +67,8 @@ const FAILING = job({
   retry_delay_minutes: 30,
   alert_after: 1,
   keep_successes: true,
+  notify: true,
+  recipients: [{ user_id: "u-head", name: "Nguyễn Xuân Dũng" }],
   last_status: "FAILED",
   last_status_label: "Lỗi",
   last_message: "Token hết hạn",
@@ -86,6 +91,10 @@ const overview = (over: Record<string, unknown> = {}) => ({
   summary: { total: 2, ok: 1, failing: 1, late: 0, running: 0, off: 0 },
   jobs: [job(), FAILING],
   can_manage: true,
+  people: [
+    { user_id: "u-head", name: "Nguyễn Xuân Dũng", member_code: "M001DUNG" },
+    { user_id: "u-huy", name: "Ngô Trọng Huy", member_code: "M011HUY" },
+  ],
   ...over,
 });
 
@@ -205,7 +214,7 @@ describe("the jobs", () => {
     );
   });
 
-  it("an ADMIN re-runs but does not see the policy button", async () => {
+  it("an ADMIN re-runs but does not see the Tuỳ chỉnh button", async () => {
     open(overview({ can_manage: false }), "ADMIN");
     const row = await screen.findByTestId("cron-job-ads.sync_spend");
     expect(
@@ -214,8 +223,68 @@ describe("the jobs", () => {
       }),
     ).toBeInTheDocument();
     expect(
-      within(row).queryByRole("button", { name: /Chính sách/ }),
+      within(row).queryByRole("button", { name: /Tuỳ chỉnh/ }),
     ).not.toBeInTheDocument();
+  });
+
+  it("each row says who is told of a failure", async () => {
+    open(overview(), "OWNER");
+    expect(
+      await screen.findByTestId("cron-notify-ads.sync_spend"),
+    ).toHaveTextContent("Báo lỗi: Chủ sở hữu + Nguyễn Xuân Dũng");
+    expect(
+      screen.getByTestId("cron-notify-notifications.drain_outbox"),
+    ).toHaveTextContent("Không gửi thông báo");
+  });
+
+  it("the OWNER switches alerts and picks who gets them", async () => {
+    const stub = open(overview(), "OWNER", [
+      {
+        match: "/api/cron/jobs/notifications.drain_outbox",
+        method: "PATCH",
+        body: job(),
+      },
+    ]);
+    const row = await screen.findByTestId(
+      "cron-job-notifications.drain_outbox",
+    );
+    await userEvent.click(
+      within(row).getByRole("button", {
+        name: "Tuỳ chỉnh Gửi tin trong hàng đợi",
+      }),
+    );
+    const dialog = await screen.findByRole("dialog");
+    expect(
+      within(dialog).queryByLabelText("Thêm người nhận"),
+    ).not.toBeInTheDocument();
+    await userEvent.click(
+      within(dialog).getByLabelText(/Gửi thông báo khi tác vụ lỗi/),
+    );
+    expect(dialog).toHaveTextContent("Chủ sở hữu · luôn nhận");
+    expect(dialog).toHaveTextContent("Không thêm ai thì chỉ chủ sở hữu nhận.");
+    await userEvent.selectOptions(
+      within(dialog).getByLabelText("Thêm người nhận"),
+      "u-huy",
+    );
+    await userEvent.selectOptions(
+      within(dialog).getByLabelText("Thêm người nhận"),
+      "u-head",
+    );
+    // Picked people leave the list; × takes one off again.
+    await userEvent.click(
+      within(dialog).getByRole("button", { name: "Bỏ Nguyễn Xuân Dũng" }),
+    );
+    await userEvent.click(
+      within(dialog).getByRole("button", { name: "Lưu tuỳ chỉnh" }),
+    );
+    await waitFor(() =>
+      expect(
+        sent(stub, "PATCH", "/api/cron/jobs/notifications.drain_outbox"),
+      ).toHaveLength(1),
+    );
+    expect(
+      sent(stub, "PATCH", "/api/cron/jobs/notifications.drain_outbox")[0].body,
+    ).toMatchObject({ notify: true, notify_user_ids: ["u-huy"] });
   });
 
   it("the OWNER edits a policy", async () => {
@@ -229,7 +298,7 @@ describe("the jobs", () => {
     const row = await screen.findByTestId("cron-job-ads.sync_spend");
     await userEvent.click(
       within(row).getByRole("button", {
-        name: "Chính sách Đồng bộ chi phí Meta",
+        name: "Tuỳ chỉnh Đồng bộ chi phí Meta",
       }),
     );
     const dialog = await screen.findByRole("dialog");
@@ -237,7 +306,7 @@ describe("the jobs", () => {
     await userEvent.clear(retries);
     await userEvent.type(retries, "1");
     await userEvent.click(
-      within(dialog).getByRole("button", { name: "Lưu chính sách" }),
+      within(dialog).getByRole("button", { name: "Lưu tuỳ chỉnh" }),
     );
     await waitFor(() =>
       expect(sent(stub, "PATCH", "/api/cron/jobs/ads.sync_spend")).toHaveLength(
@@ -252,6 +321,8 @@ describe("the jobs", () => {
       retry_delay_minutes: 30,
       alert_after: 1,
       keep_successes: true,
+      notify: true,
+      notify_user_ids: ["u-head"],
     });
   });
 

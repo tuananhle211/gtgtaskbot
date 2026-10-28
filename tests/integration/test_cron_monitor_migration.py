@@ -79,6 +79,8 @@ async def test_01_models_and_migration_agree(database: Database) -> None:
             item
             for item in compare_metadata(context, Base.metadata)
             if any(table in repr(item) for table in TABLES)
+            # 0080 adds the per-job alert columns (test_cron_notify_migration).
+            and not ("Column('notify" in repr(item) and item[0] == "add_column")
         ]
 
     async with database.engine.begin() as connection:

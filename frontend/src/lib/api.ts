@@ -3775,6 +3775,12 @@ export interface CronIncident {
   rerun_requested_at: string | null;
 }
 
+export interface CronPerson {
+  user_id: Uuid;
+  name: string;
+  member_code?: string | null;
+}
+
 export interface CronJob {
   /** The Celery task name, e.g. `notifications.drain_outbox`. */
   key: string;
@@ -3791,6 +3797,9 @@ export interface CronJob {
   retry_delay_minutes: number;
   alert_after: number;
   keep_successes: boolean;
+  /** Failure alerts on (0080): the OWNER always, plus `recipients`. */
+  notify: boolean;
+  recipients: CronPerson[];
   last_started_at: string | null;
   last_finished_at: string | null;
   last_status: string | null;
@@ -3809,6 +3818,8 @@ export interface CronOverview {
   jobs: CronJob[];
   /** The OWNER: may change policies. An ADMIN reads and re-runs. */
   can_manage: boolean;
+  /** Who may be picked as a recipient (the OWNER's screen; else empty). */
+  people?: CronPerson[];
 }
 
 export interface CronRun {
@@ -3837,6 +3848,9 @@ export interface CronJobPolicyBody {
   retry_delay_minutes?: number;
   alert_after?: number;
   keep_successes?: boolean;
+  notify?: boolean;
+  /** Replaces the extra recipients; `[]` = the OWNER alone. */
+  notify_user_ids?: string[];
 }
 
 // --- Phòng Ads (0078) --------------------------------------------------------
