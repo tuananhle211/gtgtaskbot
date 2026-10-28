@@ -7,20 +7,31 @@ Quản lý), for one month.
   HCM, the commission revenue (without the 8% VAT), Ads / Doanh thu (charges ÷
   commission revenue), Ads / DT thực (charges ÷ revenue), the KPI and how far
   the month is, revenue by source, spend, charges, phone numbers.
-* **Khối 2** - Facebook Ads: every marketer ranked by revenue, and who needs
-  attention (Ads / Doanh thu above 60%, or spend with no revenue). Google Ads
-  and TikTok Ads come later (chốt 27/10: left out for now).
+* **Khối 2** - per platform (``channels``, whatever ``platform`` is picked):
+  Facebook Ads with every marketer ranked by revenue and who needs attention
+  (Ads / Doanh thu above 60%, or spend with no revenue); Google Ads and TikTok
+  Ads (0081, typed by hand) with their spend, invoices, their ◆ revenue line
+  and the marketers ranked by spend.
 * **Khối 3** - the detail table per marketer.
 * **Báo cáo tháng** (April to the month) and **Báo cáo ngày** (each day) -
   :meth:`AdsTeamService.history`, for the team or one marketer (their own
   revenue SG + HN, their KPI); a member gets their own.
 
+``start`` / ``end`` read any range instead of a month (compared with the same
+number of days just before); the KPI always belongs to the month the range
+ends in, measured on that month's revenue from its 1st to the range's end.
 ``site`` narrows the revenue: ``hcm`` without the "HN chuyển HCM" source, ``hn``
 that source alone. ``connection_id`` narrows everything to one BM's ad accounts:
 spend, charges, phone numbers and the marketers holding an account there; the
 revenue is entered per person, not per BM, so it is left out (``revenue_note``
 ``filtered``, as on the staff dashboard). Customers, bookings and bill figures
 are not entered yet.
+
+``platform`` (0081) switches Khối 1, Khối 3 and the reports to one platform's
+ad accounts: Facebook (default) as above; Google / TikTok Ads take their ◆
+revenue line (entered per source, not per marketer - ``revenue_note``
+``platform``) and no KPI (set for the whole department), and list the
+marketers holding an account there. A BM is Facebook's: ignored otherwise.
 """
 
 from __future__ import annotations
@@ -45,7 +56,11 @@ from meobot.db.models.ads import AdsAccount, AdsChargeDaily, AdsConnection, AdsS
 from meobot.db.models.user import User
 from meobot.domain.ads.models import (
     ADS_RATIO_WATCH,
+    MANUAL_PLATFORMS,
+    PLATFORM_LABELS,
+    PLATFORM_SOURCES,
     REVENUE_SOURCE_LABELS,
+    AdsPlatform,
     Period,
     RevenueSource,
     commission_revenue,
@@ -100,10 +115,12 @@ class MarketerLine:
     #: Spend, charges, phones of their ad accounts; revenue = SG + HN.
     current: Figures
     kpi: float | None = None
+    #: Their revenue (SG + HN) from the KPI month's 1st to the range's end.
+    kpi_revenue: float | None = None
 
     @property
     def kpi_rate(self) -> float | None:
-        return ratio(self.current.revenue or 0, self.kpi) if self.kpi else None
+        return ratio(self.kpi_revenue or 0, self.kpi) if self.kpi else None
 
     @property
     def ads_ratio(self) -> float | None:
@@ -131,6 +148,31 @@ class Alert:
     revenue: float | None
     ads_ratio: float | None
     phones: int
+
+
+@dataclass(slots=True)
+class ChannelPerson:
+    user_id: uuid.UUID
+    name: str
+    #: Their accounts on the platform; revenue only on Facebook (SG + HN).
+    figures: Figures
+
+    @property
+    def ads_ratio(self) -> float | None:
+        net = self.figures.revenue_net
+        return ratio(self.figures.spend, net) if net else None
+
+
+@dataclass(slots=True)
+class Channel:
+    """One platform's line of Khối 2."""
+
+    platform: AdsPlatform
+    label: str
+    figures: Figures
+    #: Facebook: by revenue; Google / TikTok: by spend.
+    people: list[ChannelPerson]
+    accounts: int
 
 
 @dataclass(frozen=True, slots=True)
@@ -163,8 +205,10 @@ class TeamReport:
     #: The marketers' HN part: their KPI, not the site's revenue.
     marketers_hn: float | None
     team_kpi: float | None
-    #: Share of the month gone (days through yesterday ÷ days in the month).
+    #: Share of the KPI month gone (days through yesterday ÷ days in it).
     month_progress: float
+    #: The site's revenue from the KPI month's 1st to the range's end.
+    kpi_revenue: float | None
     sources: list[SourceLine]
     marketers: list[MarketerLine]
     facebook: Figures
@@ -172,12 +216,16 @@ class TeamReport:
     #: The BM filter in force and every BM to pick from.
     connection_id: uuid.UUID | None = None
     connections: list[AdsConnection] = field(default_factory=list)
-    #: ``filtered`` = a BM is picked: no revenue (not split by BM).
+    #: ``filtered`` = a BM is picked: no revenue (not split by BM);
+    #: ``platform`` = Google / TikTok: revenue is their ◆ line, no KPI.
     revenue_note: str | None = None
+    platform: AdsPlatform = AdsPlatform.FACEBOOK
+    #: Khối 2: every platform, whichever is picked.
+    channels: list[Channel] = field(default_factory=list)
 
     @property
     def team_kpi_rate(self) -> float | None:
-        return ratio(self.current.revenue or 0, self.team_kpi) if self.team_kpi else None
+        return ratio(self.kpi_revenue or 0, self.team_kpi) if self.team_kpi else None
 
 
 @dataclass(frozen=True, slots=True)
@@ -189,8 +237,10 @@ class History:
     user_id: uuid.UUID | None
     months: list[MonthLine]
     days: list[DayLine]
-    #: ``filtered`` = a BM is picked: no revenue (not split by BM).
+    #: ``filtered`` = a BM is picked: no revenue (not split by BM);
+    #: ``platform`` = one marketer's Google / TikTok numbers: no revenue.
     revenue_note: str | None = None
+    platform: AdsPlatform = AdsPlatform.FACEBOOK
 
 
 def month_period(first: date) -> Period:
@@ -208,6 +258,86 @@ def _in_site(row: RevenueRow, site: str) -> bool:
     if site == "hn":
         return transfer
     return True
+
+
+@dataclass(slots=True)
+class _Raw:
+    """Every account's rows in a window, loaded once and narrowed per platform."""
+
+    accounts: list[AdsAccount]
+    spend_rows: list[Any]
+    charge_rows: list[Any]
+    revenue_rows: list[RevenueRow]
+
+    def narrow(
+        self,
+        *,
+        platform: AdsPlatform = AdsPlatform.FACEBOOK,
+        connection_id: uuid.UUID | None = None,
+        person: uuid.UUID | None = None,
+        site: str = "all",
+    ) -> _Book:
+        manual = platform in MANUAL_PLATFORMS
+        if manual:
+            connection_id = None
+        accounts = {
+            account.account_id: account
+            for account in self.accounts
+            if account.platform is platform
+            and (connection_id is None or account.connection_id == connection_id)
+            and (person is None or account.user_id == person)
+        }
+        if connection_id is not None:
+            revenue: list[RevenueRow] = []
+        elif manual:
+            # Entered on the platform's ◆ line: the department's, nobody's own.
+            source = PLATFORM_SOURCES[platform]
+            revenue = (
+                [] if person is not None else [r for r in self.revenue_rows if r.source is source]
+            )
+        else:
+            revenue = [r for r in self.revenue_rows if person is None or r.user_id == person]
+        return _Book(
+            accounts,
+            [row for row in self.spend_rows if row.account_id in accounts],
+            [row for row in self.charge_rows if row.account_id in accounts],
+            revenue,
+            site=site,
+            person=person,
+        )
+
+
+def _by_person(book: _Book, period: Period) -> dict[uuid.UUID, Figures]:
+    """Each marketer's spend, charges and phones on the book's accounts in the
+    period, and their own revenue (SG + HN) where the book carries it."""
+    by_person: dict[uuid.UUID, Figures] = defaultdict(Figures)
+    for day, account_id, spend, phones in book.spend_rows:
+        owner = book.accounts[account_id].user_id
+        if owner is not None and period.start <= day <= period.end:
+            by_person[owner].spend += float(spend)
+            by_person[owner].phones += phones
+    for day, account_id, amount in book.charge_rows:
+        account = book.accounts[account_id]
+        if account.user_id is not None and period.start <= day <= period.end:
+            by_person[account.user_id].invoice += float(
+                amount * invoice_factor(account.name, account.brand, day)
+            )
+    for row in book.revenue_rows:
+        if row.user_id is not None and row.gross and period.start <= row.day <= period.end:
+            by_person[row.user_id].add_revenue(row.gross, row.day)
+    return by_person
+
+
+def _total_of(people: Iterable[Figures]) -> Figures:
+    total = Figures()
+    for figures in people:
+        total.spend += figures.spend
+        total.invoice += figures.invoice
+        total.phones += figures.phones
+        if figures.revenue is not None:
+            total.revenue = (total.revenue or 0.0) + figures.revenue
+            total.revenue_net = (total.revenue_net or 0.0) + (figures.revenue_net or 0.0)
+    return total
 
 
 @dataclass(slots=True)
@@ -259,23 +389,10 @@ class AdsTeamService:
     def __init__(self, session: AsyncSession) -> None:
         self._session = session
 
-    async def _book(
-        self,
-        window: Period,
-        *,
-        connection_id: uuid.UUID | None = None,
-        person: uuid.UUID | None = None,
-        site: str = "all",
-    ) -> _Book:
-        accounts = {
-            account.account_id: account
-            for account in await self._session.scalars(select(AdsAccount))
-            if (connection_id is None or account.connection_id == connection_id)
-            and (person is None or account.user_id == person)
-        }
-        spend_rows = [
-            row
-            for row in await self._session.execute(
+    async def _load(self, window: Period, *, revenue: bool = True) -> _Raw:
+        accounts = list(await self._session.scalars(select(AdsAccount)))
+        spend_rows = list(
+            await self._session.execute(
                 select(
                     AdsSpendDaily.day,
                     AdsSpendDaily.account_id,
@@ -283,27 +400,22 @@ class AdsTeamService:
                     AdsSpendDaily.phones,
                 ).where(AdsSpendDaily.day >= window.start, AdsSpendDaily.day <= window.end)
             )
-            if row.account_id in accounts
-        ]
-        charge_rows = [
-            row
-            for row in await self._session.execute(
+        )
+        charge_rows = list(
+            await self._session.execute(
                 select(AdsChargeDaily.day, AdsChargeDaily.account_id, AdsChargeDaily.amount).where(
                     AdsChargeDaily.day >= window.start, AdsChargeDaily.day <= window.end
                 )
             )
-            if row.account_id in accounts
-        ]
-        revenue_rows: list[RevenueRow] = []
-        if connection_id is None:
-            revenue_rows = [
-                row
-                for row in await AdsRevenueService(self._session, AuditService(self._session)).rows(
-                    window.start, window.end
-                )
-                if person is None or row.user_id == person
-            ]
-        return _Book(accounts, spend_rows, charge_rows, revenue_rows, site=site, person=person)
+        )
+        revenue_rows = (
+            await AdsRevenueService(self._session, AuditService(self._session)).rows(
+                window.start, window.end
+            )
+            if revenue
+            else []
+        )
+        return _Raw(accounts, spend_rows, charge_rows, revenue_rows)
 
     async def history(
         self,
@@ -313,27 +425,33 @@ class AdsTeamService:
         user_id: uuid.UUID | None = None,
         connection_id: uuid.UUID | None = None,
         site: str = "all",
+        platform: AdsPlatform = AdsPlatform.FACEBOOK,
     ) -> History:
         """ "Báo cáo tháng" (April, or January, to the month) and "Báo cáo
         ngày" (the month's days): the team, or one marketer - a member always
         their own."""
         access.require_view()
         person = user_id if access.view_all else access.user_id
+        manual = platform in MANUAL_PLATFORMS
+        if manual:
+            connection_id = None
         period = month_period(month)
         first_month = period.start.replace(month=min(REPORT_FROM_MONTH, period.start.month))
-        book = await self._book(
-            Period(start=first_month, end=period.end),
+        raw = await self._load(Period(start=first_month, end=period.end))
+        book = raw.narrow(
+            platform=platform,
             connection_id=connection_id,
             person=person,
             site=site if site in SITES else "all",
         )
+        no_kpi = connection_id is not None or manual
         revenue_service = AdsRevenueService(self._session, AuditService(self._session))
         kpi_key = f"u:{person}" if person is not None else TEAM_KEY
         months: list[MonthLine] = []
         cursor = first_month
         while cursor <= period.start:
             span = month_period(cursor)
-            amounts = {} if connection_id else await revenue_service.kpi_amounts(span.start)
+            amounts = {} if no_kpi else await revenue_service.kpi_amounts(span.start)
             months.append(
                 MonthLine(
                     span.start,
@@ -350,7 +468,12 @@ class AdsTeamService:
                 DayLine(day, book.figures(Period(start=day, end=day)))
                 for day in _month_days(period)
             ],
-            revenue_note="filtered" if connection_id else None,
+            revenue_note="filtered"
+            if connection_id
+            else "platform"
+            if manual and person is not None
+            else None,
+            platform=platform,
         )
 
     async def report(
@@ -360,18 +483,37 @@ class AdsTeamService:
         month: date,
         site: str = "all",
         connection_id: uuid.UUID | None = None,
+        start: date | None = None,
+        end: date | None = None,
+        platform: AdsPlatform = AdsPlatform.FACEBOOK,
     ) -> TeamReport:
         access.require_view()
         if not access.view_all:
             raise AdsNotVisibleError()
         site = site if site in SITES else "all"
-        period = month_period(month)
-        previous = month_period(period.start - timedelta(days=1))
+        manual = platform in MANUAL_PLATFORMS
+        if manual:
+            connection_id = None
+        if start is not None and end is not None:
+            period = Period(start=start, end=end)
+            previous = period.previous()
+        else:
+            period = month_period(month)
+            previous = month_period(period.start - timedelta(days=1))
+        kpi_month = month_period(period.end)
+        kpi_span = Period(start=kpi_month.start, end=period.end)
         filtered = connection_id is not None
-        book = await self._book(
-            Period(start=previous.start, end=period.end), connection_id=connection_id, site=site
-        )
-        accounts, spend_rows, charge_rows = book.accounts, book.spend_rows, book.charge_rows
+        raw = await self._load(Period(start=min(previous.start, kpi_month.start), end=period.end))
+        books = {
+            item: raw.narrow(
+                platform=item,
+                connection_id=connection_id if item is AdsPlatform.FACEBOOK else None,
+                site=site,
+            )
+            for item in AdsPlatform
+        }
+        book = books[platform]
+        accounts = book.accounts
         revenue_rows = book.revenue_rows
         revenue_service = AdsRevenueService(self._session, AuditService(self._session))
         team = book.figures
@@ -417,31 +559,29 @@ class AdsTeamService:
         ]
 
         # The marketers: their accounts' numbers and their own revenue (SG + HN).
-        by_person: dict[uuid.UUID, Figures] = defaultdict(Figures)
-        for day, account_id, spend, phones in spend_rows:
-            owner = accounts[account_id].user_id
-            if owner is not None and period.start <= day <= period.end:
-                by_person[owner].spend += float(spend)
-                by_person[owner].phones += phones
-        for day, account_id, amount in charge_rows:
-            account = accounts[account_id]
-            if account.user_id is not None and period.start <= day <= period.end:
-                by_person[account.user_id].invoice += float(
-                    amount * invoice_factor(account.name, account.brand, day)
-                )
-        for row in in_month:
-            if row.user_id is not None and row.gross:
-                by_person[row.user_id].add_revenue(row.gross, row.day)
-        kpis = {} if filtered else await revenue_service.kpi_amounts(period.start)
-        staff = {user.id: user for user in await ads_people(self._session)}
-        if filtered:
-            # One BM: the people holding an account in it.
-            holders = {account.user_id for account in accounts.values() if account.user_id}
-            staff = {user_id: user for user_id, user in staff.items() if user_id in holders}
-        missing = set(by_person) - set(staff)
+        people = {item: _by_person(books[item], period) for item in AdsPlatform}
+        by_person = people[platform]
+        kpis = {} if filtered or manual else await revenue_service.kpi_amounts(kpi_month.start)
+        kpi_revenue: dict[uuid.UUID, float] = defaultdict(float)
+        for row in revenue_rows:
+            if row.user_id is not None and kpi_span.start <= row.day <= kpi_span.end:
+                kpi_revenue[row.user_id] += float(row.gross)
+        seated = {user.id: user for user in await ads_people(self._session)}
+        everybody = dict(seated)
+        missing = {user_id for figures in people.values() for user_id in figures} - set(everybody)
         if missing:
             for user in await self._session.scalars(select(User).where(User.id.in_(missing))):
-                staff[user.id] = user
+                everybody[user.id] = user
+        # The seated people, and anybody else with numbers on the platform.
+        staff = {
+            user_id: user
+            for user_id, user in everybody.items()
+            if user_id in seated or user_id in by_person
+        }
+        if filtered or manual:
+            # One BM, or Google / TikTok: the people holding an account there.
+            holders = {account.user_id for account in accounts.values() if account.user_id}
+            staff = {user_id: user for user_id, user in staff.items() if user_id in holders}
         marketers = [
             MarketerLine(
                 user_id=user_id,
@@ -449,6 +589,7 @@ class AdsTeamService:
                 member_code=staff[user_id].member_code,
                 current=by_person.get(user_id, Figures()),
                 kpi=float(kpis[f"u:{user_id}"]) if f"u:{user_id}" in kpis else None,
+                kpi_revenue=kpi_revenue.get(user_id),
             )
             for user_id in set(staff) | set(by_person)
             if user_id in staff
@@ -457,37 +598,51 @@ class AdsTeamService:
             key=lambda line: (-(line.current.revenue or 0.0), -line.current.spend, line.name)
         )
 
-        facebook = Figures()
-        for line in marketers:
-            facebook.spend += line.current.spend
-            facebook.invoice += line.current.invoice
-            facebook.phones += line.current.phones
-            if line.current.revenue is not None:
-                facebook.revenue = (facebook.revenue or 0.0) + line.current.revenue
-                facebook.revenue_net = (facebook.revenue_net or 0.0) + (
-                    line.current.revenue_net or 0.0
+        channels: list[Channel] = []
+        for item in AdsPlatform:
+            crew = [
+                ChannelPerson(user_id, everybody[user_id].full_name, figures)
+                for user_id, figures in people[item].items()
+                if user_id in everybody
+            ]
+            if item in MANUAL_PLATFORMS:
+                crew.sort(key=lambda line: (-line.figures.spend, line.name))
+                # Spend of every account, revenue from the ◆ line.
+                totals = books[item].figures(period)
+            else:
+                crew.sort(
+                    key=lambda line: (
+                        -(line.figures.revenue_net or 0.0),
+                        -line.figures.spend,
+                        line.name,
+                    )
                 )
+                totals = _total_of(line.figures for line in crew)
+            channels.append(
+                Channel(item, PLATFORM_LABELS[item], totals, crew, len(books[item].accounts))
+            )
+        facebook = channels[0].figures
 
         attention: list[Alert] = []
         # Without revenue (a BM picked) every spender would look "no revenue".
-        for line in [] if filtered else marketers:
-            numbers = line.current
+        for person in [] if filtered else channels[0].people:
+            numbers = person.figures
             if numbers.spend <= 0:
                 continue
             if not numbers.revenue:
                 kind = "no_revenue"
-            elif (line.ads_ratio or 0.0) > ADS_RATIO_WATCH:
+            elif (person.ads_ratio or 0.0) > ADS_RATIO_WATCH:
                 kind = "high_ratio"
             else:
                 continue
             attention.append(
                 Alert(
-                    line.user_id,
-                    line.name,
+                    person.user_id,
+                    person.name,
                     kind,
                     numbers.spend,
                     numbers.revenue_net,
-                    line.ads_ratio,
+                    person.ads_ratio,
                     numbers.phones,
                 )
             )
@@ -496,12 +651,12 @@ class AdsTeamService:
         )
 
         today = vn_today()
-        if today > period.end:
+        if today > kpi_month.end:
             progress = 1.0
-        elif today <= period.start:
+        elif today <= kpi_month.start:
             progress = 0.0
         else:
-            progress = (today - period.start).days / period.days
+            progress = (today - kpi_month.start).days / kpi_month.days
 
         return TeamReport(
             month=period,
@@ -516,6 +671,7 @@ class AdsTeamService:
             marketers_hn=total(row.amount_hn for row in in_month if row.amount_hn),
             team_kpi=float(kpis[TEAM_KEY]) if TEAM_KEY in kpis else None,
             month_progress=progress,
+            kpi_revenue=team(kpi_span).revenue,
             sources=sources,
             marketers=marketers,
             facebook=facebook,
@@ -524,13 +680,17 @@ class AdsTeamService:
             connections=list(
                 await self._session.scalars(select(AdsConnection).order_by(AdsConnection.name))
             ),
-            revenue_note="filtered" if filtered else None,
+            revenue_note="filtered" if filtered else "platform" if manual else None,
+            platform=platform,
+            channels=channels,
         )
 
 
 __all__ = [
     "AdsTeamService",
     "Alert",
+    "Channel",
+    "ChannelPerson",
     "DayLine",
     "Figures",
     "History",

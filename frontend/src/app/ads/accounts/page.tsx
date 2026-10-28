@@ -2,8 +2,13 @@
 
 import { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { api, type AdsAccount, type AdsAccounts } from "@/lib/api";
-import { money } from "@/components/ads";
+import {
+  api,
+  type AdsAccount,
+  type AdsAccounts,
+  type AdsPlatform,
+} from "@/lib/api";
+import { money, PLATFORMS } from "@/components/ads";
 import { PageHeader, Select } from "@/components/pr";
 import { ErrorBox, Loading, NoticeBox, Pill } from "@/components/states";
 import { formatShortDateTime } from "@/lib/datetime";
@@ -14,15 +19,19 @@ import { formatShortDateTime } from "@/lib/datetime";
  * ADMIN) gives an account to somebody in the department by picking them in the
  * row - saved at once, one field, and changed back the same way. A new account
  * starts "Chưa gán": its spend counts for the department, not for anybody.
- * A marketer sees only their own accounts here.
+ * A marketer sees only their own accounts here. Google / TikTok Ads accounts
+ * (0081) are added by the marketer on the dashboard and show here too
+ * ("Nhập tay"); "Nền tảng" narrows the list.
  */
 export default function AdsAccountsPage() {
   const [month, setMonth] = useState<string>("");
   const [connection, setConnection] = useState<string>("");
   const [unassigned, setUnassigned] = useState(false);
   const [search, setSearch] = useState("");
+  const [platform, setPlatform] = useState<AdsPlatform | "">("");
   const params = {
     month: month || undefined,
+    platform: platform || undefined,
     connection_id: connection || undefined,
     unassigned,
     q: search.trim() || undefined,
@@ -36,10 +45,11 @@ export default function AdsAccountsPage() {
   const connections = list.data
     ? [
         ...new Map(
-          list.data.accounts.map((account) => [
-            account.connection_id,
-            account.connection_name,
-          ]),
+          list.data.accounts.flatMap((account) =>
+            account.connection_id
+              ? [[account.connection_id, account.connection_name] as const]
+              : [],
+          ),
         ).entries(),
       ]
     : [];
@@ -59,6 +69,23 @@ export default function AdsAccountsPage() {
             onChange={(event) => setMonth(event.target.value)}
             className="min-h-11 rounded-lg border border-[var(--border)] bg-[var(--surface)] px-3 text-sm"
           />
+        </label>
+        <label className="flex flex-col gap-1 text-xs font-medium text-[var(--text-muted)]">
+          <span>Nền tảng</span>
+          <Select
+            aria-label="Nền tảng"
+            value={platform}
+            onChange={(event) =>
+              setPlatform(event.target.value as AdsPlatform | "")
+            }
+          >
+            <option value="">Tất cả</option>
+            {PLATFORMS.map((item) => (
+              <option key={item.value} value={item.value}>
+                {item.label}
+              </option>
+            ))}
+          </Select>
         </label>
         {connections.length > 1 ? (
           <label className="flex flex-col gap-1 text-xs font-medium text-[var(--text-muted)]">
@@ -176,7 +203,10 @@ function AccountRow({
       <td>
         <div className="font-medium">{account.name}</div>
         <div className="text-xs text-[var(--text-muted)]">
-          {account.account_id}
+          {account.platform && account.platform !== "FACEBOOK"
+            ? `${account.platform_label} · `
+            : ""}
+          {account.external_id ?? account.account_id}
           {account.last_seen_at
             ? ` · thấy lúc ${formatShortDateTime(account.last_seen_at)}`
             : ""}

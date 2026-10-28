@@ -6,13 +6,16 @@ import {
   api,
   type AdsFigures,
   type AdsHistory,
+  type AdsPlatform,
   type AdsSeriesPoint,
 } from "@/lib/api";
 import {
   compactMoney,
   count,
+  isManual,
   money,
   percent,
+  platformLabel,
   ratioTone,
   SeriesChart,
 } from "@/components/ads";
@@ -26,30 +29,34 @@ import { formatShortDate } from "@/lib/datetime";
  * days: chart, call-outs, Facebook month to date, the daily table), then
  * "Báo cáo tháng" (April to the month: the trend chart and the ①-⑤ table). The team, or one marketer
  * (`GET /api/ads/history`). Figures nobody enters yet (customers, bookings,
- * bills) and the sources not connected (Google / TikTok Ads) are waiting
- * cells, never sample numbers.
+ * bills) are waiting cells, never sample numbers. `platform` (0081) reads
+ * one platform's accounts: Facebook (default) or Google / TikTok Ads typed by
+ * hand (their revenue = the ◆ line of the source, none for one marketer).
  */
 export function AdsReports({
   month,
   userId,
   connectionId,
   site,
+  platform = "FACEBOOK",
 }: {
   /** `YYYY-MM`; empty = this month. */
   month?: string;
   userId?: string;
   connectionId?: string;
   site?: string;
+  platform?: AdsPlatform;
 }) {
   const [open, setOpen] = useState({ day: false, month: false });
   const history = useQuery({
-    queryKey: ["ads", "history", month, userId, connectionId, site],
+    queryKey: ["ads", "history", month, userId, connectionId, site, platform],
     queryFn: () =>
       api.adsHistory({
         month: month || undefined,
         user_id: userId || undefined,
         connection_id: connectionId || undefined,
         site: site && site !== "all" ? site : undefined,
+        platform: platform === "FACEBOOK" ? undefined : platform,
       }),
     retry: false,
     placeholderData: (previous) => previous,
@@ -367,6 +374,9 @@ function MonthReport({
         {filtered
           ? "Đang lọc một BM: doanh thu và KPI nhập theo người, không tách theo BM."
           : ""}
+        {data.revenue_note === "platform"
+          ? "Doanh thu Google / TikTok nhập ở dòng ◆ của nguồn, không theo người."
+          : ""}
       </p>
       <div className="mt-3 table-scroll-x">
         <table
@@ -523,7 +533,7 @@ function DayReport({
         <OverLimit data={data} />
         <div className={CARD} data-testid="facebook-month">
           <div className="text-xs font-semibold uppercase text-[var(--text-muted)]">
-            Facebook Ads · lũy kế tháng
+            {platformLabel(data.platform)} · lũy kế tháng
           </div>
           <dl className="mt-1 grid grid-cols-3 gap-2 text-sm">
             <div>
@@ -548,13 +558,15 @@ function DayReport({
         </div>
         <div className={WAITING} data-testid="other-sources">
           <div className="text-xs font-semibold uppercase text-[var(--text-muted)]">
-            Google Ads · TikTok Ads
+            {isManual(data.platform)
+              ? "Facebook Ads · nền tảng khác"
+              : "Google Ads · TikTok Ads"}
           </div>
           <div className="mt-1 text-lg font-semibold text-[var(--text-muted)]">
-            Chưa kết nối
+            Nền tảng khác
           </div>
           <div className="text-xs text-[var(--text-muted)]">
-            Chưa lấy số từ Google Ads, TikTok Ads.
+            Chọn “Nền tảng” ở bộ lọc trên để xem báo cáo của nền tảng đó.
           </div>
         </div>
       </div>
@@ -569,7 +581,7 @@ function DayReport({
                 Ngày
               </th>
               <th colSpan={3} className="text-center">
-                Facebook Ads
+                {platformLabel(data.platform)}
               </th>
               <th colSpan={3} className="text-center">
                 Kết quả
@@ -655,8 +667,9 @@ function DayReport({
       </div>
       <p className="mt-2 text-xs text-[var(--text-muted)]">
         Tiêu đề và dòng lũy kế cố định khi cuộn · “–” = ngày không có số · Ads /
-        DT = chi tiêu ÷ doanh thu hoa hồng · khách đến cửa chưa nhập · Google
-        Ads, TikTok Ads chưa kết nối.
+        DT = chi tiêu ÷ doanh thu hoa hồng · khách đến cửa chưa nhập · số
+        của {platformLabel(data.platform)}
+        {isManual(data.platform) ? " (nhập tay)" : ""}.
         {filtered ? " Đang lọc một BM: không có doanh thu." : ""}
       </p>
     </Fold>
@@ -725,7 +738,11 @@ function OverLimit({ data }: { data: AdsHistory }) {
     .filter(
       (line): line is { day: string; ratio: number } => line.ratio != null,
     );
-  if (data.revenue_note === "filtered" || !rated.length) {
+  if (
+    data.revenue_note === "filtered" ||
+    data.revenue_note === "platform" ||
+    !rated.length
+  ) {
     return (
       <div className={WAITING}>
         <div className="text-xs font-semibold uppercase text-[var(--text-muted)]">
@@ -734,7 +751,9 @@ function OverLimit({ data }: { data: AdsHistory }) {
         <div className="mt-1 text-sm text-[var(--text-muted)]">
           {data.revenue_note === "filtered"
             ? "Không tách doanh thu theo BM."
-            : "Chưa có doanh thu trong tháng."}
+            : data.revenue_note === "platform"
+              ? "Doanh thu nhập theo nguồn, không theo người."
+              : "Chưa có doanh thu trong tháng."}
         </div>
       </div>
     );

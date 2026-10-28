@@ -1,21 +1,32 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import {
   api,
   type AdsDashboard,
   type AdsDashboardQuery,
   type AdsKpi,
+  type AdsPlatform,
 } from "@/lib/api";
 import {
   count,
+  isManual,
   KpiCard,
   money,
+  moveRange,
   percent,
+  PlatformSelect,
+  platformLabel,
   ratioTone,
   SeriesChart,
 } from "@/components/ads";
+import {
+  ManualAccountButton,
+  ManualDailyTable,
+  ManualDayForm,
+  ManualToolbar,
+} from "@/components/ads-manual";
 import { AdsReports } from "@/components/ads-reports";
 import { ranked, ViewPicker } from "@/components/ads-team";
 import { DateInput } from "@/components/date-input";
@@ -39,24 +50,47 @@ import { formatDate, formatDateTime, formatShortDate } from "@/lib/datetime";
  * * Khối 3: the ad accounts - summary and reconciliation, spend by day,
  *   "Số tiền lập hoá đơn" by day.
  * * Báo cáo chi tiết: the person's months and days (`AdsReports`).
+ *
+ * "Nền tảng" (0081): Facebook Ads from Meta (default), or Google / TikTok Ads
+ * typed by hand - Khối 3 then lists every such account of the person, with
+ * "+ Thêm tài khoản", "Nhập theo ngày", editable per-day tables and "Lịch sử
+ * sửa" (`components/ads-manual.tsx`); their revenue is entered on the ◆
+ * Google / Tiktok line, not per person, so the revenue cards wait.
  */
 export function StaffDashboard({
   userId,
   onPick,
+  platform = "FACEBOOK",
+  onPlatform,
 }: {
   /** The marketer picked by a manager; a member's own when absent. */
   userId?: string;
   /** A manager's "Xem chi tiết theo"; absent for a member. */
   onPick?: (userId: string) => void;
+  platform?: AdsPlatform;
+  onPlatform?: (platform: AdsPlatform) => void;
 }) {
   const [filters, setFilters] = useState<AdsDashboardQuery>({ group: "day" });
-  const query = { ...filters, user_id: userId };
+  const query = {
+    ...filters,
+    // A BM is Facebook's.
+    connection_id: platform === "FACEBOOK" ? filters.connection_id : undefined,
+    user_id: userId,
+    platform,
+  };
   const board = useQuery({
     queryKey: ["ads", "dashboard", query],
     queryFn: () => api.adsDashboard(query),
     retry: false,
     placeholderData: (previous) => previous,
   });
+  // A failed pick keeps the last answer (and its filters) on screen under
+  // the error, so the dates can be put right.
+  const [last, setLast] = useState<AdsDashboard>();
+  useEffect(() => {
+    if (board.data) setLast(board.data);
+  }, [board.data]);
+  const shown = board.data ?? last;
   const set = (patch: Partial<AdsDashboardQuery>) =>
     setFilters((current) => ({ ...current, ...patch }));
   const person = board.data?.people.find((item) => item.user_id === userId);
@@ -66,7 +100,7 @@ export function StaffDashboard({
         title={person ? `Dashboard Ads · ${person.name}` : "Dashboard Ads"}
         subtitle={
           board.data
-            ? `${formatDate(board.data.start)} – ${formatDate(board.data.end)} · so với ${formatDate(board.data.previous_start)} – ${formatDate(board.data.previous_end)}${board.data.last_synced_at ? ` · đồng bộ Meta lúc ${formatDateTime(board.data.last_synced_at)}` : ""}`
+            ? `${platformLabel(board.data.platform)} · ${formatDate(board.data.start)} – ${formatDate(board.data.end)} · so với ${formatDate(board.data.previous_start)} – ${formatDate(board.data.previous_end)}${board.data.last_synced_at ? ` · ${isManual(board.data.platform) ? "nhập tay lần cuối" : "đồng bộ Meta"} lúc ${formatDateTime(board.data.last_synced_at)}` : ""}`
             : "Chi tiêu quảng cáo, doanh số và hoá đơn Meta theo tài khoản quảng cáo."
         }
       />
@@ -77,12 +111,14 @@ export function StaffDashboard({
       {board.isError ? (
         <ErrorBox error={board.error} onRetry={() => board.refetch()} />
       ) : null}
-      {board.data ? (
+      {shown ? (
         <Workspace
-          data={board.data}
+          data={shown}
           userId={userId}
           filters={filters}
           set={set}
+          platform={platform}
+          onPlatform={onPlatform}
           picker={
             onPick ? <TeamPicker userId={userId ?? ""} onPick={onPick} /> : null
           }
@@ -207,7 +243,7 @@ function share(
   return part != null && whole ? percent(part / whole) : "—";
 }
 
-type Tab = "summary" | "spend" | "invoice";
+type Tab = "summary" | "entry" | "spend" | "invoice";
 
 function Workspace({
   data,
@@ -215,6 +251,8 @@ function Workspace({
   set,
   picker,
   userId,
+  platform,
+  onPlatform,
 }: {
   /** The marketer a manager picked (a member: their own, from the server). */
   userId?: string;
@@ -222,27 +260,46 @@ function Workspace({
   filters: AdsDashboardQuery;
   set: (patch: Partial<AdsDashboardQuery>) => void;
   picker: React.ReactNode;
+  platform: AdsPlatform;
+  onPlatform?: (platform: AdsPlatform) => void;
 }) {
   const [tab, setTab] = useState<Tab>("summary");
+  const manual = isManual(data.platform);
+  const shownTab: Tab = tab === "entry" && !manual ? "summary" : tab;
   const [asTable, setAsTable] = useState(false);
   const kpi: Record<string, AdsKpi> = Object.fromEntries(
     data.kpis.map((item) => [item.key, item]),
   );
   const revenue = kpi.revenue?.value ?? null;
-  const filtered = data.revenue_note === "filtered";
+  // No revenue to show: a brand / BM / cơ sở filter, or one marketer's Google
+  // / TikTok numbers (that revenue is entered per source).
+  const byPlatform = data.revenue_note === "platform";
+  const filtered = data.revenue_note === "filtered" || byPlatform;
   const tone = ratioTone(kpi.ads_ratio?.value);
+  // Both ends sent, the other following when crossed (never a 422).
+  const pickDay = (edge: "start" | "end", value: string) => {
+    if (!value) return;
+    set(
+      moveRange(
+        { start: filters.start ?? data.start, end: filters.end ?? data.end },
+        edge,
+        value,
+      ),
+    );
+  };
   const highlights = data.highlights;
   return (
     <>
       <section aria-label="Bộ lọc" className="flex flex-wrap items-end gap-3">
         {picker}
+        {onPlatform ? (
+          <PlatformSelect value={platform} onChange={onPlatform} />
+        ) : null}
         <label className={LABEL}>
           <span>Từ ngày</span>
           <DateInput
             value={filters.start ?? data.start}
-            onChange={(event) =>
-              set({ start: event.target.value || undefined })
-            }
+            onChange={(event) => pickDay("start", event.target.value)}
             aria-label="Từ ngày"
             className={`${FIELD} w-40`}
           />
@@ -251,7 +308,7 @@ function Workspace({
           <span>Đến ngày</span>
           <DateInput
             value={filters.end ?? data.end}
-            onChange={(event) => set({ end: event.target.value || undefined })}
+            onChange={(event) => pickDay("end", event.target.value)}
             aria-label="Đến ngày"
             className={`${FIELD} w-40`}
           />
@@ -275,7 +332,7 @@ function Workspace({
               ))}
           </Select>
         </label>
-        {data.connections.length ? (
+        {data.connections.length && !manual ? (
           <label className={LABEL}>
             <span>BM</span>
             <Select
@@ -312,9 +369,11 @@ function Workspace({
                 {filtered ? "Không tách được" : "Chưa nhập"}
               </div>
               <div className="mt-1 text-xs text-[var(--text-muted)]">
-                {filtered
-                  ? "Doanh số nhập theo người, không chia theo pháp nhân hay BM: bỏ bộ lọc Pháp nhân / BM để xem doanh số và Ads / DT."
-                  : "Chưa có doanh số nào được nhập cho khoảng ngày này (Phòng Ads › Nhập doanh thu)."}
+                {byPlatform
+                  ? `Doanh thu ${platformLabel(data.platform)} nhập chung ở dòng ◆ của nguồn (Nhập doanh thu), không theo người: xem ở Tổng team.`
+                  : filtered
+                    ? "Doanh số nhập theo người, không chia theo pháp nhân hay BM: bỏ bộ lọc Pháp nhân / BM để xem doanh số và Ads / DT."
+                    : "Chưa có doanh số nào được nhập cho khoảng ngày này (Phòng Ads › Nhập doanh thu)."}
               </div>
             </div>
           ) : (
@@ -336,12 +395,20 @@ function Workspace({
               note={`${share(kpi.revenue_hn.value, revenue)} · khách SG chuyển làm tại HN`}
             />
           ) : null}
-          <Missing
-            label="Hotline"
-            note="Chưa gán Hotline theo marketing."
-            testid="kpi-hotline"
-          />
+          {manual ? null : (
+            <Missing
+              label="Hotline"
+              note="Chưa gán Hotline theo marketing."
+              testid="kpi-hotline"
+            />
+          )}
           {kpi.spend ? <KpiCard kpi={kpi.spend} /> : null}
+          {manual && kpi.invoice ? (
+            <KpiCard
+              kpi={kpi.invoice}
+              note={`Nhập tay · chênh với chi tiêu ${money((kpi.invoice.value ?? 0) - (kpi.spend?.value ?? 0))}`}
+            />
+          ) : null}
           {kpi.ads_ratio && !filtered ? (
             <KpiCard
               kpi={kpi.ads_ratio}
@@ -349,17 +416,24 @@ function Workspace({
               border={`border-2 ${tone ? RATIO_BORDER[tone] : "border-[var(--border)]"}`}
             />
           ) : null}
-          {kpi.messages ? <KpiCard kpi={kpi.messages} /> : null}
-          {kpi.cost_per_message ? (
+          {manual ? (
+            <Missing
+              label="Mess · SĐT"
+              note={`${platformLabel(data.platform)} nhập tay chi tiêu và lập hoá đơn; chưa nhập mess, SĐT.`}
+              testid="kpi-manual-leads"
+            />
+          ) : null}
+          {kpi.messages && !manual ? <KpiCard kpi={kpi.messages} /> : null}
+          {kpi.cost_per_message && !manual ? (
             <KpiCard kpi={kpi.cost_per_message} note="= Chi tiêu ÷ Số mess" />
           ) : null}
-          {kpi.phones ? (
+          {kpi.phones && !manual ? (
             <KpiCard
               kpi={kpi.phones}
               note={`${kpi.phone_rate?.value != null ? `${percent(kpi.phone_rate.value)} mess ra số · ` : ""}khách đến cửa chưa có dữ liệu`}
             />
           ) : null}
-          {kpi.cost_per_phone ? (
+          {kpi.cost_per_phone && !manual ? (
             <KpiCard
               kpi={kpi.cost_per_phone}
               note="Lịch nóng · gối · tối ưu chưa có dữ liệu"
@@ -462,7 +536,13 @@ function Workspace({
               <div className="text-xs font-semibold uppercase text-[var(--bad)]">
                 Có chi tiêu, chưa ra doanh số
               </div>
-              {highlights && highlights.zero_revenue_days.length ? (
+              {filtered ? (
+                <div className="mt-1 text-sm text-[var(--text-muted)]">
+                  {byPlatform
+                    ? "Doanh thu nền tảng này không tách theo người."
+                    : "Không tách doanh thu theo bộ lọc này."}
+                </div>
+              ) : highlights && highlights.zero_revenue_days.length ? (
                 <>
                   <div className="mt-1 text-lg font-semibold">
                     {highlights.zero_revenue_days.length} ngày · chi{" "}
@@ -515,11 +595,12 @@ function Workspace({
           <div
             role="tablist"
             aria-label="Bảng tài khoản"
-            className="flex gap-1 rounded-lg bg-[var(--surface-muted)] p-1"
+            className="flex flex-wrap gap-1 rounded-lg bg-[var(--surface-muted)] p-1"
           >
             {(
               [
                 ["summary", "Tổng hợp & đối soát"],
+                ...(manual ? ([["entry", "Nhập theo ngày"]] as const) : []),
                 ["spend", "Chi tiêu theo ngày"],
                 ["invoice", "Lập hoá đơn theo ngày"],
               ] as const
@@ -528,10 +609,10 @@ function Workspace({
                 key={value}
                 type="button"
                 role="tab"
-                aria-selected={tab === value}
+                aria-selected={shownTab === value}
                 onClick={() => setTab(value)}
                 className={`min-h-9 rounded-md px-3 text-sm ${
-                  tab === value
+                  shownTab === value
                     ? "bg-[var(--surface)] font-semibold text-[var(--text)]"
                     : "text-[var(--text-muted)]"
                 }`}
@@ -541,23 +622,29 @@ function Workspace({
             ))}
           </div>
         </div>
+        {manual ? <ManualToolbar data={data} userId={userId} /> : null}
         {data.accounts.length === 0 ? (
           <p className="panel p-4 text-sm text-[var(--text-muted)]">
-            Chưa có chi tiêu trong khoảng này. Nếu vừa thêm BM, đợi lượt đồng bộ
-            08:00 hoặc bấm “Đồng bộ ngay” ở Phòng Ads › Kết nối BM; tài khoản
-            chưa gán người được gán ở “Tài khoản QC”.
+            {manual
+              ? `Chưa có tài khoản ${platformLabel(data.platform)} nào. Bấm “+ Thêm tài khoản” để thêm tài khoản đang chạy, rồi nhập chi tiêu và số tiền lập hoá đơn theo ngày.`
+              : "Chưa có chi tiêu trong khoảng này. Nếu vừa thêm BM, đợi lượt đồng bộ 08:00 hoặc bấm “Đồng bộ ngay” ở Phòng Ads › Kết nối BM; tài khoản chưa gán người được gán ở “Tài khoản QC”."}
           </p>
-        ) : tab === "summary" ? (
+        ) : shownTab === "summary" ? (
           <SummaryTable data={data} />
+        ) : shownTab === "entry" ? (
+          <ManualDayForm data={data} />
+        ) : manual ? (
+          <ManualDailyTable data={data} kind={shownTab} />
         ) : (
-          <DailyTable data={data} kind={tab} />
+          <DailyTable data={data} kind={shownTab} />
         )}
       </section>
 
       <AdsReports
         month={data.end.slice(0, 7)}
         userId={userId}
-        connectionId={filters.connection_id}
+        connectionId={manual ? undefined : filters.connection_id}
+        platform={data.platform}
       />
     </>
   );
@@ -598,11 +685,15 @@ function SummaryTable({ data }: { data: AdsDashboard }) {
                 <div className="font-medium">{line.name}</div>
                 <div className="text-xs text-[var(--text-muted)]">
                   {line.connection_name}
+                  {line.site && !line.connection_name.includes(line.site)
+                    ? ` · ${line.site}`
+                    : ""}
                   {line.user_name ? ` · ${line.user_name}` : " · Chưa gán"}
                 </div>
+                <ManualAccountButton data={data} line={line} />
               </td>
               <td className="text-sm tabular-nums">
-                {line.account_id}
+                {line.external_id ?? line.account_id}
                 {line.card_last4 ? (
                   <div className="text-xs text-[var(--text-muted)]">
                     •••• {line.card_last4}

@@ -17,6 +17,7 @@ Pure: no database.
 
 from __future__ import annotations
 
+import re
 import unicodedata
 from dataclasses import dataclass
 from datetime import date, timedelta
@@ -173,6 +174,52 @@ def subject_key(*, user_id: object | None = None, source: RevenueSource | None =
     return "team"
 
 
+class AdsPlatform(StrEnum):
+    """Where an ad account runs (0081). Facebook comes from the Meta API;
+    Google Ads and TikTok Ads have no API here yet: the marketer adds the
+    account and types its spend and invoices by day."""
+
+    FACEBOOK = "FACEBOOK"
+    GOOGLE = "GOOGLE"
+    TIKTOK = "TIKTOK"
+
+
+PLATFORM_LABELS: dict[AdsPlatform, str] = {
+    AdsPlatform.FACEBOOK: "Facebook Ads",
+    AdsPlatform.GOOGLE: "Google Ads",
+    AdsPlatform.TIKTOK: "TikTok Ads",
+}
+
+#: Typed by hand, by day ("Nhập tay").
+MANUAL_PLATFORMS = frozenset({AdsPlatform.GOOGLE, AdsPlatform.TIKTOK})
+
+#: The ◆ revenue line a platform's revenue is entered on: Google / TikTok
+#: revenue is entered per source, not per marketer.
+PLATFORM_SOURCES: dict[AdsPlatform, RevenueSource] = {
+    AdsPlatform.GOOGLE: RevenueSource.GOOGLE,
+    AdsPlatform.TIKTOK: RevenueSource.TIKTOK,
+}
+
+#: The id as typed: letters, digits, "-", "_", "."; at most this long.
+MAX_EXTERNAL_ID = 30
+_EXTERNAL_ID = re.compile(r"^[A-Za-z0-9._-]+$")
+
+
+def clean_external_id(text: str | None) -> str | None:
+    """The account id as typed, without spaces; ``None`` when it is not one."""
+    value = "".join((text or "").split())
+    if not value or len(value) > MAX_EXTERNAL_ID or not _EXTERNAL_ID.match(value):
+        return None
+    return value
+
+
+def manual_account_key(platform: AdsPlatform, external_id: str) -> str:
+    """``ads_accounts.account_id`` of a typed-in account: ``google:1234567890``.
+    A Google id typed with or without dashes is the same account."""
+    key = external_id.replace("-", "") if re.fullmatch(r"[0-9-]+", external_id) else external_id
+    return f"{platform.value.lower()}:{key}"
+
+
 class AdsGrouping(StrEnum):
     DAY = "day"
     WEEK = "week"
@@ -195,20 +242,27 @@ __all__ = [
     "ADS_RATIO_GOOD",
     "ADS_RATIO_WATCH",
     "BRAND_LABELS",
+    "MANUAL_PLATFORMS",
+    "MAX_EXTERNAL_ID",
     "MAX_SYNC_DAYS",
+    "PLATFORM_LABELS",
+    "PLATFORM_SOURCES",
     "REVENUE_SOURCE_LABELS",
     "REVENUE_VAT",
     "AdsBrand",
     "AdsGrouping",
+    "AdsPlatform",
     "Period",
     "RevenueSource",
     "ads_ratio_tone",
     "brand_of",
     "bucket",
     "change",
+    "clean_external_id",
     "commission_revenue",
     "fold",
     "invoice_factor",
+    "manual_account_key",
     "matches",
     "ratio",
     "subject_key",

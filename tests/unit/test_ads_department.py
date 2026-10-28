@@ -536,6 +536,21 @@ async def test_11_kpis_and_the_team_dashboard(world: World) -> None:
     assert october["figures"]["spend"] == 3_000_000
     assert october["figures"]["revenue"] == 11_880_000
     assert october["kpi"] == 10_000_000 and round(october["kpi_rate"], 3) == 1.188
+    # A range: compared with the same number of days before; the KPI stays
+    # October's, measured from the 1st to the range's end.
+    window = {"start": D2.isoformat(), "end": D2.isoformat()}
+    one_day = world.client.get("/api/ads/team", params=window).json()
+    assert (one_day["start"], one_day["end"]) == (D2.isoformat(), D2.isoformat())
+    assert one_day["previous_end"] == D1.isoformat() and one_day["month"] == "2026-10"
+    assert one_day["current"]["spend"] == 2_500_000 and one_day["before"]["spend"] == 1_000_000
+    assert one_day["team_kpi_rate"] == 0.5
+    first_day = world.client.get(
+        "/api/ads/team", params={"start": D1.isoformat(), "end": D1.isoformat()}
+    ).json()
+    assert first_day["current"]["revenue"] is None and first_day["team_kpi_rate"] == 0
+    assert world.client.get("/api/ads/team", params={"start": D2.isoformat()}).status_code == 422
+    backwards = {"start": D2.isoformat(), "end": D1.isoformat()}
+    assert world.client.get("/api/ads/team", params=backwards).status_code == 422
     hcm = world.client.get("/api/ads/team", params={"month": "2026-10", "site": "hcm"}).json()
     assert hcm["current"]["revenue"] == 12_960_000
     only_hn = world.client.get("/api/ads/team", params={"month": "2026-10", "site": "hn"}).json()

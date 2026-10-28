@@ -297,6 +297,42 @@
   border-bottom: 1px solid var(--border);
   vertical-align: top;
 }
+/* An explicit alignment on a header cell wins over the left default, so a
+   number column's label sits over its numbers. */
+.table-dense thead th.text-right {
+  text-align: right;
+}
+.table-dense thead th.text-center {
+  text-align: center;
+}
+/* A row of figures inside the header (a sticky "Lũy kế" line), a group
+   heading inside the body ("① Chi phí"), and the totals row: the same cell
+   padding as the body, so nothing touches the table's edge. */
+.table-dense thead td,
+.table-dense tbody th {
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--border);
+  text-align: left;
+}
+.table-dense thead td.text-right,
+.table-dense tbody th.text-right {
+  text-align: right;
+}
+.table-dense thead td.text-center,
+.table-dense tbody th.text-center {
+  text-align: center;
+}
+.table-dense tfoot td,
+.table-dense tfoot th {
+  padding: 10px 12px;
+  border-top: 1px solid var(--border);
+  background: var(--surface-muted);
+  font-weight: 600;
+  vertical-align: top;
+}
+.table-dense tfoot th {
+  text-align: left;
+}
 .table-dense tbody tr:hover td {
   background: color-mix(in srgb, var(--accent-soft) 45%, var(--surface));
 }

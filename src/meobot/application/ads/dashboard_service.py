@@ -9,8 +9,15 @@ whole department), a period and the same period just before it:
 * Khối 2: the series by day / week / month, the best day and the day to look at;
 * Khối 3: per ad account - spend, charges, the difference, matched or not.
 
-Revenue ("Doanh số", Ads / Doanh thu) is entered by the Trưởng phòng in the
-next step; until then those figures are ``None`` and the screen says so.
+Revenue ("Doanh số", Ads / Doanh thu) is entered by the Trưởng phòng; until
+then those figures are ``None`` and the screen says so.
+
+``platform`` (0081) picks the ad accounts: Facebook (default, from Meta) or
+Google / TikTok Ads (typed by hand - :mod:`meobot.application.ads.manual_service`).
+Their revenue is entered on the ◆ Google / Tiktok lines, not per marketer: one
+marketer's Google numbers have no revenue (``revenue_note`` ``platform``), the
+whole department's take that ◆ line. A typed-in platform lists every account
+in Khối 3, even one with nothing typed yet, so it can be filled in.
 """
 
 from __future__ import annotations
@@ -27,14 +34,18 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from meobot.application.ads.access import AdsAccess
 from meobot.application.ads.accounts_service import ads_people
+from meobot.application.ads.manual_service import AdsManualService, may_edit
 from meobot.application.ads.revenue_service import AdsRevenueService, RevenueRow
 from meobot.application.audit_service import AuditService
 from meobot.db.models.ads import AdsAccount, AdsChargeDaily, AdsConnection, AdsSpendDaily
 from meobot.db.models.user import User
 from meobot.domain.ads.models import (
     BRAND_LABELS,
+    MANUAL_PLATFORMS,
+    PLATFORM_SOURCES,
     AdsBrand,
     AdsGrouping,
+    AdsPlatform,
     Period,
     bucket,
     change,
@@ -132,6 +143,15 @@ class AccountLine:
     #: "Số tiền lập hoá đơn", for the "theo ngày" tabs.
     spend_by_day: list[float] = field(default_factory=list)
     invoice_by_day: list[float] = field(default_factory=list)
+    platform: AdsPlatform = AdsPlatform.FACEBOOK
+    #: The id to show (a typed-in account's as typed; Meta's otherwise).
+    external_id: str | None = None
+    #: The viewer types this account's numbers (Google / TikTok Ads).
+    can_edit: bool = False
+    #: Per day: whether a number was typed / read (``None`` in the cell = not
+    #: entered, unlike 0).
+    spend_entered: list[bool] = field(default_factory=list)
+    invoice_entered: list[bool] = field(default_factory=list)
 
     @property
     def invoice_ratio(self) -> float | None:
@@ -170,11 +190,17 @@ class Dashboard:
     people: list[User] = field(default_factory=list)
     connections: list[AdsConnection] = field(default_factory=list)
     last_synced_at: datetime | None = None
-    #: Why there is no revenue: ``filtered`` (brand / BM / cơ sở), else ``None``.
+    #: Why there is no revenue: ``filtered`` (brand / BM / cơ sở), ``platform``
+    #: (one marketer's Google / TikTok numbers), else ``None``.
     revenue_note: str | None = None
     highlights: Highlights | None = None
     #: The days of the period, for the per-day tables (empty above 62 days).
     days: list[date] = field(default_factory=list)
+    platform: AdsPlatform = AdsPlatform.FACEBOOK
+    #: May add a Google / TikTok account here (for the person in view).
+    can_add_account: bool = False
+    #: The cơ sở in use (BMs and typed-in accounts), for the forms.
+    sites: list[str] = field(default_factory=list)
 
 
 class AdsDashboardService:
@@ -191,11 +217,18 @@ class AdsDashboardService:
         brand: AdsBrand | None = None,
         connection_id: uuid.UUID | None = None,
         site: str | None = None,
+        platform: AdsPlatform = AdsPlatform.FACEBOOK,
     ) -> Dashboard:
         access.require_view()
         person = user_id if access.view_all else access.user_id
-        statement = select(AdsAccount, AdsConnection).join(
-            AdsConnection, AdsConnection.id == AdsAccount.connection_id
+        manual = platform in MANUAL_PLATFORMS
+        if manual:
+            # A BM is Facebook's.
+            connection_id = None
+        statement = (
+            select(AdsAccount, AdsConnection)
+            .outerjoin(AdsConnection, AdsConnection.id == AdsAccount.connection_id)
+            .where(AdsAccount.platform == platform)
         )
         if person is not None:
             statement = statement.where(AdsAccount.user_id == person)
@@ -204,8 +237,8 @@ class AdsDashboardService:
         if connection_id is not None:
             statement = statement.where(AdsAccount.connection_id == connection_id)
         if site:
-            statement = statement.where(AdsConnection.site == site)
-        accounts = {
+            statement = statement.where(func.coalesce(AdsConnection.site, AdsAccount.site) == site)
+        accounts: dict[str, tuple[AdsAccount, AdsConnection | None]] = {
             account.account_id: (account, connection)
             for account, connection in await self._session.execute(statement)
         }
@@ -214,18 +247,22 @@ class AdsDashboardService:
         spend_rows = await self._rows(AdsSpendDaily, ids, previous.start, period.end)
         charge_rows = await self._rows(AdsChargeDaily, ids, previous.start, period.end)
         filtered = brand is not None or connection_id is not None or bool(site)
-        revenue_rows = (
-            []
-            if filtered
-            else [
+        revenue_rows: list[RevenueRow] = []
+        if not filtered and not (manual and person is not None):
+            source = PLATFORM_SOURCES.get(platform)
+            revenue_rows = [
                 row
                 for row in await AdsRevenueService(self._session, AuditService(self._session)).rows(
                     previous.start, period.end
                 )
-                # Ads marketers only: the ◆ sources are nobody's ad spend.
-                if row.user_id is not None and (person is None or row.user_id == person)
+                # Facebook: the ads marketers only (the ◆ sources are nobody's
+                # ad spend); Google / TikTok: their ◆ line.
+                if (
+                    row.source is source
+                    if manual
+                    else row.user_id is not None and (person is None or row.user_id == person)
+                )
             ]
-        )
 
         def revenue_in(window: Period) -> dict[str, float | None]:
             inside = [row for row in revenue_rows if window.start <= row.day <= window.end]
@@ -291,8 +328,32 @@ class AdsDashboardService:
                     select(AdsAccount.connection_id).where(AdsAccount.user_id == person)
                 )
             )
-        connections = list(await self._session.scalars(bms))
-        last_synced = await self._session.scalar(select(func.max(AdsConnection.last_spend_sync_at)))
+        connections = [] if manual else list(await self._session.scalars(bms))
+        if manual:
+            # Typed by hand: when somebody last typed a number.
+            last_synced = await AdsManualService(
+                self._session, AuditService(self._session)
+            ).last_entered_at(ids)
+        else:
+            last_synced = await self._session.scalar(
+                select(func.max(AdsConnection.last_spend_sync_at))
+            )
+        sites = sorted(
+            {
+                value
+                for value in [
+                    *await self._session.scalars(select(AdsConnection.site).distinct()),
+                    *await self._session.scalars(select(AdsAccount.site).distinct()),
+                ]
+                if value
+            }
+        )
+        if filtered:
+            note: str | None = "filtered"
+        elif manual and person is not None:
+            note = "platform"
+        else:
+            note = None
         return Dashboard(
             period=period,
             previous=previous,
@@ -304,13 +365,19 @@ class AdsDashboardService:
             series=series,
             best_day=best,
             review_day=review if review is not best else None,
-            accounts=await self._lines(accounts, spend_rows, charge_rows, period),
+            accounts=await self._lines(
+                accounts, spend_rows, charge_rows, period, access=access, every=manual
+            ),
             people=await ads_people(self._session) if access.view_all else [],
             connections=connections,
             last_synced_at=last_synced,
-            revenue_note="filtered" if filtered else None,
+            revenue_note=note,
             highlights=_highlights(days, period),
             days=_days_of(period),
+            platform=platform,
+            can_add_account=manual
+            and (access.manage_accounts or person is None or person == access.user_id),
+            sites=sites,
         )
 
     async def _rows(self, model: Any, ids: list[str], start: date, end: date) -> list[Any]:
@@ -361,15 +428,21 @@ class AdsDashboardService:
 
     async def _lines(
         self,
-        accounts: dict[str, tuple[AdsAccount, AdsConnection]],
+        accounts: dict[str, tuple[AdsAccount, AdsConnection | None]],
         spend_rows: list[AdsSpendDaily],
         charge_rows: list[AdsChargeDaily],
         period: Period,
+        *,
+        access: AdsAccess,
+        every: bool = False,
     ) -> list[AccountLine]:
+        """``every``: list the accounts with nothing in the period too (a
+        typed-in platform's, to be filled in)."""
         days = _days_of(period)
         column = {day: index for index, day in enumerate(days)}
         spend: dict[str, list[float]] = defaultdict(lambda: [0.0, 0, 0])
         spend_daily: dict[str, list[float]] = defaultdict(lambda: [0.0] * len(days))
+        spend_seen: dict[str, list[bool]] = defaultdict(lambda: [False] * len(days))
         for row in spend_rows:
             if period.start <= row.day <= period.end:
                 line = spend[row.account_id]
@@ -378,9 +451,11 @@ class AdsDashboardService:
                 line[2] += row.phones
                 if row.day in column:
                     spend_daily[row.account_id][column[row.day]] += float(row.spend)
+                    spend_seen[row.account_id][column[row.day]] = True
         charged: dict[str, float] = defaultdict(float)
         invoice: dict[str, float] = defaultdict(float)
         invoice_daily: dict[str, list[float]] = defaultdict(lambda: [0.0] * len(days))
+        invoice_seen: dict[str, list[bool]] = defaultdict(lambda: [False] * len(days))
         for charge in charge_rows:
             if period.start <= charge.day <= period.end:
                 account, _ = accounts[charge.account_id]
@@ -391,7 +466,8 @@ class AdsDashboardService:
                 invoice[charge.account_id] += amount
                 if charge.day in column:
                     invoice_daily[charge.account_id][column[charge.day]] += amount
-        active = set(spend) | set(charged)
+                    invoice_seen[charge.account_id][column[charge.day]] = True
+        active = set(accounts) if every else set(spend) | set(charged)
         user_ids = {accounts[key][0].user_id for key in active if accounts[key][0].user_id}
         names = (
             {
@@ -410,8 +486,8 @@ class AdsDashboardService:
                 AccountLine(
                     account_id=key,
                     name=account.name,
-                    connection_name=connection.name,
-                    site=connection.site,
+                    connection_name=connection.name if connection else "Nhập tay",
+                    site=connection.site if connection else account.site or "",
                     brand=account.brand,
                     brand_label=BRAND_LABELS[account.brand],
                     user_id=account.user_id,
@@ -426,6 +502,11 @@ class AdsDashboardService:
                     card_last4=account.card_last4,
                     spend_by_day=list(spend_daily[key]) if days else [],
                     invoice_by_day=list(invoice_daily[key]) if days else [],
+                    platform=account.platform,
+                    external_id=account.external_id or account.account_id,
+                    can_edit=may_edit(access, account),
+                    spend_entered=list(spend_seen[key]) if days else [],
+                    invoice_entered=list(invoice_seen[key]) if days else [],
                 )
             )
         lines.sort(key=lambda line: (-line.spend, line.name))

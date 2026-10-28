@@ -11,6 +11,7 @@ import AdsDashboardPage from "@/app/ads/page";
 import AdsAccountsPage from "@/app/ads/accounts/page";
 import AdsRevenuePage from "@/app/ads/revenue/page";
 import AdsKpiPage from "@/app/ads/kpi/page";
+import { moveRange } from "@/components/ads";
 import { adminTabsFor } from "@/components/admin-tabs";
 import { navFor } from "@/components/shell";
 import type { UnitsMe } from "@/lib/api";
@@ -516,7 +517,7 @@ describe("Dashboard Ads", () => {
       "101,2 tr",
     );
     expect(within(days).getByTestId("other-sources")).toHaveTextContent(
-      "Chưa kết nối",
+      "Nền tảng khác",
     );
     // Its header folds it again; the other stays open.
     await userEvent.click(dayFold);
@@ -842,7 +843,49 @@ describe("step 2: revenue, KPI, Tổng team", () => {
         { id: "bm-1", name: "BM Apex", site: "Sài Gòn" },
         { id: "bm-2", name: "BM Hà Nội", site: "Hà Nội" },
       ],
+      platform: "FACEBOOK",
+      channels: [] as unknown[],
     };
+    report.channels = [
+      {
+        platform: "FACEBOOK",
+        label: "Facebook Ads",
+        manual: false,
+        figures: report.facebook,
+        people: report.marketers,
+        accounts: 2,
+      },
+      {
+        platform: "GOOGLE",
+        label: "Google Ads",
+        manual: true,
+        figures: figures({
+          spend: 1_200_000,
+          invoice: 1_300_000,
+          revenue: 3_240_000,
+          revenue_net: 3_000_000,
+          ads_ratio: 0.433,
+        }),
+        people: [
+          {
+            user_id: "u-1",
+            name: "Mạnh Ngọc",
+            figures: figures({ spend: 1_200_000, invoice: 1_300_000 }),
+            ads_ratio: null,
+            tone: null,
+          },
+        ],
+        accounts: 1,
+      },
+      {
+        platform: "TIKTOK",
+        label: "TikTok Ads",
+        manual: true,
+        figures: figures(),
+        people: [],
+        accounts: 0,
+      },
+    ];
     const stub = stubFetch([
       { match: "/api/ads/history", body: HISTORY },
       {
@@ -870,7 +913,7 @@ describe("step 2: revenue, KPI, Tổng team", () => {
     expect(revenue).toHaveTextContent("DT hoa hồng 12.962.963 ₫");
     // A ratio's change is in points, and down is good.
     expect(screen.getByTestId("team-ratio")).toHaveTextContent(
-      "▼ 5 điểm so tháng trước",
+      "▼ 5 điểm so kỳ trước",
     );
     expect(screen.getByTestId("team-kpi")).toHaveTextContent(
       "đang chậm tiến độ",
@@ -891,13 +934,22 @@ describe("step 2: revenue, KPI, Tổng team", () => {
     expect(
       within(within(facebook).getByTestId("rank-u-1")).getByText("25,0%"),
     ).toHaveClass("text-[var(--good)]");
+    // Google / TikTok typed by hand (0081): their own spend, the ◆ revenue.
     const google = screen.getByTestId("source-google");
-    expect(google).toHaveTextContent("chưa kết nối tài khoản");
+    expect(google).toHaveTextContent("1 tài khoản · nhập tay");
+    expect(google).toHaveTextContent("Chi tiêu1,2 tr");
     expect(google).toHaveTextContent("Doanh thu3 tr");
-    expect(google).toHaveTextContent("Xếp hạng marketing Google Ads");
-    expect(screen.getByTestId("source-tiktok")).toHaveTextContent(
-      "Doanh thuchưa nhập",
-    );
+    expect(google).toHaveTextContent("43,3%");
+    expect(
+      within(
+        within(google).getByRole("list", {
+          name: "Xếp hạng marketing Google Ads",
+        }),
+      ).getByText("Mạnh Ngọc"),
+    ).toBeInTheDocument();
+    const tiktok = screen.getByTestId("source-tiktok");
+    expect(tiktok).toHaveTextContent("Doanh thuchưa nhập");
+    expect(tiktok).toHaveTextContent("chưa có tài khoản");
     const row = screen.getByTestId("marketer-u-1");
     expect(within(row).getByText("25,0%")).toHaveClass("text-[var(--good)]");
     expect(within(row).getByText(/120,0%/)).toBeInTheDocument();
@@ -916,6 +968,34 @@ describe("step 2: revenue, KPI, Tổng team", () => {
         calls(stub).some(
           (call) =>
             call.url.includes("/api/ads/team") && call.url.includes("site=hn"),
+        ),
+      ).toBe(true),
+    );
+    // A range of days instead of the month (the other end stays the month's).
+    const from = screen.getByLabelText("Từ ngày");
+    await userEvent.clear(from);
+    await userEvent.type(from, "10/10/2026");
+    await waitFor(() =>
+      expect(
+        calls(stub).some(
+          (call) =>
+            call.url.includes("/api/ads/team") &&
+            call.url.includes("start=2026-10-10") &&
+            call.url.includes("end=2026-10-31"),
+        ),
+      ).toBe(true),
+    );
+    // "Đến ngày" before "Từ ngày": the start follows, never a 422.
+    const to = screen.getByLabelText("Đến ngày");
+    await userEvent.clear(to);
+    await userEvent.type(to, "15/09/2026");
+    await waitFor(() =>
+      expect(
+        calls(stub).some(
+          (call) =>
+            call.url.includes("/api/ads/team") &&
+            call.url.includes("start=2026-09-15") &&
+            call.url.includes("end=2026-09-15"),
         ),
       ).toBe(true),
     );
@@ -1035,5 +1115,27 @@ describe("step 2: revenue, KPI, Tổng team", () => {
     );
     expect(await screen.findByTestId("team-revenue")).toBeInTheDocument();
     expect(screen.queryByTestId("person-banner")).toBeNull();
+  });
+});
+
+describe("a date range stays valid", () => {
+  it("the other end follows when crossed, and a year is the most", () => {
+    const october = { start: "2026-10-01", end: "2026-10-31" };
+    expect(moveRange(october, "end", "2026-09-15")).toEqual({
+      start: "2026-09-15",
+      end: "2026-09-15",
+    });
+    expect(moveRange(october, "start", "2026-11-05")).toEqual({
+      start: "2026-11-05",
+      end: "2026-11-05",
+    });
+    expect(moveRange(october, "start", "2026-10-10")).toEqual({
+      start: "2026-10-10",
+      end: "2026-10-31",
+    });
+    expect(moveRange(october, "start", "2024-01-01")).toEqual({
+      start: "2024-01-01",
+      end: "2024-12-31",
+    });
   });
 });

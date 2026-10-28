@@ -1,7 +1,8 @@
 "use client";
 
 import { useState } from "react";
-import type { AdsKpi, AdsSeriesPoint } from "@/lib/api";
+import type { AdsKpi, AdsPlatform, AdsSeriesPoint } from "@/lib/api";
+import { Select } from "@/components/pr";
 import { formatShortDate } from "@/lib/datetime";
 
 /**
@@ -9,6 +10,86 @@ import { formatShortDate } from "@/lib/datetime";
  * card and the one-measure bar chart. One axis only: a second measure is
  * picked with the "Chỉ số" switch, never drawn on a second scale.
  */
+
+export type DateRange = { start: string; end: string };
+
+/**
+ * The platforms (0081), Facebook first - the default. Google / TikTok Ads have
+ * no API here: the marketer adds the account and types the numbers.
+ */
+export const PLATFORMS: ReadonlyArray<{
+  value: AdsPlatform;
+  label: string;
+  manual: boolean;
+}> = [
+  { value: "FACEBOOK", label: "Facebook Ads", manual: false },
+  { value: "GOOGLE", label: "Google Ads", manual: true },
+  { value: "TIKTOK", label: "TikTok Ads", manual: true },
+];
+
+export function platformLabel(platform: AdsPlatform | undefined): string {
+  return (
+    PLATFORMS.find((item) => item.value === platform)?.label ?? "Facebook Ads"
+  );
+}
+
+export function isManual(platform: AdsPlatform | undefined): boolean {
+  return Boolean(PLATFORMS.find((item) => item.value === platform)?.manual);
+}
+
+/** The "Nền tảng" filter of the dashboards. */
+export function PlatformSelect({
+  value,
+  onChange,
+}: {
+  value: AdsPlatform;
+  onChange: (platform: AdsPlatform) => void;
+}) {
+  return (
+    <label className="flex flex-col gap-1 text-xs font-medium text-[var(--text-muted)]">
+      <span>Nền tảng</span>
+      <Select
+        aria-label="Nền tảng"
+        value={value}
+        onChange={(event) => onChange(event.target.value as AdsPlatform)}
+      >
+        {PLATFORMS.map((item) => (
+          <option key={item.value} value={item.value}>
+            {item.label}
+          </option>
+        ))}
+      </Select>
+    </label>
+  );
+}
+
+const DAY_MS = 86_400_000;
+
+/**
+ * One end of a `YYYY-MM-DD` range moved, the range kept valid: the other end
+ * follows when crossed (so "Đến ngày" before "Từ ngày" is never sent - the
+ * server answers 422 `ads_period_invalid`), and the span stays within a year,
+ * the server's limit.
+ */
+export function moveRange(
+  range: DateRange,
+  edge: "start" | "end",
+  value: string,
+): DateRange {
+  let start = edge === "start" ? value : range.start;
+  let end = edge === "end" ? value : range.end;
+  if (start > end) {
+    if (edge === "start") end = start;
+    else start = end;
+  }
+  const shift = (iso: string, days: number) =>
+    new Date(Date.parse(iso) + days * DAY_MS).toISOString().slice(0, 10);
+  if ((Date.parse(end) - Date.parse(start)) / DAY_MS + 1 > 366) {
+    if (edge === "start") end = shift(start, 365);
+    else start = shift(end, -365);
+  }
+  return { start, end };
+}
 
 /** 1.250.000.000 ₫ */
 export function money(value: number | null | undefined): string {

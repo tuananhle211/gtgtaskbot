@@ -36,6 +36,15 @@ pytestmark = [
 
 SETTINGS_KWARGS = {"_env_file": None, "web_cookie_secure": False}
 TABLES = ("'ads_connections'", "'ads_accounts'", "'ads_spend_daily'", "'ads_charges_daily'")
+#: Columns later revisions add to (or loosen on) these tables.
+LATER_COLUMNS = (
+    "card_last4",
+    "'platform'",
+    "'external_id'",
+    "'site'",
+    "created_by_user_id",
+    "'connection_id'",
+)
 
 
 @pytest_asyncio.fixture(scope="module", loop_scope="module")
@@ -80,8 +89,8 @@ async def test_01_models_and_migration_agree(database: Database) -> None:
             item
             for item in compare_metadata(context, Base.metadata)
             if any(table in repr(item) for table in TABLES)
-            # Added by 0079 on top of this revision.
-            and "card_last4" not in repr(item)
+            # Added by 0079 and 0081 on top of this revision.
+            and not any(name in repr(item) for name in LATER_COLUMNS)
         ]
 
     async with database.engine.begin() as connection:

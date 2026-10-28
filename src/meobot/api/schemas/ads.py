@@ -9,10 +9,18 @@ from pydantic import BaseModel, Field
 
 from meobot.application.ads.accounts_service import AccountView
 from meobot.application.ads.dashboard_service import Dashboard, SeriesPoint
+from meobot.application.ads.manual_service import ChangeView
 from meobot.application.ads.revenue_service import EntryLine
-from meobot.application.ads.team_service import Figures, History, TeamReport
+from meobot.application.ads.team_service import Channel, Figures, History, TeamReport
 from meobot.db.models.ads import AdsConnection
-from meobot.domain.ads.models import BRAND_LABELS, AdsBrand, ads_ratio_tone
+from meobot.domain.ads.models import (
+    BRAND_LABELS,
+    MANUAL_PLATFORMS,
+    PLATFORM_LABELS,
+    AdsBrand,
+    AdsPlatform,
+    ads_ratio_tone,
+)
 
 
 class AdsConnectionResponse(BaseModel):
@@ -116,9 +124,15 @@ class PersonOption(BaseModel):
 class AdsAccountResponse(BaseModel):
     account_id: str
     name: str
-    connection_id: uuid.UUID
+    #: ``null`` / "Nhập tay" for a typed-in Google / TikTok account.
+    connection_id: uuid.UUID | None
     connection_name: str
     site: str
+    platform: str = AdsPlatform.FACEBOOK.value
+    platform_label: str = PLATFORM_LABELS[AdsPlatform.FACEBOOK]
+    #: The id to show (a typed-in account's as typed).
+    external_id: str | None = None
+    card_last4: str | None = None
     status: int | None
     #: 1 = active on Meta.
     active: bool
@@ -133,12 +147,17 @@ class AdsAccountResponse(BaseModel):
     @classmethod
     def from_view(cls, view: AccountView) -> AdsAccountResponse:
         account = view.account
+        connection = view.connection
         return cls(
             account_id=account.account_id,
             name=account.name,
-            connection_id=view.connection.id,
-            connection_name=view.connection.name,
-            site=view.connection.site,
+            connection_id=connection.id if connection else None,
+            connection_name=connection.name if connection else "Nhập tay",
+            site=connection.site if connection else account.site or "",
+            platform=account.platform.value,
+            platform_label=PLATFORM_LABELS[account.platform],
+            external_id=account.external_id or account.account_id,
+            card_last4=account.card_last4,
             status=account.status,
             active=account.status == 1,
             brand=account.brand.value,
@@ -225,6 +244,29 @@ class AccountLineResponse(BaseModel):
     #: One value per entry of the dashboard's ``days``.
     spend_by_day: list[float] = []
     invoice_by_day: list[float] = []
+    platform: str = AdsPlatform.FACEBOOK.value
+    external_id: str | None = None
+    #: The viewer types this account's numbers (Google / TikTok Ads, 0081).
+    can_edit: bool = False
+    #: Per day: a number was typed / read (an empty cell is not 0).
+    spend_entered: list[bool] = []
+    invoice_entered: list[bool] = []
+
+
+class PlatformOption(BaseModel):
+    value: str
+    label: str
+    #: Typed by hand (no API).
+    manual: bool
+
+
+def platform_options() -> list[PlatformOption]:
+    return [
+        PlatformOption(
+            value=item.value, label=PLATFORM_LABELS[item], manual=item in MANUAL_PLATFORMS
+        )
+        for item in AdsPlatform
+    ]
 
 
 class HighlightsResponse(BaseModel):
@@ -267,6 +309,10 @@ class AdsDashboardResponse(BaseModel):
     highlights: HighlightsResponse | None = None
     #: The days of the per-day tables (empty for periods over 62 days).
     days: list[date] = []
+    platform: str = AdsPlatform.FACEBOOK.value
+    platforms: list[PlatformOption] = []
+    #: May add a Google / TikTok account for the person in view.
+    can_add_account: bool = False
 
     @classmethod
     def from_domain(cls, data: Dashboard) -> AdsDashboardResponse:
@@ -312,6 +358,11 @@ class AdsDashboardResponse(BaseModel):
                     invoice_ratio=line.invoice_ratio,
                     spend_by_day=line.spend_by_day,
                     invoice_by_day=line.invoice_by_day,
+                    platform=line.platform.value,
+                    external_id=line.external_id,
+                    can_edit=line.can_edit,
+                    spend_entered=line.spend_entered,
+                    invoice_entered=line.invoice_entered,
                 )
                 for line in data.accounts
             ],
@@ -323,7 +374,7 @@ class AdsDashboardResponse(BaseModel):
                 ConnectionOption(id=row.id, name=row.name, site=row.site)
                 for row in data.connections
             ],
-            sites=sorted({row.site for row in data.connections if row.site}),
+            sites=data.sites,
             brands=brand_options(),
             last_synced_at=data.last_synced_at,
             revenue=data.current.revenue,
@@ -344,6 +395,9 @@ class AdsDashboardResponse(BaseModel):
             if data.highlights
             else None,
             days=data.days,
+            platform=data.platform.value,
+            platforms=platform_options(),
+            can_add_account=data.can_add_account,
         )
 
 
@@ -462,10 +516,51 @@ class DayLineResponse(BaseModel):
     figures: FiguresResponse
 
 
+class ChannelPersonResponse(BaseModel):
+    user_id: uuid.UUID
+    name: str
+    figures: FiguresResponse
+    ads_ratio: float | None
+    tone: str | None
+
+
+class ChannelResponse(BaseModel):
+    platform: str
+    label: str
+    manual: bool
+    figures: FiguresResponse
+    people: list[ChannelPersonResponse]
+    accounts: int
+
+    @classmethod
+    def from_channel(cls, channel: Channel) -> ChannelResponse:
+        return cls(
+            platform=channel.platform.value,
+            label=channel.label,
+            manual=channel.platform in MANUAL_PLATFORMS,
+            figures=FiguresResponse.from_figures(channel.figures),
+            people=[
+                ChannelPersonResponse(
+                    user_id=person.user_id,
+                    name=person.name,
+                    figures=FiguresResponse.from_figures(person.figures),
+                    ads_ratio=person.ads_ratio,
+                    tone=ads_ratio_tone(person.ads_ratio),
+                )
+                for person in channel.people
+            ],
+            accounts=channel.accounts,
+        )
+
+
 class TeamReportResponse(BaseModel):
+    #: The month the KPI belongs to (the one the range ends in).
     month: str
     start: date
     end: date
+    #: The same number of days just before, for "so với kỳ trước".
+    previous_start: date | None = None
+    previous_end: date | None = None
     site: str
     current: FiguresResponse
     before: FiguresResponse
@@ -481,15 +576,22 @@ class TeamReportResponse(BaseModel):
     attention: list[AlertResponse]
     connection_id: uuid.UUID | None = None
     connections: list[ConnectionOption] = []
-    #: ``filtered``: a BM is picked, revenue is not split that way.
+    #: ``filtered``: a BM is picked, revenue is not split that way;
+    #: ``platform``: Google / TikTok, revenue = their ◆ line, no KPI.
     revenue_note: str | None = None
+    platform: str = AdsPlatform.FACEBOOK.value
+    platforms: list[PlatformOption] = []
+    #: Khối 2: every platform's figures, whichever is picked.
+    channels: list[ChannelResponse] = []
 
     @classmethod
     def from_report(cls, report: TeamReport) -> TeamReportResponse:
         return cls(
-            month=f"{report.month.start:%Y-%m}",
+            month=f"{report.month.end:%Y-%m}",
             start=report.month.start,
             end=report.month.end,
+            previous_start=report.previous.start,
+            previous_end=report.previous.end,
             site=report.site,
             current=FiguresResponse.from_figures(report.current),
             before=FiguresResponse.from_figures(report.before),
@@ -540,6 +642,9 @@ class TeamReportResponse(BaseModel):
                 for row in report.connections
             ],
             revenue_note=report.revenue_note,
+            platform=report.platform.value,
+            platforms=platform_options(),
+            channels=[ChannelResponse.from_channel(channel) for channel in report.channels],
         )
 
 
@@ -557,8 +662,10 @@ class HistoryResponse(BaseModel):
     user_id: uuid.UUID | None
     months: list[MonthLineResponse]
     days: list[DayLineResponse]
-    #: ``filtered``: a BM is picked, revenue is not split that way.
+    #: ``filtered``: a BM is picked, revenue is not split that way;
+    #: ``platform``: one marketer's Google / TikTok numbers, no revenue.
     revenue_note: str | None = None
+    platform: str = AdsPlatform.FACEBOOK.value
 
     @classmethod
     def from_history(cls, history: History) -> HistoryResponse:
@@ -581,7 +688,79 @@ class HistoryResponse(BaseModel):
                 for line in history.days
             ],
             revenue_note=history.revenue_note,
+            platform=history.platform.value,
         )
+
+
+class CreateManualAccountRequest(BaseModel):
+    #: ``GOOGLE`` or ``TIKTOK``.
+    platform: AdsPlatform
+    external_id: str = Field(max_length=60)
+    name: str = Field(max_length=300)
+    #: A Trưởng phòng / the OWNER / an ADMIN: who runs it (default: oneself).
+    user_id: uuid.UUID | None = None
+    site: str | None = Field(default=None, max_length=60)
+    card_last4: str | None = Field(default=None, max_length=12)
+
+
+class UpdateManualAccountRequest(BaseModel):
+    name: str | None = Field(default=None, max_length=300)
+    site: str | None = Field(default=None, max_length=60)
+    card_last4: str | None = Field(default=None, max_length=12)
+
+
+class ManualEntryRequest(BaseModel):
+    account_id: str = Field(max_length=40)
+    day: date
+    field: str = Field(pattern="^(spend|invoice)$")
+    #: ``null`` / "" = clear the cell (not entered).
+    amount: float | str | None = None
+
+
+class SaveManualRequest(BaseModel):
+    entries: list[ManualEntryRequest] = Field(max_length=2000)
+
+
+class SaveManualResponse(BaseModel):
+    changed: int
+
+
+class ManualChangeResponse(BaseModel):
+    id: uuid.UUID
+    day: date
+    account_id: str
+    account_name: str
+    external_id: str | None
+    platform: str
+    #: ``spend`` / ``invoice``.
+    field: str
+    old_amount: float | None
+    new_amount: float | None
+    changed_by: str | None
+    changed_at: datetime
+
+    @classmethod
+    def from_view(cls, view: ChangeView) -> ManualChangeResponse:
+        change = view.change
+        return cls(
+            id=change.id,
+            day=change.day,
+            account_id=change.account_id,
+            account_name=view.account.name,
+            external_id=view.account.external_id,
+            platform=view.account.platform.value,
+            field=change.field,
+            old_amount=float(change.old_amount) if change.old_amount is not None else None,
+            new_amount=float(change.new_amount) if change.new_amount is not None else None,
+            changed_by=view.changed_by,
+            changed_at=change.changed_at,
+        )
+
+
+class ManualChangesResponse(BaseModel):
+    start: date
+    end: date
+    changes: list[ManualChangeResponse]
 
 
 __all__ = [

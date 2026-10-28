@@ -31,7 +31,7 @@ from sqlalchemy.orm import Mapped, mapped_column
 from meobot.core.time import utcnow
 from meobot.db.base import Base, TimestampMixin, UUIDPrimaryKeyMixin, value_enum
 from meobot.db.models.pr import RESTRICT, USERS_TABLE
-from meobot.domain.ads.models import AdsBrand, RevenueSource
+from meobot.domain.ads.models import AdsBrand, AdsPlatform, RevenueSource
 
 ADS_CONNECTIONS = "ads_connections"
 ADS_ACCOUNTS = "ads_accounts"
@@ -40,6 +40,7 @@ ADS_CHARGES_DAILY = "ads_charges_daily"
 ADS_REVENUE_DAILY = "ads_revenue_daily"
 ADS_REVENUE_CHANGES = "ads_revenue_changes"
 ADS_KPIS = "ads_kpis"
+ADS_MANUAL_CHANGES = "ads_manual_changes"
 
 
 class AdsConnection(Base, UUIDPrimaryKeyMixin, TimestampMixin):
@@ -81,15 +82,38 @@ class AdsConnection(Base, UUIDPrimaryKeyMixin, TimestampMixin):
 
 
 class AdsAccount(Base, TimestampMixin):
-    """One Meta ad account ("TK quảng cáo"), as last seen in its BM."""
+    """One ad account ("TK quảng cáo"): a Meta one as last seen in its BM, or
+    (0081) a Google / TikTok Ads one a marketer added, whose numbers are typed."""
 
     __tablename__ = ADS_ACCOUNTS
-    __table_args__ = (Index("ix_ads_accounts_user", "user_id"),)
+    __table_args__ = (
+        Index("ix_ads_accounts_user", "user_id"),
+        CheckConstraint(
+            "platform <> 'FACEBOOK' OR connection_id IS NOT NULL",
+            name="facebook_has_connection",
+        ),
+    )
 
-    #: Meta's numeric id, without ``act_``.
+    #: Meta's numeric id, without ``act_``; a typed-in account
+    #: ``google:<id>`` / ``tiktok:<id>`` (:func:`manual_account_key`).
     account_id: Mapped[str] = mapped_column(String(40), primary_key=True)
-    connection_id: Mapped[uuid.UUID] = mapped_column(
-        ForeignKey(f"{ADS_CONNECTIONS}.id", ondelete=RESTRICT), nullable=False
+    #: The BM it was read from; NULL for a typed-in account.
+    connection_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey(f"{ADS_CONNECTIONS}.id", ondelete=RESTRICT), nullable=True
+    )
+    platform: Mapped[AdsPlatform] = mapped_column(
+        value_enum(AdsPlatform, name="ads_platform", length=10),
+        nullable=False,
+        default=AdsPlatform.FACEBOOK,
+        server_default=text("'FACEBOOK'"),
+    )
+    #: A typed-in account's id as the marketer typed it (``account_id`` has
+    #: the platform in front).
+    external_id: Mapped[str | None] = mapped_column(String(40), nullable=True)
+    #: A typed-in account's cơ sở (a Meta one's is its BM's).
+    site: Mapped[str | None] = mapped_column(String(60), nullable=True)
+    created_by_user_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey(f"{USERS_TABLE}.id", ondelete=RESTRICT), nullable=True
     )
     name: Mapped[str] = mapped_column(String(300), nullable=False)
     #: Meta's ``account_status`` (1 = active, 2 = disabled, 3 = unsettled...).
@@ -221,11 +245,35 @@ class AdsKpi(Base, UUIDPrimaryKeyMixin):
     )
 
 
+class AdsManualChange(Base, UUIDPrimaryKeyMixin):
+    """Append-only history of a typed-in account's numbers (0081): who changed
+    which day's spend or invoice from what to what."""
+
+    __tablename__ = ADS_MANUAL_CHANGES
+    __table_args__ = (Index("ix_ads_manual_changes_account_day", "account_id", "day"),)
+
+    day: Mapped[date] = mapped_column(Date, nullable=False)
+    account_id: Mapped[str] = mapped_column(
+        ForeignKey(f"{ADS_ACCOUNTS}.account_id", ondelete=RESTRICT), nullable=False
+    )
+    #: ``spend`` (chi tiêu) or ``invoice`` (lập hoá đơn).
+    field: Mapped[str] = mapped_column(String(10), nullable=False)
+    old_amount: Mapped[Decimal | None] = mapped_column(Numeric(16, 2), nullable=True)
+    new_amount: Mapped[Decimal | None] = mapped_column(Numeric(16, 2), nullable=True)
+    changed_by_user_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey(f"{USERS_TABLE}.id", ondelete=RESTRICT), nullable=True
+    )
+    changed_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utcnow, server_default=func.now(), nullable=False
+    )
+
+
 __all__ = [
     "ADS_ACCOUNTS",
     "ADS_CHARGES_DAILY",
     "ADS_CONNECTIONS",
     "ADS_KPIS",
+    "ADS_MANUAL_CHANGES",
     "ADS_REVENUE_CHANGES",
     "ADS_REVENUE_DAILY",
     "ADS_SPEND_DAILY",
@@ -233,6 +281,7 @@ __all__ = [
     "AdsChargeDaily",
     "AdsConnection",
     "AdsKpi",
+    "AdsManualChange",
     "AdsRevenueChange",
     "AdsRevenueDaily",
     "AdsSpendDaily",

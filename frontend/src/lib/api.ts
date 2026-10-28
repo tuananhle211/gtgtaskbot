@@ -3922,12 +3922,28 @@ export interface AdsOption {
   label: string;
 }
 
+/** Phòng Ads (0081): FACEBOOK (from Meta), GOOGLE / TIKTOK (typed by hand). */
+export type AdsPlatform = "FACEBOOK" | "GOOGLE" | "TIKTOK";
+
+export interface AdsPlatformOption {
+  value: AdsPlatform;
+  label: string;
+  /** Typed by hand (no API). */
+  manual: boolean;
+}
+
 export interface AdsAccount {
   account_id: string;
   name: string;
-  connection_id: Uuid;
+  /** null / "Nhập tay" for a typed-in Google / TikTok account. */
+  connection_id: Uuid | null;
   connection_name: string;
   site: string;
+  platform?: AdsPlatform;
+  platform_label?: string;
+  /** The id to show (a typed-in account's as typed). */
+  external_id?: string | null;
+  card_last4?: string | null;
   status: number | null;
   active: boolean;
   brand: string;
@@ -3995,6 +4011,14 @@ export interface AdsAccountLine {
   /** One value per entry of the dashboard's `days`. */
   spend_by_day?: number[];
   invoice_by_day?: number[];
+  platform?: AdsPlatform;
+  /** The id to show (a typed-in account's as typed). */
+  external_id?: string | null;
+  /** The viewer types this account's numbers (Google / TikTok Ads). */
+  can_edit?: boolean;
+  /** Per day: a number was typed / read (an empty cell is not 0). */
+  spend_entered?: boolean[];
+  invoice_entered?: boolean[];
 }
 
 export interface AdsHighlights {
@@ -4032,6 +4056,42 @@ export interface AdsDashboard {
   highlights?: AdsHighlights | null;
   /** The days of the per-day tables (empty above 62 days). */
   days?: string[];
+  platform?: AdsPlatform;
+  platforms?: AdsPlatformOption[];
+  /** May add a Google / TikTok account for the person in view. */
+  can_add_account?: boolean;
+}
+
+/** One cell of "Khối 3" typed by hand: `amount` null / "" clears it. */
+export interface AdsManualEntry {
+  account_id: string;
+  day: string;
+  field: "spend" | "invoice";
+  amount: number | string | null;
+}
+
+export interface AdsManualAccountBody {
+  platform: AdsPlatform;
+  external_id: string;
+  name: string;
+  /** A Trưởng phòng / the OWNER / an ADMIN: who runs it. */
+  user_id?: Uuid;
+  site?: string;
+  card_last4?: string;
+}
+
+export interface AdsManualChange {
+  id: Uuid;
+  day: string;
+  account_id: string;
+  account_name: string;
+  external_id: string | null;
+  platform: AdsPlatform;
+  field: "spend" | "invoice";
+  old_amount: number | null;
+  new_amount: number | null;
+  changed_by: string | null;
+  changed_at: string;
 }
 
 export interface AdsEntryLine {
@@ -4093,14 +4153,20 @@ export interface AdsHistory {
   user_id: Uuid | null;
   months: Array<{ month: string; figures: AdsFigures; kpi: number | null; kpi_rate: number | null }>;
   days: Array<{ day: string; figures: AdsFigures }>;
-  /** `filtered`: a BM is picked - no revenue (entered per person). */
+  /** `filtered`: a BM is picked - no revenue (entered per person);
+   * `platform`: one marketer's Google / TikTok numbers - no revenue. */
   revenue_note?: string | null;
+  platform?: AdsPlatform;
 }
 
 export interface AdsTeamReport {
+  /** The month the KPI belongs to (the one the range ends in). */
   month: string;
   start: string;
   end: string;
+  /** The same number of days just before ("so với kỳ trước"). */
+  previous_start?: string | null;
+  previous_end?: string | null;
   /** all / hcm / hn. */
   site: string;
   current: AdsFigures;
@@ -4136,8 +4202,29 @@ export interface AdsTeamReport {
   /** The BM picked (`connection_id`), and every BM to pick from. */
   connection_id?: Uuid | null;
   connections?: Array<{ id: Uuid; name: string; site: string }>;
-  /** `filtered`: a BM is picked - revenue is entered per person, not per BM. */
+  /** `filtered`: a BM is picked - revenue is entered per person, not per BM;
+   * `platform`: Google / TikTok - revenue is their ◆ line, no KPI. */
   revenue_note?: string | null;
+  platform?: AdsPlatform;
+  platforms?: AdsPlatformOption[];
+  /** Khối 2: every platform's figures, whichever is picked. */
+  channels?: AdsChannel[];
+}
+
+export interface AdsChannel {
+  platform: AdsPlatform;
+  label: string;
+  manual: boolean;
+  figures: AdsFigures;
+  /** Facebook: by revenue; Google / TikTok: by spend. */
+  people: Array<{
+    user_id: Uuid;
+    name: string;
+    figures: AdsFigures;
+    ads_ratio: number | null;
+    tone: string | null;
+  }>;
+  accounts: number;
 }
 
 export interface AdsDashboardQuery {
@@ -4148,6 +4235,8 @@ export interface AdsDashboardQuery {
   brand?: string;
   connection_id?: string;
   site?: string;
+  /** Default FACEBOOK. */
+  platform?: AdsPlatform;
 }
 
 export interface Department {
@@ -5699,7 +5788,15 @@ export const api = {
   /** "Đồng bộ ngay" (no dates) / "Kéo lại khoảng ngày" (≤ 93 days). 409 `cron_job_running`. */
   adsSync: (body: { kind: "spend" | "charges"; since?: string; until?: string; connection_id?: Uuid }) =>
     post<{ task_id: string; job_key: string }>("/api/ads/sync", body),
-  adsAccounts: (params: { month?: string; connection_id?: string; unassigned?: boolean; q?: string } = {}) =>
+  adsAccounts: (
+    params: {
+      month?: string;
+      connection_id?: string;
+      unassigned?: boolean;
+      q?: string;
+      platform?: AdsPlatform;
+    } = {},
+  ) =>
     get<AdsAccounts>(`/api/ads/accounts${query(params)}`),
   /** `user_id: null` = "Chưa gán". 422 `ads_assignee_invalid`; 403 `ads_account_forbidden`. */
   assignAdsAccount: (accountId: string, body: { user_id?: Uuid | null; brand?: string }) =>
@@ -5715,12 +5812,55 @@ export const api = {
   saveAdsKpi: (month: string, entries: Record<string, number | string | null>) =>
     put<AdsKpiMonth>("/api/ads/kpi", { month, entries }),
   /** Quản lý A (a Trưởng phòng / OWNER / ADMIN; a member 404). */
-  adsTeam: (params: { month?: string; site?: string; connection_id?: string } = {}) =>
+  adsTeam: (
+    params: {
+      month?: string;
+      site?: string;
+      connection_id?: string;
+      /** Both or neither: a range instead of the month (422 `ads_period_invalid`). */
+      start?: string;
+      end?: string;
+      platform?: AdsPlatform;
+    } = {},
+  ) =>
     get<AdsTeamReport>(`/api/ads/team${query(params)}`),
   /** Báo cáo tháng + ngày: the team, or `user_id` (a member: always their own). */
   adsHistory: (
-    params: { month?: string; user_id?: string; connection_id?: string; site?: string } = {},
+    params: {
+      month?: string;
+      user_id?: string;
+      connection_id?: string;
+      site?: string;
+      platform?: AdsPlatform;
+    } = {},
   ) => get<AdsHistory>(`/api/ads/history${query(params)}`),
+  // 0081: Google / TikTok Ads typed by hand. The one running the account (a
+  // Trưởng phòng / the OWNER / an ADMIN: anybody's); else 403 `ads_manual_forbidden`.
+  /** 201. 422 `ads_account_exists` / `ads_manual_invalid` / `ads_assignee_invalid`. */
+  createAdsManualAccount: (body: AdsManualAccountBody) =>
+    post<AdsAccount>("/api/ads/manual/accounts", body),
+  updateAdsManualAccount: (
+    accountId: string,
+    body: { name?: string; site?: string; card_last4?: string },
+  ) => patch<AdsAccount>(`/api/ads/manual/accounts/${encodeURIComponent(accountId)}`, body),
+  /** 204; 422 `ads_account_has_numbers` once a number was ever typed. */
+  deleteAdsManualAccount: (accountId: string) =>
+    del<void>(`/api/ads/manual/accounts/${encodeURIComponent(accountId)}`),
+  /** Every change is kept ("Lịch sử sửa"). 422 `ads_manual_invalid`. */
+  saveAdsManualDays: (entries: AdsManualEntry[]) =>
+    put<{ changed: number }>("/api/ads/manual/days", { entries }),
+  adsManualChanges: (
+    params: {
+      start?: string;
+      end?: string;
+      account_id?: string;
+      user_id?: string;
+      platform?: AdsPlatform;
+    } = {},
+  ) =>
+    get<{ start: string; end: string; changes: AdsManualChange[] }>(
+      `/api/ads/manual/changes${query(params)}`,
+    ),
 
   // Departments ("Phòng ban"). Read: OWNER / ADMIN (else 403
   // `department_forbidden`); every write: the OWNER.

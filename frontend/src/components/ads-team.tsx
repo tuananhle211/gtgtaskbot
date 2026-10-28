@@ -1,80 +1,149 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { api, type AdsTeamReport } from "@/lib/api";
+import {
+  api,
+  type AdsChannel,
+  type AdsPlatform,
+  type AdsTeamReport,
+} from "@/lib/api";
 import {
   compactMoney,
   count,
+  type DateRange,
+  isManual,
   money,
+  moveRange,
   percent,
+  PlatformSelect,
+  platformLabel,
   ratioTone,
 } from "@/components/ads";
 import { AdsReports } from "@/components/ads-reports";
+import { DateInput } from "@/components/date-input";
 import { PageHeader, Select } from "@/components/pr";
 import { ErrorBox, Loading } from "@/components/states";
 import { formatDate } from "@/lib/datetime";
 
 /**
  * Dashboard Ads, "Tổng team" (design board "Quản lý · Dashboard tổng"): one
- * month of the department against the month before. Khối 1 = the site's
+ * month of the department - or any range of days ("Từ ngày" / "Đến ngày") -
+ * against the same number of days before; the KPI is the month's the range
+ * ends in. Khối 1 = the site's
  * revenue (Doanh thu xét KPI, its split HCM / HN chuyển HCM, the commission
  * revenue), Ads / Doanh thu, the KPI against how far the month is, revenue by
- * source, spend and charges; Khối 2 = Facebook Ads (ranking, who needs
- * attention; Google / TikTok Ads come later); Khối 3 = the table per
+ * source, spend and charges; Khối 2 = every platform side by side
+ * (`channels`): Facebook Ads (ranking, who needs attention), Google Ads and
+ * TikTok Ads typed by hand (spend, invoices, their ◆ revenue line, the
+ * marketers by spend); Khối 3 = the table per
  * marketer; then "Báo cáo chi tiết" (tháng, ngày). Customer, booking and bill
  * figures are not entered yet: their cards say so. "BM" narrows every block
  * and table to one BM's accounts; revenue is entered per person, not per BM,
  * so its cards then wait ("Không tách theo BM"). "Xem chi tiết theo" opens one
- * marketer's dashboard. A Trưởng phòng ADS, the OWNER / an ADMIN.
+ * marketer's dashboard. "Nền tảng" (0081, Facebook by default) switches
+ * Khối 1, Khối 3 and the reports to Google / TikTok Ads: revenue = the ◆
+ * line of that source, no KPI (it is set for the department), no BM. A
+ * Trưởng phòng ADS, the OWNER / an ADMIN.
  */
 export function TeamDashboard({
   onPick,
+  platform = "FACEBOOK",
+  onPlatform,
 }: {
   onPick: (userId: string) => void;
+  platform?: AdsPlatform;
+  onPlatform?: (platform: AdsPlatform) => void;
 }) {
   const [month, setMonth] = useState("");
+  // A range of days instead of the month ("Từ ngày" / "Đến ngày").
+  const [range, setRange] = useState<DateRange | null>(null);
   const [site, setSite] = useState("all");
-  const [connection, setConnection] = useState("");
+  const [chosenConnection, setConnection] = useState("");
+  // A BM is Facebook's.
+  const connection = isManual(platform) ? "" : chosenConnection;
   const report = useQuery({
-    queryKey: ["ads", "team", month, site, connection],
+    queryKey: ["ads", "team", month, site, connection, range, platform],
     queryFn: () =>
       api.adsTeam({
         month: month || undefined,
         site,
         connection_id: connection || undefined,
+        start: range?.start,
+        end: range?.end,
+        platform: platform === "FACEBOOK" ? undefined : platform,
       }),
     retry: false,
     placeholderData: (previous) => previous,
   });
+  // The filters stay on screen when a pick fails, built from the last answer.
+  const [last, setLast] = useState<AdsTeamReport>();
+  useEffect(() => {
+    if (report.data) setLast(report.data);
+  }, [report.data]);
+  const shown = report.data ?? last;
+  const pickDay = (edge: "start" | "end", value: string) => {
+    if (!value || !shown) return;
+    setRange(
+      moveRange(
+        { start: range?.start ?? shown.start, end: range?.end ?? shown.end },
+        edge,
+        value,
+      ),
+    );
+  };
   return (
     <div className="space-y-5">
       <PageHeader
         title="Dashboard Ads"
         subtitle={
           report.data
-            ? `Tổng team · tháng ${report.data.month.slice(5, 7)}/${report.data.month.slice(0, 4)} · ${formatDate(report.data.start)} – ${formatDate(report.data.end)} · so với tháng trước`
+            ? `Tổng team · ${platformLabel(report.data.platform)} · ${formatDate(report.data.start)} – ${formatDate(report.data.end)}${report.data.previous_start && report.data.previous_end ? ` · so với ${formatDate(report.data.previous_start)} – ${formatDate(report.data.previous_end)}` : ""}`
             : "Số liệu cả Phòng Ads theo tháng."
         }
       />
       <section aria-label="Bộ lọc" className="flex flex-wrap items-end gap-3">
-        {report.data ? (
-          <ViewPicker
-            marketers={report.data.marketers}
-            value=""
-            onPick={onPick}
-          />
+        {shown ? (
+          <ViewPicker marketers={shown.marketers} value="" onPick={onPick} />
+        ) : null}
+        {onPlatform ? (
+          <PlatformSelect value={platform} onChange={onPlatform} />
         ) : null}
         <label className={LABEL}>
           <span>Tháng</span>
           <input
             type="month"
             aria-label="Tháng"
-            value={month || report.data?.month.slice(0, 7) || ""}
-            onChange={(event) => setMonth(event.target.value)}
+            value={month || shown?.month.slice(0, 7) || ""}
+            onChange={(event) => {
+              setMonth(event.target.value);
+              setRange(null);
+            }}
             className="min-h-11 rounded-lg border border-[var(--border)] bg-[var(--surface)] px-3 text-sm"
           />
         </label>
+        {shown ? (
+          <>
+            <label className={LABEL}>
+              <span>Từ ngày</span>
+              <DateInput
+                aria-label="Từ ngày"
+                value={range?.start ?? shown.start}
+                onChange={(event) => pickDay("start", event.target.value)}
+                className={DATE_FIELD}
+              />
+            </label>
+            <label className={LABEL}>
+              <span>Đến ngày</span>
+              <DateInput
+                aria-label="Đến ngày"
+                value={range?.end ?? shown.end}
+                onChange={(event) => pickDay("end", event.target.value)}
+                className={DATE_FIELD}
+              />
+            </label>
+          </>
+        ) : null}
         <label className={LABEL}>
           <span>Cơ sở</span>
           <Select
@@ -87,7 +156,7 @@ export function TeamDashboard({
             <option value="hn">HN chuyển HCM</option>
           </Select>
         </label>
-        {report.data?.connections?.length ? (
+        {shown?.connections?.length && !isManual(platform) ? (
           <label className={LABEL}>
             <span>BM</span>
             <Select
@@ -96,7 +165,7 @@ export function TeamDashboard({
               onChange={(event) => setConnection(event.target.value)}
             >
               <option value="">Tất cả BM</option>
-              {report.data.connections.map((row) => (
+              {shown.connections.map((row) => (
                 <option key={row.id} value={row.id}>
                   {row.name}
                   {row.site ? ` · ${row.site}` : ""}
@@ -116,6 +185,7 @@ export function TeamDashboard({
           month={report.data.month.slice(0, 7)}
           connectionId={connection || undefined}
           site={site}
+          platform={report.data.platform}
         />
       ) : null}
     </div>
@@ -167,6 +237,8 @@ export function ViewPicker({
 
 const LABEL =
   "flex flex-col gap-1 text-xs font-medium text-[var(--text-muted)]";
+const DATE_FIELD =
+  "min-h-11 w-40 rounded-lg border border-[var(--border)] bg-[var(--surface)] px-3 text-sm text-[var(--text)]";
 const CARD = "rounded-xl border border-[var(--border)] bg-[var(--surface)] p-4";
 
 function delta(
@@ -180,7 +252,7 @@ function delta(
   const up = change >= 0;
   const good = lowerIsBetter ? !up : up;
   return {
-    text: `${up ? "▲" : "▼"} ${Math.abs(change * 100).toLocaleString("vi-VN", { maximumFractionDigits: 1 })}% so tháng trước`,
+    text: `${up ? "▲" : "▼"} ${Math.abs(change * 100).toLocaleString("vi-VN", { maximumFractionDigits: 1 })}% so kỳ trước`,
     tone:
       neutral || change === 0
         ? "text-[var(--text-muted)]"
@@ -195,7 +267,7 @@ function pointsDelta(now: number | null, before: number | null) {
   if (now === null || before === null) return null;
   const change = (now - before) * 100;
   return {
-    text: `${change >= 0 ? "▲" : "▼"} ${Math.abs(change).toLocaleString("vi-VN", { maximumFractionDigits: 1 })} điểm so tháng trước`,
+    text: `${change >= 0 ? "▲" : "▼"} ${Math.abs(change).toLocaleString("vi-VN", { maximumFractionDigits: 1 })} điểm so kỳ trước`,
     tone:
       change === 0
         ? "text-[var(--text-muted)]"
@@ -298,6 +370,8 @@ function Report({
   const now = data.current;
   const before = data.before;
   const byBm = data.revenue_note === "filtered";
+  const manual = isManual(data.platform);
+  const label = platformLabel(data.platform);
   return (
     <>
       <section aria-label="Chỉ số tổng" className="space-y-2">
@@ -332,6 +406,30 @@ function Report({
                 note={BY_BM_NOTE}
               />
             </>
+          ) : manual ? (
+            <>
+              <Tile
+                testid="team-revenue"
+                wide
+                label={`Doanh thu ${label}`}
+                value={now.revenue === null ? "Chưa nhập" : money(now.revenue)}
+                change={delta(now.revenue, before.revenue)}
+                sub={`Dòng ◆ ${label.replace(" Ads", "")} ở Nhập doanh thu · DT hoa hồng ${money(now.revenue_net)}`}
+              />
+              <Tile
+                testid="team-ratio"
+                label="Ads / Doanh thu"
+                value={percent(now.ads_ratio)}
+                change={pointsDelta(now.ads_ratio, before.ads_ratio)}
+                sub="Lập hoá đơn ÷ DT hoa hồng · ngưỡng ≤ 40%"
+              />
+              <Missing
+                testid="team-kpi"
+                label="Tiến độ KPI"
+                value="Không theo nền tảng"
+                note="KPI đặt cho cả phòng và từng người: xem ở Facebook Ads."
+              />
+            </>
           ) : (
             <>
               <Tile
@@ -364,7 +462,9 @@ function Report({
             sub={
               now.invoice
                 ? `Chênh với chi tiêu ${money(now.invoice - now.spend)}`
-                : "Chưa có hoá đơn Meta"
+                : manual
+                  ? "Chưa nhập lập hoá đơn"
+                  : "Chưa có hoá đơn Meta"
             }
           />
           {byBm ? (
@@ -381,11 +481,18 @@ function Report({
               sub="Lập hoá đơn ÷ doanh thu xét KPI"
             />
           )}
-          <Tile
-            label="SĐT · Chi phí / SĐT"
-            value={`${count(now.phones)} · ${money(now.cost_per_phone)}`}
-            change={delta(now.phones, before.phones)}
-          />
+          {manual ? (
+            <Missing
+              label="SĐT · Chi phí / SĐT"
+              note={`${label} nhập tay chi tiêu và lập hoá đơn; chưa nhập SĐT.`}
+            />
+          ) : (
+            <Tile
+              label="SĐT · Chi phí / SĐT"
+              value={`${count(now.phones)} · ${money(now.cost_per_phone)}`}
+              change={delta(now.phones, before.phones)}
+            />
+          )}
           <Missing
             label="Bill TB · Tỷ lệ chốt / bong"
             note="Chưa nhập khách, lịch và bill."
@@ -413,13 +520,15 @@ function Report({
         <div className="grid items-start gap-3 lg:grid-cols-[minmax(0,2fr)_minmax(0,1fr)]">
           <FacebookSource data={data} onPick={onPick} />
           <div className="grid content-start gap-3">
-            <PendingSource
+            <ManualSource
               name="Google Ads"
-              source={data.sources.find((item) => item.key === "s:GOOGLE")}
+              channel={data.channels?.find((item) => item.platform === "GOOGLE")}
+              onPick={onPick}
             />
-            <PendingSource
+            <ManualSource
               name="TikTok Ads"
-              source={data.sources.find((item) => item.key === "s:TIKTOK")}
+              channel={data.channels?.find((item) => item.platform === "TIKTOK")}
+              onPick={onPick}
             />
           </div>
         </div>
@@ -464,7 +573,7 @@ function Sources({ data }: { data: AdsTeamReport }) {
         </ul>
       ) : (
         <p className="mt-1 text-sm text-[var(--text-muted)]">
-          Chưa nhập doanh thu tháng này.
+          Chưa nhập doanh thu trong khoảng này.
         </p>
       )}
       {data.marketers_hn ? (
@@ -589,8 +698,10 @@ function FacebookSource({
   data: AdsTeamReport;
   onPick: (userId: string) => void;
 }) {
-  const fb = data.facebook;
-  const active = data.marketers.filter((line) => line.figures.spend > 0);
+  const channel = data.channels?.find((item) => item.platform === "FACEBOOK");
+  const fb = channel?.figures ?? data.facebook;
+  const people = channel?.people ?? data.marketers;
+  const active = people.filter((line) => line.figures.spend > 0);
   return (
     <div className={`${CARD} space-y-4`} data-testid="source-facebook">
       <SourceHead name="Facebook Ads" meta={`${active.length} marketing`} />
@@ -617,7 +728,7 @@ function FacebookSource({
           }
         />
       </div>
-      <Ranking data={data} onPick={onPick} />
+      <Ranking people={people} onPick={onPick} />
       <div className="rounded-lg bg-[var(--surface-muted)] p-3">
         <div className="text-xs font-semibold uppercase text-[var(--bad)]">
           Cần xử lý ngay
@@ -646,27 +757,48 @@ function FacebookSource({
 }
 
 /**
- * A source not connected yet (Google / TikTok Ads): no spend, only the
- * revenue the Trưởng phòng enters on its ◆ line; the ranking waits.
+ * Google / TikTok Ads (0081, typed by hand): spend and invoices of the
+ * marketers' accounts, revenue from the ◆ line of the source (entered for
+ * the department, not per marketer), and the marketers ranked by spend.
  */
-function PendingSource({
+function ManualSource({
   name,
-  source,
+  channel,
+  onPick,
 }: {
   name: string;
-  source?: AdsTeamReport["sources"][number];
+  channel?: AdsChannel;
+  onPick: (userId: string) => void;
 }) {
-  const revenue = source?.revenue_net ?? null;
+  const figures = channel?.figures;
+  const revenue = figures?.revenue_net ?? null;
+  const people = (channel?.people ?? []).filter(
+    (line) => line.figures.spend > 0 || line.figures.invoice > 0,
+  );
+  const maxBar = Math.max(1, ...people.map((line) => line.figures.spend));
   return (
     <div
       className={`${CARD} space-y-3`}
       data-testid={`source-${name.split(" ")[0].toLowerCase()}`}
     >
-      <SourceHead name={name} meta="chưa kết nối tài khoản" />
+      <SourceHead
+        name={name}
+        meta={
+          channel?.accounts
+            ? `${channel.accounts} tài khoản · nhập tay`
+            : "chưa có tài khoản"
+        }
+      />
       <div className="grid grid-cols-2 gap-3">
         <Fact
           label="Chi tiêu"
-          value={<span className={WAITING_VALUE}>chưa có</span>}
+          value={
+            figures?.spend ? (
+              compactMoney(figures.spend)
+            ) : (
+              <span className={WAITING_VALUE}>chưa nhập</span>
+            )
+          }
         />
         <Fact
           label="Doanh thu"
@@ -678,31 +810,70 @@ function PendingSource({
             )
           }
         />
-        <Fact label="Ads / DT" value={<RatioChip value={null} />} />
         <Fact
-          label="Khách · Bill TB"
-          value={<span className={WAITING_VALUE}>chưa nhập</span>}
+          label="Ads / DT"
+          value={<RatioChip value={figures?.ads_ratio ?? null} />}
+        />
+        <Fact
+          label="Lập hoá đơn"
+          value={
+            figures?.invoice ? (
+              compactMoney(figures.invoice)
+            ) : (
+              <span className={WAITING_VALUE}>chưa nhập</span>
+            )
+          }
         />
       </div>
-      <div className="rounded-lg border border-dashed border-[var(--border)] p-3 text-xs text-[var(--text-muted)]">
-        <div className="font-semibold">Xếp hạng marketing {name}</div>
-        Hiện lên khi có chi tiêu từ tài khoản {name} và doanh thu gán theo người
-        chạy.
-      </div>
+      {people.length ? (
+        <ul
+          className="space-y-2"
+          aria-label={`Xếp hạng marketing ${name}`}
+        >
+          {people.map((line) => (
+            <li
+              key={line.user_id}
+              data-testid={`rank-${name.split(" ")[0].toLowerCase()}-${line.user_id}`}
+              className="grid grid-cols-[6.5rem_minmax(0,1fr)] items-center gap-3 text-sm"
+            >
+              <button
+                type="button"
+                onClick={() => onPick(line.user_id)}
+                className="truncate text-left font-medium hover:underline"
+                title={line.name}
+              >
+                {line.name}
+              </button>
+              <Bar
+                value={line.figures.spend}
+                max={maxBar}
+                fill="bg-[var(--text-muted)]"
+                label={compactMoney(line.figures.spend)}
+              />
+            </li>
+          ))}
+        </ul>
+      ) : (
+        <div className="rounded-lg border border-dashed border-[var(--border)] p-3 text-xs text-[var(--text-muted)]">
+          {channel?.accounts
+            ? `Chưa có chi tiêu ${name} trong khoảng này.`
+            : `Marketing tự thêm tài khoản ${name} ở Dashboard Ads (chọn Nền tảng ${name}) rồi nhập chi tiêu theo ngày.`}
+        </div>
+      )}
     </div>
   );
 }
 
 /** Commission revenue and spend per marketer on one money axis. */
 function Ranking({
-  data,
+  people,
   onPick,
 }: {
-  data: AdsTeamReport;
+  people: AdsChannel["people"];
   onPick: (userId: string) => void;
 }) {
   // Only people with numbers this month: an idle seat has nothing to rank.
-  const order = data.marketers
+  const order = people
     .filter((line) => line.figures.spend > 0 || line.figures.revenue_net)
     .sort(
       (a, b) =>
@@ -732,7 +903,7 @@ function Ranking({
       </div>
       {order.length === 0 ? (
         <p className="text-sm text-[var(--text-muted)]">
-          Chưa có Marketing nào có số trong tháng.
+          Chưa có Marketing nào có số trong khoảng này.
         </p>
       ) : (
         <ul className="space-y-3" aria-label="Xếp hạng marketing Facebook Ads">
@@ -784,7 +955,10 @@ function MarketerTable({
   data: AdsTeamReport;
   onPick: (userId: string) => void;
 }) {
-  const fb = data.facebook;
+  const fb =
+    data.channels?.find((item) => item.platform === data.platform)?.figures ??
+    data.facebook;
+  const manual = isManual(data.platform);
   return (
     <div className="panel table-scroll-x">
       <table className="table-dense w-full min-w-[1040px]">
@@ -825,7 +999,7 @@ function MarketerTable({
                 {money(line.figures.invoice)}
               </td>
               <td className="text-right tabular-nums">
-                {count(line.figures.phones)}
+                {manual ? "—" : count(line.figures.phones)}
               </td>
               <td className="text-right tabular-nums">
                 {money(line.figures.cost_per_phone)}
@@ -849,10 +1023,12 @@ function MarketerTable({
         </tbody>
         <tfoot>
           <tr className="font-semibold">
-            <td>TỔNG FACEBOOK ADS</td>
+            <td>TỔNG {platformLabel(data.platform).toUpperCase()}</td>
             <td className="text-right tabular-nums">{money(fb.spend)}</td>
             <td className="text-right tabular-nums">{money(fb.invoice)}</td>
-            <td className="text-right tabular-nums">{count(fb.phones)}</td>
+            <td className="text-right tabular-nums">
+              {manual ? "—" : count(fb.phones)}
+            </td>
             <td className="text-right tabular-nums">
               {money(fb.cost_per_phone)}
             </td>

@@ -27,15 +27,21 @@ from meobot.api.schemas.ads import (
     AdsSyncResponse,
     AssignAdsAccountRequest,
     CreateAdsConnectionRequest,
+    CreateManualAccountRequest,
     EntryLineResponse,
     HistoryResponse,
     KpiMonthResponse,
+    ManualChangeResponse,
+    ManualChangesResponse,
     PersonOption,
     RevenueDayResponse,
     SaveKpiRequest,
+    SaveManualRequest,
+    SaveManualResponse,
     SaveRevenueRequest,
     TeamReportResponse,
     UpdateAdsConnectionRequest,
+    UpdateManualAccountRequest,
     brand_options,
 )
 from meobot.application.ads.access import AdsAccess, ads_access
@@ -45,6 +51,7 @@ from meobot.application.ads.connection_service import (
     AdsConnectionService,
 )
 from meobot.application.ads.dashboard_service import AdsDashboardService
+from meobot.application.ads.manual_service import AdsManualService, ManualEntry
 from meobot.application.ads.revenue_service import AdsRevenueService, EntryLine
 from meobot.application.ads.sync_service import vn_today
 from meobot.application.ads.team_service import AdsTeamService
@@ -61,7 +68,7 @@ from meobot.application.units.directory import UnitDirectoryService
 from meobot.core.errors import ValidationError
 from meobot.core.time import ensure_utc, utcnow
 from meobot.db.models.cron import CronJob
-from meobot.domain.ads.models import MAX_SYNC_DAYS, AdsBrand, AdsGrouping, Period
+from meobot.domain.ads.models import MAX_SYNC_DAYS, AdsBrand, AdsGrouping, AdsPlatform, Period
 from meobot.domain.audit.models import AuditAction, AuditResult
 from meobot.domain.cron.models import RUNNING_STALE_SECONDS, CronTrigger
 from meobot.domain.identity.models import Actor
@@ -279,11 +286,17 @@ async def accounts(
     unassigned: Annotated[bool, Query()] = False,
     q: Annotated[str | None, Query(max_length=100)] = None,
     month: Annotated[str | None, Query(max_length=7)] = None,
+    platform: Annotated[AdsPlatform | None, Query()] = None,
 ) -> AdsAccountsResponse:
     access = await _access(session, actor)
     period = _month(month)
     views = await AdsAccountService(session, AuditService(session)).accounts(
-        access, period=period, connection_id=connection_id, unassigned=unassigned, query=q
+        access,
+        period=period,
+        connection_id=connection_id,
+        unassigned=unassigned,
+        query=q,
+        platform=platform,
     )
     people = await ads_people(session) if access.manage_accounts else []
     return AdsAccountsResponse(
@@ -338,6 +351,7 @@ async def dashboard(
     brand: Annotated[AdsBrand | None, Query()] = None,
     connection_id: Annotated[uuid.UUID | None, Query()] = None,
     site: Annotated[str | None, Query(max_length=60)] = None,
+    platform: Annotated[AdsPlatform, Query()] = AdsPlatform.FACEBOOK,
 ) -> AdsDashboardResponse:
     """One person's numbers (a Trưởng phòng / the OWNER: ``user_id`` or the
     whole department; a member: always their own)."""
@@ -357,8 +371,136 @@ async def dashboard(
         brand=brand,
         connection_id=connection_id,
         site=site,
+        platform=platform,
     )
     return AdsDashboardResponse.from_domain(data)
+
+
+# --- Google / TikTok Ads typed by hand (0081) -------------------------------------
+
+
+def _manual(session: AsyncSession) -> AdsManualService:
+    return AdsManualService(session, AuditService(session))
+
+
+async def _account_response(
+    session: AsyncSession, access: AdsAccess, account_id: str
+) -> AdsAccountResponse:
+    views = await AdsAccountService(session, AuditService(session)).accounts(
+        access, period=month_of(vn_today()), query=account_id
+    )
+    view = next(item for item in views if item.account.account_id == account_id)
+    return AdsAccountResponse.from_view(view)
+
+
+@router.post("/manual/accounts", response_model=AdsAccountResponse, status_code=201)
+async def create_manual_account(
+    body: CreateManualAccountRequest,
+    actor: CurrentActorDep,
+    request_id: RequestIdDep,
+    session: SessionDep,
+) -> AdsAccountResponse:
+    """A marketer adds their Google / TikTok Ads account (a Trưởng phòng / the
+    OWNER / an ADMIN: anybody's in ADS, ``user_id``). 422 ``ads_account_exists``,
+    ``ads_manual_invalid``, ``ads_assignee_invalid``."""
+    access = await _access(session, actor)
+    account = await _manual(session).create_account(
+        actor=actor,
+        access=access,
+        request_id=request_id,
+        platform=body.platform,
+        external_id=body.external_id,
+        name=body.name,
+        user_id=body.user_id,
+        site=body.site,
+        card_last4=body.card_last4,
+    )
+    return await _account_response(session, access, account.account_id)
+
+
+@router.patch("/manual/accounts/{account_id}", response_model=AdsAccountResponse)
+async def update_manual_account(
+    account_id: str,
+    body: UpdateManualAccountRequest,
+    actor: CurrentActorDep,
+    request_id: RequestIdDep,
+    session: SessionDep,
+) -> AdsAccountResponse:
+    access = await _access(session, actor)
+    await _manual(session).update_account(
+        actor=actor,
+        access=access,
+        request_id=request_id,
+        account_id=account_id,
+        name=body.name,
+        site=body.site,
+        card_last4=body.card_last4,
+        fields=body.model_fields_set,
+    )
+    return await _account_response(session, access, account_id)
+
+
+@router.delete("/manual/accounts/{account_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_manual_account(
+    account_id: str,
+    actor: CurrentActorDep,
+    request_id: RequestIdDep,
+    session: SessionDep,
+) -> Response:
+    """Only one with no number typed, ever (422 ``ads_account_has_numbers``)."""
+    access = await _access(session, actor)
+    await _manual(session).delete_account(
+        actor=actor, access=access, request_id=request_id, account_id=account_id
+    )
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+
+@router.put("/manual/days", response_model=SaveManualResponse)
+async def save_manual_days(
+    body: SaveManualRequest,
+    actor: CurrentActorDep,
+    request_id: RequestIdDep,
+    session: SessionDep,
+) -> SaveManualResponse:
+    """Each day's spend / "Số tiền lập hoá đơn" of typed-in accounts (a blank
+    clears a cell); every change is kept. 403 ``ads_manual_forbidden`` on
+    somebody else's account, 422 ``ads_manual_invalid``."""
+    access = await _access(session, actor)
+    changed = await _manual(session).save(
+        actor=actor,
+        access=access,
+        request_id=request_id,
+        entries=[
+            ManualEntry(entry.account_id, entry.day, entry.field, entry.amount)
+            for entry in body.entries
+        ],
+    )
+    return SaveManualResponse(changed=changed)
+
+
+@router.get("/manual/changes", response_model=ManualChangesResponse)
+async def manual_changes(
+    actor: CurrentActorDep,
+    session: SessionDep,
+    start: Annotated[date | None, Query()] = None,
+    end: Annotated[date | None, Query()] = None,
+    account_id: Annotated[str | None, Query(max_length=40)] = None,
+    user_id: Annotated[uuid.UUID | None, Query()] = None,
+    platform: Annotated[AdsPlatform | None, Query()] = None,
+) -> ManualChangesResponse:
+    """ "Lịch sử sửa": the newest first (default the last 62 days), the
+    accounts the viewer sees (a member: their own)."""
+    access = await _access(session, actor)
+    last = end or vn_today()
+    first = start or last - timedelta(days=61)
+    if last < first:
+        raise AdsPeriodInvalidError("Ngày kết thúc phải sau ngày bắt đầu.")
+    views = await _manual(session).changes(
+        access, start=first, end=last, account_id=account_id, user_id=user_id, platform=platform
+    )
+    return ManualChangesResponse(
+        start=first, end=last, changes=[ManualChangeResponse.from_view(view) for view in views]
+    )
 
 
 # --- revenue, KPI, Quản lý A (0079) --------------------------------------------------
@@ -450,14 +592,31 @@ async def team_report(
     month: Annotated[str | None, Query(max_length=7)] = None,
     site: Annotated[str, Query(pattern="^(all|hcm|hn)$")] = "all",
     connection_id: Annotated[uuid.UUID | None, Query()] = None,
+    start: Annotated[date | None, Query()] = None,
+    end: Annotated[date | None, Query()] = None,
+    platform: Annotated[AdsPlatform, Query()] = AdsPlatform.FACEBOOK,
 ) -> TeamReportResponse:
-    """ "Dashboard tổng" for one month (a Trưởng phòng ADS, the OWNER / an
-    ADMIN; a member 404 ``ads_not_visible``). ``site`` narrows the revenue:
+    """ "Tổng team" for one month, or ``start``-``end`` (both; compared with
+    the same number of days before) - a Trưởng phòng ADS, the OWNER / an
+    ADMIN; a member 404 ``ads_not_visible``. ``site`` narrows the revenue:
     ``hcm`` without "HN chuyển HCM", ``hn`` that alone; ``connection_id`` one
     BM's accounts (then no revenue)."""
     access = await _access(session, actor)
+    if (start is None) != (end is None):
+        raise AdsPeriodInvalidError("Chọn cả ngày bắt đầu và ngày kết thúc.")
+    if start is not None and end is not None:
+        if end < start:
+            raise AdsPeriodInvalidError("Ngày kết thúc phải sau ngày bắt đầu.")
+        if (end - start).days + 1 > MAX_PERIOD_DAYS:
+            raise AdsPeriodInvalidError("Khoảng ngày tối đa 1 năm.")
     report = await AdsTeamService(session).report(
-        access, month=_month(month).start, site=site, connection_id=connection_id
+        access,
+        month=_month(month).start,
+        site=site,
+        connection_id=connection_id,
+        start=start,
+        end=end,
+        platform=platform,
     )
     return TeamReportResponse.from_report(report)
 
@@ -470,13 +629,19 @@ async def history(
     user_id: Annotated[uuid.UUID | None, Query()] = None,
     connection_id: Annotated[uuid.UUID | None, Query()] = None,
     site: Annotated[str, Query(pattern="^(all|hcm|hn)$")] = "all",
+    platform: Annotated[AdsPlatform, Query()] = AdsPlatform.FACEBOOK,
 ) -> HistoryResponse:
     """ "Báo cáo tháng" (April to ``month``) and "Báo cáo ngày" (its days): the
     team or one marketer (a Trưởng phòng / the OWNER / an ADMIN); a member
     always gets their own."""
     access = await _access(session, actor)
     data = await AdsTeamService(session).history(
-        access, month=_month(month).start, user_id=user_id, connection_id=connection_id, site=site
+        access,
+        month=_month(month).start,
+        user_id=user_id,
+        connection_id=connection_id,
+        site=site,
+        platform=platform,
     )
     return HistoryResponse.from_history(data)
 

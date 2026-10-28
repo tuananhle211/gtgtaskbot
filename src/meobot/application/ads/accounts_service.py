@@ -24,7 +24,7 @@ from meobot.core.time import utcnow
 from meobot.db.models.ads import AdsAccount, AdsChargeDaily, AdsConnection, AdsSpendDaily
 from meobot.db.models.department import Department, DepartmentMember
 from meobot.db.models.user import User
-from meobot.domain.ads.models import ADS_DEPARTMENT_CODE, AdsBrand, Period
+from meobot.domain.ads.models import ADS_DEPARTMENT_CODE, AdsBrand, AdsPlatform, Period
 from meobot.domain.audit.models import AuditAction, AuditResult
 from meobot.domain.identity.models import Actor
 
@@ -60,7 +60,8 @@ class AdsAssigneeInvalidError(ValidationError):
 @dataclass(frozen=True, slots=True)
 class AccountView:
     account: AdsAccount
-    connection: AdsConnection
+    #: ``None`` for a typed-in Google / TikTok account (0081).
+    connection: AdsConnection | None
     user: User | None
     spend: float
     charged: float
@@ -95,11 +96,14 @@ class AdsAccountService:
         connection_id: uuid.UUID | None = None,
         unassigned: bool = False,
         query: str | None = None,
+        platform: AdsPlatform | None = None,
     ) -> list[AccountView]:
         access.require_view()
-        statement = select(AdsAccount, AdsConnection).join(
+        statement = select(AdsAccount, AdsConnection).outerjoin(
             AdsConnection, AdsConnection.id == AdsAccount.connection_id
         )
+        if platform is not None:
+            statement = statement.where(AdsAccount.platform == platform)
         if not access.view_all:
             statement = statement.where(AdsAccount.user_id == access.user_id)
         if connection_id is not None:
@@ -109,7 +113,11 @@ class AdsAccountService:
         if query and query.strip():
             pattern = f"%{query.strip()}%"
             statement = statement.where(
-                or_(AdsAccount.name.ilike(pattern), AdsAccount.account_id.ilike(pattern))
+                or_(
+                    AdsAccount.name.ilike(pattern),
+                    AdsAccount.account_id.ilike(pattern),
+                    AdsAccount.external_id.ilike(pattern),
+                )
             )
         rows = list(await self._session.execute(statement.order_by(AdsAccount.name)))
         ids = [account.account_id for account, _ in rows]

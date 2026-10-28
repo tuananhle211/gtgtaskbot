@@ -502,6 +502,12 @@ class AuditAction(StrEnum):
     #: is ``ads_revenue_changes``.
     ADS_REVENUE_SAVED = "ads.revenue.saved"
     ADS_KPI_SAVED = "ads.kpi.saved"
+    #: Google / TikTok Ads typed by hand (0081): an account added, edited or
+    #: removed; a day's spend / invoices saved (per cell: ``ads_manual_changes``).
+    ADS_ACCOUNT_CREATED = "ads.account.created"
+    ADS_ACCOUNT_UPDATED = "ads.account.updated"
+    ADS_ACCOUNT_DELETED = "ads.account.deleted"
+    ADS_MANUAL_SAVED = "ads.manual.saved"
 
     # Resources ("Quản lý tài nguyên", 0065).
     RESOURCE_CREATED = "resource.created"
