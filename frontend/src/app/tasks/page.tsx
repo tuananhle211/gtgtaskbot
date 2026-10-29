@@ -116,9 +116,10 @@ const field =
  * `mine=false` keeps it off. Everyone else opens on everything.
  *
  * The Design ban (`design.view` on `/api/units/me`) reads ORD's table in a
- * simpler shape: the same first four columns, then "Nội dung", "Tên task" and
- * "Thiết kế" from the row's `design` block in place of the per-step cells and
- * "Kết quả". Which rows they get is the server's scope, not this file's.
+ * simpler shape: the same first four columns (Order, Tên · Loại, Trạng thái,
+ * Deadline), then "Nội dung", "Tên task" and "Thiết kế" from the row's
+ * `design` block in place of the per-step cells and "Kết quả". Which rows they
+ * get is the server's scope, not this file's.
  * Their rows also carry the step's own buttons ("Nhận việc", "Nộp bài",
  * "Duyệt": `RowActions`), which open the task page's dialog in place.
  * The status and the deadline they read are the Design step's own, and so are
@@ -347,8 +348,7 @@ function TaskBoard() {
   // columns are the row's own cells, so they sort by that step's status.
   const sortValues: Record<string, SortValueOf<TaskRow>> = {
     order: (row) => row.code,
-    // The Design table has no "Tên · Loại" column, so no sort by it either.
-    ...(designView ? {} : { title: (row: TaskRow) => row.title }),
+    title: (row: TaskRow) => row.title,
     // The Design table draws the Design step's status and deadline: it sorts
     // by what is drawn.
     status: (row) => (designView ? designStatusLabel(row) : row.status_label),
@@ -688,11 +688,9 @@ function TaskBoard() {
                   <SortHeader sortKey="order" sort={sort} onSort={onSort}>
                     Order
                   </SortHeader>
-                  {designView ? null : (
-                    <SortHeader sortKey="title" sort={sort} onSort={onSort}>
-                      Tên · Loại
-                    </SortHeader>
-                  )}
+                  <SortHeader sortKey="title" sort={sort} onSort={onSort}>
+                    Tên · Loại
+                  </SortHeader>
                   <SortHeader sortKey="status" sort={sort} onSort={onSort}>
                     Trạng thái · Đang giữ
                   </SortHeader>
@@ -892,8 +890,9 @@ function TaskTableRow({
   showTokens: boolean;
   /**
    * The Design ban's view: "Nội dung", "Tên task" and "Thiết kế" in place of
-   * "Tên · Loại", the per-step cells and "Kết quả" - and the step's own
-   * buttons ("Nhận việc", "Nộp bài", "Duyệt") in the action cell.
+   * the per-step cells and "Kết quả" - and the step's own buttons ("Nhận
+   * việc", "Nộp bài", "Duyệt") in the action cell. It keeps "Tên · Loại" (the
+   * order's name and type), just without the row's extra fields.
    */
   design?: boolean;
   onChanged: () => void;
@@ -965,12 +964,8 @@ function TaskTableRow({
               {formatAgo(row.created_at)}
             </span>
           ) : null}
-          {/* The Design table has no "Tên · Loại" column: its flags sit here. */}
-          {design && row.is_priority ? <Pill tone="warn">Ưu tiên</Pill> : null}
-          {design && row.urgent ? <Pill tone="critical">Gấp</Pill> : null}
         </span>
       </td>
-      {design ? null : (
       <td className="min-w-[12rem] max-w-[24rem]">
         <Link
           href={row.detail_path}
@@ -992,7 +987,8 @@ function TaskTableRow({
           ) : null}
           {row.is_priority ? <Pill tone="warn">Ưu tiên</Pill> : null}
           {row.urgent ? <Pill tone="critical">Gấp</Pill> : null}
-          {!dense
+          {/* The Design view keeps this column to just the name and type. */}
+          {!dense && !design
             ? (row.extras ?? []).map((extra) => (
                 <span
                   key={extra.label}
@@ -1004,7 +1000,6 @@ function TaskTableRow({
             : null}
         </div>
       </td>
-      )}
       {design ? (
         <DesignStatusCell row={row} dense={dense} />
       ) : (

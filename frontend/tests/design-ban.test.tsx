@@ -336,12 +336,13 @@ const tasksPage = (me: unknown, rows: TaskRow[] = [ROW]) => {
 };
 
 describe("the task table as the Design ban reads it", () => {
-  it("keeps Order, status and deadline, then Nội dung / Tên task / Thiết kế", async () => {
+  it("keeps Order, Tên · Loại, status and deadline, then Nội dung / Tên task / Thiết kế", async () => {
     tasksPage(ME_AS("THIET_KE", DESIGNER));
     await screen.findByRole("link", { name: "TUAN-BT-261012-01" });
-    // No "Tên · Loại" column on the Design table: neither the title nor the kind.
+    // The Design table keeps the order's name and type, then its own columns.
     expect(headers()).toEqual([
       "Order",
+      "Tên · Loại",
       "Trạng thái · Đang giữ",
       "Deadline",
       "Nội dung",
@@ -349,8 +350,10 @@ describe("the task table as the Design ban reads it", () => {
       "Thiết kế",
       "Thao tác",
     ]);
-    expect(screen.queryByText("Banner khai trương")).not.toBeInTheDocument();
-    // The per-step cells, "Kết quả" and the row's extras are gone.
+    // The order's name and type (the process) are shown.
+    expect(screen.getByText("Banner khai trương")).toBeInTheDocument();
+    expect(screen.getByText("Biên kịch › Design")).toBeInTheDocument();
+    // The per-step cells, "Kết quả" and the row's extra fields are gone.
     expect(screen.queryByText("Trả sửa")).not.toBeInTheDocument();
     expect(screen.queryByText("Loại video: Banner")).not.toBeInTheDocument();
     expect(screen.queryByText("Hà Biên Kịch", { selector: ".person.text-\\[13px\\]" })).toBeNull();
