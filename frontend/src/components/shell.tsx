@@ -208,7 +208,7 @@ function performanceBranch(me: UnitsMe | undefined): NavGroup {
 /**
  * "Phòng Ads" (0078): the ad-spend dashboard and the ad accounts, for the ADS
  * department and the OWNER / ADMIN (`ads.view` on `/api/units/me`), "Hiệu
- * suất Marketing" (`view_all`), "Nhập doanh thu" / "KPI" / "Ngân sách tuần" (`edit_revenue`); its
+ * suất Marketing" (`view_all`), "Nhập doanh thu" / "KPI" / "Ngân sách tuần" / "Tài khoản CRM" (`edit_revenue`); its
  * settings sit in the same branch (27/10): "Kết nối BM" for the OWNER
  * (`ads.manage_connections`), "Tác vụ định kỳ" for the OWNER / ADMIN.
  */
@@ -225,6 +225,7 @@ function adsBranch(me: UnitsMe | undefined, sessionRole?: string): NavGroup | nu
             { href: "/ads/revenue", label: "Nhập doanh thu", icon: "request" as NavIcon },
             { href: "/ads/kpi", label: "KPI doanh thu", icon: "mine" as NavIcon },
             { href: "/ads/budget", label: "Ngân sách tuần", icon: "timeline" as NavIcon },
+            { href: "/ads/crm", label: "Tài khoản CRM", icon: "people" as NavIcon },
           ]
         : []),
       { href: "/ads/accounts", label: "Tài khoản QC", icon: "inventory" },

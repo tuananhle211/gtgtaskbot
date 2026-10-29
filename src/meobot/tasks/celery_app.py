@@ -301,6 +301,13 @@ celery_app.conf.update(
             "schedule": crontab(hour="1", minute="5"),
             "options": {"queue": QUEUE_INTEGRATIONS, "expires": 3 * 3600},
         },
+        # Thực thu from the CRM (0083): every hour at :10, 07:10-23:10 Vietnam
+        # (00-16 UTC). A month is ~3 pages of 500: far below 60 calls a minute.
+        "ads-sync-crm-revenue": {
+            "task": "ads.sync_crm_revenue",
+            "schedule": crontab(hour="0-16", minute="10"),
+            "options": {"queue": QUEUE_INTEGRATIONS, "expires": 3000},
+        },
     },
 )
 

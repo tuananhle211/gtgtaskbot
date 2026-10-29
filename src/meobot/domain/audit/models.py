@@ -512,6 +512,10 @@ class AuditAction(StrEnum):
     ADS_MANUAL_SAVED = "ads.manual.saved"
     #: Ngân sách tuần (0082) saved by the Trưởng phòng.
     ADS_BUDGET_SAVED = "ads.budget.saved"
+    #: Doanh thu từ CRM (0083): a CRM account's person / source / region
+    #: edited, or the "Gắn mã" workbook imported.
+    ADS_CRM_ACCOUNT_UPDATED = "ads.crm.account.updated"
+    ADS_CRM_IMPORTED = "ads.crm.imported"
 
     # Resources ("Quản lý tài nguyên", 0065).
     RESOURCE_CREATED = "resource.created"

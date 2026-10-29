@@ -42,6 +42,10 @@ x-app-env: &app-env
   META_APP_SECRET: ${META_APP_SECRET:-}
   META_GRAPH_API_VERSION: ${META_GRAPH_API_VERSION:-v23.0}
   META_OAUTH_REDIRECT_URI: ${META_OAUTH_REDIRECT_URI:-}
+  # Phòng Ads revenue from the CRM (0083). Without CRM_API_KEY the hourly
+  # ads.sync_crm_revenue job only reports that it is not configured.
+  CRM_API_BASE_URL: ${CRM_API_BASE_URL:-https://aicrmtech.vn/api/internal}
+  CRM_API_KEY: ${CRM_API_KEY:-}
   PR_SECRET_ENCRYPTION_KEY_FILE: ${PR_SECRET_ENCRYPTION_KEY_FILE:-}
   PR_SECRET_ENCRYPTION_KEY_ID: ${PR_SECRET_ENCRYPTION_KEY_ID:-v1}
   PR_SECRET_ENCRYPTION_KEYS_OLD: ${PR_SECRET_ENCRYPTION_KEYS_OLD:-}

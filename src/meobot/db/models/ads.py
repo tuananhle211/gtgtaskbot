@@ -12,6 +12,7 @@ from datetime import date, datetime
 from decimal import Decimal
 
 from sqlalchemy import (
+    BigInteger,
     Boolean,
     CheckConstraint,
     Date,
@@ -31,6 +32,7 @@ from sqlalchemy.orm import Mapped, mapped_column
 from meobot.core.time import utcnow
 from meobot.db.base import Base, TimestampMixin, UUIDPrimaryKeyMixin, value_enum
 from meobot.db.models.pr import RESTRICT, USERS_TABLE
+from meobot.domain.ads.crm import CrmRegion
 from meobot.domain.ads.models import AdsBrand, AdsPlatform, RevenueSource
 
 ADS_CONNECTIONS = "ads_connections"
@@ -42,6 +44,8 @@ ADS_REVENUE_CHANGES = "ads_revenue_changes"
 ADS_KPIS = "ads_kpis"
 ADS_MANUAL_CHANGES = "ads_manual_changes"
 ADS_BUDGETS = "ads_budgets"
+ADS_CRM_ACCOUNTS = "ads_crm_accounts"
+ADS_CRM_PAYMENTS = "ads_crm_payments"
 
 
 class AdsConnection(Base, UUIDPrimaryKeyMixin, TimestampMixin):
@@ -295,11 +299,70 @@ class AdsBudget(Base, UUIDPrimaryKeyMixin):
     )
 
 
+class AdsCrmAccount(Base):
+    """A marketing account on the CRM (0083): whose it is in the app (or which
+    ◆ source it fills) and its region - HCM fills "Doanh số SG", HN "Doanh số
+    HN". A person holds several. Neither a person nor a source = not counted."""
+
+    __tablename__ = ADS_CRM_ACCOUNTS
+    __table_args__ = (CheckConstraint("user_id IS NULL OR source IS NULL", name="one_owner"),)
+
+    #: The CRM's marketing user id.
+    crm_id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=False)
+    name: Mapped[str] = mapped_column(String(200), nullable=False)
+    active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    #: Listed by the CRM's marketing users (else only seen on a payment).
+    in_directory: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    region: Mapped[CrmRegion | None] = mapped_column(
+        value_enum(CrmRegion, name="ads_crm_region", length=4), nullable=True
+    )
+    user_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey(f"{USERS_TABLE}.id", ondelete=RESTRICT), nullable=True
+    )
+    source: Mapped[RevenueSource | None] = mapped_column(
+        value_enum(RevenueSource, name="ads_revenue_source", length=12), nullable=True
+    )
+    note: Mapped[str | None] = mapped_column(Text, nullable=True)
+    updated_by_user_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey(f"{USERS_TABLE}.id", ondelete=RESTRICT), nullable=True
+    )
+    updated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    synced_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utcnow, server_default=func.now(), nullable=False
+    )
+
+
+class AdsCrmPayment(Base):
+    """One payment read from the CRM (0083): thực thu on the day it was paid.
+    Only what the revenue needs - never the customer's name or phone."""
+
+    __tablename__ = ADS_CRM_PAYMENTS
+    __table_args__ = (Index("ix_ads_crm_payments_day_marketing", "payment_date", "marketing_id"),)
+
+    #: The CRM's payment id.
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=False)
+    payment_date: Mapped[date] = mapped_column(Date, nullable=False)
+    #: Negative for a refund.
+    price: Mapped[Decimal] = mapped_column(Numeric(16, 2), nullable=False)
+    payment_type: Mapped[int] = mapped_column(Integer, nullable=False)
+    #: The CRM marketing account; no FK - a payment may name one not yet listed.
+    marketing_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    branch_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    order_id: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
+    is_upsale: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
+    source_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    synced_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utcnow, server_default=func.now(), nullable=False
+    )
+
+
 __all__ = [
     "ADS_ACCOUNTS",
     "ADS_BUDGETS",
     "ADS_CHARGES_DAILY",
     "ADS_CONNECTIONS",
+    "ADS_CRM_ACCOUNTS",
+    "ADS_CRM_PAYMENTS",
     "ADS_KPIS",
     "ADS_MANUAL_CHANGES",
     "ADS_REVENUE_CHANGES",
@@ -309,6 +372,8 @@ __all__ = [
     "AdsBudget",
     "AdsChargeDaily",
     "AdsConnection",
+    "AdsCrmAccount",
+    "AdsCrmPayment",
     "AdsKpi",
     "AdsManualChange",
     "AdsRevenueChange",

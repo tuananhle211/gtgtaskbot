@@ -313,6 +313,12 @@ class Settings(BaseSettings):
     #: to leave lying around after a flow is abandoned.
     meta_account_selection_ttl_seconds: int = Field(default=1800, ge=300, le=86400)
 
+    # --- CRM (aicrmtech.vn) - Phòng Ads revenue, 0083 -----------------------
+    #: The CRM's Open API root; the key travels only in ``x-api-key``. Without
+    #: a key ``ads.sync_crm_revenue`` says so and calls nothing.
+    crm_api_base_url: str = "https://aicrmtech.vn/api/internal"
+    crm_api_key: OptionalSecret = None
+
     #: TikTok app for the TikTok channel connector. Server-side credentials:
     #: they belong to the deployment, never to a channel row, and the secret is
     #: never sent to a browser.

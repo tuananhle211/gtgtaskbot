@@ -5,7 +5,10 @@
 * ``ads.sync_charges`` - 08:00: billing charges over the last five days (and
   the whole previous month on the 1st-3rd).
 
-Both take an explicit ``since`` / ``until`` (``YYYY-MM-DD``) for "Kéo lại
+* ``ads.sync_crm_revenue`` - every hour from 07:10 to 23:10: thực thu from the
+  CRM (0083), this month so far (from the 1st of last month on the 1st-5th).
+
+All take an explicit ``since`` / ``until`` (``YYYY-MM-DD``) for "Kéo lại
 khoảng ngày", and return ``{"status": ..., "message": ...}`` so the job monitor
 retries a half-failed run and reports it to the OWNER if it keeps failing.
 """
@@ -18,6 +21,7 @@ from typing import Any
 
 from celery import shared_task
 
+from meobot.application.ads.crm_service import AdsCrmSyncService, CrmSyncReport, crm_window
 from meobot.application.ads.sync_service import (
     AdsSyncService,
     charge_window,
@@ -25,6 +29,7 @@ from meobot.application.ads.sync_service import (
     vn_today,
 )
 from meobot.core.logging import get_logger
+from meobot.integrations.crm.client import HttpCrmClient
 from meobot.integrations.meta_ads.client import GraphMetaAdsClient
 from meobot.tasks.runtime import TaskContext, run_async
 
@@ -74,4 +79,26 @@ async def _sync(
     return result
 
 
-__all__ = ["sync_charges", "sync_spend"]
+@shared_task(name="ads.sync_crm_revenue")
+def sync_crm_revenue(since: str | None = None, until: str | None = None) -> dict[str, Any]:
+    start, end = _days(since, until, crm_window(vn_today()))
+    return run_async(lambda context: _sync_crm(context, start, end))
+
+
+async def _sync_crm(context: TaskContext, since: date, until: date) -> dict[str, Any]:
+    key = context.settings.crm_api_key
+    if key is None or not key.get_secret_value().strip():
+        report = CrmSyncReport(since, until, configured=False)
+    else:
+        client = HttpCrmClient(context.settings.crm_api_base_url, key.get_secret_value())
+        try:
+            async with context.database.transaction() as session:
+                report = await AdsCrmSyncService(session, client).sync(since, until)
+        finally:
+            await client.aclose()
+    result = report.as_task_result()
+    logger.info("ads_crm_synced", extra={"ads_sync": result})
+    return result
+
+
+__all__ = ["sync_charges", "sync_crm_revenue", "sync_spend"]

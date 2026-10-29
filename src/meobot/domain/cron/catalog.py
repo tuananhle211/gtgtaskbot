@@ -101,6 +101,13 @@ JOB_LABELS: dict[str, JobLabel] = {
         notify=True,
         notify_department="ADS",
     ),
+    "ads.sync_crm_revenue": JobLabel(
+        "Đồng bộ doanh thu CRM",
+        GROUP_ADS,
+        "Thực thu theo tài khoản marketing từ CRM aicrmtech.vn (mỗi giờ, 07:10-23:10).",
+        notify=True,
+        notify_department="ADS",
+    ),
     "pr.refresh_policy_sources": JobLabel(
         "Cập nhật chính sách nền tảng", GROUP_PR, "Tải lại chính sách TikTok / Meta / YouTube."
     ),

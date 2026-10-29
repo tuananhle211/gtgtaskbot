@@ -16,7 +16,8 @@ import { formatDate } from "@/lib/datetime";
  * revenue per marketer, plus the ◆ lines that are nobody's ad account
  * (Hotline, HN chuyển HCM, Google, Tiktok, Chưa gán). A blank cell is "not
  * entered"; every change is kept in the history. The dashboards read it at
- * once (Doanh số, Ads / Doanh thu).
+ * once (Doanh số, Ads / Doanh thu). A line holding a CRM account (0083) shows
+ * the CRM's thực thu instead, locked ("CRM").
  */
 export default function AdsRevenuePage() {
   const [day, setDay] = useState("");
@@ -43,6 +44,13 @@ export default function AdsRevenuePage() {
       {revenue.isPending ? <Loading label="Đang tải doanh thu…" /> : null}
       {revenue.isError ? (
         <ErrorBox error={revenue.error} onRetry={() => revenue.refetch()} />
+      ) : null}
+      {revenue.data?.lines.some((line) => line.from_crm) ? (
+        <p className="rounded-lg border border-[var(--border)] bg-[var(--accent-soft)] px-4 py-3 text-sm text-[var(--accent-strong)]">
+          Các dòng gắn nhãn <span className="font-semibold">CRM</span> lấy
+          thực thu tự động từ CRM theo ngày thanh toán (Phòng Ads › Tài khoản
+          CRM), không nhập tay.
+        </p>
       ) : null}
       {revenue.data ? (
         <Editor key={revenue.data.day} data={revenue.data} />

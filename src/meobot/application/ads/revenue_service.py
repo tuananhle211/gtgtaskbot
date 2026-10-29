@@ -25,6 +25,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from meobot.application.ads.access import AdsAccess
 from meobot.application.ads.accounts_service import ads_people
+from meobot.application.ads.crm_revenue import crm_book
 from meobot.application.audit_service import AuditService
 from meobot.core.errors import AuthorizationError, ValidationError
 from meobot.core.time import utcnow
@@ -48,6 +49,16 @@ class AdsRevenueForbiddenError(AuthorizationError):
         )
 
 
+class AdsRevenueFromCrmError(ValidationError):
+    code = "ads_revenue_from_crm"
+
+    def __init__(self, key: str) -> None:
+        super().__init__(
+            "Dòng này lấy thực thu từ CRM, không nhập tay được.",
+            details={"reason": "ads_revenue_from_crm", "key": key},
+        )
+
+
 class AdsRevenueInvalidError(ValidationError):
     code = "ads_revenue_invalid"
 
@@ -66,6 +77,8 @@ class EntryLine:
     amount: float | None
     #: A marketer's "Doanh số HN" (Sài Gòn customers served in Hà Nội).
     amount_hn: float | None = None
+    #: The day's line comes from the CRM (0083): read-only on "Nhập doanh thu".
+    from_crm: bool = False
 
 
 @dataclass(frozen=True, slots=True)
@@ -160,18 +173,38 @@ class AdsRevenueService:
         }
         lines = await self._lines(with_sources=True, with_team=False)
         known = {line.key for line in lines}
-        # A person who left the department keeps a line while it has a number.
+        book = await crm_book(self._session, day, day)
+        crm = {line.key: line for line in book.lines}
+        # A person who left the department keeps a line while it has a number;
+        # so does somebody outside it holding a CRM account.
         extra = [
             EntryLine(key, "Người đã rời phòng", row.user_id, None, None, None)
             for key, row in stored.items()
             if key not in known
         ]
+        extra += [
+            EntryLine(key, "Ngoài Phòng Ads (CRM)", line.user_id, line.source, None, None)
+            for key, line in crm.items()
+            if key not in known and key not in stored
+        ]
 
         def number(value: Decimal | None) -> float | None:
             return float(value) if value is not None else None
 
-        return [
-            EntryLine(
+        def entry(line: EntryLine) -> EntryLine:
+            if book.covers(day, line.key):
+                got = crm.get(line.key)
+                return EntryLine(
+                    line.key,
+                    line.label,
+                    line.user_id,
+                    line.source,
+                    line.member_code,
+                    number(got.amount) if got else 0.0,
+                    (number(got.amount_hn) if got else 0.0) if line.user_id else None,
+                    from_crm=True,
+                )
+            return EntryLine(
                 line.key,
                 line.label,
                 line.user_id,
@@ -180,8 +213,8 @@ class AdsRevenueService:
                 number(stored[line.key].amount) if line.key in stored else None,
                 number(stored[line.key].amount_hn) if line.key in stored else None,
             )
-            for line in [*lines, *extra]
-        ]
+
+        return [entry(line) for line in [*lines, *extra]]
 
     async def save(
         self,
@@ -202,9 +235,12 @@ class AdsRevenueService:
         }
         now = utcnow()
         changed = 0
+        book = await crm_book(self._session, day, day)
         for raw_key, raw in entries.items():
             hn = raw_key.endswith(HN_SUFFIX)
             key = raw_key[: -len(HN_SUFFIX)] if hn else raw_key
+            if book.covers(day, key):
+                raise AdsRevenueFromCrmError(raw_key)
             if key not in lines and key not in stored:
                 raise AdsRevenueInvalidError("Dòng doanh thu không hợp lệ.", raw_key)
             line = lines.get(key)
@@ -265,8 +301,11 @@ class AdsRevenueService:
         return await self.day(access, day)
 
     async def rows(self, start: date, end: date) -> list[RevenueRow]:
-        """Every entered line in the days, for the dashboards."""
-        return [
+        """Every line in the days, for the dashboards: the CRM's thực thu
+        (0083) for whoever holds a CRM account on the days already synced,
+        what was typed by hand for everybody / every day else."""
+        book = await crm_book(self._session, start, end)
+        typed = [
             RevenueRow(
                 row.day,
                 row.subject_key,
@@ -280,6 +319,11 @@ class AdsRevenueService:
                     AdsRevenueDaily.day >= start, AdsRevenueDaily.day <= end
                 )
             )
+            if not book.covers(row.day, row.subject_key)
+        ]
+        return typed + [
+            RevenueRow(line.day, line.key, line.user_id, line.source, line.amount, line.amount_hn)
+            for line in book.lines
         ]
 
     # --- KPIs ---------------------------------------------------------------
@@ -363,6 +407,7 @@ class AdsRevenueService:
 __all__ = [
     "TEAM_KEY",
     "AdsRevenueForbiddenError",
+    "AdsRevenueFromCrmError",
     "AdsRevenueInvalidError",
     "AdsRevenueService",
     "EntryLine",

@@ -4105,6 +4105,8 @@ export interface AdsEntryLine {
   amount: number | null;
   /** A marketer's "Doanh số HN" (saved as `<key>:hn`). */
   amount_hn?: number | null;
+  /** 0083: thực thu from the CRM - read-only on "Nhập doanh thu". */
+  from_crm?: boolean;
 }
 
 export interface AdsRevenueDay {
@@ -4164,6 +4166,51 @@ export interface AdsBudgetMonth {
   /** Everybody together; null for one person. */
   total: AdsBudgetLine | null;
   can_edit: boolean;
+}
+
+/** 0083: a CRM (aicrmtech.vn) marketing account and whose thực thu it is. */
+export interface AdsCrmAccount {
+  crm_id: number;
+  name: string;
+  active: boolean;
+  /** Listed by the CRM's marketing users (else only seen on a payment). */
+  in_directory: boolean;
+  region: "HN" | "HCM" | null;
+  region_label: string | null;
+  user_id: Uuid | null;
+  user_name: string | null;
+  member_code: string | null;
+  source: string | null;
+  source_label: string | null;
+  note: string | null;
+  /** The month's counted payments and thực thu. */
+  payments: number;
+  total: number;
+}
+
+export interface AdsCrmOverview {
+  month: string;
+  /** CRM_API_KEY is set on the server. */
+  configured: boolean;
+  synced_from: string | null;
+  synced_to: string | null;
+  last_sync_at: string | null;
+  last_status: string | null;
+  last_message: string | null;
+  accounts: AdsCrmAccount[];
+  people: Array<{ user_id: Uuid; name: string; member_code: string | null; in_ads: boolean }>;
+  sources: Array<{ value: string; label: string }>;
+  regions: Array<{ value: string; label: string }>;
+  mapped_total: number;
+  unassigned_total: number;
+  unassigned_accounts: number;
+}
+
+export interface AdsCrmAccountUpdate {
+  user_id?: Uuid | null;
+  source?: string | null;
+  region?: "HN" | "HCM" | null;
+  note?: string | null;
 }
 
 export interface AdsFigures {
@@ -5866,6 +5913,15 @@ export const api = {
   /** "Đồng bộ ngay" (no dates) / "Kéo lại khoảng ngày" (≤ 93 days). 409 `cron_job_running`. */
   adsSync: (body: { kind: "spend" | "charges"; since?: string; until?: string; connection_id?: Uuid }) =>
     post<{ task_id: string; job_key: string }>("/api/ads/sync", body),
+  /** 0083: CRM accounts (a Trưởng phòng ADS / OWNER / ADMIN, else 403). */
+  adsCrm: (month?: string) => get<AdsCrmOverview>(`/api/ads/crm${query({ month })}`),
+  updateAdsCrmAccount: (crmId: number, body: AdsCrmAccountUpdate, month?: string) =>
+    patch<AdsCrmOverview>(`/api/ads/crm/accounts/${crmId}${query({ month })}`, body),
+  /** The "Gắn mã" workbook (base64); 422 `ads_crm_import_invalid` + `details.problems`. */
+  importAdsCrm: (data: string) =>
+    post<{ rows: number; changed: number; created: number }>("/api/ads/crm/import", { data }),
+  syncAdsCrm: (body: { since?: string; until?: string } = {}) =>
+    post<{ task_id: string; job_key: string }>("/api/ads/crm/sync", body),
   adsAccounts: (
     params: {
       month?: string;

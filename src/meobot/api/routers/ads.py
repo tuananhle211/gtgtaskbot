@@ -29,6 +29,10 @@ from meobot.api.schemas.ads import (
     BudgetMonthResponse,
     CreateAdsConnectionRequest,
     CreateManualAccountRequest,
+    CrmImportRequest,
+    CrmImportResponse,
+    CrmOverviewResponse,
+    CrmSyncRequest,
     EntryLineResponse,
     HistoryResponse,
     KpiMonthResponse,
@@ -43,6 +47,7 @@ from meobot.api.schemas.ads import (
     SaveRevenueRequest,
     TeamReportResponse,
     UpdateAdsConnectionRequest,
+    UpdateCrmAccountRequest,
     UpdateManualAccountRequest,
     brand_options,
 )
@@ -53,9 +58,14 @@ from meobot.application.ads.connection_service import (
     AdsConnectionForbiddenError,
     AdsConnectionService,
 )
+from meobot.application.ads.crm_service import AdsCrmService
 from meobot.application.ads.dashboard_service import AdsDashboardService
 from meobot.application.ads.manual_service import AdsManualService, ManualEntry
-from meobot.application.ads.revenue_service import AdsRevenueService, EntryLine
+from meobot.application.ads.revenue_service import (
+    AdsRevenueForbiddenError,
+    AdsRevenueService,
+    EntryLine,
+)
 from meobot.application.ads.sync_service import vn_today
 from meobot.application.ads.team_service import AdsTeamService
 from meobot.application.audit_service import AuditService
@@ -586,6 +596,129 @@ async def save_kpi(
         lines=[EntryLineResponse.from_line(line) for line in lines],
         can_edit=access.edit_revenue,
     )
+
+
+# --- "Tài khoản CRM" (0083): thực thu from the CRM ------------------------------
+
+
+def _crm(session: AsyncSession) -> AdsCrmService:
+    return AdsCrmService(session, AuditService(session))
+
+
+async def _crm_overview(
+    session: AsyncSession, settings: SettingsDep, access: AdsAccess, month: str | None
+) -> CrmOverviewResponse:
+    key = settings.crm_api_key
+    data = await _crm(session).overview(
+        access,
+        _month(month).start,
+        configured=key is not None and bool(key.get_secret_value().strip()),
+    )
+    return CrmOverviewResponse.from_overview(data)
+
+
+@router.get("/crm", response_model=CrmOverviewResponse)
+async def crm_overview(
+    actor: CurrentActorDep,
+    session: SessionDep,
+    settings: SettingsDep,
+    month: Annotated[str | None, Query(max_length=7)] = None,
+) -> CrmOverviewResponse:
+    """Every CRM marketing account, whose it is (or which ◆ source), its
+    region and the month's thực thu; when the CRM was last read. A Trưởng
+    phòng ADS, the OWNER / an ADMIN."""
+    access = await _access(session, actor)
+    return await _crm_overview(session, settings, access, month)
+
+
+@router.patch("/crm/accounts/{crm_id}", response_model=CrmOverviewResponse)
+async def update_crm_account(
+    crm_id: int,
+    body: UpdateCrmAccountRequest,
+    actor: CurrentActorDep,
+    request_id: RequestIdDep,
+    session: SessionDep,
+    settings: SettingsDep,
+    month: Annotated[str | None, Query(max_length=7)] = None,
+) -> CrmOverviewResponse:
+    access = await _access(session, actor)
+    await _crm(session).update(
+        actor=actor,
+        access=access,
+        request_id=request_id,
+        crm_id=crm_id,
+        fields={key: getattr(body, key) for key in body.model_fields_set},
+    )
+    return await _crm_overview(session, settings, access, month)
+
+
+@router.post("/crm/import", response_model=CrmImportResponse)
+async def import_crm_mapping(
+    body: CrmImportRequest,
+    actor: CurrentActorDep,
+    request_id: RequestIdDep,
+    session: SessionDep,
+) -> CrmImportResponse:
+    """The "Gắn mã" workbook; any bad line refuses the whole file (422
+    ``ads_crm_import_invalid`` with ``details.problems``)."""
+    access = await _access(session, actor)
+    result = await _crm(session).import_mapping(
+        actor=actor, access=access, request_id=request_id, data=body.data
+    )
+    return CrmImportResponse.from_result(result)
+
+
+@router.post("/crm/sync", response_model=AdsSyncResponse, status_code=202)
+async def sync_crm_now(
+    body: CrmSyncRequest,
+    actor: CurrentActorDep,
+    request_id: RequestIdDep,
+    session: SessionDep,
+    sender: SenderDep,
+) -> AdsSyncResponse:
+    """ "Đồng bộ ngay" (no dates) / "Kéo lại khoảng ngày" (≤ 93 days), queued
+    like the hourly run; 409 ``cron_job_running`` while one is going."""
+    access = await _access(session, actor)
+    access.require_view()
+    if not access.edit_revenue:
+        raise AdsRevenueForbiddenError()
+    if (body.since is None) != (body.until is None):
+        raise AdsPeriodInvalidError("Chọn cả ngày bắt đầu và ngày kết thúc.")
+    kwargs: dict[str, str] = {}
+    if body.since and body.until:
+        if body.until < body.since:
+            raise AdsPeriodInvalidError("Ngày kết thúc phải sau ngày bắt đầu.")
+        if (body.until - body.since).days + 1 > MAX_SYNC_DAYS:
+            raise AdsPeriodInvalidError(f"Mỗi lần kéo tối đa {MAX_SYNC_DAYS} ngày.")
+        if body.until > vn_today():
+            raise AdsPeriodInvalidError("Không kéo ngày trong tương lai.")
+        kwargs = {"since": body.since.isoformat(), "until": body.until.isoformat()}
+    key = "ads.sync_crm_revenue"
+    job = await session.get(CronJob, key)
+    running = ensure_utc(job.running_since) if job and job.running_since else None
+    if running and utcnow() - running < timedelta(seconds=RUNNING_STALE_SECONDS):
+        raise CronJobRunningError()
+    task_id = sender(
+        key,
+        (),
+        kwargs,
+        {
+            HEADER_TRIGGER: CronTrigger.MANUAL.value,
+            HEADER_ATTEMPT: 1,
+            HEADER_USER: str(actor.user_id) if actor.user_id else "",
+        },
+        {"queue": "q_integrations"},
+    )
+    await AuditService(session).record_action(
+        request_id=request_id,
+        actor=actor,
+        action=AuditAction.ADS_SYNC_REQUESTED.value,
+        result=AuditResult.SUCCESS,
+        entity_type="ads_sync",
+        entity_id=key,
+        after_data={"task_id": task_id, **kwargs},
+    )
+    return AdsSyncResponse(task_id=task_id, job_key=key)
 
 
 @router.get("/budget", response_model=BudgetMonthResponse)

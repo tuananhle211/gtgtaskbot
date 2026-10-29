@@ -9,18 +9,23 @@ from pydantic import BaseModel, Field
 
 from meobot.application.ads.accounts_service import AccountView
 from meobot.application.ads.budget_service import BudgetLine, BudgetMonth
+from meobot.application.ads.crm_service import AccountView as CrmAccountView
+from meobot.application.ads.crm_service import CrmOverview, ImportResult
 from meobot.application.ads.dashboard_service import Dashboard, SeriesPoint
 from meobot.application.ads.manual_service import ChangeView
 from meobot.application.ads.revenue_service import EntryLine
 from meobot.application.ads.team_service import Channel, Figures, History, TeamReport
 from meobot.db.models.ads import AdsConnection
 from meobot.domain.ads.budget import BUDGET_STATUS_LABELS, BudgetWeek
+from meobot.domain.ads.crm import REGION_LABELS, CrmRegion
 from meobot.domain.ads.models import (
     BRAND_LABELS,
     MANUAL_PLATFORMS,
     PLATFORM_LABELS,
+    REVENUE_SOURCE_LABELS,
     AdsBrand,
     AdsPlatform,
+    RevenueSource,
     ads_ratio_tone,
 )
 
@@ -414,6 +419,8 @@ class EntryLineResponse(BaseModel):
     amount: float | None
     #: A marketer's "Doanh số HN" (saved as ``<key>:hn``); ``null`` for others.
     amount_hn: float | None = None
+    #: Thực thu from the CRM (0083): read-only.
+    from_crm: bool = False
 
     @classmethod
     def from_line(cls, line: EntryLine) -> EntryLineResponse:
@@ -425,6 +432,7 @@ class EntryLineResponse(BaseModel):
             member_code=line.member_code,
             amount=line.amount,
             amount_hn=line.amount_hn,
+            from_crm=line.from_crm,
         )
 
 
@@ -842,6 +850,136 @@ class SaveBudgetRequest(BaseModel):
     month: str = Field(pattern=r"^\d{4}-\d{2}$")
     #: ``"<user id>:<week 1-4>" -> amount`` (``null`` or "" = clear the cell).
     entries: dict[str, float | str | None] = Field(max_length=2000)
+
+
+class CrmPersonResponse(BaseModel):
+    user_id: uuid.UUID
+    name: str
+    member_code: str | None
+    in_ads: bool
+
+
+class CrmAccountResponse(BaseModel):
+    crm_id: int
+    name: str
+    active: bool
+    #: Listed by the CRM's marketing users (else only seen on a payment).
+    in_directory: bool
+    region: str | None
+    region_label: str | None
+    user_id: uuid.UUID | None
+    user_name: str | None
+    member_code: str | None
+    source: str | None
+    source_label: str | None
+    note: str | None
+    #: The month's counted payments and thực thu.
+    payments: int
+    total: float
+
+    @classmethod
+    def from_view(cls, view: CrmAccountView) -> CrmAccountResponse:
+        account = view.account
+        return cls(
+            crm_id=account.crm_id,
+            name=account.name,
+            active=account.active,
+            in_directory=account.in_directory,
+            region=account.region.value if account.region else None,
+            region_label=REGION_LABELS[account.region] if account.region else None,
+            user_id=account.user_id,
+            user_name=view.person.name if view.person else None,
+            member_code=view.person.member_code if view.person else None,
+            source=account.source.value if account.source else None,
+            source_label=REVENUE_SOURCE_LABELS[account.source] if account.source else None,
+            note=account.note,
+            payments=view.payments,
+            total=float(view.total),
+        )
+
+
+class CrmOptionResponse(BaseModel):
+    value: str
+    label: str
+
+
+class CrmOverviewResponse(BaseModel):
+    month: str
+    #: ``CRM_API_KEY`` is set on the server.
+    configured: bool
+    synced_from: date | None
+    synced_to: date | None
+    last_sync_at: datetime | None
+    last_status: str | None
+    last_message: str | None
+    accounts: list[CrmAccountResponse]
+    people: list[CrmPersonResponse]
+    sources: list[CrmOptionResponse]
+    regions: list[CrmOptionResponse]
+    mapped_total: float
+    unassigned_total: float
+    unassigned_accounts: int
+
+    @classmethod
+    def from_overview(cls, data: CrmOverview) -> CrmOverviewResponse:
+        coverage = data.coverage
+        return cls(
+            month=f"{data.month:%Y-%m}",
+            configured=data.configured,
+            synced_from=coverage.synced_from,
+            synced_to=coverage.synced_to,
+            last_sync_at=coverage.last_sync_at,
+            last_status=coverage.last_status,
+            last_message=coverage.last_message,
+            accounts=[CrmAccountResponse.from_view(view) for view in data.accounts],
+            people=[
+                CrmPersonResponse(
+                    user_id=p.user_id, name=p.name, member_code=p.member_code, in_ads=p.in_ads
+                )
+                for p in data.people
+            ],
+            sources=[
+                CrmOptionResponse(value=source.value, label=label)
+                for source, label in REVENUE_SOURCE_LABELS.items()
+            ],
+            regions=[
+                CrmOptionResponse(value=region.value, label=label)
+                for region, label in REGION_LABELS.items()
+            ],
+            mapped_total=float(data.mapped_total),
+            unassigned_total=float(data.unassigned_total),
+            unassigned_accounts=data.unassigned_accounts,
+        )
+
+
+class UpdateCrmAccountRequest(BaseModel):
+    """Only the keys sent change; ``user_id`` and ``source`` exclude each other."""
+
+    user_id: uuid.UUID | None = None
+    source: RevenueSource | None = None
+    region: CrmRegion | None = None
+    note: str | None = Field(default=None, max_length=500)
+
+
+class CrmImportRequest(BaseModel):
+    #: The "Gắn mã" workbook (.xlsx), base64.
+    data: str = Field(min_length=1, max_length=8_000_000)
+
+
+class CrmImportResponse(BaseModel):
+    rows: int
+    changed: int
+    created: int
+
+    @classmethod
+    def from_result(cls, result: ImportResult) -> CrmImportResponse:
+        return cls(rows=result.rows, changed=result.changed, created=result.created)
+
+
+class CrmSyncRequest(BaseModel):
+    #: Both or neither: neither = what the hourly run reads now.
+    since: date | None = None
+    until: date | None = None
 
 
 __all__ = [

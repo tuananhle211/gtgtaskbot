@@ -12,6 +12,8 @@ import type { AdsEntryLine } from "@/lib/api";
  * at the HCM site) and "Doanh số HN" (Sài Gòn customers served in Hà Nội - it
  * counts for their KPI, not for the HCM site). The HN cell travels as
  * `<key>:hn`.
+ *
+ * A line `from_crm` (0083) shows the CRM's thực thu, locked, tagged "CRM".
  */
 
 export const HN_SUFFIX = ":hn";
@@ -51,6 +53,7 @@ export function changesOf(
     if (typed !== before) changes[key] = typed === "" ? null : typed;
   };
   for (const line of lines) {
+    if (line.from_crm) continue;
     compare(line.key, line.amount);
     if (split && line.user_id)
       compare(`${line.key}${HN_SUFFIX}`, line.amount_hn);
@@ -59,7 +62,7 @@ export function changesOf(
 }
 
 const INPUT =
-  "min-h-11 w-44 rounded-lg border border-[var(--border)] bg-[var(--surface)] px-3 text-right text-sm tabular-nums text-[var(--text)]";
+  "min-h-11 w-44 rounded-lg border border-[var(--border)] bg-[var(--surface)] px-3 text-right text-sm tabular-nums text-[var(--text)] disabled:bg-[var(--surface-muted)]";
 
 export function EntryGrid({
   lines,
@@ -76,12 +79,13 @@ export function EntryGrid({
   amountLabel: string;
   split?: boolean;
 }) {
-  const cell = (key: string, label: string) => (
+  const cell = (key: string, label: string, locked = false) => (
     <input
       aria-label={label}
       inputMode="numeric"
       value={draft[key] ?? ""}
-      disabled={disabled}
+      disabled={disabled || locked}
+      title={locked ? "Thực thu lấy từ CRM, không nhập tay" : undefined}
       placeholder="Chưa nhập"
       onChange={(event) => onChange(key, formatTyped(event.target.value))}
       className={INPUT}
@@ -113,6 +117,9 @@ export function EntryGrid({
                   }
                 >
                   {line.label}
+                  {line.from_crm ? (
+                    <span className="st st-blue ml-2 align-middle">CRM</span>
+                  ) : null}
                 </div>
                 {line.member_code ? (
                   <div className="text-xs text-[var(--text-muted)]">
@@ -126,12 +133,17 @@ export function EntryGrid({
                   split && line.user_id
                     ? `Doanh số SG ${line.label}`
                     : `${amountLabel} ${line.label}`,
+                  line.from_crm,
                 )}
               </td>
               {split ? (
                 <td className="text-right">
                   {line.user_id ? (
-                    cell(`${line.key}${HN_SUFFIX}`, `Doanh số HN ${line.label}`)
+                    cell(
+                      `${line.key}${HN_SUFFIX}`,
+                      `Doanh số HN ${line.label}`,
+                      line.from_crm,
+                    )
                   ) : (
                     <span className="text-[var(--text-muted)]">–</span>
                   )}
