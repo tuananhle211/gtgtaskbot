@@ -236,6 +236,18 @@ class NotificationEvent(StrEnum):
     #: The resources were bought and stocked: to the requester, to confirm they
     #: received them (the "Xác nhận nhận" step).
     RESOURCE_REQUEST_DELIVERED = "resource_request_delivered"
+    #: A new request waits on the requester's head ("Trưởng phòng duyệt"): to
+    #: the heads recorded on it (``head_approver_ids``).
+    RESOURCE_REQUEST_HEAD_REVIEW = "resource_request_head_review"
+    #: The spend was approved ("Duyệt chi"): to the Phòng Tài nguyên, whose
+    #: turn it is to buy and stock it.
+    RESOURCE_REQUEST_FUNDED = "resource_request_funded"
+    #: A head or the Phòng Tài nguyên refused it: to the requester.
+    RESOURCE_REQUEST_REJECTED = "resource_request_rejected"
+    #: The requester (or OWNER/ADMIN) withdrew it: to whoever it was waiting on.
+    RESOURCE_REQUEST_CANCELLED = "resource_request_cancelled"
+    #: The requester confirmed receipt: to the Phòng Tài nguyên, the ticket is closed.
+    RESOURCE_REQUEST_COMPLETED = "resource_request_completed"
     #: A Guest's held-back first question, answered after approval.
     GUEST_REPLY = "guest_reply"
     #: One firing of a user-defined reminder.

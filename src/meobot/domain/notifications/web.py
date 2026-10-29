@@ -72,6 +72,11 @@ WEB_TITLES: Mapping[NotificationEvent, str] = MappingProxyType(
         NotificationEvent.ORDER_CANCELLED: "Order đã bị huỷ",
         NotificationEvent.RESOURCE_REQUEST_SUBMITTED: "Có phiếu đề xuất tài nguyên",
         NotificationEvent.RESOURCE_REQUEST_DELIVERED: "Tài nguyên đã về, xác nhận đã nhận",
+        NotificationEvent.RESOURCE_REQUEST_HEAD_REVIEW: "Có đề xuất tài nguyên chờ bạn duyệt",
+        NotificationEvent.RESOURCE_REQUEST_FUNDED: "Đề xuất tài nguyên đã duyệt chi, chờ mua",
+        NotificationEvent.RESOURCE_REQUEST_REJECTED: "Đề xuất tài nguyên bị từ chối",
+        NotificationEvent.RESOURCE_REQUEST_CANCELLED: "Đề xuất tài nguyên đã huỷ",
+        NotificationEvent.RESOURCE_REQUEST_COMPLETED: "Đề xuất tài nguyên đã hoàn thành",
     }
 )
 

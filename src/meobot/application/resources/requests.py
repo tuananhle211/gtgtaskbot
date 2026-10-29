@@ -570,8 +570,11 @@ class ResourceRequestService:
         # No head above the requester: the ticket skipped straight to the Phòng
         # Tài nguyên's desk, so tell them now (otherwise it waits for a head to
         # approve, which is where the notice fires instead - see ``decide``).
-        if self._notify is not None and row.stage is RequestStage.FUNDING:
-            await self._notify.submitted_to_resource_team(actor=actor, row=row)
+        if self._notify is not None:
+            if row.stage is RequestStage.FUNDING:
+                await self._notify.submitted_to_resource_team(actor=actor, row=row)
+            else:
+                await self._notify.waiting_on_heads(actor=actor, row=row)
         return row
 
     async def decide(
@@ -598,6 +601,7 @@ class ResourceRequestService:
                 raise RequestConflictError()
             raise ResourceForbiddenError("Bạn không xử lý được bước này của đề xuất.")
         cleaned = (note or "").strip() or None
+        was = row.stage
         if action == "approve":
             row.stage = RequestStage.FUNDING
             self._event(row, RequestEventKind.HEAD_APPROVED, actor, cleaned)
@@ -647,9 +651,17 @@ class ResourceRequestService:
             if action == "approve":
                 # The head approved: now it is the Phòng Tài nguyên's turn.
                 await self._notify.submitted_to_resource_team(actor=actor, row=row)
+            elif action == "fund":
+                await self._notify.funded_to_resource_team(actor=actor, row=row)
             elif action == "deliver":
                 # Bought and stocked: ask the requester to confirm receipt.
                 await self._notify.delivered_to_requester(actor=actor, row=row)
+            elif action == "reject":
+                await self._notify.rejected_to_requester(actor=actor, row=row, note=cleaned)
+            elif action == "cancel":
+                await self._notify.cancelled_to_waiting(actor=actor, row=row, was=was, note=cleaned)
+            elif action == "confirm":
+                await self._notify.completed_to_resource_team(actor=actor, row=row)
         return row
 
     async def _deliver(

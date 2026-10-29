@@ -186,6 +186,20 @@ async def _events_for(world: World, user: User) -> set[str]:
     return {row.event_type for row in rows}
 
 
+async def _telegram_for(world: World, user: User) -> list[Any]:
+    from sqlalchemy import select
+
+    from meobot.db.models.notifications import OutboundMessage
+
+    rows = await world.session.scalars(
+        select(OutboundMessage).where(
+            OutboundMessage.recipient_user_id == user.id,
+            OutboundMessage.template_key == "resources.request",
+        )
+    )
+    return list(rows)
+
+
 async def test_10_notifications_reach_the_resource_team_and_the_requester(world: World) -> None:
     """The Phòng Tài nguyên is told when a ticket reaches their desk; the
     requester is told to confirm once the resources are stocked."""
@@ -194,12 +208,22 @@ async def test_10_notifications_reach_the_resource_team_and_the_requester(world:
     catalog = options(world, people.tn_head)
     assert seat(world, "ADS", ads.orderer, manager_user_id=str(ads.head.id)).status_code == 200
 
-    # Created with a head above: it sits at HEAD_REVIEW, so the Phòng Tài
-    # nguyên is not told yet - their turn has not come.
+    # The head has a private chat with the bot, so they get the Telegram copy.
+    ads.head.private_chat_available = True
+    ads.head.telegram_private_chat_id = ads.head.telegram_user_id or 77_001
+    await world.session.flush()
+
+    # Created with a head above: it sits at HEAD_REVIEW and the head it waits
+    # on is told (web inbox + Telegram); the Phòng Tài nguyên is not told yet.
     world.act_as(ads.orderer)
     request = world.client.post("/api/resources/requests", json=body(catalog)).json()
     assert request["stage"] == "HEAD_REVIEW"
+    assert "resource_request_head_review" in await _events_for(world, ads.head)
+    assert "resource_request_head_review" not in await _events_for(world, ads.orderer)
     assert "resource_request_submitted" not in await _events_for(world, people.tn_head)
+    telegram = await _telegram_for(world, ads.head)
+    assert [row.event_type for row in telegram] == ["resource_request_head_review"]
+    assert telegram[0].safe_payload_json["code"] == request["code"]
 
     # The head approves -> FUNDING -> the whole Phòng Tài nguyên is told.
     assert act(world, ads.head, request, "approve").status_code == 200
@@ -208,8 +232,11 @@ async def test_10_notifications_reach_the_resource_team_and_the_requester(world:
     # Not sent to the requester or an outsider.
     assert "resource_request_submitted" not in await _events_for(world, ads.orderer)
 
-    # Duyệt chi, then Mua & nhập kho -> the requester is asked to confirm.
+    # Duyệt chi -> the rest of the Phòng Tài nguyên is told to buy (not the
+    # person who funded it); then Mua & nhập kho -> the requester confirms.
     assert act(world, people.tn_staff, request, "fund").status_code == 200
+    assert "resource_request_funded" in await _events_for(world, people.tn_head)
+    assert "resource_request_funded" not in await _events_for(world, people.tn_staff)
     delivered = act(
         world,
         people.tn_staff,
@@ -220,6 +247,30 @@ async def test_10_notifications_reach_the_resource_team_and_the_requester(world:
     )
     assert delivered.status_code == 200, delivered.json()
     assert "resource_request_delivered" in await _events_for(world, ads.orderer)
+
+    # Xác nhận nhận -> the Phòng Tài nguyên hears the ticket is closed.
+    assert act(world, ads.orderer, request, "confirm").status_code == 200
+    assert "resource_request_completed" in await _events_for(world, people.tn_staff)
+
+
+async def test_10b_refusals_and_cancels_are_told(world: World) -> None:
+    """A refusal reaches the requester with its reason; a withdrawn ticket
+    reaches the heads it was waiting on, so nobody acts on a dead request."""
+    people = await cast(world)
+    ads = people.ads
+    catalog = options(world, people.tn_head)
+    assert seat(world, "ADS", ads.orderer, manager_user_id=str(ads.head.id)).status_code == 200
+
+    world.act_as(ads.orderer)
+    refused = world.client.post("/api/resources/requests", json=body(catalog)).json()
+    assert act(world, ads.head, refused, "reject", note="Chưa cần").status_code == 200
+    assert "resource_request_rejected" in await _events_for(world, ads.orderer)
+
+    world.act_as(ads.orderer)
+    withdrawn = world.client.post("/api/resources/requests", json=body(catalog)).json()
+    assert act(world, ads.orderer, withdrawn, "cancel").status_code == 200
+    assert "resource_request_cancelled" in await _events_for(world, ads.head)
+    assert "resource_request_cancelled" not in await _events_for(world, ads.orderer)
 
 
 async def test_11_a_headless_request_tells_the_resource_team_at_once(world: World) -> None:

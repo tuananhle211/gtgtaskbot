@@ -372,6 +372,11 @@ def _event_label(event_type: str) -> str:
         "cron_job_recovered": "Tác vụ định kỳ đã chạy lại",
         "resource_request_submitted": "Phiếu đề xuất tài nguyên",
         "resource_request_delivered": "Tài nguyên đã về, xác nhận nhận",
+        "resource_request_head_review": "Đề xuất tài nguyên chờ duyệt",
+        "resource_request_funded": "Đề xuất tài nguyên đã duyệt chi",
+        "resource_request_rejected": "Đề xuất tài nguyên bị từ chối",
+        "resource_request_cancelled": "Đề xuất tài nguyên đã huỷ",
+        "resource_request_completed": "Đề xuất tài nguyên hoàn thành",
     }.get(event_type, "Tin nhắn")
 
 
