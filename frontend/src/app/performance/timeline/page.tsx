@@ -121,7 +121,7 @@ function Timeline() {
         {timeline.isFetching ? <span className="text-xs text-[var(--text-muted)]">Đang tải…</span> : null}
       </div>
       <GanttLegend />
-      <Gantt month={data.month} groups={groups} />
+      <Gantt month={data.month} groups={groups} quota={data.quota} />
     </div>
   );
 }

@@ -10,6 +10,7 @@ import {
   type PerformanceLine,
   type PerformanceCodeRow,
   type PerformanceLineStatus,
+  type PerformanceQuota,
   type PerformanceTrendPoint,
 } from "@/lib/api";
 import { phaseStyle } from "@/components/design-codes-picker";
@@ -82,7 +83,72 @@ export function ExportLink({ href }: { href: string }) {
   );
 }
 
-export type Tile = { label: string; value: string; hint?: string; warn?: boolean; accent?: boolean };
+export type Tile = {
+  label: string;
+  value: string;
+  hint?: string;
+  warn?: boolean;
+  accent?: boolean;
+  /** Drawn under the value (the quota bar). */
+  extra?: React.ReactNode;
+};
+
+/**
+ * Points against the quota ("định mức"): the share reached as a bar (green
+ * once it is met), a tick where today's share of the quota stands, and the
+ * figures in words. `compact` = a thin bar and one short line (tables).
+ */
+export function QuotaBar({
+  points,
+  quota,
+  toDate,
+  compact = false,
+  label = "Định mức",
+}: {
+  points: number;
+  quota: number;
+  /** The quota by today, when it is less than the whole. */
+  toDate?: number | null;
+  compact?: boolean;
+  label?: string;
+}) {
+  if (!quota || quota <= 0) return null;
+  const share = points / quota;
+  const met = share >= 1;
+  const tick = toDate && toDate > 0 && toDate < quota ? (toDate / quota) * 100 : null;
+  const behind = toDate && toDate < quota ? points - toDate : null;
+  const words = `${label} ${formatScore(quota)} · đạt ${Math.round(share * 100)}%`;
+  return (
+    <div className={compact ? "min-w-28" : "mt-3"}>
+      <div
+        role="meter"
+        aria-label={label}
+        aria-valuemin={0}
+        aria-valuemax={quota}
+        aria-valuenow={Math.round(points)}
+        aria-valuetext={`${formatScore(points)} / ${formatScore(quota)} điểm (${Math.round(share * 100)}%)`}
+        title={`${formatScore(points)} / ${formatScore(quota)} điểm${tick !== null ? ` · tới hôm nay ${formatScore(toDate!)}` : ""}`}
+        className={`relative overflow-hidden rounded-full bg-[var(--surface-muted)] ring-1 ring-inset ring-[var(--border)] ${compact ? "h-1.5" : "h-2"}`}
+      >
+        <span
+          className="absolute inset-y-0 left-0 rounded-full"
+          style={{ width: `${Math.min(share, 1) * 100}%`, background: met ? "var(--good)" : BAR_FILL }}
+        />
+        {tick !== null ? (
+          <span aria-hidden="true" className="absolute inset-y-0 w-0.5 bg-[var(--text)]" style={{ left: `${tick}%` }} />
+        ) : null}
+      </div>
+      <p className={`mt-1 tabular-nums text-[var(--text-muted)] ${compact ? "text-[11px]" : "text-xs"}`}>
+        {compact ? `${Math.round(share * 100)}% định mức` : words}
+        {!compact && behind !== null ? (
+          <span className={behind < 0 ? "text-[var(--warn)]" : "text-[var(--good)]"}>
+            {" "}· tới hôm nay {formatScore(toDate!)} ({behind < 0 ? "thiếu" : "vượt"} {formatScore(Math.abs(behind))})
+          </span>
+        ) : null}
+      </p>
+    </div>
+  );
+}
 
 export function Tiles({ tiles, label }: { tiles: Tile[]; label: string }) {
   return (
@@ -97,6 +163,7 @@ export function Tiles({ tiles, label }: { tiles: Tile[]; label: string }) {
           >
             {tile.value}
           </p>
+          {tile.extra}
           {tile.hint ? <p className="mt-auto pt-2 text-xs leading-relaxed text-[var(--text-muted)]">{tile.hint}</p> : null}
         </li>
       ))}
@@ -104,8 +171,15 @@ export function Tiles({ tiles, label }: { tiles: Tile[]; label: string }) {
   );
 }
 
-/** The four headline figures of a person (or a team's totals). */
-export function figureTiles(figures: PerformanceFigures): Tile[] {
+/**
+ * The four headline figures of a person (or a team's totals); with a quota,
+ * "Tổng điểm" carries its bar (`people` scales one person's quota).
+ */
+export function figureTiles(
+  figures: PerformanceFigures,
+  quota?: PerformanceQuota | null,
+  people = 1,
+): Tile[] {
   const delta = figures.points - figures.previous_points;
   const returns = figures.returns_fault + figures.returns_other + figures.returns_codes;
   return [
@@ -113,6 +187,9 @@ export function figureTiles(figures: PerformanceFigures): Tile[] {
       label: "Tổng điểm",
       value: formatScore(figures.points),
       accent: true,
+      extra: quota ? (
+        <QuotaBar points={figures.points} quota={quota.monthly * people} toDate={quota.to_date * people} />
+      ) : undefined,
       hint:
         figures.previous_points || figures.points
           ? `Tháng trước ${formatScore(figures.previous_points)} · ${delta >= 0 ? "+" : "−"}${formatScore(Math.abs(delta))}`
@@ -149,20 +226,30 @@ export function ColumnChart({
   unit = "điểm",
 }: {
   title: string;
-  data: Array<{ label: string; value: number; detail?: string }>;
+  /** `target`: the quota of that column, drawn as a dashed line. */
+  data: Array<{ label: string; value: number; detail?: string; target?: number | null }>;
   unit?: string;
 }) {
-  const max = Math.max(1, ...data.map((item) => item.value));
+  const max = Math.max(1, ...data.map((item) => Math.max(item.value, item.target ?? 0)));
+  const targets = data.some((item) => item.target);
   return (
     <figure className="panel p-4">
-      <figcaption className="text-sm font-semibold">{title}</figcaption>
+      <figcaption className="flex flex-wrap items-baseline justify-between gap-2 text-sm font-semibold">
+        {title}
+        {targets ? (
+          <span className="inline-flex items-center gap-1.5 text-xs font-normal text-[var(--text-muted)]">
+            <span aria-hidden="true" className="w-4 border-t-2 border-dashed border-[var(--text-muted)]" />
+            Định mức
+          </span>
+        ) : null}
+      </figcaption>
       <div role="list" aria-label={title} className="mt-3 flex h-44 items-end gap-2 border-b border-[var(--border)] pb-px">
         {data.map((item) => (
           <div
             key={item.label}
             role="listitem"
             tabIndex={0}
-            aria-label={`${item.label}: ${formatScore(item.value)} ${unit}`}
+            aria-label={`${item.label}: ${formatScore(item.value)} ${unit}${item.target ? `, định mức ${formatScore(item.target)}` : ""}`}
             className="group relative flex h-full min-w-0 flex-1 flex-col items-center justify-end focus-visible:outline focus-visible:outline-2 focus-visible:outline-[var(--accent)]"
           >
             <span className="mb-1 text-[11px] font-medium tabular-nums text-[var(--text-muted)]">
@@ -171,13 +258,28 @@ export function ColumnChart({
             <span
               aria-hidden="true"
               className="w-full max-w-10 rounded-t-[4px] transition-opacity group-hover:opacity-80"
-              style={{ height: `${Math.max(item.value ? 2 : 0, (item.value / max) * 85)}%`, background: BAR_FILL }}
+              style={{
+                height: `${Math.max(item.value ? 2 : 0, (item.value / max) * 85)}%`,
+                background: item.target && item.value >= item.target ? "var(--good)" : BAR_FILL,
+              }}
             />
+            {item.target ? (
+              <span
+                aria-hidden="true"
+                className="pointer-events-none absolute inset-x-0 border-t-2 border-dashed border-[var(--text-muted)]"
+                style={{ bottom: `${(item.target / max) * 85}%` }}
+              />
+            ) : null}
             <span
               role="tooltip"
               className="pointer-events-none absolute bottom-full z-10 mb-1 hidden whitespace-nowrap rounded-md border border-[var(--border)] bg-[var(--surface)] px-2 py-1 text-xs text-[var(--text)] shadow-[var(--shadow-pop)] group-hover:block group-focus-visible:block"
             >
               <span className="font-semibold">{item.label}</span> · {formatScore(item.value)} {unit}
+              {item.target ? (
+                <span className="block text-[var(--text-muted)]">
+                  Định mức {formatScore(item.target)} · đạt {Math.round((item.value / item.target) * 100)}%
+                </span>
+              ) : null}
               {item.detail ? <span className="block text-[var(--text-muted)]">{item.detail}</span> : null}
             </span>
           </div>
@@ -194,11 +296,13 @@ export function ColumnChart({
   );
 }
 
-export function trendColumns(trend: PerformanceTrendPoint[]) {
+/** The trend's months; with `people`, each month's quota for that many. */
+export function trendColumns(trend: PerformanceTrendPoint[], people?: number) {
   return trend.map((point) => ({
     label: shortMonth(point.month),
     value: point.points,
     detail: monthLabel(point.month),
+    target: people && point.quota ? point.quota * people : null,
   }));
 }
 
@@ -212,10 +316,11 @@ export function BarList({
   unit = "điểm",
 }: {
   title: string;
-  rows: Array<{ key: string; label: React.ReactNode; name: string; value: number; detail?: string }>;
+  /** `target`: the row's quota, drawn as a tick on its track. */
+  rows: Array<{ key: string; label: React.ReactNode; name: string; value: number; detail?: string; target?: number | null }>;
   unit?: string;
 }) {
-  const max = Math.max(1, ...rows.map((row) => row.value));
+  const max = Math.max(1, ...rows.map((row) => Math.max(row.value, row.target ?? 0)));
   return (
     <figure className="panel p-4">
       <figcaption className="text-sm font-semibold">{title}</figcaption>
@@ -226,15 +331,21 @@ export function BarList({
           {rows.map((row) => (
             <li
               key={row.key}
-              title={`${row.name}: ${formatScore(row.value)} ${unit}${row.detail ? ` · ${row.detail}` : ""}`}
+              title={`${row.name}: ${formatScore(row.value)} ${unit}${row.target ? ` · định mức ${formatScore(row.target)} (${Math.round((row.value / row.target) * 100)}%)` : ""}${row.detail ? ` · ${row.detail}` : ""}`}
               className="grid grid-cols-[minmax(0,9rem)_1fr_auto] items-center gap-3 text-sm"
             >
               <span className="truncate">{row.label}</span>
-              <span aria-hidden="true" className="h-2.5 overflow-hidden rounded-r-[4px] bg-[var(--surface-muted)]">
+              <span aria-hidden="true" className="relative h-2.5 overflow-hidden rounded-r-[4px] bg-[var(--surface-muted)]">
                 <span
                   className="block h-full rounded-r-[4px]"
-                  style={{ width: `${(row.value / max) * 100}%`, background: BAR_FILL }}
+                  style={{
+                    width: `${(row.value / max) * 100}%`,
+                    background: row.target && row.value >= row.target ? "var(--good)" : BAR_FILL,
+                  }}
                 />
+                {row.target ? (
+                  <span className="absolute inset-y-0 w-0.5 bg-[var(--text)]" style={{ left: `${(row.target / max) * 100}%` }} />
+                ) : null}
               </span>
               <span className="tabular-nums font-semibold">{formatScore(row.value)}</span>
             </li>
@@ -533,11 +644,15 @@ export function PerformancePanel({ userId, month }: { userId: string; month: str
   const weeks = ["1-7", "8-14", "15-21", "22-28", "29+"];
   return (
     <div className="space-y-4">
-      <Tiles label="Điểm trong tháng" tiles={figureTiles(data.figures)} />
+      <Tiles label="Điểm trong tháng" tiles={figureTiles(data.figures, data.quota)} />
       <div className="grid gap-4 lg:grid-cols-[2fr_1fr]">
         <ColumnChart
           title="Điểm theo tuần"
-          data={weeks.map((label, index) => ({ label: `Ngày ${label}`, value: data.by_week[index] ?? 0 }))}
+          data={weeks.map((label, index) => ({
+            label: `Ngày ${label}`,
+            value: data.by_week[index] ?? 0,
+            target: data.quota?.by_week[index] || null,
+          }))}
         />
         <PhaseSplit byPhase={data.by_phase} />
       </div>

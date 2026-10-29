@@ -41,6 +41,7 @@ ADS_REVENUE_DAILY = "ads_revenue_daily"
 ADS_REVENUE_CHANGES = "ads_revenue_changes"
 ADS_KPIS = "ads_kpis"
 ADS_MANUAL_CHANGES = "ads_manual_changes"
+ADS_BUDGETS = "ads_budgets"
 
 
 class AdsConnection(Base, UUIDPrimaryKeyMixin, TimestampMixin):
@@ -268,8 +269,35 @@ class AdsManualChange(Base, UUIDPrimaryKeyMixin):
     )
 
 
+class AdsBudget(Base, UUIDPrimaryKeyMixin):
+    """A marketer's ad budget for one of the month's four weeks (0082;
+    :mod:`meobot.domain.ads.budget`). No row = not set."""
+
+    __tablename__ = ADS_BUDGETS
+    __table_args__ = (
+        UniqueConstraint("month", "user_id", "week", name="uq_ads_budgets_month_user_id_week"),
+        CheckConstraint("week BETWEEN 1 AND 4", name="week_range"),
+    )
+
+    #: The first day of the month.
+    month: Mapped[date] = mapped_column(Date, nullable=False)
+    user_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey(f"{USERS_TABLE}.id", ondelete=RESTRICT), nullable=False
+    )
+    #: 1-4: days 1-7, 8-14, 15-21, the 22nd to the month's end.
+    week: Mapped[int] = mapped_column(Integer, nullable=False)
+    amount: Mapped[Decimal] = mapped_column(Numeric(16, 2), nullable=False)
+    updated_by_user_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey(f"{USERS_TABLE}.id", ondelete=RESTRICT), nullable=True
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utcnow, server_default=func.now(), nullable=False
+    )
+
+
 __all__ = [
     "ADS_ACCOUNTS",
+    "ADS_BUDGETS",
     "ADS_CHARGES_DAILY",
     "ADS_CONNECTIONS",
     "ADS_KPIS",
@@ -278,6 +306,7 @@ __all__ = [
     "ADS_REVENUE_DAILY",
     "ADS_SPEND_DAILY",
     "AdsAccount",
+    "AdsBudget",
     "AdsChargeDaily",
     "AdsConnection",
     "AdsKpi",

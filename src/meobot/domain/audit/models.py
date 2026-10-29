@@ -467,6 +467,8 @@ class AuditAction(StrEnum):
     USER_MEMBER_CODE_UPDATED = "user.member_code.updated"
     #: "Hệ số điểm" (0076): a member's points coefficient from a month on.
     USER_POINT_COEFFICIENT_SET = "user.point_coefficient.set"
+    #: "Định mức" (2026-10-29): points per hour / hours per day / quota %.
+    PERFORMANCE_QUOTA_UPDATED = "performance.quota.updated"
 
     # Units (PR / Ads) and the Ads order engine.
     UNIT_MEMBER_TAGGED = "unit.member.tagged"
@@ -508,6 +510,8 @@ class AuditAction(StrEnum):
     ADS_ACCOUNT_UPDATED = "ads.account.updated"
     ADS_ACCOUNT_DELETED = "ads.account.deleted"
     ADS_MANUAL_SAVED = "ads.manual.saved"
+    #: Ngân sách tuần (0082) saved by the Trưởng phòng.
+    ADS_BUDGET_SAVED = "ads.budget.saved"
 
     # Resources ("Quản lý tài nguyên", 0065).
     RESOURCE_CREATED = "resource.created"

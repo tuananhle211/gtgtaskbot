@@ -24,6 +24,7 @@ from meobot.application.performance.report_service import (
     TimelineGroup,
     TrendPoint,
 )
+from meobot.domain.performance.quota import MonthQuota
 
 
 class PerformanceAccessResponse(BaseModel):
@@ -123,6 +124,8 @@ class PersonReportResponse(BaseModel):
     by_phase: dict[str, int]
     by_week: list[int]
     lines: list[PersonLineResponse]
+    #: One person's quota for the month.
+    quota: QuotaResponse | None = None
     #: How many of each task code they did in the month.
     codes: list[CodeRowResponse] = []
 
@@ -161,10 +164,58 @@ class TrendPointResponse(BaseModel):
     month: str
     points: int
     by_department: dict[str, int]
+    #: One person's quota for that month ("định mức"), to scale by headcount.
+    quota: int | None = None
 
     @classmethod
-    def from_domain(cls, point: TrendPoint) -> TrendPointResponse:
-        return cls(month=point.month, points=point.points, by_department=point.by_department)
+    def from_domain(cls, point: TrendPoint, *, quota: int | None = None) -> TrendPointResponse:
+        return cls(
+            month=point.month, points=point.points, by_department=point.by_department, quota=quota
+        )
+
+
+class QuotaResponse(BaseModel):
+    """One person's quota for a month ("định mức", 2026-10-29): standard work
+    days (Sundays out, Saturdays half) x points per day x quota %."""
+
+    month: str
+    points_per_hour: int
+    hours_per_day: int
+    points_per_day: int
+    quota_pct: int
+    #: points_per_day x quota_pct (e.g. 408).
+    daily_quota: float
+    work_days: float
+    monthly: int
+    #: What should be scored by today (whole month once over).
+    to_date: int
+    #: The quota of each week bucket (days 1-7 … 29-end).
+    by_week: list[int]
+    #: May change the settings (the OWNER).
+    can_edit: bool = False
+
+    @classmethod
+    def from_domain(cls, quota: MonthQuota, *, can_edit: bool = False) -> QuotaResponse:
+        settings = quota.settings
+        return cls(
+            month=quota.month,
+            points_per_hour=settings.points_per_hour,
+            hours_per_day=settings.hours_per_day,
+            points_per_day=settings.points_per_day,
+            quota_pct=settings.quota_pct,
+            daily_quota=float(settings.daily_quota),
+            work_days=float(quota.work_days),
+            monthly=quota.monthly,
+            to_date=quota.to_date,
+            by_week=list(quota.by_week),
+            can_edit=can_edit,
+        )
+
+
+class QuotaSettingsRequest(BaseModel):
+    points_per_hour: int
+    hours_per_day: int
+    quota_pct: int
 
 
 class DepartmentOptionResponse(BaseModel):
@@ -183,6 +234,8 @@ class TeamResponse(BaseModel):
     #: How many of each task code the people above did (the department's
     #: points only when a department is chosen), by phase / code / form.
     codes: list[CodeRowResponse] = []
+    #: One person's quota for the month (the table scales it per row).
+    quota: QuotaResponse | None = None
     #: Whether the caller sees the company (the department filter lists all).
     view_all: bool
     export: bool
@@ -255,6 +308,8 @@ class OverviewResponse(BaseModel):
     codes: list[CodeRowResponse]
     trend: list[TrendPointResponse]
     export: bool
+    #: One person's quota for the month.
+    quota: QuotaResponse | None = None
 
     @classmethod
     def from_domain(
@@ -408,3 +463,5 @@ class TimelineResponse(BaseModel):
     departments: list[DepartmentOptionResponse]
     groups: list[TimelineGroupResponse]
     view_all: bool
+    #: One person's quota for the month.
+    quota: QuotaResponse | None = None

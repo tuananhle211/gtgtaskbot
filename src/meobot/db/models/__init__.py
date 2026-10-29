@@ -8,6 +8,7 @@ from meobot.db.models.access import GroupMemberResponsePolicy, PendingGuestAcces
 from meobot.db.models.actor_profile import ActorProfileRow
 from meobot.db.models.ads import (
     AdsAccount,
+    AdsBudget,
     AdsChargeDaily,
     AdsConnection,
     AdsKpi,
@@ -184,6 +185,7 @@ from meobot.db.models.web_session import WebSession, WebSessionKind
 __all__ = [
     "ActorProfileRow",
     "AdsAccount",
+    "AdsBudget",
     "AdsChargeDaily",
     "AdsConnection",
     "AdsKpi",

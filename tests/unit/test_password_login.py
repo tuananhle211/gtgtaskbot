@@ -913,3 +913,53 @@ async def test_16_impersonation_is_the_owners_alone(world: World) -> None:
     assert neither.status_code == 422 and _reason(neither) == "target_required"
     both = _impersonate(world, telegram_user_id=9003, user_id=str(world.member))
     assert both.status_code == 422 and _reason(both) == "target_required"
+
+
+def _set_employment(world: World, user_id: uuid.UUID, status: str) -> Response:
+    return world.client.put(
+        f"/api/account/members/{user_id}/employment-status", json={"employment_status": status}
+    )
+
+
+async def test_21_a_leaver_cannot_sign_in(world: World) -> None:
+    """ "Đã nghỉ việc" closes the web app: open sessions stop at once, neither
+    the password nor a Telegram link signs in, and a reset sends nothing.
+    Another status lets the person back in."""
+    from meobot.core.errors import AuthorizationError
+
+    member_cookie = await _with_custom_password(world, world.member, 9003)
+    assert (await world.telegram_link_login(world.owner)).status_code in (302, 303, 307)
+    owner_cookie = world.client.cookies[SESSION_COOKIE]
+
+    marked = _set_employment(world, world.member, "LEFT")
+    assert marked.status_code == 200, marked.text
+    assert marked.json()["employment_status"] == "LEFT"
+
+    # The browser they were using is signed out.
+    world.use(member_cookie)
+    assert world.client.get("/api/auth/session").status_code == 401
+    # Their own password reads like any wrong one.
+    refused = world.login("9003", NEW)
+    assert refused.status_code == 401 and refused.json() == FAILED_BODY
+    # No login link either (bot /web, "Đăng nhập thay").
+    with pytest.raises(AuthorizationError):
+        async with world.factory() as session:
+            await WebAuthService(session, world.settings).issue_login_link(user_id=world.member)
+    # "Quên mật khẩu?" sends them nothing.
+    before = len(await world.outbox())
+    assert world.forgot("9003").status_code == 202
+    assert len(await world.outbox()) == before
+
+    # Back to work -> signs in again.
+    world.use(owner_cookie)
+    assert _set_employment(world, world.member, "WORKING").status_code == 200
+    assert world.login("9003", NEW).status_code == 200
+
+
+async def test_22_nobody_marks_the_owner_or_themselves_left(world: World) -> None:
+    assert (await world.telegram_link_login(world.admin)).status_code in (302, 303, 307)
+    for target in (world.owner, world.admin):
+        refused = _set_employment(world, target, "LEFT")
+        assert refused.status_code == 403, refused.text
+        assert _reason(refused) == "employment_status_left_forbidden"
+    assert (await world.user(world.owner)).employment_status.value == "WORKING"

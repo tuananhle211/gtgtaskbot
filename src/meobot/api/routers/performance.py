@@ -17,6 +17,7 @@ from __future__ import annotations
 import uuid
 from collections.abc import Iterable
 from dataclasses import fields, replace
+from datetime import date
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, Query, Response
@@ -40,6 +41,8 @@ from meobot.api.schemas.performance import (
     OverviewResponse,
     PerformanceAccessResponse,
     PersonReportResponse,
+    QuotaResponse,
+    QuotaSettingsRequest,
     SetCoefficientRequest,
     TeamResponse,
     TeamRowResponse,
@@ -56,8 +59,14 @@ from meobot.application.performance.coefficients import (
     may_set_coefficients,
 )
 from meobot.application.performance.excel import report_workbook
-from meobot.application.performance.report_service import Figures, PerformanceReportService
+from meobot.application.performance.quota import QuotaService
+from meobot.application.performance.report_service import (
+    Figures,
+    PerformanceReportService,
+    TrendPoint,
+)
 from meobot.core.config import Settings
+from meobot.core.time import utcnow
 from meobot.db.models.department import Department
 from meobot.db.models.user import User
 from meobot.domain.org.models import Position
@@ -66,6 +75,7 @@ from meobot.domain.performance.errors import (
     PerformanceForbiddenError,
     PerformancePersonNotFoundError,
 )
+from meobot.domain.performance.quota import month_quota
 
 router = APIRouter(prefix="/api/performance", tags=["performance"])
 
@@ -85,6 +95,43 @@ async def access_flags(
         await _access(session, membership),
         manage_coefficients=may_set_coefficients(membership),
     )
+
+
+@router.get("/quota", response_model=QuotaResponse)
+async def quota_report(
+    session: SessionDep,
+    membership: UnitMembershipDep,
+    app_settings: SettingsDep,
+    month: str | None = Query(default=None, max_length=7),
+) -> QuotaResponse:
+    """One person's quota for ``month`` and the settings behind it."""
+    period = resolve_month(month, tz=app_settings.timezone)
+    return (await _quota(session, period, app_settings)).model_copy(
+        update={"can_edit": may_set_coefficients(membership)}
+    )
+
+
+@router.put("/quota", response_model=QuotaResponse)
+async def set_quota(
+    body: QuotaSettingsRequest,
+    session: SessionDep,
+    membership: UnitMembershipDep,
+    actor: CurrentActorDep,
+    request_id: RequestIdDep,
+    app_settings: SettingsDep,
+) -> QuotaResponse:
+    """The OWNER sets points per hour, hours per day and the quota %.
+    403 ``performance_quota_forbidden``, 422 ``quota_invalid``."""
+    await QuotaService(session, AuditService(session)).set(
+        actor=actor,
+        membership=membership,
+        request_id=request_id,
+        points_per_hour=body.points_per_hour,
+        hours_per_day=body.hours_per_day,
+        quota_pct=body.quota_pct,
+    )
+    period = resolve_month(None, tz=app_settings.timezone)
+    return (await _quota(session, period, app_settings)).model_copy(update={"can_edit": True})
 
 
 @router.get("/coefficients", response_model=CoefficientsResponse)
@@ -158,8 +205,11 @@ async def person_report(
     if exists is None:
         raise PerformancePersonNotFoundError()
     service = PerformanceReportService(session, tz=app_settings.timezone)
-    report = await service.person(user_id, service.month(month))
-    return PersonReportResponse.from_domain(report)
+    period = service.month(month)
+    report = await service.person(user_id, period)
+    return PersonReportResponse.from_domain(report).model_copy(
+        update={"quota": await _quota(session, period, app_settings)}
+    )
 
 
 @router.get("/team", response_model=TeamResponse)
@@ -182,14 +232,16 @@ async def team_report(
     codes = await service.codes(
         None if whole_company else people, period, department_id=department_id
     )
+    quota = await _quota(session, period, app_settings)
     return TeamResponse(
         month=period.label,
         department_id=department_id,
         departments=options,
         rows=[TeamRowResponse.from_domain(row) for row in rows],
         totals=FiguresResponse.from_domain(_sum(row.figures for row in rows)),
-        trend=[TrendPointResponse.from_domain(point) for point in trend],
+        trend=await _trend(session, trend, app_settings),
         codes=[CodeRowResponse.from_domain(row) for row in codes],
+        quota=quota,
         view_all=access.view_all,
         export=access.export,
     )
@@ -229,6 +281,7 @@ async def timeline_report(
         department_id=department_id,
         departments=options,
         groups=[TimelineGroupResponse.from_domain(group) for group in groups],
+        quota=await _quota(session, period, app_settings),
         view_all=access.view_all,
     )
 
@@ -247,7 +300,13 @@ async def overview_report(
     period = service.month(month)
     overview = await service.overview(period)
     trend = await service.trend(period)
-    return OverviewResponse.from_domain(overview, trend=trend, export=access.export)
+    response = OverviewResponse.from_domain(overview, trend=trend, export=access.export)
+    return response.model_copy(
+        update={
+            "trend": await _trend(session, trend, app_settings),
+            "quota": await _quota(session, period, app_settings),
+        }
+    )
 
 
 @router.get("/export.xlsx")
@@ -278,6 +337,7 @@ async def export_report(
         team=team,
         details=details,
         codes=codes,
+        quota=(await _quota(session, period, app_settings)).monthly,
         names=names,
         departments=departments,
         tz=app_settings.timezone,
@@ -290,6 +350,29 @@ async def export_report(
             "Cache-Control": "no-store",
         },
     )
+
+
+def _today(app_settings: Settings) -> date:
+    return utcnow().astimezone(app_settings.timezone).date()
+
+
+async def _quota(session: AsyncSession, period: Month, app_settings: Settings) -> QuotaResponse:
+    quota = await QuotaService(session).month(period.year, period.month, today=_today(app_settings))
+    return QuotaResponse.from_domain(quota)
+
+
+async def _trend(
+    session: AsyncSession, trend: tuple[TrendPoint, ...], app_settings: Settings
+) -> list[TrendPointResponse]:
+    """The trend's months, each with one person's quota for that month."""
+    settings = await QuotaService(session).settings()
+    today = _today(app_settings)
+    points = []
+    for point in trend:
+        year, number = (int(part) for part in point.month.split("-"))
+        quota = month_quota(year, number, settings, today=today).monthly
+        points.append(TrendPointResponse.from_domain(point, quota=quota))
+    return points
 
 
 def _person_id(person: str, access: PerformanceAccess) -> uuid.UUID:

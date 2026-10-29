@@ -48,7 +48,22 @@ const D3 = {
   points: 240,
 };
 
+const QUOTA = {
+  month: "2026-10",
+  points_per_hour: 60,
+  hours_per_day: 8,
+  points_per_day: 480,
+  quota_pct: 85,
+  daily_quota: 408,
+  work_days: 24.5,
+  monthly: 9996,
+  to_date: 4896,
+  by_week: [2244, 2244, 2244, 2244, 1020],
+  can_edit: false,
+};
+
 const PERSON = {
+  quota: QUOTA,
   user_id: "u-editor",
   name: "Editor C",
   month: "2026-10",
@@ -110,7 +125,7 @@ describe("Điểm của tôi", () => {
     expect(screen.getByRole("link", { name: "P4X9A" })).toBeInTheDocument();
     expect(screen.getByText("Đang làm", { selector: "span" })).toBeInTheDocument();
     // The weeks and the phases.
-    expect(screen.getByRole("listitem", { name: "Ngày 8-14: 240 điểm" })).toBeInTheDocument();
+    expect(screen.getByRole("listitem", { name: "Ngày 8-14: 240 điểm, định mức 2.244" })).toBeInTheDocument();
     expect(within(screen.getByRole("list", { name: "Điểm theo bước" })).getByText("Dựng").parentElement?.parentElement).toHaveTextContent("100%");
     // Their own count of each task code, without a "Số người" column.
     const codes = screen.getByRole("region", { name: "Số lượng theo mã task" });
@@ -299,6 +314,7 @@ describe("Hệ số điểm", () => {
     const stub = stubFetch([
       { match: "/api/performance/coefficients/u-writer", method: "PUT", body: { id: "c1" } },
       { match: "/api/performance/coefficients/u-writer", body: [] },
+      { match: "/api/performance/quota", body: { ...QUOTA, can_edit: true } },
       { match: "/api/performance/coefficients", body: { month: "2026-10", rows: COEFFICIENT_ROWS } },
       { match: "/api/units/me", body: UNITS_ME },
     ]);
@@ -472,5 +488,50 @@ describe("Tiến độ (Gantt)", () => {
       [0, 12, 20],
       [5],
     ]);
+  });
+});
+
+describe("Định mức", () => {
+  it("draws the month's quota under the total, and a dashed quota line on each week", async () => {
+    stubFetch([
+      { match: "/api/performance/people/me", body: PERSON },
+      { match: "/api/units/me", body: UNITS_ME },
+    ]);
+    renderWithQuery(<MyPerformancePage />);
+    const meter = await screen.findByRole("meter", { name: "Định mức" });
+    expect(meter).toHaveAttribute("aria-valuemax", "9996");
+    expect(meter).toHaveAttribute("aria-valuenow", "240");
+    const tile = within(screen.getByRole("list", { name: "Điểm trong tháng" })).getByText("Tổng điểm").parentElement!;
+    expect(tile).toHaveTextContent("Định mức 9.996 · đạt 2%");
+    expect(tile).toHaveTextContent("tới hôm nay 4.896 (thiếu 4.656)");
+    expect(screen.getByRole("listitem", { name: "Ngày 8-14: 240 điểm, định mức 2.244" })).toBeInTheDocument();
+  });
+
+  it("lets the OWNER set points per hour, hours and the %, with the month worked out", async () => {
+    const stub = stubFetch([
+      { match: "/api/performance/quota", method: "PUT", body: { ...QUOTA, quota_pct: 80, can_edit: true } },
+      { match: "/api/performance/quota", body: { ...QUOTA, can_edit: true } },
+      { match: "/api/performance/coefficients", body: { month: "2026-10", rows: COEFFICIENT_ROWS } },
+      { match: "/api/units/me", body: UNITS_ME },
+    ]);
+    renderWithQuery(<CoefficientsPage />);
+    const panel = await screen.findByRole("region", { name: "Định mức" });
+    expect(within(panel).getByText("408 điểm")).toBeInTheDocument();
+    expect(within(panel).getByText("9.996 điểm")).toBeInTheDocument();
+    const pct = within(panel).getByRole("spinbutton", { name: /Tỷ lệ định mức/ });
+    await userEvent.clear(pct);
+    await userEvent.type(pct, "80");
+    // 24.5 x 480 x 80%.
+    expect(within(panel).getByText("9.408 điểm")).toBeInTheDocument();
+    await userEvent.click(within(panel).getByRole("button", { name: "Lưu định mức" }));
+    const accept = screen
+      .getAllByRole("dialog")
+      .map((dialog) => dialog.querySelector<HTMLElement>("[data-confirm-accept]"))
+      .find(Boolean);
+    await userEvent.click(accept!);
+    const put = (stub as unknown as { calls: Array<{ method: string; body: unknown }> }).calls.find(
+      (call) => call.method === "PUT",
+    );
+    expect(put?.body).toEqual({ points_per_hour: 60, hours_per_day: 8, quota_pct: 80 });
   });
 });

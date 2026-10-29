@@ -8,11 +8,13 @@ from datetime import date, datetime
 from pydantic import BaseModel, Field
 
 from meobot.application.ads.accounts_service import AccountView
+from meobot.application.ads.budget_service import BudgetLine, BudgetMonth
 from meobot.application.ads.dashboard_service import Dashboard, SeriesPoint
 from meobot.application.ads.manual_service import ChangeView
 from meobot.application.ads.revenue_service import EntryLine
 from meobot.application.ads.team_service import Channel, Figures, History, TeamReport
 from meobot.db.models.ads import AdsConnection
+from meobot.domain.ads.budget import BUDGET_STATUS_LABELS, BudgetWeek
 from meobot.domain.ads.models import (
     BRAND_LABELS,
     MANUAL_PLATFORMS,
@@ -761,6 +763,85 @@ class ManualChangesResponse(BaseModel):
     start: date
     end: date
     changes: list[ManualChangeResponse]
+
+
+class BudgetWeekResponse(BaseModel):
+    index: int
+    start: date
+    end: date
+    label: str
+
+    @classmethod
+    def from_week(cls, week: BudgetWeek) -> BudgetWeekResponse:
+        return cls(index=week.index, start=week.start, end=week.end, label=week.label)
+
+
+class BudgetCellResponse(BaseModel):
+    week: int
+    budget: float | None
+    spend: float
+    #: spend ÷ budget; ``None`` without a budget.
+    rate: float | None
+    #: OVER / REACHED / UNDER / RUNNING / UPCOMING / NO_BUDGET.
+    status: str
+    status_label: str
+
+
+class BudgetLineResponse(BaseModel):
+    user_id: uuid.UUID | None
+    name: str
+    member_code: str | None
+    cells: list[BudgetCellResponse]
+    budget: float | None
+    spend: float
+
+    @classmethod
+    def from_line(cls, line: BudgetLine) -> BudgetLineResponse:
+        return cls(
+            user_id=line.user_id,
+            name=line.name,
+            member_code=line.member_code,
+            cells=[
+                BudgetCellResponse(
+                    week=cell.week.index,
+                    budget=cell.budget,
+                    spend=cell.spend,
+                    rate=cell.rate,
+                    status=cell.status.value,
+                    status_label=BUDGET_STATUS_LABELS[cell.status],
+                )
+                for cell in line.cells
+            ],
+            budget=line.budget,
+            spend=line.spend,
+        )
+
+
+class BudgetMonthResponse(BaseModel):
+    month: str
+    today: date
+    weeks: list[BudgetWeekResponse]
+    lines: list[BudgetLineResponse]
+    total: BudgetLineResponse | None
+    can_edit: bool
+
+    @classmethod
+    def from_month(cls, data: BudgetMonth, *, can_edit: bool) -> BudgetMonthResponse:
+        return cls(
+            month=f"{data.month:%Y-%m}",
+            today=data.today,
+            weeks=[BudgetWeekResponse.from_week(week) for week in data.weeks],
+            lines=[BudgetLineResponse.from_line(line) for line in data.lines],
+            total=BudgetLineResponse.from_line(data.total) if data.total else None,
+            can_edit=can_edit,
+        )
+
+
+class SaveBudgetRequest(BaseModel):
+    #: ``YYYY-MM``.
+    month: str = Field(pattern=r"^\d{4}-\d{2}$")
+    #: ``"<user id>:<week 1-4>" -> amount`` (``null`` or "" = clear the cell).
+    entries: dict[str, float | str | None] = Field(max_length=2000)
 
 
 __all__ = [

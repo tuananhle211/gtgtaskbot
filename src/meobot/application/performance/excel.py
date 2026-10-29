@@ -26,6 +26,8 @@ SUMMARY_COLUMNS = (
     ("Nhân sự", 26),
     ("Phòng ban", 26),
     ("Tổng điểm", 12),
+    ("Định mức", 11),
+    ("% định mức", 11),
     ("Task xong", 11),
     ("Đang làm (dự kiến)", 18),
     ("Bị trả - làm lỗi", 15),
@@ -66,6 +68,7 @@ def report_workbook(
     team: Sequence[TeamRow],
     details: Sequence[tuple[OrderNodePoints, Order, Decimal]],
     codes: Sequence[CodeRow] = (),
+    quota: int | None = None,
     names: Mapping[uuid.UUID, str],
     departments: Mapping[uuid.UUID, str],
     tz: ZoneInfo,
@@ -84,6 +87,8 @@ def report_workbook(
                 row.name,
                 ", ".join(row.departments),
                 figures.points,
+                quota or "",
+                round(figures.points * 100 / quota) / 100 if quota else "",
                 figures.steps_done,
                 figures.pending_points,
                 figures.returns_fault,
@@ -93,8 +98,20 @@ def report_workbook(
                 figures.previous_points,
             ]
         )
-    summary.append(["Tổng", "", sum(row.figures.points for row in team)])
+    total = sum(row.figures.points for row in team)
+    team_quota = (quota or 0) * len(team)
+    summary.append(
+        [
+            "Tổng",
+            "",
+            total,
+            team_quota or "",
+            round(total * 100 / team_quota) / 100 if team_quota else "",
+        ]
+    )
     _shape(summary, SUMMARY_COLUMNS, header_row=2)
+    for cell in summary["E"][2:]:
+        cell.number_format = "0%"
 
     detail = book.create_sheet("Chi tiết")
     detail.append([label for label, _ in DETAIL_COLUMNS])

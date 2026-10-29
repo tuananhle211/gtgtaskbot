@@ -13,6 +13,7 @@ import {
   ExportLink,
   MonthField,
   Tiles,
+  QuotaBar,
   figureTiles,
   formatScore,
   monthOf,
@@ -103,9 +104,9 @@ function TeamPerformance() {
         ) : null}
         {team.isFetching ? <span className="text-xs text-[var(--text-muted)]">Đang tải…</span> : null}
       </div>
-      <Tiles label="Tổng của phòng" tiles={figureTiles(data.totals)} />
-      <ColumnChart title="Tổng điểm 6 tháng gần nhất" data={trendColumns(data.trend)} />
-      <TeamTable rows={data.rows} totals={data.totals} />
+      <Tiles label="Tổng của phòng" tiles={figureTiles(data.totals, data.quota, Math.max(1, data.rows.length))} />
+      <ColumnChart title="Tổng điểm 6 tháng gần nhất" data={trendColumns(data.trend, data.rows.length)} />
+      <TeamTable rows={data.rows} totals={data.totals} quota={data.quota?.monthly ?? 0} />
       <CodeTable rows={data.codes ?? []} />
     </div>
   );
@@ -114,9 +115,12 @@ function TeamPerformance() {
 function TeamTable({
   rows,
   totals,
+  quota,
 }: {
   rows: Array<{ user_id: string; name: string; departments: string[]; figures: PerformanceFigures }>;
   totals: PerformanceFigures;
+  /** One person's monthly quota; 0 = none (each row then scales to the top scorer). */
+  quota: number;
 }) {
   if (rows.length === 0) {
     return (
@@ -155,12 +159,18 @@ function TeamTable({
                   <td className="px-4 py-2.5">
                     <div className="flex items-center gap-3">
                       <span className="w-14 text-right font-semibold tabular-nums">{formatScore(figures.points)}</span>
-                      <span aria-hidden="true" className="h-2 w-32 overflow-hidden rounded-r-[4px] bg-[var(--surface-muted)]">
-                        <span
-                          className="block h-full rounded-r-[4px]"
-                          style={{ width: `${(figures.points / max) * 100}%`, background: BAR_FILL }}
-                        />
-                      </span>
+                      {quota ? (
+                        <span className="w-36">
+                          <QuotaBar points={figures.points} quota={quota} compact />
+                        </span>
+                      ) : (
+                        <span aria-hidden="true" className="h-2 w-32 overflow-hidden rounded-r-[4px] bg-[var(--surface-muted)]">
+                          <span
+                            className="block h-full rounded-r-[4px]"
+                            style={{ width: `${(figures.points / max) * 100}%`, background: BAR_FILL }}
+                          />
+                        </span>
+                      )}
                     </div>
                   </td>
                   <td className="px-4 py-2.5 text-right tabular-nums">{figures.steps_done}</td>
@@ -187,7 +197,14 @@ function TeamTable({
             <tr className="border-t border-[var(--border)] font-semibold">
               <td className="px-4 py-2.5">Tổng · {rows.length} người</td>
               <td className="px-4 py-2.5">
-                <span className="inline-block w-14 text-right tabular-nums">{formatScore(totals.points)}</span>
+                <div className="flex items-center gap-3">
+                  <span className="inline-block w-14 text-right tabular-nums">{formatScore(totals.points)}</span>
+                  {quota ? (
+                    <span className="w-36">
+                      <QuotaBar points={totals.points} quota={quota * rows.length} compact />
+                    </span>
+                  ) : null}
+                </div>
               </td>
               <td className="px-4 py-2.5 text-right tabular-nums">{totals.steps_done}</td>
               <td className="px-4 py-2.5 text-right tabular-nums">{formatScore(totals.pending_points)}</td>

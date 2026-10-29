@@ -9,6 +9,7 @@ import { ConfirmButton } from "@/components/confirm";
 import { Modal, ModalBody, ModalFooter } from "@/components/modal";
 import { PageHeader, SecondaryButton } from "@/components/pr";
 import { MonthField, monthOf } from "@/components/performance";
+import { QuotaSettingsPanel } from "@/components/performance-quota";
 import { Empty, ErrorBox, Loading } from "@/components/states";
 import { formatDateTime } from "@/lib/datetime";
 import { foldText } from "@/components/searchable-select";
@@ -76,9 +77,10 @@ function Coefficients() {
   return (
     <div className="space-y-4">
       <PageHeader
-        title="Hệ số điểm"
+        title="Hệ số điểm & định mức"
         subtitle={`${monthLabel(month)} · điểm của mỗi người được nhân hệ số của tháng; mặc định 1. ${changed} người đang khác 1.`}
       />
+      <QuotaSettingsPanel month={month} />
       <div className="panel flex flex-wrap items-center gap-4 p-3">
         <MonthField
           value={month}

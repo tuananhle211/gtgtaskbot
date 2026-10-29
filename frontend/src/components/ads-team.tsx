@@ -20,6 +20,7 @@ import {
   platformLabel,
   ratioTone,
 } from "@/components/ads";
+import { BudgetBoard } from "@/components/ads-budget";
 import { AdsReports } from "@/components/ads-reports";
 import { DateInput } from "@/components/date-input";
 import { PageHeader, Select } from "@/components/pr";
@@ -180,6 +181,9 @@ export function TeamDashboard({
         <ErrorBox error={report.error} onRetry={() => report.refetch()} />
       ) : null}
       {report.data ? <Report data={report.data} onPick={onPick} /> : null}
+      {report.data ? (
+        <BudgetBoard month={report.data.month.slice(0, 7)} onPick={onPick} />
+      ) : null}
       {report.data ? (
         <AdsReports
           month={report.data.month.slice(0, 7)}

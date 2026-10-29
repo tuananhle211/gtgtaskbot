@@ -260,6 +260,24 @@ export function pointCoefficientConfirmation({
   };
 }
 
+/** "Định mức" (2026-10-29): the settings every report's quota bar follows. */
+export function quotaConfirmation({
+  pointsPerDay,
+  pct,
+  daily,
+}: {
+  pointsPerDay: number;
+  pct: number;
+  daily: string;
+}): ConfirmSpec {
+  return {
+    title: `Đặt định mức ${pct}% của ${pointsPerDay} điểm/ngày?`,
+    description: `Định mức 1 ngày công thành ${daily} điểm; mọi báo cáo hiệu suất (cả các tháng đã qua) tính thanh định mức theo thiết lập mới.`,
+    confirmLabel: "Lưu định mức",
+    variant: "primary",
+  };
+}
+
 export function assignProducerConfirmation({
   name,
   current,

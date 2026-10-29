@@ -26,6 +26,7 @@ from meobot.api.schemas.ads import (
     AdsSyncRequest,
     AdsSyncResponse,
     AssignAdsAccountRequest,
+    BudgetMonthResponse,
     CreateAdsConnectionRequest,
     CreateManualAccountRequest,
     EntryLineResponse,
@@ -35,6 +36,7 @@ from meobot.api.schemas.ads import (
     ManualChangesResponse,
     PersonOption,
     RevenueDayResponse,
+    SaveBudgetRequest,
     SaveKpiRequest,
     SaveManualRequest,
     SaveManualResponse,
@@ -46,6 +48,7 @@ from meobot.api.schemas.ads import (
 )
 from meobot.application.ads.access import AdsAccess, ads_access
 from meobot.application.ads.accounts_service import AdsAccountService, ads_people, month_of
+from meobot.application.ads.budget_service import AdsBudgetService
 from meobot.application.ads.connection_service import (
     AdsConnectionForbiddenError,
     AdsConnectionService,
@@ -583,6 +586,39 @@ async def save_kpi(
         lines=[EntryLineResponse.from_line(line) for line in lines],
         can_edit=access.edit_revenue,
     )
+
+
+@router.get("/budget", response_model=BudgetMonthResponse)
+async def budget_month(
+    actor: CurrentActorDep,
+    session: SessionDep,
+    month: Annotated[str | None, Query(max_length=7)] = None,
+    user_id: Annotated[uuid.UUID | None, Query()] = None,
+) -> BudgetMonthResponse:
+    """ "Ngân sách tuần" (0082): each marketer's four weekly budgets against
+    the week's spend (every platform); one person with ``user_id``, a member
+    always their own."""
+    access = await _access(session, actor)
+    period = _month(month)
+    data = await AdsBudgetService(session, AuditService(session)).month(
+        access, period.start, user_id=user_id
+    )
+    return BudgetMonthResponse.from_month(data, can_edit=access.edit_revenue)
+
+
+@router.put("/budget", response_model=BudgetMonthResponse)
+async def save_budget(
+    body: SaveBudgetRequest,
+    actor: CurrentActorDep,
+    request_id: RequestIdDep,
+    session: SessionDep,
+) -> BudgetMonthResponse:
+    access = await _access(session, actor)
+    period = _month(body.month)
+    data = await AdsBudgetService(session, AuditService(session)).save(
+        actor=actor, access=access, request_id=request_id, month=period.start, entries=body.entries
+    )
+    return BudgetMonthResponse.from_month(data, can_edit=access.edit_revenue)
 
 
 @router.get("/team", response_model=TeamReportResponse)

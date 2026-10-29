@@ -201,7 +201,7 @@ class WebAuthService:
             )
 
         user = await self._session.get(User, user_id)
-        if user is None or not user.active:
+        if user is None or not user.may_sign_in:
             # One message for both. A caller learning "that user exists but is
             # deactivated" learns something they were not asking for.
             raise AuthorizationError("Tài khoản này không thể đăng nhập web.")
@@ -265,7 +265,7 @@ class WebAuthService:
             raise ValidationError("Liên kết đăng nhập không hợp lệ hoặc đã hết hạn.")
 
         user = await self._session.get(User, row.user_id)
-        if user is None or not user.active:
+        if user is None or not user.may_sign_in:
             # Deactivation between issuing and clicking. The link was valid; the
             # person is not, and the row is burnt so it cannot be retried.
             row.redeemed_at = now
@@ -344,7 +344,7 @@ class WebAuthService:
         if row is None or not row.is_live(now=utcnow()):
             return None
         user = await self._session.get(User, row.user_id)
-        if user is None or not user.active:
+        if user is None or not user.may_sign_in:
             return None
         auth_method = row.auth_method or WebSessionAuthMethod.TELEGRAM_LINK
         return ResolvedSession(

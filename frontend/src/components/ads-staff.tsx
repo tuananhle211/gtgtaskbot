@@ -27,6 +27,7 @@ import {
   ManualDayForm,
   ManualToolbar,
 } from "@/components/ads-manual";
+import { BudgetBoard } from "@/components/ads-budget";
 import { AdsReports } from "@/components/ads-reports";
 import { ranked, ViewPicker } from "@/components/ads-team";
 import { DateInput } from "@/components/date-input";
@@ -639,6 +640,8 @@ function Workspace({
           <DailyTable data={data} kind={shownTab} />
         )}
       </section>
+
+      <BudgetBoard month={data.end.slice(0, 7)} userId={userId} />
 
       <AdsReports
         month={data.end.slice(0, 7)}

@@ -4119,6 +4119,53 @@ export interface AdsKpiMonth {
   can_edit: boolean;
 }
 
+/** Ngân sách chạy ads theo tuần (0082): days 1-7, 8-14, 15-21, 22-end. */
+export type AdsBudgetStatus =
+  | "OVER"
+  | "REACHED"
+  | "UNDER"
+  | "RUNNING"
+  | "UPCOMING"
+  | "NO_BUDGET";
+
+export interface AdsBudgetWeek {
+  index: number;
+  start: string;
+  end: string;
+  label: string;
+}
+
+export interface AdsBudgetCell {
+  week: number;
+  budget: number | null;
+  /** Every platform's spend on the person's ad accounts that week. */
+  spend: number;
+  /** spend ÷ budget; null without a budget. */
+  rate: number | null;
+  status: AdsBudgetStatus;
+  status_label: string;
+}
+
+export interface AdsBudgetLine {
+  /** null for the team's total line. */
+  user_id: string | null;
+  name: string;
+  member_code: string | null;
+  cells: AdsBudgetCell[];
+  budget: number | null;
+  spend: number;
+}
+
+export interface AdsBudgetMonth {
+  month: string;
+  today: string;
+  weeks: AdsBudgetWeek[];
+  lines: AdsBudgetLine[];
+  /** Everybody together; null for one person. */
+  total: AdsBudgetLine | null;
+  can_edit: boolean;
+}
+
 export interface AdsFigures {
   spend: number;
   invoice: number;
@@ -4564,6 +4611,8 @@ export interface PerformancePerson {
   lines: PerformanceLine[];
   /** How many of each task code they did in the month. Optional: older APIs omit it. */
   codes?: PerformanceCodeRow[];
+  /** One person's quota for the month. Optional: older APIs omit it. */
+  quota?: PerformanceQuota | null;
 }
 
 export interface PerformanceTeamRow {
@@ -4577,6 +4626,29 @@ export interface PerformanceTrendPoint {
   month: string;
   points: number;
   by_department: Record<string, number>;
+  /** One person's quota for that month. Optional: older APIs omit it. */
+  quota?: number | null;
+}
+
+/**
+ * One person's quota for a month ("định mức", 2026-10-29): standard work days
+ * (Sundays out, Saturdays half) x points per day (60 x 8 = 480) x quota % (85).
+ */
+export interface PerformanceQuota {
+  month: string;
+  points_per_hour: number;
+  hours_per_day: number;
+  points_per_day: number;
+  quota_pct: number;
+  daily_quota: number;
+  work_days: number;
+  monthly: number;
+  /** What should be scored by today (the whole month once it is over). */
+  to_date: number;
+  /** Per week bucket: days 1-7, 8-14, 15-21, 22-28, 29+. */
+  by_week: number[];
+  /** May change the settings (the OWNER). */
+  can_edit?: boolean;
 }
 
 /** One task code (in one form) over a set of counted steps. */
@@ -4634,6 +4706,8 @@ export interface PerformanceTimeline {
   departments: Array<{ id: Uuid; name: string }>;
   groups: TimelineGroup[];
   view_all: boolean;
+  /** One person's quota for the month. Optional: older APIs omit it. */
+  quota?: PerformanceQuota | null;
 }
 
 export interface PerformanceTeam {
@@ -4647,6 +4721,8 @@ export interface PerformanceTeam {
   codes?: PerformanceCodeRow[];
   view_all: boolean;
   export: boolean;
+  /** One person's quota for the month. Optional: older APIs omit it. */
+  quota?: PerformanceQuota | null;
 }
 
 export interface PerformanceDepartmentRow {
@@ -4670,6 +4746,8 @@ export interface PerformanceOverview {
   codes: PerformanceCodeRow[];
   trend: PerformanceTrendPoint[];
   export: boolean;
+  /** One person's quota for the month. Optional: older APIs omit it. */
+  quota?: PerformanceQuota | null;
 }
 
 /** What an action sends for one code: the row, a quantity >= 1, its form, and
@@ -5811,6 +5889,12 @@ export const api = {
   adsKpi: (month?: string) => get<AdsKpiMonth>(`/api/ads/kpi${query({ month })}`),
   saveAdsKpi: (month: string, entries: Record<string, number | string | null>) =>
     put<AdsKpiMonth>("/api/ads/kpi", { month, entries }),
+  /** 0082: weekly budgets against the spend (a member: their own line). */
+  adsBudget: (month?: string, userId?: string) =>
+    get<AdsBudgetMonth>(`/api/ads/budget${query({ month, user_id: userId })}`),
+  /** `"<user id>:<week>" -> amount`; null or "" clears. 422 `ads_budget_invalid`. */
+  saveAdsBudget: (month: string, entries: Record<string, number | string | null>) =>
+    put<AdsBudgetMonth>("/api/ads/budget", { month, entries }),
   /** Quản lý A (a Trưởng phòng / OWNER / ADMIN; a member 404). */
   adsTeam: (
     params: {
@@ -7409,6 +7493,12 @@ export const api = {
     get<PerformanceTimeline>(`/api/performance/timeline${query({ month, department_id: departmentId })}`),
   performanceOverview: (month?: string) =>
     get<PerformanceOverview>(`/api/performance/overview${query({ month })}`),
+  /** One person's quota for `month` and the settings behind it. */
+  performanceQuota: (month?: string) =>
+    get<PerformanceQuota>(`/api/performance/quota${query({ month })}`),
+  /** The OWNER: 403 `performance_quota_forbidden`, 422 `quota_invalid` (`details.field`). */
+  setPerformanceQuota: (body: { points_per_hour: number; hours_per_day: number; quota_pct: number }) =>
+    put<PerformanceQuota>("/api/performance/quota", body),
   /** 403 `performance_coefficient_forbidden` for anybody but the OWNER. */
   pointCoefficients: (month?: string) =>
     get<{ month: string; rows: PointCoefficientRow[] }>(

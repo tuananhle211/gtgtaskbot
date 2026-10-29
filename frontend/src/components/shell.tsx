@@ -199,7 +199,7 @@ function performanceBranch(me: UnitsMe | undefined): NavGroup {
         ? [{ href: "/performance/company", label: "Toàn công ty", icon: "report" as NavIcon }]
         : []),
       ...(me?.performance?.manage_coefficients
-        ? [{ href: "/performance/coefficients", label: "Hệ số điểm", icon: "settings" as NavIcon }]
+        ? [{ href: "/performance/coefficients", label: "Hệ số & định mức", icon: "settings" as NavIcon }]
         : []),
     ],
   };
@@ -208,7 +208,7 @@ function performanceBranch(me: UnitsMe | undefined): NavGroup {
 /**
  * "Phòng Ads" (0078): the ad-spend dashboard and the ad accounts, for the ADS
  * department and the OWNER / ADMIN (`ads.view` on `/api/units/me`), "Hiệu
- * suất Marketing" (`view_all`), "Nhập doanh thu" / "KPI" (`edit_revenue`); its
+ * suất Marketing" (`view_all`), "Nhập doanh thu" / "KPI" / "Ngân sách tuần" (`edit_revenue`); its
  * settings sit in the same branch (27/10): "Kết nối BM" for the OWNER
  * (`ads.manage_connections`), "Tác vụ định kỳ" for the OWNER / ADMIN.
  */
@@ -224,6 +224,7 @@ function adsBranch(me: UnitsMe | undefined, sessionRole?: string): NavGroup | nu
         ? [
             { href: "/ads/revenue", label: "Nhập doanh thu", icon: "request" as NavIcon },
             { href: "/ads/kpi", label: "KPI doanh thu", icon: "mine" as NavIcon },
+            { href: "/ads/budget", label: "Ngân sách tuần", icon: "timeline" as NavIcon },
           ]
         : []),
       { href: "/ads/accounts", label: "Tài khoản QC", icon: "inventory" },

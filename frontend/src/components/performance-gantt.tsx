@@ -4,7 +4,7 @@ import Link from "next/link";
 import { useMemo, useState } from "react";
 import type { TimelineBar, TimelineGroup } from "@/lib/api";
 import { PersonLink } from "@/components/person-link";
-import { PHASE_NAMES, formatScore } from "@/components/performance";
+import { PHASE_NAMES, QuotaBar, formatScore } from "@/components/performance";
 import { phaseStyle } from "@/components/design-codes-picker";
 import { Empty } from "@/components/states";
 import { formatShortDate, formatShortDateTime } from "@/lib/datetime";
@@ -132,7 +132,18 @@ function barTitle(bar: TimelineBar): string {
 
 const LEFT = "w-64 shrink-0 sm:w-80";
 
-export function Gantt({ month, groups, now = Date.now() }: { month: string; groups: TimelineGroup[]; now?: number }) {
+export function Gantt({
+  month,
+  groups,
+  now = Date.now(),
+  quota,
+}: {
+  month: string;
+  groups: TimelineGroup[];
+  now?: number;
+  /** One person's quota for the month ("định mức"): a thin bar per person. */
+  quota?: { monthly: number; to_date: number } | null;
+}) {
   const frame = useMemo(() => monthFrame(month), [month]);
   const [opened, setOpened] = useState<Record<string, boolean>>({});
   const span = frame.end - frame.start;
@@ -224,6 +235,11 @@ export function Gantt({ month, groups, now = Date.now() }: { month: string; grou
                         {group.departments.join(", ") || "Chưa có phòng"} · <span className="font-semibold text-[var(--text)]">{formatScore(group.points)} điểm</span>
                         {group.pending_points ? ` · dự kiến ${formatScore(group.pending_points)}` : ""}
                       </p>
+                      {quota?.monthly ? (
+                        <div className="mt-1 max-w-48">
+                          <QuotaBar points={group.points} quota={quota.monthly} toDate={quota.to_date} compact />
+                        </div>
+                      ) : null}
                       <p className="truncate text-xs text-[var(--text-muted)]">
                         {group.bars.length} task{group.upcoming ? ` · ${group.upcoming} sắp tới` : ""}
                         {hidden && !isOpen ? ` · mở để xem thêm ${hidden}` : ""}

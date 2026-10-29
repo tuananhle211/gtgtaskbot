@@ -168,3 +168,14 @@ class User(UUIDPrimaryKeyMixin, TimestampMixin, Base):
         richer one this release introduced. An account has to satisfy both.
         """
         return self.active and self.status is UserStatus.ACTIVE
+
+    @property
+    def may_sign_in(self) -> bool:
+        """May open the web app: :attr:`may_use_meobot`, and not a leaver.
+
+        Someone set to "Đã nghỉ việc" (``employment_status`` LEFT) cannot log in
+        - password or Telegram link - and every open browser session stops
+        resolving. Their account and history stay; setting them back to another
+        status lets them in again.
+        """
+        return self.may_use_meobot and self.employment_status is not EmploymentStatus.LEFT

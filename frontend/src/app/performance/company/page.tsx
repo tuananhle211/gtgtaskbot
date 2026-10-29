@@ -10,6 +10,7 @@ import { PageHeader } from "@/components/pr";
 import { PersonLink } from "@/components/person-link";
 import {
   BarList,
+  QuotaBar,
   ColumnChart,
   ExportLink,
   MonthField,
@@ -89,6 +90,14 @@ function CompanyPerformance() {
             label: "Điểm trung bình",
             value: formatScore(data.people ? data.points / data.people : 0),
             hint: "Mỗi người có điểm trong tháng",
+            extra: data.quota ? (
+              <QuotaBar
+                points={data.people ? data.points / data.people : 0}
+                quota={data.quota.monthly}
+                toDate={data.quota.to_date}
+                label="Định mức / người"
+              />
+            ) : undefined,
           },
         ]}
       />
@@ -104,6 +113,7 @@ function CompanyPerformance() {
               </Link>
             ),
             value: row.points,
+            target: data.quota ? data.quota.monthly * row.people : null,
             detail: `${row.people} người · TB ${formatScore(row.average)}`,
           }))}
         />
@@ -126,6 +136,7 @@ function CompanyPerformance() {
                   <th className="px-4 py-2 text-right font-medium">Người</th>
                   <th className="px-4 py-2 text-right font-medium">Tổng điểm</th>
                   <th className="px-4 py-2 text-right font-medium">TB / người</th>
+                  <th className="px-4 py-2 font-medium">Định mức</th>
                   <th className="px-4 py-2 text-right font-medium">Task xong</th>
                   <th className="px-4 py-2 text-right font-medium">Đúng hạn</th>
                 </tr>
@@ -141,6 +152,13 @@ function CompanyPerformance() {
                     <td className="px-4 py-2.5 text-right tabular-nums">{row.people}</td>
                     <td className="px-4 py-2.5 text-right font-semibold tabular-nums">{formatScore(row.points)}</td>
                     <td className="px-4 py-2.5 text-right tabular-nums">{formatScore(row.average)}</td>
+                    <td className="px-4 py-2.5">
+                      {data.quota ? (
+                        <QuotaBar points={row.points} quota={data.quota.monthly * row.people} compact />
+                      ) : (
+                        "–"
+                      )}
+                    </td>
                     <td className="px-4 py-2.5 text-right tabular-nums">{row.steps_done}</td>
                     <td className={`px-4 py-2.5 text-right tabular-nums ${row.late_count ? "text-[var(--warn)]" : ""}`}>
                       {percent(row.on_time_rate)}
@@ -172,7 +190,14 @@ function CompanyPerformance() {
                       {row.departments.join(", ") || "Chưa có phòng"}
                     </span>
                   </span>
-                  <span className="font-semibold tabular-nums">{formatScore(row.figures.points)}</span>
+                  <span className="text-right">
+                    <span className="font-semibold tabular-nums">{formatScore(row.figures.points)}</span>
+                    {data.quota ? (
+                      <span className="block text-[11px] tabular-nums text-[var(--text-muted)]">
+                        {Math.round((row.figures.points / data.quota.monthly) * 100)}% định mức
+                      </span>
+                    ) : null}
+                  </span>
                 </li>
               ))}
             </ol>

@@ -434,3 +434,63 @@ async def test_12_the_gantt_shows_what_is_ahead(world: World) -> None:
     assert "UPCOMING" in statuses
     past = get(world, ads.editor, "/api/performance/timeline?month=2026-01").json()
     assert past["groups"][0]["bars"] == []
+
+
+# --- "Định mức" (2026-10-29) ----------------------------------------------------------
+
+
+async def test_13a_the_quota_counts_sundays_out_and_saturdays_half() -> None:
+    from datetime import date
+    from decimal import Decimal
+
+    from meobot.domain.performance.quota import QuotaSettings, month_quota
+
+    settings = QuotaSettings()
+    assert settings.points_per_day == 480 and settings.daily_quota == Decimal("408")
+    october = month_quota(2026, 10, settings, today=date(2026, 10, 15))
+    # 31 days - 4 Sundays - 5 Saturdays x 0.5 = 24.5 days x 408.
+    assert october.work_days == Decimal("24.5") and october.monthly == 9996
+    # 1-7 Oct: Thu Fri Sat(½) Sun(0) Mon Tue Wed = 5.5 days.
+    assert october.by_week[0] == 2244
+    # By the 15th: 5.5 (1-7) + 5.5 (8-14) + Thu 15 = 12 days.
+    assert october.to_date == 12 * 408
+    assert month_quota(2026, 10, settings, today=date(2026, 9, 1)).to_date == 0
+    assert month_quota(2026, 10, settings, today=date(2026, 11, 1)).to_date == 9996
+
+
+async def test_13b_the_owner_sets_the_quota_and_every_report_carries_it(world: World) -> None:
+    ads, _ = await coded_world(world)
+    await dung_done(world, ads)
+    admin = await person(world, "Quản trị", Role.ADMIN)
+    quota = get(world, ads.editor, "/api/performance/quota?month=2026-10").json()
+    assert quota["monthly"] == 9996 and quota["work_days"] == 24.5
+    assert quota["daily_quota"] == 408 and quota["can_edit"] is False
+    assert get(world, world.owner, "/api/performance/quota").json()["can_edit"] is True
+
+    body = {"points_per_hour": 60, "hours_per_day": 8, "quota_pct": 80}
+    for user in (ads.editor, admin):
+        world.act_as(user)
+        refused = world.client.put("/api/performance/quota", json=body)
+        assert refused.status_code == 403
+        assert refused.json()["code"] == "performance_quota_forbidden"
+    world.act_as(world.owner)
+    bad = world.client.put("/api/performance/quota", json={**body, "quota_pct": 0})
+    assert bad.status_code == 422 and bad.json()["details"]["field"] == "quota_pct"
+    assert world.client.put("/api/performance/quota", json=body).status_code == 200
+    # 24.5 days x 480 x 80%.
+    assert get(world, ads.editor, "/api/performance/quota?month=2026-10").json()["monthly"] == 9408
+
+    me = get(world, ads.editor, "/api/performance/people/me").json()
+    assert me["quota"]["quota_pct"] == 80 and len(me["quota"]["by_week"]) == 5
+    team = get(world, world.owner, "/api/performance/team").json()
+    assert team["quota"]["monthly"] == me["quota"]["monthly"]
+    assert all(isinstance(point["quota"], int) for point in team["trend"])
+    assert get(world, world.owner, "/api/performance/overview").json()["quota"] is not None
+    assert get(world, ads.editor, "/api/performance/timeline").json()["quota"] is not None
+    sheet = get(world, world.owner, "/api/performance/export.xlsx")
+    header = next(
+        load_workbook(io.BytesIO(sheet.content))["Tổng hợp"].iter_rows(
+            min_row=2, max_row=2, values_only=True
+        )
+    )
+    assert header[2:5] == ("Tổng điểm", "Định mức", "% định mức")

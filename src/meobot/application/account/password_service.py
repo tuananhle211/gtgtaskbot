@@ -133,8 +133,8 @@ class PasswordService:
         """
         telegram_id = parse_username(username)
         user = await self._locked_user_by_telegram_id(telegram_id)
-        if user is not None and not user.may_use_meobot:
-            # A deactivated or suspended account is indistinguishable from an
+        if user is not None and not user.may_sign_in:
+            # A deactivated, suspended or departed account is indistinguishable from an
             # unknown id: no lock, no counter, the same answer.
             user = None
         now = utcnow()
@@ -198,7 +198,7 @@ class PasswordService:
                 still ends a temporary password.
         """
         user = await self._locked_user_by_id(actor.user_id)
-        if user is None or not user.may_use_meobot:
+        if user is None or not user.may_sign_in:
             raise AccountNotFoundError()
         now = utcnow()
         if self._is_locked(user, now):

@@ -106,7 +106,7 @@ class PasswordResetService:
         """
         telegram_id = parse_username(username)
         user = await self._locked_user(telegram_id)
-        if user is not None and not user.may_use_meobot:
+        if user is not None and not user.may_sign_in:
             user = None
         now = utcnow()
 

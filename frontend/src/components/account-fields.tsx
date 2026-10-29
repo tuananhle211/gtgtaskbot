@@ -4,6 +4,7 @@ import { useState } from "react";
 import { useMutation } from "@tanstack/react-query";
 import { api, type MemberRow } from "@/lib/api";
 import { Select } from "@/components/pr";
+import { ConfirmDialog } from "@/components/confirm";
 
 /**
  * The roster's per-person fields, shared by "Tài khoản › Thành viên" and
@@ -95,9 +96,15 @@ export function EmploymentStatusField({
   row: MemberRow;
   onSaved: (label: string) => void;
 }) {
+  // "Đã nghỉ việc" locks the person out of the web app at once (no login,
+  // every session closed), so it is confirmed first; the others save directly.
+  const [leaving, setLeaving] = useState(false);
   const save = useMutation({
     mutationFn: (status: string) => api.setEmploymentStatus(row.user_id, status),
-    onSuccess: (result) => onSaved(result.employment_status_label),
+    onSuccess: (result) => {
+      setLeaving(false);
+      onSaved(result.employment_status_label);
+    },
   });
   return (
     <div className="flex flex-col gap-1">
@@ -105,7 +112,9 @@ export function EmploymentStatusField({
         aria-label={`Trạng thái nhân sự của ${row.full_name}`}
         value={row.employment_status ?? "WORKING"}
         disabled={save.isPending}
-        onChange={(event) => save.mutate(event.target.value)}
+        onChange={(event) =>
+          event.target.value === "LEFT" ? setLeaving(true) : save.mutate(event.target.value)
+        }
         className="min-h-9 text-xs"
       >
         {EMPLOYMENT_STATUSES.map(([value, label]) => (
@@ -114,11 +123,28 @@ export function EmploymentStatusField({
           </option>
         ))}
       </Select>
-      {save.isError ? (
+      {save.isError && !leaving ? (
         <span role="alert" className="text-xs text-[var(--bad)]">
           {save.error instanceof Error ? save.error.message : "Không lưu được."}
         </span>
       ) : null}
+      <ConfirmDialog
+        open={leaving}
+        spec={{
+          title: `Đánh dấu ${row.full_name} đã nghỉ việc?`,
+          description:
+            "Tài khoản này sẽ không đăng nhập web được nữa và bị đăng xuất khỏi mọi thiết bị ngay. Dữ liệu và lịch sử vẫn giữ; đổi lại trạng thái khác thì đăng nhập được lại.",
+          confirmLabel: "Đánh dấu đã nghỉ việc",
+          variant: "destructive",
+        }}
+        pending={save.isPending}
+        error={save.isError ? save.error : undefined}
+        onConfirm={() => save.mutate("LEFT")}
+        onCancel={() => {
+          setLeaving(false);
+          save.reset();
+        }}
+      />
     </div>
   );
 }

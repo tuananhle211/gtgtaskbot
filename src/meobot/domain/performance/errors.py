@@ -42,9 +42,30 @@ class PerformanceCoefficientInvalidError(ValidationError):
         super().__init__(message, details={"reason": "coefficient_invalid", "field": field})
 
 
+class PerformanceQuotaForbiddenError(AuthorizationError):
+    """Only the OWNER (or a ``PERFORMANCE COEFFICIENT`` holder) sets the quota."""
+
+    code = "performance_quota_forbidden"
+
+    def __init__(self) -> None:
+        super().__init__(
+            "Chỉ chủ sở hữu (OWNER) cấu hình được định mức.",
+            details={"reason": "performance_quota_forbidden"},
+        )
+
+
+class PerformanceQuotaInvalidError(ValidationError):
+    code = "quota_invalid"
+
+    def __init__(self, message: str, *, field: str) -> None:
+        super().__init__(message, details={"reason": "quota_invalid", "field": field})
+
+
 __all__ = [
     "PerformanceCoefficientForbiddenError",
     "PerformanceCoefficientInvalidError",
     "PerformanceForbiddenError",
     "PerformancePersonNotFoundError",
+    "PerformanceQuotaForbiddenError",
+    "PerformanceQuotaInvalidError",
 ]

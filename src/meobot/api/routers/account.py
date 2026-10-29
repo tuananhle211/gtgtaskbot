@@ -448,7 +448,8 @@ async def set_member_code(
     responses={
         403: {
             "model": ErrorEnvelope,
-            "description": "employment_status_forbidden - OWNER/ADMIN or HR_STATUS in Tài nguyên.",
+            "description": "employment_status_forbidden - OWNER/ADMIN or HR_STATUS in Tài nguyên; "
+            "employment_status_left_forbidden - an OWNER or oneself set to Đã nghỉ việc.",
         },
         404: {"model": ErrorEnvelope, "description": "account_not_found."},
     },
@@ -460,10 +461,12 @@ async def set_employment_status(
     membership: UnitMembershipDep,
     session: SessionDep,
     request_id: RequestIdDep,
+    settings: SettingsDep,
 ) -> EmploymentStatusResponse:
     """*Trạng thái nhân sự* (0065): Đang làm / Thử việc / Tạm nghỉ / Đã nghỉ
     việc. The OWNER, an ADMIN, and whoever a department grants the resources
-    module's ``HR_STATUS`` (the Phòng Tài nguyên's head by default)."""
+    module's ``HR_STATUS`` (the Phòng Tài nguyên's head by default).
+    "Đã nghỉ việc" blocks the person's web login and signs them out."""
     access = await resource_access(session, membership)
     user = await set_employment_status_of(
         session,
@@ -473,6 +476,7 @@ async def set_employment_status(
         request_id=request_id,
         user_id=user_id,
         status=body.employment_status,
+        settings=settings,
     )
     return EmploymentStatusResponse(
         employment_status=user.employment_status.value,
