@@ -379,6 +379,17 @@ async def test_07_the_branch_tells_where_the_customer_was_served(world: World) -
         "hcm_hn": 1_000_000,
     }
     assert team("all")["current"]["revenue"] == 7_500_000
+    # Doanh thu Marketing (by team) and Cơ sở (by branch): same total.
+    regions = team("all")["regions"]
+    assert (regions["hn"]["marketing"], regions["hcm"]["marketing"]) == (2_500_000, 5_000_000)
+    assert (regions["hn"]["site"], regions["hcm"]["site"]) == (3_000_000, 4_500_000)
+    # The cost by the BM's cơ sở (BM Apex = Sài Gòn); hiệu suất = SG's charges
+    # ÷ SG Marketing revenue without VAT; no HN cost, no HN ratio worth a tone.
+    # (the second charge falls on 22/10 Vietnam time, outside the days)
+    assert regions["hcm"]["spend"] == 3_500_000 and regions["hcm"]["invoice"] == 1_000_000
+    assert regions["hn"]["spend"] == 0 and regions["hn"]["ads_ratio"] == 0
+    assert round(regions["hcm"]["ads_ratio"], 4) == round(1_000_000 / (5_000_000 / 1.08), 4)
+    assert regions["flows"]["hn_hcm"] == 500_000
     assert team("site_hcm")["current"]["revenue"] == 4_500_000
     assert team("site_hn")["current"]["revenue"] == 3_000_000
     assert team("mkt_hn")["current"]["revenue"] == 2_500_000
@@ -391,3 +402,6 @@ async def test_07_the_branch_tells_where_the_customer_was_served(world: World) -
     kpis = {kpi["key"]: kpi["value"] for kpi in own["kpis"]}
     assert kpis["revenue"] == 2_500_000 and kpis["revenue_sg"] == 500_000
     assert own["flows"] == {"hcm_hcm": 0, "hn_hn": 2_000_000, "hn_hcm": 500_000, "hcm_hn": 0}
+    whole = world.client.get("/api/ads/dashboard", params=PARAMS).json()["regions"]
+    assert (whole["hn"]["marketing"], whole["hcm"]["site"]) == (2_500_000, 4_500_000)
+    assert whole["hcm"]["spend"] == 3_000_000

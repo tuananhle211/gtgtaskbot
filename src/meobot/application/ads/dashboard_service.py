@@ -40,6 +40,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from meobot.application.ads.access import AdsAccess
 from meobot.application.ads.accounts_service import ads_people
 from meobot.application.ads.manual_service import AdsManualService, may_edit
+from meobot.application.ads.regions import RegionSplit, place_region, region_split
 from meobot.application.ads.revenue_service import (
     FLOWS,
     AdsRevenueService,
@@ -49,6 +50,7 @@ from meobot.application.ads.revenue_service import (
 from meobot.application.audit_service import AuditService
 from meobot.db.models.ads import AdsAccount, AdsChargeDaily, AdsConnection, AdsSpendDaily
 from meobot.db.models.user import User
+from meobot.domain.ads.crm import CrmRegion
 from meobot.domain.ads.models import (
     BRAND_LABELS,
     MANUAL_PLATFORMS,
@@ -213,6 +215,8 @@ class Dashboard:
     sites: list[str] = field(default_factory=list)
     #: The period's revenue by customer flow (``FLOWS`` -> amount), inside "Miền".
     flows: dict[str, float] = field(default_factory=dict)
+    #: Doanh thu Marketing / Cơ sở by region, cost by the BM's cơ sở, hiệu suất.
+    regions: RegionSplit = field(default_factory=RegionSplit)
 
 
 class AdsDashboardService:
@@ -362,6 +366,29 @@ class AdsDashboardService:
             }
         )
         note = "platform" if manual and person is not None else None
+
+        def account_region(account_id: str) -> CrmRegion | None:
+            account, connection = accounts[account_id]
+            return place_region((connection.site if connection else None) or account.site)
+
+        costs = [
+            (row.day, account_region(row.account_id), float(row.spend), 0.0) for row in spend_rows
+        ] + [
+            (
+                row.day,
+                account_region(row.account_id),
+                0.0,
+                float(
+                    row.amount
+                    * invoice_factor(
+                        accounts[row.account_id][0].name,
+                        accounts[row.account_id][0].brand,
+                        row.day,
+                    )
+                ),
+            )
+            for row in charge_rows
+        ]
         return Dashboard(
             period=period,
             previous=previous,
@@ -396,6 +423,7 @@ class AdsDashboardService:
                 )
                 for flow in FLOWS
             },
+            regions=region_split(revenue_rows, costs, period),
             can_add_account=manual
             and (access.manage_accounts or person is None or person == access.user_id),
             sites=sites,
@@ -568,7 +596,7 @@ def _kpis(current: Totals, before: Totals) -> list[Kpi]:
         return Kpi(key, label, now, then, change(now, then), lower)
 
     return [
-        kpi("revenue", "Doanh số (xét KPI)", current.revenue, before.revenue),
+        kpi("revenue", "Doanh thu tổng", current.revenue, before.revenue),
         kpi("revenue_net", "Doanh thu hoa hồng", current.revenue_net, before.revenue_net),
         kpi("revenue_sg", "Doanh số SG", current.revenue_sg, before.revenue_sg),
         kpi("revenue_hn", "Doanh số HN", current.revenue_hn, before.revenue_hn),

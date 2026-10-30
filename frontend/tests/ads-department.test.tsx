@@ -621,39 +621,52 @@ describe("step 2: revenue, KPI, Tổng team", () => {
     expect(ratio).toHaveClass("border-[var(--good)]");
   });
 
-  it("Miền narrows the revenue: the query carries the region", async () => {
-    const stub = stubFetch([
+  it("Doanh thu Marketing and Cơ sở split the same total, with hiệu suất", async () => {
+    const figures = (over: Record<string, unknown>) => ({
+      marketing: 0,
+      site: 0,
+      marketing_net: 0,
+      spend: 0,
+      invoice: 0,
+      ads_ratio: null,
+      tone: null,
+      ...over,
+    });
+    stubFetch([
       ...MEMBER,
-      { match: "/api/ads/dashboard", body: DASHBOARD },
+      {
+        match: "/api/ads/dashboard",
+        body: {
+          ...DASHBOARD,
+          kpis: [...DASHBOARD.kpis, kpi("revenue", "Doanh thu tổng", 10_000_000, null)],
+          regions: {
+            hn: figures({
+              marketing: 2_500_000,
+              site: 3_000_000,
+              marketing_net: 2_314_815,
+              invoice: 1_000_000,
+              ads_ratio: 0.432,
+              tone: "watch",
+            }),
+            hcm: figures({ marketing: 7_500_000, site: 7_000_000 }),
+            other_spend: 0,
+            other_invoice: 0,
+            flows: { hcm_hcm: 6_500_000, hn_hn: 2_000_000, hn_hcm: 500_000, hcm_hn: 1_000_000 },
+          },
+        },
+      },
     ]);
     renderWithQuery(<AdsDashboardPage />);
-    const pick = await screen.findByLabelText("Miền");
-    // By team, by branch, or one flow.
-    for (const value of ["mkt_hcm", "mkt_hn", "site_hcm", "site_hn", "hn_hcm", "hcm_hn"])
-      expect(pick.querySelector(`option[value="${value}"]`)).not.toBeNull();
-    expect(
-      within(pick).getByRole("option", { name: "HN chuyển SG (MKT HN · làm tại HCM)" }),
-    ).toBeInTheDocument();
-    await userEvent.selectOptions(pick, "site_hn");
-    await waitFor(() =>
-      expect(
-        calls(stub).some(
-          (call) =>
-            call.url.includes("/api/ads/dashboard") &&
-            call.url.includes("region=site_hn"),
-        ),
-      ).toBe(true),
-    );
-    // The reports follow the same choice.
-    await waitFor(() =>
-      expect(
-        calls(stub).some(
-          (call) =>
-            call.url.includes("/api/ads/history") &&
-            call.url.includes("site=site_hn"),
-        ),
-      ).toBe(true),
-    );
+    const marketing = await screen.findByTestId("revenue-marketing");
+    expect(marketing).toHaveTextContent("10.000.000 ₫");
+    expect(marketing).toHaveTextContent("HN 2.000.000 ₫ + HN chuyển SG 500.000 ₫");
+    expect(marketing).toHaveTextContent("SG 6.500.000 ₫ + SG chuyển HN 1.000.000 ₫");
+    expect(marketing).toHaveTextContent("43,2%");
+    const site = screen.getByTestId("revenue-site");
+    expect(site).toHaveTextContent("10.000.000 ₫");
+    expect(site).toHaveTextContent("HN 2.000.000 ₫ + SG chuyển HN 1.000.000 ₫");
+    expect(site).toHaveTextContent("SG 6.500.000 ₫ + HN chuyển SG 500.000 ₫");
+    expect(screen.queryByLabelText("Miền")).toBeNull();
   });
 
   it("a person's accounts in several BMs are filtered apart", async () => {
@@ -929,7 +942,7 @@ describe("step 2: revenue, KPI, Tổng team", () => {
     renderWithQuery(<AdsDashboardPage />);
     const revenue = await screen.findByTestId("team-revenue");
     expect(revenue).toHaveTextContent("14.000.000 ₫");
-    expect(revenue).toHaveTextContent("HN 2.000.000 ₫");
+    expect(revenue).toHaveTextContent("Doanh thu tổng");
     expect(revenue).toHaveTextContent("DT hoa hồng 12.962.963 ₫");
     // A ratio's change is in points, and down is good.
     expect(screen.getByTestId("team-ratio")).toHaveTextContent(
@@ -980,16 +993,6 @@ describe("step 2: revenue, KPI, Tổng team", () => {
     );
     expect(screen.getByTestId("day-2026-10-26")).toHaveTextContent(
       "1.234.567 ₫",
-    );
-    // "Miền" narrows the revenue: sent as site.
-    await userEvent.selectOptions(screen.getByLabelText("Miền"), "hn_hcm");
-    await waitFor(() =>
-      expect(
-        calls(stub).some(
-          (call) =>
-            call.url.includes("/api/ads/team") && call.url.includes("site=hn_hcm"),
-        ),
-      ).toBe(true),
     );
     // A range of days instead of the month (the other end stays the month's).
     const from = screen.getByLabelText("Từ ngày");

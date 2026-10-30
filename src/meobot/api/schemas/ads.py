@@ -13,6 +13,7 @@ from meobot.application.ads.crm_service import AccountView as CrmAccountView
 from meobot.application.ads.crm_service import CrmOverview, ImportResult
 from meobot.application.ads.dashboard_service import Dashboard, SeriesPoint
 from meobot.application.ads.manual_service import ChangeView
+from meobot.application.ads.regions import RegionFigures, RegionSplit
 from meobot.application.ads.revenue_service import EntryLine
 from meobot.application.ads.team_service import Channel, Figures, History, TeamReport
 from meobot.db.models.ads import AdsConnection
@@ -290,6 +291,51 @@ class ConnectionOption(BaseModel):
     site: str
 
 
+class RegionFiguresResponse(BaseModel):
+    #: Doanh thu Marketing (by the team) and Cơ sở (by the branch), VAT included.
+    marketing: float
+    site: float
+    marketing_net: float
+    #: Cost on the ad accounts of that cơ sở (BM site).
+    spend: float
+    invoice: float
+    #: Hiệu suất: cost (charges, else spend) ÷ Marketing revenue without VAT.
+    ads_ratio: float | None
+    tone: str | None
+
+
+class RegionSplitResponse(BaseModel):
+    """HN = HN + HN chuyển SG (Marketing) / HN + SG chuyển HN (Cơ sở); SG alike."""
+
+    hn: RegionFiguresResponse
+    hcm: RegionFiguresResponse
+    other_spend: float
+    other_invoice: float
+    #: hcm_hcm (SG), hn_hn (HN), hn_hcm (HN chuyển SG), hcm_hn (SG chuyển HN).
+    flows: dict[str, float]
+
+    @classmethod
+    def from_split(cls, split: RegionSplit) -> RegionSplitResponse:
+        def one(figures: RegionFigures) -> RegionFiguresResponse:
+            return RegionFiguresResponse(
+                marketing=figures.marketing,
+                site=figures.site,
+                marketing_net=figures.marketing_net,
+                spend=figures.spend,
+                invoice=figures.invoice,
+                ads_ratio=figures.ads_ratio,
+                tone=ads_ratio_tone(figures.ads_ratio),
+            )
+
+        return cls(
+            hn=one(split.hn),
+            hcm=one(split.hcm),
+            other_spend=split.other_spend,
+            other_invoice=split.other_invoice,
+            flows=split.flows,
+        )
+
+
 class AdsDashboardResponse(BaseModel):
     start: date
     end: date
@@ -298,6 +344,7 @@ class AdsDashboardResponse(BaseModel):
     grouping: str
     #: Revenue by customer flow: hcm_hcm, hn_hn, hn_hcm, hcm_hn (inside "Miền").
     flows: dict[str, float] = {}
+    regions: RegionSplitResponse | None = None
     user_id: uuid.UUID | None
     kpis: list[KpiResponse]
     series: list[SeriesPointResponse]
@@ -389,6 +436,7 @@ class AdsDashboardResponse(BaseModel):
             revenue=data.current.revenue,
             revenue_note=data.revenue_note,
             flows=data.flows,
+            regions=RegionSplitResponse.from_split(data.regions),
             revenue_net=data.current.revenue_net,
             highlights=HighlightsResponse(
                 best_revenue_day=SeriesPointResponse.from_point(data.highlights.best_revenue_day)
@@ -587,6 +635,7 @@ class TeamReportResponse(BaseModel):
     #: The four customer flows: hcm_hcm (SG), hn_hn (HN), hn_hcm (HN chuyển SG),
     #: hcm_hn (SG chuyển HN); ``revenue`` null outside "Miền".
     flows: list[SourceResponse] = []
+    regions: RegionSplitResponse | None = None
     marketers: list[MarketerResponse]
     facebook: FiguresResponse
     attention: list[AlertResponse]
@@ -635,6 +684,7 @@ class TeamReportResponse(BaseModel):
                 )
                 for item in report.flows
             ],
+            regions=RegionSplitResponse.from_split(report.regions),
             marketers=[
                 MarketerResponse(
                     user_id=line.user_id,

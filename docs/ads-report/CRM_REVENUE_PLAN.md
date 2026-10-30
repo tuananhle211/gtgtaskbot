@@ -52,7 +52,8 @@ Mỗi khoản thu có hai miền:
 
 Ghép lại ra 4 luồng: **SG** (MKT HCM, làm HCM), **HN** (MKT HN, làm HN), **HN chuyển SG** (MKT HN, làm HCM), **SG chuyển HN** (MKT HCM, làm HN). "Doanh số SG / HN" của một người là theo cơ sở làm.
 
-- **Miền** (chỉ lọc doanh thu): Tất cả; theo đội MKT (MKT HCM / MKT HN); theo cơ sở làm (Cơ sở HCM / Cơ sở HN); hoặc từng luồng. KPI phòng luôn tính trên tất cả.
+- **Không còn bộ lọc Miền** (bỏ ngày 30/10). Dưới ô "Doanh thu tổng" có hai ô cùng tổng: **Doanh thu Marketing** (HN = HN + HN chuyển SG; SG = SG + SG chuyển HN) và **Doanh thu Cơ sở** (HN = HN + SG chuyển HN; SG = SG + HN chuyển SG).
+- **Hiệu suất theo miền** = chi phí quảng cáo của các tài khoản thuộc BM miền đó (BM Hà Nội / BM Sài Gòn; hoá đơn, chưa có thì chi tiêu) ÷ Doanh thu Marketing miền đó không VAT.
 - **BM, Pháp nhân, Cơ sở** (thuộc tính tài khoản quảng cáo) chỉ lọc chi phí, hoá đơn, SĐT; doanh thu giữ nguyên.
 
 ## Quyền

@@ -50,6 +50,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from meobot.application.ads.access import AdsAccess, AdsNotVisibleError
 from meobot.application.ads.accounts_service import ads_people
+from meobot.application.ads.regions import RegionSplit, place_region, region_split
 from meobot.application.ads.revenue_service import (
     FLOW_LABELS,
     FLOWS,
@@ -64,6 +65,7 @@ from meobot.application.ads.sync_service import vn_today
 from meobot.application.audit_service import AuditService
 from meobot.db.models.ads import AdsAccount, AdsChargeDaily, AdsConnection, AdsSpendDaily
 from meobot.db.models.user import User
+from meobot.domain.ads.crm import CrmRegion
 from meobot.domain.ads.models import (
     ADS_RATIO_WATCH,
     MANUAL_PLATFORMS,
@@ -226,6 +228,8 @@ class TeamReport:
     attention: list[Alert] = field(default_factory=list)
     #: The four customer flows (``FLOWS``): SG, HN, HN chuyển SG, SG chuyển HN.
     flows: list[SourceLine] = field(default_factory=list)
+    #: Doanh thu Marketing / Cơ sở by region, cost by the BM's cơ sở, hiệu suất.
+    regions: RegionSplit = field(default_factory=RegionSplit)
     #: The BM filter in force and every BM to pick from.
     connection_id: uuid.UUID | None = None
     connections: list[AdsConnection] = field(default_factory=list)
@@ -269,6 +273,8 @@ class _Raw:
     spend_rows: list[Any]
     charge_rows: list[Any]
     revenue_rows: list[RevenueRow]
+    #: Each BM's cơ sở, for the region an ad account's cost belongs to.
+    connection_sites: dict[uuid.UUID, str] = field(default_factory=dict)
 
     def narrow(
         self,
@@ -415,7 +421,8 @@ class AdsTeamService:
             if revenue
             else []
         )
-        return _Raw(accounts, spend_rows, charge_rows, revenue_rows)
+        sites = {row.id: row.site for row in await self._session.scalars(select(AdsConnection))}
+        return _Raw(accounts, spend_rows, charge_rows, revenue_rows, sites)
 
     async def history(
         self,
@@ -510,6 +517,29 @@ class AdsTeamService:
         }
         book = books[platform]
         accounts = book.accounts
+
+        def account_region(account_id: str) -> CrmRegion | None:
+            account = accounts[account_id]
+            site = (
+                raw.connection_sites.get(account.connection_id) if account.connection_id else None
+            )
+            return place_region(site or account.site)
+
+        costs = [
+            (day, account_region(account_id), float(spend), 0.0)
+            for day, account_id, spend, _phones in book.spend_rows
+        ] + [
+            (
+                day,
+                account_region(account_id),
+                0.0,
+                float(
+                    amount
+                    * invoice_factor(accounts[account_id].name, accounts[account_id].brand, day)
+                ),
+            )
+            for day, account_id, amount in book.charge_rows
+        ]
         revenue_rows = book.revenue_rows
         revenue_service = AdsRevenueService(self._session, AuditService(self._session))
         team = book.figures
@@ -689,6 +719,7 @@ class AdsTeamService:
             ),
             sources=sources,
             flows=flows,
+            regions=region_split(book.revenue_rows, costs, period),
             marketers=marketers,
             facebook=facebook,
             attention=attention[:5],

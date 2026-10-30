@@ -4033,11 +4033,32 @@ export interface AdsHighlights {
 /** A customer flow: marketing team (CRM account) -> branch that served. */
 export type AdsFlow = "hcm_hcm" | "hn_hn" | "hn_hcm" | "hcm_hn";
 
+/** One region's revenue counted both ways, its cost and hiệu suất. */
+export interface AdsRegionFigures {
+  /** Doanh thu Marketing (by the team that brought the customer). */
+  marketing: number;
+  /** Doanh thu Cơ sở (by the branch that served them). */
+  site: number;
+  marketing_net: number;
+  /** Cost on the ad accounts of that cơ sở (BM site). */
+  spend: number;
+  invoice: number;
+  /** Hiệu suất: cost ÷ Marketing revenue without VAT. */
+  ads_ratio: number | null;
+  tone: "good" | "watch" | "bad" | null;
+}
+
 /**
- * "Miền": by marketing team (`mkt_*`), by the branch that served (`site_*`),
- * or one flow; "" / `all` = everything.
+ * HN Marketing = HN + HN chuyển SG, HN Cơ sở = HN + SG chuyển HN; SG alike.
+ * Both ways add up to the same total.
  */
-export type AdsRegion = "mkt_hcm" | "mkt_hn" | "site_hcm" | "site_hn" | AdsFlow;
+export interface AdsRegionSplit {
+  hn: AdsRegionFigures;
+  hcm: AdsRegionFigures;
+  other_spend: number;
+  other_invoice: number;
+  flows: Partial<Record<AdsFlow, number>>;
+}
 
 export interface AdsDashboard {
   start: string;
@@ -4046,8 +4067,10 @@ export interface AdsDashboard {
   previous_end: string;
   grouping: "day" | "week" | "month";
   user_id: Uuid | null;
-  /** Revenue by customer flow, inside "Miền". */
+  /** Revenue by customer flow. */
   flows?: Partial<Record<AdsFlow, number>>;
+  /** Doanh thu Marketing / Cơ sở by region, hiệu suất. */
+  regions?: AdsRegionSplit | null;
   kpis: AdsKpi[];
   series: AdsSeriesPoint[];
   best_day: AdsSeriesPoint | null;
@@ -4302,6 +4325,8 @@ export interface AdsTeamReport {
     revenue: number | null;
     revenue_net?: number | null;
   }>;
+  /** Doanh thu Marketing / Cơ sở by region, hiệu suất. */
+  regions?: AdsRegionSplit | null;
   marketers: Array<{
     user_id: Uuid;
     name: string;
@@ -4353,8 +4378,6 @@ export interface AdsDashboardQuery {
   site?: string;
   /** Default FACEBOOK. */
   platform?: AdsPlatform;
-  /** "Miền" (2026-10-30): narrows the revenue only; default everything. */
-  region?: AdsRegion;
 }
 
 export interface Department {

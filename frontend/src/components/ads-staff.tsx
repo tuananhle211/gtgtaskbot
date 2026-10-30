@@ -18,9 +18,8 @@ import {
   percent,
   PlatformSelect,
   platformLabel,
-  FlowList,
   ratioTone,
-  RegionSelect,
+  RegionRevenue,
   SeriesChart,
 } from "@/components/ads";
 import {
@@ -43,7 +42,7 @@ import { formatDate, formatDateTime, formatShortDate } from "@/lib/datetime";
  * who picked them in "Xem chi tiết theo" - anybody's, under a banner with
  * their rank and "← Về khối tổng".
  *
- * * Khối 1: "Doanh số (xét KPI)" = SG + HN as entered (VAT included), the
+ * * Khối 1: "Doanh thu tổng" = SG + HN (VAT included), the
  *   commission revenue without the 8% VAT, Ads / Doanh thu = spend ÷
  *   commission revenue, spend, messages, phone numbers. Customer figures
  *   (Bill TB, khách đến cửa, lịch) and Hotline per marketer are not entered
@@ -239,13 +238,6 @@ function Missing({
   );
 }
 
-function share(
-  part: number | null | undefined,
-  whole: number | null | undefined,
-): string {
-  return part != null && whole ? percent(part / whole) : "—";
-}
-
 type Tab = "summary" | "entry" | "spend" | "invoice";
 
 function Workspace({
@@ -277,7 +269,6 @@ function Workspace({
   // No revenue to show: one marketer's Google / TikTok numbers (that revenue
   // is entered per source). Pháp nhân / BM / cơ sở narrow the costs only.
   const byPlatform = data.revenue_note === "platform";
-  const region = filters.region;
   const tone = ratioTone(kpi.ads_ratio?.value);
   // Both ends sent, the other following when crossed (never a 422).
   const pickDay = (edge: "start" | "end", value: string) => {
@@ -355,12 +346,6 @@ function Workspace({
             </Select>
           </label>
         ) : null}
-        <RegionSelect
-          value={region ?? ""}
-          onChange={(value) =>
-            set({ region: (value || undefined) as AdsDashboardQuery["region"] })
-          }
-        />
       </section>
 
       <section aria-label="Chỉ số chính" className="space-y-2">
@@ -372,7 +357,7 @@ function Workspace({
               className={`${CARD} border-dashed sm:col-span-2`}
             >
               <div className="text-sm text-[var(--text-muted)]">
-                Doanh số (xét KPI)
+                Doanh thu tổng
               </div>
               <div className="mt-1 text-2xl font-semibold text-[var(--text-muted)]">
                 {byPlatform ? "Không tách được" : "Chưa nhập"}
@@ -380,9 +365,7 @@ function Workspace({
               <div className="mt-1 text-xs text-[var(--text-muted)]">
                 {byPlatform
                   ? `Doanh thu ${platformLabel(data.platform)} nhập chung ở dòng ◆ của nguồn (Nhập doanh thu), không theo người: xem ở Tổng team.`
-                  : region
-                    ? "Chưa có doanh số thuộc lựa chọn Miền này trong khoảng ngày."
-                    : "Chưa có doanh số nào trong khoảng ngày này (CRM hoặc Phòng Ads › Nhập doanh thu)."}
+                  : "Chưa có doanh số nào trong khoảng ngày này (CRM hoặc Phòng Ads › Nhập doanh thu)."}
               </div>
             </div>
           ) : (
@@ -392,25 +375,8 @@ function Workspace({
               note={`Doanh thu hoa hồng ${money(data.revenue_net)} · Bill TB chưa có dữ liệu`}
             />
           )}
-          {kpi.revenue_sg?.value && !byPlatform ? (
-            <KpiCard
-              kpi={kpi.revenue_sg}
-              note={`${share(kpi.revenue_sg.value, revenue)} · khách làm tại cơ sở HCM`}
-            />
-          ) : null}
-          {kpi.revenue_hn?.value && !byPlatform ? (
-            <KpiCard
-              kpi={kpi.revenue_hn}
-              note={`${share(kpi.revenue_hn.value, revenue)} · khách làm tại cơ sở HN`}
-            />
-          ) : null}
-          {!byPlatform && data.flows && Object.values(data.flows).some(Boolean) ? (
-            <div data-testid="kpi-flows" className={`${CARD} sm:col-span-2`}>
-              <div className="text-sm text-[var(--text-muted)]">
-                Luồng khách · đội MKT → cơ sở làm
-              </div>
-              <FlowList values={data.flows} />
-            </div>
+          {!byPlatform && revenue !== null && data.regions ? (
+            <RegionRevenue regions={data.regions} className="sm:col-span-2" />
           ) : null}
           {manual ? null : (
             <Missing
@@ -661,7 +627,6 @@ function Workspace({
         month={data.end.slice(0, 7)}
         userId={userId}
         connectionId={manual ? undefined : filters.connection_id}
-        site={region}
         platform={data.platform}
       />
     </>

@@ -1,7 +1,13 @@
 "use client";
 
 import { useState } from "react";
-import type { AdsFlow, AdsKpi, AdsPlatform, AdsSeriesPoint } from "@/lib/api";
+import type {
+  AdsKpi,
+  AdsPlatform,
+  AdsRegionFigures,
+  AdsRegionSplit,
+  AdsSeriesPoint,
+} from "@/lib/api";
 import { Select } from "@/components/pr";
 import { formatShortDate } from "@/lib/datetime";
 
@@ -63,86 +69,111 @@ export function PlatformSelect({
   );
 }
 
-/** The four customer flows, in order (marketing team -> branch that served). */
-export const FLOWS: ReadonlyArray<{ value: AdsFlow; label: string; hint: string }> = [
-  { value: "hcm_hcm", label: "SG", hint: "MKT HCM · làm tại HCM" },
-  { value: "hn_hn", label: "HN", hint: "MKT HN · làm tại HN" },
-  { value: "hn_hcm", label: "HN chuyển SG", hint: "MKT HN · làm tại HCM" },
-  { value: "hcm_hn", label: "SG chuyển HN", hint: "MKT HCM · làm tại HN" },
-];
+const REGION_TONE: Record<string, string> = {
+  good: "bg-[var(--good-soft)] text-[var(--good)]",
+  watch: "bg-[var(--warn-soft)] text-[var(--warn)]",
+  bad: "bg-[var(--bad-soft)] text-[var(--bad)]",
+};
 
-/**
- * "Miền" (2026-10-30): narrows the revenue only. A CRM account's region = the
- * marketing team that brought the customer; the payment's branch = where they
- * were served. "" = everything.
- */
-export function RegionSelect({
+function RegionLine({
+  label,
   value,
-  onChange,
+  parts,
+  figures,
 }: {
-  value: string;
-  onChange: (region: string) => void;
+  label: string;
+  value: number;
+  parts: string;
+  /** With a cost: the Marketing line shows its hiệu suất. */
+  figures?: AdsRegionFigures;
 }) {
   return (
-    <label className="flex flex-col gap-1 text-xs font-medium text-[var(--text-muted)]">
-      <span>Miền</span>
-      <Select
-        aria-label="Miền"
-        value={value}
-        onChange={(event) => onChange(event.target.value)}
-      >
-        <option value="">Tất cả</option>
-        <optgroup label="Theo đội MKT (tài khoản CRM)">
-          <option value="mkt_hcm">MKT HCM</option>
-          <option value="mkt_hn">MKT HN</option>
-        </optgroup>
-        <optgroup label="Theo cơ sở làm (chi nhánh)">
-          <option value="site_hcm">Cơ sở HCM</option>
-          <option value="site_hn">Cơ sở HN</option>
-        </optgroup>
-        <optgroup label="Từng luồng">
-          {FLOWS.map((flow) => (
-            <option key={flow.value} value={flow.value}>
-              {flow.label} ({flow.hint})
-            </option>
-          ))}
-        </optgroup>
-      </Select>
-    </label>
+    <li className="space-y-0.5">
+      <div className="flex items-baseline justify-between gap-2">
+        <span className="font-semibold">{label}</span>
+        <span className="text-lg font-semibold tabular-nums">{money(value)}</span>
+      </div>
+      <div className="text-xs text-[var(--text-muted)]">{parts}</div>
+      {figures ? (
+        <div className="flex flex-wrap items-center gap-1.5 text-xs text-[var(--text-muted)]">
+          <span>Hiệu suất</span>
+          <span
+            className={`rounded-md px-1.5 py-0.5 font-semibold tabular-nums ${
+              figures.tone ? REGION_TONE[figures.tone] : "bg-[var(--surface-muted)]"
+            }`}
+          >
+            {percent(figures.ads_ratio)}
+          </span>
+          <span>
+            = chi phí {label} {money(figures.invoice || figures.spend)} ÷ DT hoa hồng{" "}
+            {money(figures.marketing_net)}
+          </span>
+        </div>
+      ) : null}
+    </li>
   );
 }
 
-/** The four flows with their amount and share (an empty flow drawn as "–"). */
-export function FlowList({
-  values,
+/**
+ * Under "Doanh thu tổng": the same revenue counted by the team that brought
+ * the customer (Doanh thu Marketing: HN = HN + HN chuyển SG, SG = SG + SG
+ * chuyển HN) and by the branch that served them (Doanh thu Cơ sở: HN = HN +
+ * SG chuyển HN, SG = SG + HN chuyển SG). Both add up to the total; hiệu suất =
+ * the region's marketing cost (its BM) ÷ its Marketing revenue without VAT.
+ */
+export function RegionRevenue({
+  regions,
+  className = "",
 }: {
-  values: Partial<Record<AdsFlow, number | null>>;
+  regions: AdsRegionSplit;
+  className?: string;
 }) {
-  const total = FLOWS.reduce((sum, flow) => sum + (values[flow.value] ?? 0), 0);
+  const flow = (key: keyof AdsRegionSplit["flows"]) => regions.flows[key] ?? 0;
+  const card = `rounded-xl border border-[var(--border)] bg-[var(--surface)] p-4 ${className}`;
+  const total = regions.hn.marketing + regions.hcm.marketing;
   return (
-    <ul className="mt-2 space-y-1.5 text-sm">
-      {FLOWS.map((flow) => {
-        const value = values[flow.value] ?? null;
-        return (
-          <li
-            key={flow.value}
-            data-testid={`flow-${flow.value}`}
-            className="grid grid-cols-[minmax(0,1fr)_7rem_3.5rem] items-center gap-2"
-          >
-            <span className="truncate">
-              <span className="font-medium">{flow.label}</span>{" "}
-              <span className="text-xs text-[var(--text-muted)]">{flow.hint}</span>
-            </span>
-            <span className="text-right tabular-nums">
-              {value ? compactMoney(value) : "–"}
-            </span>
-            <span className="text-right text-xs tabular-nums text-[var(--text-muted)]">
-              {value && total ? percent(value / total) : ""}
-            </span>
-          </li>
-        );
-      })}
-    </ul>
+    <>
+      <div data-testid="revenue-marketing" className={card}>
+        <div className="flex items-baseline justify-between gap-2">
+          <span className="text-sm text-[var(--text-muted)]">Doanh thu Marketing</span>
+          <span className="text-sm font-semibold tabular-nums">{money(total)}</span>
+        </div>
+        <ul className="mt-2 space-y-2 text-sm">
+          <RegionLine
+            label="HN"
+            value={regions.hn.marketing}
+            parts={`HN ${money(flow("hn_hn"))} + HN chuyển SG ${money(flow("hn_hcm"))}`}
+            figures={regions.hn}
+          />
+          <RegionLine
+            label="SG"
+            value={regions.hcm.marketing}
+            parts={`SG ${money(flow("hcm_hcm"))} + SG chuyển HN ${money(flow("hcm_hn"))}`}
+            figures={regions.hcm}
+          />
+        </ul>
+      </div>
+      <div data-testid="revenue-site" className={card}>
+        <div className="flex items-baseline justify-between gap-2">
+          <span className="text-sm text-[var(--text-muted)]">Doanh thu Cơ sở</span>
+          <span className="text-sm font-semibold tabular-nums">
+            {money(regions.hn.site + regions.hcm.site)}
+          </span>
+        </div>
+        <ul className="mt-2 space-y-2 text-sm">
+          <RegionLine
+            label="HN"
+            value={regions.hn.site}
+            parts={`HN ${money(flow("hn_hn"))} + SG chuyển HN ${money(flow("hcm_hn"))}`}
+          />
+          <RegionLine
+            label="SG"
+            value={regions.hcm.site}
+            parts={`SG ${money(flow("hcm_hcm"))} + HN chuyển SG ${money(flow("hn_hcm"))}`}
+          />
+        </ul>
+      </div>
+    </>
   );
 }
 

@@ -18,9 +18,8 @@ import {
   percent,
   PlatformSelect,
   platformLabel,
-  FlowList,
   ratioTone,
-  RegionSelect,
+  RegionRevenue,
 } from "@/components/ads";
 import { BudgetBoard } from "@/components/ads-budget";
 import { AdsReports } from "@/components/ads-reports";
@@ -62,16 +61,14 @@ export function TeamDashboard({
   const [month, setMonth] = useState("");
   // A range of days instead of the month ("Từ ngày" / "Đến ngày").
   const [range, setRange] = useState<DateRange | null>(null);
-  const [site, setSite] = useState("all");
   const [chosenConnection, setConnection] = useState("");
   // A BM is Facebook's.
   const connection = isManual(platform) ? "" : chosenConnection;
   const report = useQuery({
-    queryKey: ["ads", "team", month, site, connection, range, platform],
+    queryKey: ["ads", "team", month, connection, range, platform],
     queryFn: () =>
       api.adsTeam({
         month: month || undefined,
-        site,
         connection_id: connection || undefined,
         start: range?.start,
         end: range?.end,
@@ -148,10 +145,6 @@ export function TeamDashboard({
             </label>
           </>
         ) : null}
-        <RegionSelect
-          value={site === "all" ? "" : site}
-          onChange={(value) => setSite(value || "all")}
-        />
         {shown?.connections?.length && !isManual(platform) ? (
           <label className={LABEL}>
             <span>BM</span>
@@ -183,7 +176,6 @@ export function TeamDashboard({
         <AdsReports
           month={report.data.month.slice(0, 7)}
           connectionId={connection || undefined}
-          site={site}
           platform={report.data.platform}
         />
       ) : null}
@@ -400,10 +392,10 @@ function Report({
               <Tile
                 testid="team-revenue"
                 wide
-                label="Doanh thu xét KPI"
+                label="Doanh thu tổng"
                 value={now.revenue === null ? "Chưa nhập" : money(now.revenue)}
                 change={delta(now.revenue, before.revenue)}
-                sub={`Cơ sở HCM ${money(data.revenue_hcm)} · Cơ sở HN ${money(data.revenue_hn_transfer)} · DT hoa hồng ${money(now.revenue_net)}`}
+                sub={`Thực thu, xét KPI · DT hoa hồng ${money(now.revenue_net)}`}
               />
               <Tile
                 testid="team-ratio"
@@ -413,8 +405,10 @@ function Report({
                 sub="Lập hoá đơn ÷ DT hoa hồng · ngưỡng ≤ 40%"
               />
               <KpiProgress data={data} />
+              {data.regions ? (
+                <RegionRevenue regions={data.regions} className="sm:col-span-2" />
+              ) : null}
               <Sources data={data} />
-              <Flows data={data} />
             </>
           )}
           <Tile
@@ -538,21 +532,6 @@ function Sources({ data }: { data: AdsTeamReport }) {
   );
 }
 
-/** Khối 1: the four customer flows (marketing team -> branch that served). */
-function Flows({ data }: { data: AdsTeamReport }) {
-  const values = Object.fromEntries(
-    (data.flows ?? []).map((flow) => [flow.key, flow.revenue]),
-  );
-  return (
-    <div data-testid="team-flows" className={`${CARD} sm:col-span-2`}>
-      <div className="text-sm text-[var(--text-muted)]">
-        Luồng khách · đội MKT → cơ sở làm
-      </div>
-      <FlowList values={values} />
-    </div>
-  );
-}
-
 function Fact({ label, value }: { label: string; value: React.ReactNode }) {
   return (
     <div>
@@ -591,7 +570,6 @@ function KpiProgress({ data }: { data: AdsTeamReport }) {
             KPI {compactMoney(data.team_kpi)} · tháng đã qua{" "}
             {percent(data.month_progress)}
             {behind ? " · đang chậm tiến độ" : ""}
-            {data.site !== "all" ? " · tính cả 2 miền" : ""}
           </div>
         </>
       ) : (
