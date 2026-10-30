@@ -2,9 +2,8 @@
 Quản lý), for one month.
 
 * **Khối 1** - the month's totals against the month before: "Doanh thu xét
-  KPI" (the HCM site's revenue: the marketers' SG part and every ◆ source; the
-  marketers' HN part counts for their own KPI only), its split HCM / HN chuyển
-  HCM, the commission revenue (without the 8% VAT), Ads / Doanh thu (charges ÷
+  KPI" (every line of the "Miền" picked: HCM, HN or both - 2026-10-30), its
+  split HCM / HN, the commission revenue (without the 8% VAT), Ads / Doanh thu (charges ÷
   commission revenue), Ads / DT thực (charges ÷ revenue), the KPI and how far
   the month is, revenue by source, spend, charges, phone numbers.
 * **Khối 2** - per platform (``channels``, whatever ``platform`` is picked):
@@ -20,12 +19,14 @@ Quản lý), for one month.
 ``start`` / ``end`` read any range instead of a month (compared with the same
 number of days just before); the KPI always belongs to the month the range
 ends in, measured on that month's revenue from its 1st to the range's end.
-``site`` narrows the revenue: ``hcm`` without the "HN chuyển HCM" source, ``hn``
-that source alone. ``connection_id`` narrows everything to one BM's ad accounts:
-spend, charges, phone numbers and the marketers holding an account there; the
-revenue is entered per person, not per BM, so it is left out (``revenue_note``
-``filtered``, as on the staff dashboard). Customers, bookings and bill figures
-are not entered yet.
+``site`` = "Miền" (2026-10-30) narrows the revenue only
+(:func:`~meobot.application.ads.revenue_service.region_amount`): ``hcm`` = every
+line's SG part (the marketers' HCM CRM accounts), ``hn`` = the HN part (HN CRM
+accounts, the ◆ "HN chuyển HCM" line), ``all`` = both; the team KPI is measured
+on both whatever is picked. ``connection_id`` narrows the costs to one BM's ad
+accounts (spend, charges, phone numbers, the marketers holding an account
+there); the revenue is per person, not per BM, so it stays whole. Customers,
+bookings and bill figures are not entered yet.
 
 ``platform`` (0081) switches Khối 1, Khối 3 and the reports to one platform's
 ad accounts: Facebook (default) as above; Google / TikTok Ads take their ◆
@@ -49,7 +50,16 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from meobot.application.ads.access import AdsAccess, AdsNotVisibleError
 from meobot.application.ads.accounts_service import ads_people
-from meobot.application.ads.revenue_service import TEAM_KEY, AdsRevenueService, RevenueRow
+from meobot.application.ads.revenue_service import (
+    FLOW_LABELS,
+    FLOWS,
+    REGION_FLOWS,
+    REGIONS,
+    TEAM_KEY,
+    AdsRevenueService,
+    RevenueRow,
+    region_amount,
+)
 from meobot.application.ads.sync_service import vn_today
 from meobot.application.audit_service import AuditService
 from meobot.db.models.ads import AdsAccount, AdsChargeDaily, AdsConnection, AdsSpendDaily
@@ -70,7 +80,8 @@ from meobot.domain.ads.models import (
 
 #: "Báo cáo tháng" starts here (the Sheet's first month) or at January.
 REPORT_FROM_MONTH = 4
-SITES = ("all", "hcm", "hn")
+#: "Miền" (``site``): ``hcm`` / ``hn`` / both - see ``region_amount``.
+SITES = REGIONS
 
 
 @dataclass(slots=True)
@@ -199,7 +210,7 @@ class TeamReport:
     site: str
     current: Figures
     before: Figures
-    #: The HCM site (everything but "HN chuyển HCM") and that source.
+    #: Every line's HCM part, and its HN part (with "HN chuyển HCM").
     revenue_hcm: float | None
     revenue_hn_transfer: float | None
     #: The marketers' HN part: their KPI, not the site's revenue.
@@ -207,16 +218,17 @@ class TeamReport:
     team_kpi: float | None
     #: Share of the KPI month gone (days through yesterday ÷ days in it).
     month_progress: float
-    #: The site's revenue from the KPI month's 1st to the range's end.
+    #: Both regions' revenue from the KPI month's 1st to the range's end.
     kpi_revenue: float | None
     sources: list[SourceLine]
     marketers: list[MarketerLine]
     facebook: Figures
     attention: list[Alert] = field(default_factory=list)
+    #: The four customer flows (``FLOWS``): SG, HN, HN chuyển SG, SG chuyển HN.
+    flows: list[SourceLine] = field(default_factory=list)
     #: The BM filter in force and every BM to pick from.
     connection_id: uuid.UUID | None = None
     connections: list[AdsConnection] = field(default_factory=list)
-    #: ``filtered`` = a BM is picked: no revenue (not split by BM);
     #: ``platform`` = Google / TikTok: revenue is their ◆ line, no KPI.
     revenue_note: str | None = None
     platform: AdsPlatform = AdsPlatform.FACEBOOK
@@ -249,17 +261,6 @@ def month_period(first: date) -> Period:
     return Period(start=start, end=end)
 
 
-def _in_site(row: RevenueRow, site: str) -> bool:
-    """Whether a revenue line counts for the site's revenue (marketers: their
-    SG part, handled by the caller)."""
-    transfer = row.source is RevenueSource.HN
-    if site == "hcm":
-        return not transfer
-    if site == "hn":
-        return transfer
-    return True
-
-
 @dataclass(slots=True)
 class _Raw:
     """Every account's rows in a window, loaded once and narrowed per platform."""
@@ -287,9 +288,9 @@ class _Raw:
             and (connection_id is None or account.connection_id == connection_id)
             and (person is None or account.user_id == person)
         }
-        if connection_id is not None:
-            revenue: list[RevenueRow] = []
-        elif manual:
+        # A BM narrows the costs only: revenue is per person, not per BM
+        # (2026-10-30), so it stays whole.
+        if manual:
             # Entered on the platform's ◆ line: the department's, nobody's own.
             source = PLATFORM_SOURCES[platform]
             revenue = (
@@ -323,8 +324,10 @@ def _by_person(book: _Book, period: Period) -> dict[uuid.UUID, Figures]:
                 amount * invoice_factor(account.name, account.brand, day)
             )
     for row in book.revenue_rows:
-        if row.user_id is not None and row.gross and period.start <= row.day <= period.end:
-            by_person[row.user_id].add_revenue(row.gross, row.day)
+        if row.user_id is not None and period.start <= row.day <= period.end:
+            value = region_amount(row, book.site)
+            if value:
+                by_person[row.user_id].add_revenue(value, row.day)
     return by_person
 
 
@@ -349,8 +352,9 @@ class _Book:
     spend_rows: list[Any]
     charge_rows: list[Any]
     revenue_rows: list[RevenueRow]
+    #: "Miền": the revenue's HCM part, HN part or both.
     site: str = "all"
-    #: One marketer: their own revenue (SG + HN), not the site's.
+    #: One marketer (their own lines only).
     person: uuid.UUID | None = None
 
     def figures(self, span: Period) -> Figures:
@@ -364,14 +368,10 @@ class _Book:
                 account = self.accounts[account_id]
                 figures.invoice += float(amount * invoice_factor(account.name, account.brand, day))
         for row in self.revenue_rows:
-            if not span.start <= row.day <= span.end:
-                continue
-            if self.person is not None:
-                if row.gross:
-                    figures.add_revenue(row.gross, row.day)
-            # The site's revenue: a marketer's SG part, a source's amount.
-            elif _in_site(row, self.site) and row.amount:
-                figures.add_revenue(row.amount, row.day)
+            if span.start <= row.day <= span.end:
+                value = region_amount(row, self.site)
+                if value:
+                    figures.add_revenue(value, row.day)
         return figures
 
 
@@ -444,7 +444,7 @@ class AdsTeamService:
             person=person,
             site=site if site in SITES else "all",
         )
-        no_kpi = connection_id is not None or manual
+        no_kpi = manual
         revenue_service = AdsRevenueService(self._session, AuditService(self._session))
         kpi_key = f"u:{person}" if person is not None else TEAM_KEY
         months: list[MonthLine] = []
@@ -468,11 +468,7 @@ class AdsTeamService:
                 DayLine(day, book.figures(Period(start=day, end=day)))
                 for day in _month_days(period)
             ],
-            revenue_note="filtered"
-            if connection_id
-            else "platform"
-            if manual and person is not None
-            else None,
+            revenue_note="platform" if manual and person is not None else None,
             platform=platform,
         )
 
@@ -526,22 +522,21 @@ class AdsTeamService:
             items = list(values)
             return float(sum(items, Decimal(0))) if items else None
 
-        transfer = total(row.amount for row in in_month if row.source is RevenueSource.HN)
-
-        def source_line(key: str, label: str, rows: list[RevenueRow]) -> SourceLine:
+        def source_line(
+            key: str, label: str, rows: list[RevenueRow], region: str = site
+        ) -> SourceLine:
+            amounts = [(region_amount(row, region), row.day) for row in rows]
+            amounts = [(amount, day) for amount, day in amounts if amount]
             return SourceLine(
                 key,
                 label,
-                total(row.amount for row in rows),
-                total(commission_revenue(row.amount, row.day) for row in rows),
+                total(amount for amount, _ in amounts),
+                total(commission_revenue(amount, day) for amount, day in amounts),
             )
 
+        mine = [row for row in in_month if row.user_id is not None]
         sources = [
-            source_line(
-                "sg",
-                "Doanh số SG",
-                [row for row in in_month if row.user_id is not None and row.amount],
-            ),
+            source_line("sg", "Marketing", mine),
             source_line(
                 "s:HN",
                 "Doanh số chuyển miền",
@@ -558,10 +553,28 @@ class AdsTeamService:
             ],
         ]
 
+        # The four customer flows (marketing team -> branch), inside "Miền".
+        chosen = REGION_FLOWS.get(site, FLOWS)
+        flows = [
+            SourceLine(
+                flow,
+                FLOW_LABELS[flow],
+                total(value for row in in_month if (value := row.flows()[flow])),
+                total(
+                    commission_revenue(value, row.day)
+                    for row in in_month
+                    if (value := row.flows()[flow])
+                ),
+            )
+            if flow in chosen
+            else SourceLine(flow, FLOW_LABELS[flow], None, None)
+            for flow in FLOWS
+        ]
+
         # The marketers: their accounts' numbers and their own revenue (SG + HN).
         people = {item: _by_person(books[item], period) for item in AdsPlatform}
         by_person = people[platform]
-        kpis = {} if filtered or manual else await revenue_service.kpi_amounts(kpi_month.start)
+        kpis = {} if manual else await revenue_service.kpi_amounts(kpi_month.start)
         kpi_revenue: dict[uuid.UUID, float] = defaultdict(float)
         for row in revenue_rows:
             if row.user_id is not None and kpi_span.start <= row.day <= kpi_span.end:
@@ -624,8 +637,7 @@ class AdsTeamService:
         facebook = channels[0].figures
 
         attention: list[Alert] = []
-        # Without revenue (a BM picked) every spender would look "no revenue".
-        for person in [] if filtered else channels[0].people:
+        for person in channels[0].people:
             numbers = person.figures
             if numbers.spend <= 0:
                 continue
@@ -664,15 +676,19 @@ class AdsTeamService:
             site=site,
             current=current,
             before=before,
-            revenue_hcm=total(
-                row.amount for row in in_month if row.amount and row.source is not RevenueSource.HN
+            revenue_hcm=total(value for row in in_month if (value := region_amount(row, "hcm"))),
+            revenue_hn_transfer=total(
+                value for row in in_month if (value := region_amount(row, "hn"))
             ),
-            revenue_hn_transfer=transfer,
             marketers_hn=total(row.amount_hn for row in in_month if row.amount_hn),
             team_kpi=float(kpis[TEAM_KEY]) if TEAM_KEY in kpis else None,
             month_progress=progress,
-            kpi_revenue=team(kpi_span).revenue,
+            # The KPI is the whole department's, both regions, whatever "Miền".
+            kpi_revenue=total(
+                row.gross for row in revenue_rows if kpi_span.start <= row.day <= kpi_span.end
+            ),
             sources=sources,
+            flows=flows,
             marketers=marketers,
             facebook=facebook,
             attention=attention[:5],
@@ -680,7 +696,7 @@ class AdsTeamService:
             connections=list(
                 await self._session.scalars(select(AdsConnection).order_by(AdsConnection.name))
             ),
-            revenue_note="filtered" if filtered else "platform" if manual else None,
+            revenue_note="platform" if manual else None,
             platform=platform,
             channels=channels,
         )

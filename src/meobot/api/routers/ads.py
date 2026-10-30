@@ -62,6 +62,7 @@ from meobot.application.ads.crm_service import AdsCrmService
 from meobot.application.ads.dashboard_service import AdsDashboardService
 from meobot.application.ads.manual_service import AdsManualService, ManualEntry
 from meobot.application.ads.revenue_service import (
+    REGIONS,
     AdsRevenueForbiddenError,
     AdsRevenueService,
     EntryLine,
@@ -88,6 +89,9 @@ from meobot.domain.identity.models import Actor
 from meobot.integrations.meta_ads.client import GraphMetaAdsClient, MetaAdsClient
 
 router = APIRouter(prefix="/api/ads", tags=["ads"])
+
+#: "Miền" (``region`` / ``site``): every choice of ``REGION_FLOWS``.
+REGION_PATTERN = f"^({'|'.join(REGIONS)})$"
 
 #: The dashboard's default: the last 14 days up to yesterday.
 DEFAULT_DAYS = 14
@@ -365,6 +369,7 @@ async def dashboard(
     connection_id: Annotated[uuid.UUID | None, Query()] = None,
     site: Annotated[str | None, Query(max_length=60)] = None,
     platform: Annotated[AdsPlatform, Query()] = AdsPlatform.FACEBOOK,
+    region: Annotated[str, Query(pattern=REGION_PATTERN)] = "all",
 ) -> AdsDashboardResponse:
     """One person's numbers (a Trưởng phòng / the OWNER: ``user_id`` or the
     whole department; a member: always their own)."""
@@ -385,6 +390,7 @@ async def dashboard(
         connection_id=connection_id,
         site=site,
         platform=platform,
+        region=region,
     )
     return AdsDashboardResponse.from_domain(data)
 
@@ -759,7 +765,7 @@ async def team_report(
     actor: CurrentActorDep,
     session: SessionDep,
     month: Annotated[str | None, Query(max_length=7)] = None,
-    site: Annotated[str, Query(pattern="^(all|hcm|hn)$")] = "all",
+    site: Annotated[str, Query(pattern=REGION_PATTERN)] = "all",
     connection_id: Annotated[uuid.UUID | None, Query()] = None,
     start: Annotated[date | None, Query()] = None,
     end: Annotated[date | None, Query()] = None,
@@ -797,7 +803,7 @@ async def history(
     month: Annotated[str | None, Query(max_length=7)] = None,
     user_id: Annotated[uuid.UUID | None, Query()] = None,
     connection_id: Annotated[uuid.UUID | None, Query()] = None,
-    site: Annotated[str, Query(pattern="^(all|hcm|hn)$")] = "all",
+    site: Annotated[str, Query(pattern=REGION_PATTERN)] = "all",
     platform: Annotated[AdsPlatform, Query()] = AdsPlatform.FACEBOOK,
 ) -> HistoryResponse:
     """ "Báo cáo tháng" (April to ``month``) and "Báo cáo ngày" (its days): the

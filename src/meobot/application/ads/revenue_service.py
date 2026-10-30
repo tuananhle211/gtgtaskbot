@@ -16,7 +16,7 @@ from __future__ import annotations
 
 import uuid
 from collections.abc import Mapping
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import date
 from decimal import Decimal, InvalidOperation
 
@@ -81,20 +81,87 @@ class EntryLine:
     from_crm: bool = False
 
 
+#: The four customer flows (2026-10-30): which marketing team brought the
+#: customer (the CRM account's region) -> where they were served (the
+#: payment's branch). ``hn_hcm`` = "HN chuyển SG", ``hcm_hn`` = "SG chuyển HN".
+FLOWS = ("hcm_hcm", "hn_hn", "hn_hcm", "hcm_hn")
+FLOW_LABELS = {
+    "hcm_hcm": "SG (chạy HCM · làm HCM)",
+    "hn_hn": "HN (chạy HN · làm HN)",
+    "hn_hcm": "HN chuyển SG",
+    "hcm_hn": "SG chuyển HN",
+}
+#: "Miền" on the dashboards: the flows each choice keeps. ``mkt_*`` = by the
+#: marketing team (their KPI), ``site_*`` = by the branch that served (the
+#: cơ sở's revenue); ``hcm`` / ``hn`` = the old links, read as the cơ sở.
+REGION_FLOWS: dict[str, tuple[str, ...]] = {
+    "all": FLOWS,
+    "mkt_hcm": ("hcm_hcm", "hcm_hn"),
+    "mkt_hn": ("hn_hn", "hn_hcm"),
+    "site_hcm": ("hcm_hcm", "hn_hcm"),
+    "site_hn": ("hn_hn", "hcm_hn"),
+    **{flow: (flow,) for flow in FLOWS},
+    "hcm": ("hcm_hcm", "hn_hcm"),
+    "hn": ("hn_hn", "hcm_hn"),
+}
+REGIONS = tuple(REGION_FLOWS)
+
+
 @dataclass(frozen=True, slots=True)
 class RevenueRow:
     day: date
     key: str
     user_id: uuid.UUID | None
     source: RevenueSource | None
-    #: SG part (or the ◆ source's amount); 0 when only HN was entered.
+    #: Served at the HCM site ("Doanh số SG", or the ◆ source's amount).
     amount: Decimal
+    #: Served at a Hà Nội branch ("Doanh số HN").
     amount_hn: Decimal = Decimal(0)
+    #: Of ``amount`` / ``amount_hn``: what the HN marketing team brought (HN
+    #: CRM accounts); the rest is the HCM team's. Typed lines: 0.
+    hn_team_hcm: Decimal = Decimal(0)
+    hn_team_hn: Decimal = Decimal(0)
 
     @property
     def gross(self) -> Decimal:
         """A marketer's KPI revenue: SG + HN."""
         return self.amount + self.amount_hn
+
+    def flows(self) -> dict[str, Decimal]:
+        """The line split into the four flows (see :data:`FLOWS`)."""
+        if self.source is RevenueSource.HN and not (self.hn_team_hcm or self.hn_team_hn):
+            # Typed "HN chuyển HCM": Hà Nội's customers served in HCM.
+            return {**dict.fromkeys(FLOWS, Decimal(0)), "hn_hcm": self.gross}
+        return {
+            "hcm_hcm": self.amount - self.hn_team_hcm,
+            "hn_hn": self.hn_team_hn,
+            "hn_hcm": self.hn_team_hcm,
+            "hcm_hn": self.amount_hn - self.hn_team_hn,
+        }
+
+
+def region_amount(row: RevenueRow, region: str) -> Decimal:
+    """A revenue line's amount for a "Miền" choice (:data:`REGION_FLOWS`)."""
+    flows = row.flows()
+    return sum((flows[flow] for flow in REGION_FLOWS.get(region, FLOWS)), Decimal(0))
+
+
+def in_region(row: RevenueRow, region: str) -> RevenueRow | None:
+    """The line cut to the flows of a "Miền" choice, ``None`` when nothing of
+    it is left - for screens that split SG / HN themselves."""
+    keep = REGION_FLOWS.get(region, FLOWS)
+    if keep == FLOWS:
+        return row
+    flows = {flow: value if flow in keep else Decimal(0) for flow, value in row.flows().items()}
+    if not any(flows.values()):
+        return None
+    return replace(
+        row,
+        amount=flows["hcm_hcm"] + flows["hn_hcm"],
+        amount_hn=flows["hn_hn"] + flows["hcm_hn"],
+        hn_team_hcm=flows["hn_hcm"],
+        hn_team_hn=flows["hn_hn"],
+    )
 
 
 #: The save payload names a marketer's HN part ``u:<id>:hn``.
@@ -322,7 +389,16 @@ class AdsRevenueService:
             if not book.covers(row.day, row.subject_key)
         ]
         return typed + [
-            RevenueRow(line.day, line.key, line.user_id, line.source, line.amount, line.amount_hn)
+            RevenueRow(
+                line.day,
+                line.key,
+                line.user_id,
+                line.source,
+                line.amount,
+                line.amount_hn,
+                line.hn_team_hcm,
+                line.hn_team_hn,
+            )
             for line in book.lines
         ]
 
@@ -405,6 +481,10 @@ class AdsRevenueService:
 
 
 __all__ = [
+    "FLOWS",
+    "FLOW_LABELS",
+    "REGIONS",
+    "REGION_FLOWS",
     "TEAM_KEY",
     "AdsRevenueForbiddenError",
     "AdsRevenueFromCrmError",
@@ -412,5 +492,7 @@ __all__ = [
     "AdsRevenueService",
     "EntryLine",
     "RevenueRow",
+    "in_region",
     "month_start",
+    "region_amount",
 ]

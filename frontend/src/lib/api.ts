@@ -4030,6 +4030,15 @@ export interface AdsHighlights {
   earlier_daily_spend: number | null;
 }
 
+/** A customer flow: marketing team (CRM account) -> branch that served. */
+export type AdsFlow = "hcm_hcm" | "hn_hn" | "hn_hcm" | "hcm_hn";
+
+/**
+ * "Miền": by marketing team (`mkt_*`), by the branch that served (`site_*`),
+ * or one flow; "" / `all` = everything.
+ */
+export type AdsRegion = "mkt_hcm" | "mkt_hn" | "site_hcm" | "site_hn" | AdsFlow;
+
 export interface AdsDashboard {
   start: string;
   end: string;
@@ -4037,6 +4046,8 @@ export interface AdsDashboard {
   previous_end: string;
   grouping: "day" | "week" | "month";
   user_id: Uuid | null;
+  /** Revenue by customer flow, inside "Miền". */
+  flows?: Partial<Record<AdsFlow, number>>;
   kpis: AdsKpi[];
   series: AdsSeriesPoint[];
   best_day: AdsSeriesPoint | null;
@@ -4280,6 +4291,17 @@ export interface AdsTeamReport {
     /** Without the 8% VAT ("Doanh thu hoa hồng"). */
     revenue_net?: number | null;
   }>;
+  /**
+   * The four customer flows (marketing team -> branch that served):
+   * hcm_hcm, hn_hn, hn_hcm ("HN chuyển SG"), hcm_hn ("SG chuyển HN");
+   * revenue null outside "Miền".
+   */
+  flows?: Array<{
+    key: AdsFlow;
+    label: string;
+    revenue: number | null;
+    revenue_net?: number | null;
+  }>;
   marketers: Array<{
     user_id: Uuid;
     name: string;
@@ -4331,6 +4353,8 @@ export interface AdsDashboardQuery {
   site?: string;
   /** Default FACEBOOK. */
   platform?: AdsPlatform;
+  /** "Miền" (2026-10-30): narrows the revenue only; default everything. */
+  region?: AdsRegion;
 }
 
 export interface Department {

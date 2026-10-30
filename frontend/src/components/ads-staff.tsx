@@ -18,7 +18,9 @@ import {
   percent,
   PlatformSelect,
   platformLabel,
+  FlowList,
   ratioTone,
+  RegionSelect,
   SeriesChart,
 } from "@/components/ads";
 import {
@@ -272,10 +274,10 @@ function Workspace({
     data.kpis.map((item) => [item.key, item]),
   );
   const revenue = kpi.revenue?.value ?? null;
-  // No revenue to show: a brand / BM / cơ sở filter, or one marketer's Google
-  // / TikTok numbers (that revenue is entered per source).
+  // No revenue to show: one marketer's Google / TikTok numbers (that revenue
+  // is entered per source). Pháp nhân / BM / cơ sở narrow the costs only.
   const byPlatform = data.revenue_note === "platform";
-  const filtered = data.revenue_note === "filtered" || byPlatform;
+  const region = filters.region;
   const tone = ratioTone(kpi.ads_ratio?.value);
   // Both ends sent, the other following when crossed (never a 422).
   const pickDay = (edge: "start" | "end", value: string) => {
@@ -353,12 +355,18 @@ function Workspace({
             </Select>
           </label>
         ) : null}
+        <RegionSelect
+          value={region ?? ""}
+          onChange={(value) =>
+            set({ region: (value || undefined) as AdsDashboardQuery["region"] })
+          }
+        />
       </section>
 
       <section aria-label="Chỉ số chính" className="space-y-2">
         <h2 className="brand-eyebrow">Khối 1 · Chỉ số chính</h2>
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
-          {filtered || revenue === null ? (
+          {byPlatform || revenue === null ? (
             <div
               data-testid="kpi-revenue"
               className={`${CARD} border-dashed sm:col-span-2`}
@@ -367,14 +375,14 @@ function Workspace({
                 Doanh số (xét KPI)
               </div>
               <div className="mt-1 text-2xl font-semibold text-[var(--text-muted)]">
-                {filtered ? "Không tách được" : "Chưa nhập"}
+                {byPlatform ? "Không tách được" : "Chưa nhập"}
               </div>
               <div className="mt-1 text-xs text-[var(--text-muted)]">
                 {byPlatform
                   ? `Doanh thu ${platformLabel(data.platform)} nhập chung ở dòng ◆ của nguồn (Nhập doanh thu), không theo người: xem ở Tổng team.`
-                  : filtered
-                    ? "Doanh số nhập theo người, không chia theo pháp nhân hay BM: bỏ bộ lọc Pháp nhân / BM để xem doanh số và Ads / DT."
-                    : "Chưa có doanh số nào được nhập cho khoảng ngày này (Phòng Ads › Nhập doanh thu)."}
+                  : region
+                    ? "Chưa có doanh số thuộc lựa chọn Miền này trong khoảng ngày."
+                    : "Chưa có doanh số nào trong khoảng ngày này (CRM hoặc Phòng Ads › Nhập doanh thu)."}
               </div>
             </div>
           ) : (
@@ -384,17 +392,25 @@ function Workspace({
               note={`Doanh thu hoa hồng ${money(data.revenue_net)} · Bill TB chưa có dữ liệu`}
             />
           )}
-          {kpi.revenue_sg && !filtered ? (
+          {kpi.revenue_sg?.value && !byPlatform ? (
             <KpiCard
               kpi={kpi.revenue_sg}
               note={`${share(kpi.revenue_sg.value, revenue)} · khách làm tại cơ sở HCM`}
             />
           ) : null}
-          {kpi.revenue_hn && !filtered ? (
+          {kpi.revenue_hn?.value && !byPlatform ? (
             <KpiCard
               kpi={kpi.revenue_hn}
-              note={`${share(kpi.revenue_hn.value, revenue)} · khách SG chuyển làm tại HN`}
+              note={`${share(kpi.revenue_hn.value, revenue)} · khách làm tại cơ sở HN`}
             />
+          ) : null}
+          {!byPlatform && data.flows && Object.values(data.flows).some(Boolean) ? (
+            <div data-testid="kpi-flows" className={`${CARD} sm:col-span-2`}>
+              <div className="text-sm text-[var(--text-muted)]">
+                Luồng khách · đội MKT → cơ sở làm
+              </div>
+              <FlowList values={data.flows} />
+            </div>
           ) : null}
           {manual ? null : (
             <Missing
@@ -410,7 +426,7 @@ function Workspace({
               note={`Nhập tay · chênh với chi tiêu ${money((kpi.invoice.value ?? 0) - (kpi.spend?.value ?? 0))}`}
             />
           ) : null}
-          {kpi.ads_ratio && !filtered ? (
+          {kpi.ads_ratio && !byPlatform ? (
             <KpiCard
               kpi={kpi.ads_ratio}
               note="Chi tiêu ÷ DT hoa hồng · ngưỡng ≤ 40%"
@@ -537,11 +553,9 @@ function Workspace({
               <div className="text-xs font-semibold uppercase text-[var(--bad)]">
                 Có chi tiêu, chưa ra doanh số
               </div>
-              {filtered ? (
+              {byPlatform ? (
                 <div className="mt-1 text-sm text-[var(--text-muted)]">
-                  {byPlatform
-                    ? "Doanh thu nền tảng này không tách theo người."
-                    : "Không tách doanh thu theo bộ lọc này."}
+                  Doanh thu nền tảng này không tách theo người.
                 </div>
               ) : highlights && highlights.zero_revenue_days.length ? (
                 <>
@@ -647,6 +661,7 @@ function Workspace({
         month={data.end.slice(0, 7)}
         userId={userId}
         connectionId={manual ? undefined : filters.connection_id}
+        site={region}
         platform={data.platform}
       />
     </>

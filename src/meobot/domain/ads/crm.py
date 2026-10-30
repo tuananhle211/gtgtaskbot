@@ -2,8 +2,10 @@
 
 The revenue is what customers actually paid (``/raw-data/order-payments``),
 on the day they paid, summed per CRM marketing account. A person of the app
-holds several CRM accounts; each account's region says which "Doanh số" part
-it fills: HCM -> SG, HN -> HN.
+holds several CRM accounts. Two regions per payment (2026-10-30): the
+account's (which marketing team brought the customer) and the payment's
+branch (where they were served - "Doanh số SG" / "Doanh số HN"); HN team
+served in HCM = "HN chuyển SG", HCM team served in HN = "SG chuyển HN".
 """
 
 from __future__ import annotations
@@ -48,10 +50,31 @@ def region_of(name: str | None) -> CrmRegion | None:
     return None
 
 
+def branch_site(name: str | None) -> CrmRegion | None:
+    """A CRM branch's region from its name: "HN1", "HN2" -> HN, "SG" -> HCM."""
+    folded = " ".join("".join(c if c.isalnum() else " " for c in _fold(name or "")).split())
+    if folded.startswith("HN") or folded.startswith("HA NOI"):
+        return CrmRegion.HN
+    if folded.startswith(("SG", "HCM", "SAI GON", "HO CHI MINH")):
+        return CrmRegion.HCM
+    return None
+
+
+#: The CRM's branches as of 30/10/2026 (``/raw-data/filters/orders``), used
+#: until a sync has read them: 12 HN1, 1 HN2, 9 SG.
+DEFAULT_BRANCH_SITES: dict[int, CrmRegion] = {
+    12: CrmRegion.HN,
+    1: CrmRegion.HN,
+    9: CrmRegion.HCM,
+}
+
+
 __all__ = [
     "COUNTED_PAYMENT_TYPES",
+    "DEFAULT_BRANCH_SITES",
     "PAYMENT_POINTS",
     "REGION_LABELS",
     "CrmRegion",
+    "branch_site",
     "region_of",
 ]

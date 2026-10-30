@@ -47,7 +47,7 @@ from meobot.core.time import utcnow
 from meobot.db.models.ads import AdsCrmAccount, AdsCrmPayment
 from meobot.db.models.system_setting import SystemSetting
 from meobot.db.models.user import User
-from meobot.domain.ads.crm import COUNTED_PAYMENT_TYPES, CrmRegion, region_of
+from meobot.domain.ads.crm import COUNTED_PAYMENT_TYPES, CrmRegion, branch_site, region_of
 from meobot.domain.ads.models import REVENUE_SOURCE_LABELS, RevenueSource
 from meobot.domain.audit.models import AuditAction, AuditResult
 from meobot.domain.identity.models import Actor
@@ -158,6 +158,7 @@ class AdsCrmSyncService:
         now = utcnow()
         try:
             users = await self._client.marketing_users()
+            branches = await self._client.branches()
             payments = await self._client.payments(since, until)
         except CrmError as error:
             report.error = error.message
@@ -169,6 +170,7 @@ class AdsCrmSyncService:
                     now,
                     report.status,
                     report.message,
+                    coverage.branches,
                 ),
             )
             return report
@@ -233,6 +235,12 @@ class AdsCrmSyncService:
                 now,
                 report.status,
                 report.message,
+                {
+                    branch.id: site
+                    for branch in branches
+                    if (site := branch_site(branch.name)) is not None
+                }
+                or coverage.branches,
             ),
         )
         await self._session.flush()

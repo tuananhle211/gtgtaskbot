@@ -621,17 +621,38 @@ describe("step 2: revenue, KPI, Tổng team", () => {
     expect(ratio).toHaveClass("border-[var(--good)]");
   });
 
-  it("a brand filter says revenue cannot be split that way", async () => {
-    stubFetch([
+  it("Miền narrows the revenue: the query carries the region", async () => {
+    const stub = stubFetch([
       ...MEMBER,
-      {
-        match: "/api/ads/dashboard",
-        body: { ...DASHBOARD, revenue_note: "filtered" },
-      },
+      { match: "/api/ads/dashboard", body: DASHBOARD },
     ]);
     renderWithQuery(<AdsDashboardPage />);
-    expect(await screen.findByTestId("kpi-revenue")).toHaveTextContent(
-      "Không tách được",
+    const pick = await screen.findByLabelText("Miền");
+    // By team, by branch, or one flow.
+    for (const value of ["mkt_hcm", "mkt_hn", "site_hcm", "site_hn", "hn_hcm", "hcm_hn"])
+      expect(pick.querySelector(`option[value="${value}"]`)).not.toBeNull();
+    expect(
+      within(pick).getByRole("option", { name: "HN chuyển SG (MKT HN · làm tại HCM)" }),
+    ).toBeInTheDocument();
+    await userEvent.selectOptions(pick, "site_hn");
+    await waitFor(() =>
+      expect(
+        calls(stub).some(
+          (call) =>
+            call.url.includes("/api/ads/dashboard") &&
+            call.url.includes("region=site_hn"),
+        ),
+      ).toBe(true),
+    );
+    // The reports follow the same choice.
+    await waitFor(() =>
+      expect(
+        calls(stub).some(
+          (call) =>
+            call.url.includes("/api/ads/history") &&
+            call.url.includes("site=site_hn"),
+        ),
+      ).toBe(true),
     );
   });
 
@@ -889,13 +910,12 @@ describe("step 2: revenue, KPI, Tổng team", () => {
     const stub = stubFetch([
       { match: "/api/ads/history", body: HISTORY },
       {
-        // One BM: no revenue (entered per person, not per BM).
+        // One BM: its costs, the revenue whole (per person, not per BM).
         match: "connection_id=bm-2",
         body: {
           ...report,
           connection_id: "bm-2",
-          revenue_note: "filtered",
-          current: figures({ spend: 500_000, phones: 3 }),
+          current: figures({ spend: 500_000, phones: 3, revenue: 14_000_000 }),
           marketers: [report.marketers[1]],
           attention: [],
           team_kpi: null,
@@ -909,7 +929,7 @@ describe("step 2: revenue, KPI, Tổng team", () => {
     renderWithQuery(<AdsDashboardPage />);
     const revenue = await screen.findByTestId("team-revenue");
     expect(revenue).toHaveTextContent("14.000.000 ₫");
-    expect(revenue).toHaveTextContent("HN chuyển HCM 2.000.000 ₫");
+    expect(revenue).toHaveTextContent("HN 2.000.000 ₫");
     expect(revenue).toHaveTextContent("DT hoa hồng 12.962.963 ₫");
     // A ratio's change is in points, and down is good.
     expect(screen.getByTestId("team-ratio")).toHaveTextContent(
@@ -961,13 +981,13 @@ describe("step 2: revenue, KPI, Tổng team", () => {
     expect(screen.getByTestId("day-2026-10-26")).toHaveTextContent(
       "1.234.567 ₫",
     );
-    // The cơ sở filter narrows the query.
-    await userEvent.selectOptions(screen.getByLabelText("Cơ sở"), "hn");
+    // "Miền" narrows the revenue: sent as site.
+    await userEvent.selectOptions(screen.getByLabelText("Miền"), "hn_hcm");
     await waitFor(() =>
       expect(
         calls(stub).some(
           (call) =>
-            call.url.includes("/api/ads/team") && call.url.includes("site=hn"),
+            call.url.includes("/api/ads/team") && call.url.includes("site=hn_hcm"),
         ),
       ).toBe(true),
     );
@@ -999,17 +1019,14 @@ describe("step 2: revenue, KPI, Tổng team", () => {
         ),
       ).toBe(true),
     );
-    // A BM: every block narrows, the revenue cards wait.
+    // A BM: the costs narrow, the revenue stays.
     await userEvent.selectOptions(screen.getByLabelText("BM"), "bm-2");
     await waitFor(() =>
       expect(screen.getByTestId("team-revenue")).toHaveTextContent(
-        "Không tách theo BM",
+        "14.000.000 ₫",
       ),
     );
-    expect(screen.getByTestId("team-kpi")).toHaveTextContent(
-      "Không tách theo BM",
-    );
-    expect(screen.getByTestId("team-sources")).toHaveTextContent(
+    expect(screen.getByTestId("team-revenue")).not.toHaveTextContent(
       "Không tách theo BM",
     );
     expect(screen.queryByTestId("marketer-u-1")).toBeNull();

@@ -18,7 +18,9 @@ import {
   percent,
   PlatformSelect,
   platformLabel,
+  FlowList,
   ratioTone,
+  RegionSelect,
 } from "@/components/ads";
 import { BudgetBoard } from "@/components/ads-budget";
 import { AdsReports } from "@/components/ads-reports";
@@ -39,9 +41,10 @@ import { formatDate } from "@/lib/datetime";
  * TikTok Ads typed by hand (spend, invoices, their ◆ revenue line, the
  * marketers by spend); Khối 3 = the table per
  * marketer; then "Báo cáo chi tiết" (tháng, ngày). Customer, booking and bill
- * figures are not entered yet: their cards say so. "BM" narrows every block
- * and table to one BM's accounts; revenue is entered per person, not per BM,
- * so its cards then wait ("Không tách theo BM"). "Xem chi tiết theo" opens one
+ * figures are not entered yet: their cards say so. "BM" narrows the costs of
+ * every block and table to one BM's accounts; the revenue (per person, not
+ * per BM) stays whole. "Miền" (2026-10-30) narrows the revenue only: the HCM
+ * or the HN CRM accounts. "Xem chi tiết theo" opens one
  * marketer's dashboard. "Nền tảng" (0081, Facebook by default) switches
  * Khối 1, Khối 3 and the reports to Google / TikTok Ads: revenue = the ◆
  * line of that source, no KPI (it is set for the department), no BM. A
@@ -145,18 +148,10 @@ export function TeamDashboard({
             </label>
           </>
         ) : null}
-        <label className={LABEL}>
-          <span>Cơ sở</span>
-          <Select
-            aria-label="Cơ sở"
-            value={site}
-            onChange={(event) => setSite(event.target.value)}
-          >
-            <option value="all">Tất cả</option>
-            <option value="hcm">Cơ sở HCM</option>
-            <option value="hn">HN chuyển HCM</option>
-          </Select>
-        </label>
+        <RegionSelect
+          value={site === "all" ? "" : site}
+          onChange={(value) => setSite(value || "all")}
+        />
         {shown?.connections?.length && !isManual(platform) ? (
           <label className={LABEL}>
             <span>BM</span>
@@ -360,10 +355,6 @@ function Ratio({ value }: { value: number | null }) {
   );
 }
 
-const BY_BM = "Không tách theo BM";
-const BY_BM_NOTE =
-  "Doanh số nhập theo người, không theo BM: chọn “Tất cả BM” để xem.";
-
 function Report({
   data,
   onPick,
@@ -373,7 +364,6 @@ function Report({
 }) {
   const now = data.current;
   const before = data.before;
-  const byBm = data.revenue_note === "filtered";
   const manual = isManual(data.platform);
   const label = platformLabel(data.platform);
   return (
@@ -381,36 +371,7 @@ function Report({
       <section aria-label="Chỉ số tổng" className="space-y-2">
         <h2 className="brand-eyebrow">Khối 1 · Chỉ số tổng</h2>
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
-          {byBm ? (
-            <>
-              <Missing
-                testid="team-revenue"
-                wide
-                label="Doanh thu xét KPI"
-                value={BY_BM}
-                note={BY_BM_NOTE}
-              />
-              <Missing
-                testid="team-ratio"
-                label="Ads / Doanh thu"
-                value={BY_BM}
-                note="Cần doanh số để tính."
-              />
-              <Missing
-                testid="team-kpi"
-                label="Tiến độ KPI"
-                value={BY_BM}
-                note="KPI đặt cho cả phòng và từng người, không theo BM."
-              />
-              <Missing
-                testid="team-sources"
-                wide
-                label="Doanh số theo nguồn"
-                value={BY_BM}
-                note={BY_BM_NOTE}
-              />
-            </>
-          ) : manual ? (
+          {manual ? (
             <>
               <Tile
                 testid="team-revenue"
@@ -442,7 +403,7 @@ function Report({
                 label="Doanh thu xét KPI"
                 value={now.revenue === null ? "Chưa nhập" : money(now.revenue)}
                 change={delta(now.revenue, before.revenue)}
-                sub={`Cơ sở HCM ${money(data.revenue_hcm)} · HN chuyển HCM ${money(data.revenue_hn_transfer)} · DT hoa hồng ${money(now.revenue_net)}`}
+                sub={`Cơ sở HCM ${money(data.revenue_hcm)} · Cơ sở HN ${money(data.revenue_hn_transfer)} · DT hoa hồng ${money(now.revenue_net)}`}
               />
               <Tile
                 testid="team-ratio"
@@ -453,6 +414,7 @@ function Report({
               />
               <KpiProgress data={data} />
               <Sources data={data} />
+              <Flows data={data} />
             </>
           )}
           <Tile
@@ -471,20 +433,12 @@ function Report({
                   : "Chưa có hoá đơn Meta"
             }
           />
-          {byBm ? (
-            <Missing
-              label="Ads / DT thực"
-              value={BY_BM}
-              note="Cần doanh số để tính."
-            />
-          ) : (
-            <Tile
-              label="Ads / DT thực"
-              value={percent(now.ads_ratio_real)}
-              change={pointsDelta(now.ads_ratio_real, before.ads_ratio_real)}
-              sub="Lập hoá đơn ÷ doanh thu xét KPI"
-            />
-          )}
+          <Tile
+            label="Ads / DT thực"
+            value={percent(now.ads_ratio_real)}
+            change={pointsDelta(now.ads_ratio_real, before.ads_ratio_real)}
+            sub="Lập hoá đơn ÷ doanh thu xét KPI"
+          />
           {manual ? (
             <Missing
               label="SĐT · Chi phí / SĐT"
@@ -580,12 +534,21 @@ function Sources({ data }: { data: AdsTeamReport }) {
           Chưa nhập doanh thu trong khoảng này.
         </p>
       )}
-      {data.marketers_hn ? (
-        <p className="mt-2 text-xs text-[var(--text-muted)]">
-          Ngoài ra Marketing có {money(data.marketers_hn)} doanh số HN (khách SG
-          làm tại HN): tính KPI của họ, không tính doanh thu cơ sở HCM.
-        </p>
-      ) : null}
+    </div>
+  );
+}
+
+/** Khối 1: the four customer flows (marketing team -> branch that served). */
+function Flows({ data }: { data: AdsTeamReport }) {
+  const values = Object.fromEntries(
+    (data.flows ?? []).map((flow) => [flow.key, flow.revenue]),
+  );
+  return (
+    <div data-testid="team-flows" className={`${CARD} sm:col-span-2`}>
+      <div className="text-sm text-[var(--text-muted)]">
+        Luồng khách · đội MKT → cơ sở làm
+      </div>
+      <FlowList values={values} />
     </div>
   );
 }
@@ -628,6 +591,7 @@ function KpiProgress({ data }: { data: AdsTeamReport }) {
             KPI {compactMoney(data.team_kpi)} · tháng đã qua{" "}
             {percent(data.month_progress)}
             {behind ? " · đang chậm tiến độ" : ""}
+            {data.site !== "all" ? " · tính cả 2 miền" : ""}
           </div>
         </>
       ) : (

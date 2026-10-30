@@ -4,7 +4,8 @@ GET only, the key in the ``x-api-key`` header - never in the URL, a log line
 or the browser. 60 requests a minute per IP: a 429 is waited out and asked
 again. Pages hold up to 500 rows.
 
-Only what the revenue needs is read and kept: the marketing users, and each
+Only what the revenue needs is read and kept: the marketing users, the
+branches (name -> region), and each
 payment's id, day, amount, type, marketing id, branch, order id, new/old
 customer and customer source - never a customer's name or phone.
 """
@@ -58,8 +59,16 @@ class CrmPayment:
     source_id: int | None = None
 
 
+@dataclass(frozen=True, slots=True)
+class CrmBranch:
+    id: int
+    name: str
+
+
 class CrmClient(Protocol):
     async def marketing_users(self) -> list[CrmMarketingUser]: ...
+
+    async def branches(self) -> list[CrmBranch]: ...
 
     async def payments(self, since: date, until: date) -> list[CrmPayment]: ...
 
@@ -169,6 +178,15 @@ class HttpCrmClient:
             if isinstance(row, dict) and row.get("id") is not None
         ]
 
+    async def branches(self) -> list[CrmBranch]:
+        body = await self._get("/raw-data/filters/orders", {})
+        data = body.get("data") if isinstance(body.get("data"), dict) else {}
+        return [
+            CrmBranch(int(row["value"]), str(row.get("label") or row["value"]))
+            for row in (data or {}).get("branches") or []
+            if isinstance(row, dict) and row.get("value") is not None
+        ]
+
     async def payments(self, since: date, until: date) -> list[CrmPayment]:
         rows: list[CrmPayment] = []
         page = 1
@@ -196,6 +214,7 @@ class FakeCrmClient:
 
     users: list[CrmMarketingUser] = field(default_factory=list)
     rows: list[CrmPayment] = field(default_factory=list)
+    branch_list: list[CrmBranch] = field(default_factory=list)
     error: CrmError | None = None
     calls: list[tuple[str, date | None, date | None]] = field(default_factory=list)
 
@@ -204,6 +223,12 @@ class FakeCrmClient:
         if self.error:
             raise self.error
         return list(self.users)
+
+    async def branches(self) -> list[CrmBranch]:
+        self.calls.append(("branches", None, None))
+        if self.error:
+            raise self.error
+        return list(self.branch_list)
 
     async def payments(self, since: date, until: date) -> list[CrmPayment]:
         self.calls.append(("payments", since, until))
@@ -216,6 +241,7 @@ class FakeCrmClient:
 
 
 __all__ = [
+    "CrmBranch",
     "CrmClient",
     "CrmError",
     "CrmMarketingUser",

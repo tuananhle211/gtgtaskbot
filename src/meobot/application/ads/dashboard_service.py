@@ -18,6 +18,11 @@ Their revenue is entered on the ◆ Google / Tiktok lines, not per marketer: one
 marketer's Google numbers have no revenue (``revenue_note`` ``platform``), the
 whole department's take that ◆ line. A typed-in platform lists every account
 in Khối 3, even one with nothing typed yet, so it can be filled in.
+
+The ad-account filters (brand, BM, cơ sở) narrow the costs only; the revenue
+is per person and stays whole (2026-10-30). ``region`` ("Miền") narrows the
+revenue only, to the customer flows of ``REGION_FLOWS`` (by marketing team,
+by the branch that served, or one flow); ``flows`` splits what is left.
 """
 
 from __future__ import annotations
@@ -35,7 +40,12 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from meobot.application.ads.access import AdsAccess
 from meobot.application.ads.accounts_service import ads_people
 from meobot.application.ads.manual_service import AdsManualService, may_edit
-from meobot.application.ads.revenue_service import AdsRevenueService, RevenueRow
+from meobot.application.ads.revenue_service import (
+    FLOWS,
+    AdsRevenueService,
+    RevenueRow,
+    in_region,
+)
 from meobot.application.audit_service import AuditService
 from meobot.db.models.ads import AdsAccount, AdsChargeDaily, AdsConnection, AdsSpendDaily
 from meobot.db.models.user import User
@@ -190,8 +200,8 @@ class Dashboard:
     people: list[User] = field(default_factory=list)
     connections: list[AdsConnection] = field(default_factory=list)
     last_synced_at: datetime | None = None
-    #: Why there is no revenue: ``filtered`` (brand / BM / cơ sở), ``platform``
-    #: (one marketer's Google / TikTok numbers), else ``None``.
+    #: Why there is no revenue: ``platform`` (one marketer's Google / TikTok
+    #: numbers), else ``None``.
     revenue_note: str | None = None
     highlights: Highlights | None = None
     #: The days of the period, for the per-day tables (empty above 62 days).
@@ -201,6 +211,8 @@ class Dashboard:
     can_add_account: bool = False
     #: The cơ sở in use (BMs and typed-in accounts), for the forms.
     sites: list[str] = field(default_factory=list)
+    #: The period's revenue by customer flow (``FLOWS`` -> amount), inside "Miền".
+    flows: dict[str, float] = field(default_factory=dict)
 
 
 class AdsDashboardService:
@@ -218,6 +230,7 @@ class AdsDashboardService:
         connection_id: uuid.UUID | None = None,
         site: str | None = None,
         platform: AdsPlatform = AdsPlatform.FACEBOOK,
+        region: str = "all",
     ) -> Dashboard:
         access.require_view()
         person = user_id if access.view_all else access.user_id
@@ -246,12 +259,11 @@ class AdsDashboardService:
         ids = list(accounts)
         spend_rows = await self._rows(AdsSpendDaily, ids, previous.start, period.end)
         charge_rows = await self._rows(AdsChargeDaily, ids, previous.start, period.end)
-        filtered = brand is not None or connection_id is not None or bool(site)
         revenue_rows: list[RevenueRow] = []
-        if not filtered and not (manual and person is not None):
+        if not (manual and person is not None):
             source = PLATFORM_SOURCES.get(platform)
             revenue_rows = [
-                row
+                cut
                 for row in await AdsRevenueService(self._session, AuditService(self._session)).rows(
                     previous.start, period.end
                 )
@@ -262,6 +274,7 @@ class AdsDashboardService:
                     if manual
                     else row.user_id is not None and (person is None or row.user_id == person)
                 )
+                and (cut := in_region(row, region)) is not None
             ]
 
         def revenue_in(window: Period) -> dict[str, float | None]:
@@ -348,12 +361,7 @@ class AdsDashboardService:
                 if value
             }
         )
-        if filtered:
-            note: str | None = "filtered"
-        elif manual and person is not None:
-            note = "platform"
-        else:
-            note = None
+        note = "platform" if manual and person is not None else None
         return Dashboard(
             period=period,
             previous=previous,
@@ -375,6 +383,19 @@ class AdsDashboardService:
             highlights=_highlights(days, period),
             days=_days_of(period),
             platform=platform,
+            flows={
+                flow: float(
+                    sum(
+                        (
+                            row.flows()[flow]
+                            for row in revenue_rows
+                            if period.start <= row.day <= period.end
+                        ),
+                        Decimal(0),
+                    )
+                )
+                for flow in FLOWS
+            },
             can_add_account=manual
             and (access.manage_accounts or person is None or person == access.user_id),
             sites=sites,

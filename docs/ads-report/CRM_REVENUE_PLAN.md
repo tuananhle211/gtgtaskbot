@@ -44,6 +44,17 @@ Mọi báo cáo (Dashboard Ads, Tổng team, KPI, Báo cáo tháng/ngày) đều
 - Người hoặc nguồn chưa gắn tài khoản CRM, hoặc ngày ngoài khoảng đồng bộ, vẫn dùng số nhập tay như cũ.
 - Trang "Nhập doanh thu": dòng lấy từ CRM hiện số CRM, khoá ô và gắn nhãn "CRM". Gửi lưu một ô CRM sẽ bị từ chối (422 `ads_revenue_from_crm`).
 
+## Bốn luồng khách và bộ lọc (30/10)
+
+Mỗi khoản thu có hai miền:
+- **Đội MKT**: miền của tài khoản CRM (HN / HCM; chưa có miền thì tính là HCM);
+- **Cơ sở làm**: chi nhánh của khoản thanh toán (HN1, HN2 → HN; SG → HCM). Chi nhánh trên khoản thanh toán và trên đơn hàng chỉ lệch giữa HN1 và HN2, nên cùng miền.
+
+Ghép lại ra 4 luồng: **SG** (MKT HCM, làm HCM), **HN** (MKT HN, làm HN), **HN chuyển SG** (MKT HN, làm HCM), **SG chuyển HN** (MKT HCM, làm HN). "Doanh số SG / HN" của một người là theo cơ sở làm.
+
+- **Miền** (chỉ lọc doanh thu): Tất cả; theo đội MKT (MKT HCM / MKT HN); theo cơ sở làm (Cơ sở HCM / Cơ sở HN); hoặc từng luồng. KPI phòng luôn tính trên tất cả.
+- **BM, Pháp nhân, Cơ sở** (thuộc tính tài khoản quảng cáo) chỉ lọc chi phí, hoá đơn, SĐT; doanh thu giữ nguyên.
+
 ## Quyền
 
 - Màn "Tài khoản CRM", sửa mapping, nhập file, bấm đồng bộ: Trưởng phòng ADS, OWNER, ADMIN (`edit_revenue`).

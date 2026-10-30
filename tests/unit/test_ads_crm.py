@@ -23,6 +23,7 @@ from meobot.application.ads.crm_service import AdsCrmSyncService, crm_window
 from meobot.db.models.ads import AdsCrmAccount, AdsCrmPayment
 from meobot.domain.ads.crm import CrmRegion, region_of
 from meobot.integrations.crm.client import (
+    CrmBranch,
     CrmError,
     CrmMarketingUser,
     CrmPayment,
@@ -338,3 +339,55 @@ async def test_06_sync_now_and_the_configured_flag(world: World) -> None:
         "/api/ads/crm/sync", json={"since": "2026-10-01", "until": "2099-01-01"}
     )
     assert future.status_code == 422
+
+
+async def test_07_the_branch_tells_where_the_customer_was_served(world: World) -> None:
+    """HN accounts = the HN team; the payment's branch = where the customer was
+    served: HN team served in SG = "HN chuyển SG", HCM team served in HN =
+    "SG chuyển HN". Doanh số SG / HN follow the branch."""
+    head, ngoc, _ = await staffed(world)
+    crm = FakeCrmClient(
+        users=CRM.users,
+        branch_list=[CrmBranch(12, "HN1"), CrmBranch(1, "HN2"), CrmBranch(9, "SG")],
+        rows=[
+            CrmPayment(1, D1, Decimal(4_000_000), 4, 10, branch_id=9),  # HCM -> SG
+            CrmPayment(2, D1, Decimal(1_000_000), 4, 10, branch_id=12),  # SG chuyển HN
+            CrmPayment(3, D1, Decimal(2_000_000), 4, 11, branch_id=1),  # HN -> HN
+            CrmPayment(4, D1, Decimal(500_000), 4, 11, branch_id=9),  # HN chuyển SG
+        ],
+    )
+    await AdsCrmSyncService(world.session, crm).sync(D1, D2)
+    coverage, _ = await load_coverage(world.session)
+    assert coverage.branches == {12: CrmRegion.HN, 1: CrmRegion.HN, 9: CrmRegion.HCM}
+    world.act_as(head)
+    for crm_id in (10, 11):
+        world.client.patch(f"/api/ads/crm/accounts/{crm_id}", json={"user_id": str(ngoc.id)})
+
+    day = world.client.get("/api/ads/revenue", params={"day": D1.isoformat()}).json()
+    mine = next(line for line in day["lines"] if line["key"] == f"u:{ngoc.id}")
+    # Served in SG: 4.000.000 + 500.000; served in HN: 1.000.000 + 2.000.000.
+    assert (mine["amount"], mine["amount_hn"]) == (4_500_000, 3_000_000)
+
+    def team(site: str) -> Any:
+        return world.client.get("/api/ads/team", params={**PARAMS, "site": site}).json()
+
+    flows = {flow["key"]: flow["revenue"] for flow in team("all")["flows"]}
+    assert flows == {
+        "hcm_hcm": 4_000_000,
+        "hn_hn": 2_000_000,
+        "hn_hcm": 500_000,
+        "hcm_hn": 1_000_000,
+    }
+    assert team("all")["current"]["revenue"] == 7_500_000
+    assert team("site_hcm")["current"]["revenue"] == 4_500_000
+    assert team("site_hn")["current"]["revenue"] == 3_000_000
+    assert team("mkt_hn")["current"]["revenue"] == 2_500_000
+    assert team("mkt_hcm")["current"]["revenue"] == 5_000_000
+    assert team("hn_hcm")["current"]["revenue"] == 500_000
+    assert team("hcm_hn")["marketers"][0]["figures"]["revenue"] == 1_000_000
+
+    world.act_as(ngoc)
+    own = world.client.get("/api/ads/dashboard", params={**PARAMS, "region": "mkt_hn"}).json()
+    kpis = {kpi["key"]: kpi["value"] for kpi in own["kpis"]}
+    assert kpis["revenue"] == 2_500_000 and kpis["revenue_sg"] == 500_000
+    assert own["flows"] == {"hcm_hcm": 0, "hn_hn": 2_000_000, "hn_hcm": 500_000, "hcm_hn": 0}

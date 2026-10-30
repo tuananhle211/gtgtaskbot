@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import type { AdsKpi, AdsPlatform, AdsSeriesPoint } from "@/lib/api";
+import type { AdsFlow, AdsKpi, AdsPlatform, AdsSeriesPoint } from "@/lib/api";
 import { Select } from "@/components/pr";
 import { formatShortDate } from "@/lib/datetime";
 
@@ -60,6 +60,89 @@ export function PlatformSelect({
         ))}
       </Select>
     </label>
+  );
+}
+
+/** The four customer flows, in order (marketing team -> branch that served). */
+export const FLOWS: ReadonlyArray<{ value: AdsFlow; label: string; hint: string }> = [
+  { value: "hcm_hcm", label: "SG", hint: "MKT HCM · làm tại HCM" },
+  { value: "hn_hn", label: "HN", hint: "MKT HN · làm tại HN" },
+  { value: "hn_hcm", label: "HN chuyển SG", hint: "MKT HN · làm tại HCM" },
+  { value: "hcm_hn", label: "SG chuyển HN", hint: "MKT HCM · làm tại HN" },
+];
+
+/**
+ * "Miền" (2026-10-30): narrows the revenue only. A CRM account's region = the
+ * marketing team that brought the customer; the payment's branch = where they
+ * were served. "" = everything.
+ */
+export function RegionSelect({
+  value,
+  onChange,
+}: {
+  value: string;
+  onChange: (region: string) => void;
+}) {
+  return (
+    <label className="flex flex-col gap-1 text-xs font-medium text-[var(--text-muted)]">
+      <span>Miền</span>
+      <Select
+        aria-label="Miền"
+        value={value}
+        onChange={(event) => onChange(event.target.value)}
+      >
+        <option value="">Tất cả</option>
+        <optgroup label="Theo đội MKT (tài khoản CRM)">
+          <option value="mkt_hcm">MKT HCM</option>
+          <option value="mkt_hn">MKT HN</option>
+        </optgroup>
+        <optgroup label="Theo cơ sở làm (chi nhánh)">
+          <option value="site_hcm">Cơ sở HCM</option>
+          <option value="site_hn">Cơ sở HN</option>
+        </optgroup>
+        <optgroup label="Từng luồng">
+          {FLOWS.map((flow) => (
+            <option key={flow.value} value={flow.value}>
+              {flow.label} ({flow.hint})
+            </option>
+          ))}
+        </optgroup>
+      </Select>
+    </label>
+  );
+}
+
+/** The four flows with their amount and share (an empty flow drawn as "–"). */
+export function FlowList({
+  values,
+}: {
+  values: Partial<Record<AdsFlow, number | null>>;
+}) {
+  const total = FLOWS.reduce((sum, flow) => sum + (values[flow.value] ?? 0), 0);
+  return (
+    <ul className="mt-2 space-y-1.5 text-sm">
+      {FLOWS.map((flow) => {
+        const value = values[flow.value] ?? null;
+        return (
+          <li
+            key={flow.value}
+            data-testid={`flow-${flow.value}`}
+            className="grid grid-cols-[minmax(0,1fr)_7rem_3.5rem] items-center gap-2"
+          >
+            <span className="truncate">
+              <span className="font-medium">{flow.label}</span>{" "}
+              <span className="text-xs text-[var(--text-muted)]">{flow.hint}</span>
+            </span>
+            <span className="text-right tabular-nums">
+              {value ? compactMoney(value) : "–"}
+            </span>
+            <span className="text-right text-xs tabular-nums text-[var(--text-muted)]">
+              {value && total ? percent(value / total) : ""}
+            </span>
+          </li>
+        );
+      })}
+    </ul>
   );
 }
 

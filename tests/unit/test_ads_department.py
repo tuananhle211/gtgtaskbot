@@ -477,8 +477,19 @@ async def test_10_the_dashboard_shows_revenue_and_ads_ratio(world: World) -> Non
     team = world.client.get("/api/ads/dashboard", params=params).json()
     # The ads marketers only: the ◆ sources (Google here) are nobody's ad spend.
     assert team["revenue"] == 6_480_000
+    # An ad-account filter narrows the costs, never the revenue (2026-10-30).
     filtered = world.client.get("/api/ads/dashboard", params={**params, "brand": "GPI"}).json()
-    assert filtered["revenue"] is None and filtered["revenue_note"] == "filtered"
+    assert filtered["revenue"] == 6_480_000 and filtered["revenue_note"] is None
+    # "Miền": HCM = the SG part, HN = the HN part.
+    hcm = world.client.get("/api/ads/dashboard", params={**params, "region": "hcm"}).json()
+    kpis = {kpi["key"]: kpi["value"] for kpi in hcm["kpis"]}
+    assert kpis["revenue"] == 5_400_000 and kpis["revenue_hn"] == 0
+    hn = world.client.get("/api/ads/dashboard", params={**params, "region": "hn"}).json()
+    assert hn["revenue"] == 1_080_000
+    assert hn["flows"] == {"hcm_hcm": 0, "hn_hn": 0, "hn_hcm": 0, "hcm_hn": 1_080_000}
+    assert (
+        world.client.get("/api/ads/dashboard", params={**params, "region": "x"}).status_code == 422
+    )
 
 
 async def test_11_kpis_and_the_team_dashboard(world: World) -> None:
@@ -492,21 +503,30 @@ async def test_11_kpis_and_the_team_dashboard(world: World) -> None:
     world.client.put("/api/ads/revenue", json={"day": D2.isoformat(), "entries": entries})
     saved = world.client.put(
         "/api/ads/kpi",
-        json={"month": "2026-10", "entries": {"team": 28_080_000, f"u:{ngoc.id}": "10.000.000"}},
+        json={"month": "2026-10", "entries": {"team": 30_240_000, f"u:{ngoc.id}": "10.000.000"}},
     ).json()
-    assert {line["key"]: line["amount"] for line in saved["lines"]}["team"] == 28_080_000
+    assert {line["key"]: line["amount"] for line in saved["lines"]}["team"] == 30_240_000
 
     report = world.client.get("/api/ads/team", params={"month": "2026-10"}).json()
     now = report["current"]
-    # The site's revenue: Ngọc's SG part + Hotline + HN chuyển HCM (her HN part is hers only).
-    assert now["revenue"] == 14_040_000 and report["marketers_hn"] == 1_080_000
-    assert report["revenue_hn_transfer"] == 1_080_000 and report["revenue_hcm"] == 12_960_000
-    assert round(now["revenue_net"]) == 13_000_000
+    # "Miền" = both (2026-10-30): Ngọc's SG + HN parts, Hotline, HN chuyển HCM.
+    assert now["revenue"] == 15_120_000 and report["marketers_hn"] == 1_080_000
+    # By the branch that served: HCM = SG parts + Hotline + HN chuyển HCM; HN =
+    # Ngọc's HN part (typed lines are the HCM team's).
+    assert report["revenue_hn_transfer"] == 1_080_000 and report["revenue_hcm"] == 14_040_000
+    flows = {flow["key"]: flow["revenue"] for flow in report["flows"]}
+    assert flows == {
+        "hcm_hcm": 12_960_000,
+        "hn_hn": None,
+        "hn_hcm": 1_080_000,
+        "hcm_hn": 1_080_000,
+    }
+    assert round(now["revenue_net"]) == 14_000_000
     assert report["team_kpi_rate"] == 0.5 and 0 < report["month_progress"] <= 1
     # No charges yet that day for 222: Ads / DT uses the charges, else the spend.
     assert now["spend"] == 3_500_000
     sources = {source["key"]: source["revenue"] for source in report["sources"]}
-    assert sources["sg"] == 10_800_000 and sources["s:HN"] == 1_080_000
+    assert sources["sg"] == 11_880_000 and sources["s:HN"] == 1_080_000
     assert sources["s:HOTLINE"] == 2_160_000 and sources["s:GOOGLE"] is None
     nets = {source["key"]: source["revenue_net"] for source in report["sources"]}
     assert round(nets["s:HOTLINE"]) == 2_000_000 and nets["s:GOOGLE"] is None
@@ -522,10 +542,10 @@ async def test_11_kpis_and_the_team_dashboard(world: World) -> None:
     assert history["months"][0]["month"] == "2026-04-01"
     assert history["months"][-1]["month"] == "2026-10-01"
     assert history["months"][-1]["kpi_rate"] == 0.5
-    assert history["months"][-1]["figures"]["revenue"] == 14_040_000
+    assert history["months"][-1]["figures"]["revenue"] == 15_120_000
     assert history["days"][0]["day"] == "2026-10-01"
     by_day = {line["day"]: line["figures"] for line in history["days"]}
-    assert by_day[D2.isoformat()]["revenue"] == 14_040_000
+    assert by_day[D2.isoformat()]["revenue"] == 15_120_000
     assert by_day[D1.isoformat()]["spend"] == 1_000_000
     # One marketer: their accounts, their own revenue (SG + HN), their KPI.
     mine = world.client.get(
@@ -551,10 +571,25 @@ async def test_11_kpis_and_the_team_dashboard(world: World) -> None:
     assert world.client.get("/api/ads/team", params={"start": D2.isoformat()}).status_code == 422
     backwards = {"start": D2.isoformat(), "end": D1.isoformat()}
     assert world.client.get("/api/ads/team", params=backwards).status_code == 422
-    hcm = world.client.get("/api/ads/team", params={"month": "2026-10", "site": "hcm"}).json()
-    assert hcm["current"]["revenue"] == 12_960_000
+    hcm = world.client.get("/api/ads/team", params={"month": "2026-10", "site": "site_hcm"}).json()
+    assert hcm["current"]["revenue"] == 14_040_000
+    assert {s["key"]: s["revenue"] for s in hcm["flows"]}["hcm_hn"] is None
+    # The KPI is the department's, both regions, whatever "Miền".
+    assert hcm["team_kpi_rate"] == 0.5
+    assert hcm["marketers"][0]["figures"]["revenue"] == 10_800_000
     only_hn = world.client.get("/api/ads/team", params={"month": "2026-10", "site": "hn"}).json()
     assert only_hn["current"]["revenue"] == 1_080_000
+    assert only_hn["marketers"][0]["figures"]["revenue"] == 1_080_000
+    # By the marketing team: HN = what HN accounts brought (here "HN chuyển HCM").
+    team_hn = world.client.get(
+        "/api/ads/team", params={"month": "2026-10", "site": "mkt_hn"}
+    ).json()
+    assert team_hn["current"]["revenue"] == 1_080_000
+    one_flow = world.client.get(
+        "/api/ads/team", params={"month": "2026-10", "site": "hcm_hn"}
+    ).json()
+    assert one_flow["current"]["revenue"] == 1_080_000
+    assert world.client.get("/api/ads/team", params={"site": "nowhere"}).status_code == 422
 
     world.act_as(ngoc)
     assert world.client.get("/api/ads/team").status_code == 404
@@ -666,7 +701,7 @@ async def test_13_two_syncs_meeting_the_same_new_accounts(world: World) -> None:
 
 async def test_14_every_report_filters_by_bm(world: World) -> None:
     """Pick a BM: spend, charges and the marketers narrow to its accounts; the
-    revenue (entered per person, not per BM) is left out."""
+    revenue (per person, not per BM) stays whole (2026-10-30)."""
     from meobot.db.models.ads import AdsConnection
 
     _, ngoc, anh = await staffed(world)
@@ -687,7 +722,7 @@ async def test_14_every_report_filters_by_bm(world: World) -> None:
         "/api/ads/dashboard", params={**params, "connection_id": str(second.id)}
     ).json()
     assert [line["account_id"] for line in staff["accounts"]] == ["222"]
-    assert staff["revenue"] is None and staff["revenue_note"] == "filtered"
+    assert staff["revenue"] == 5_400_000 and staff["revenue_note"] is None
 
     whole = world.client.get("/api/ads/team", params={"month": "2026-10"}).json()
     assert whole["revenue_note"] is None and whole["connection_id"] is None
@@ -697,18 +732,17 @@ async def test_14_every_report_filters_by_bm(world: World) -> None:
     hanoi = world.client.get(
         "/api/ads/team", params={"month": "2026-10", "connection_id": str(second.id)}
     ).json()
-    assert hanoi["connection_id"] == str(second.id) and hanoi["revenue_note"] == "filtered"
-    assert hanoi["current"]["spend"] == 500_000 and hanoi["current"]["revenue"] is None
+    assert hanoi["connection_id"] == str(second.id) and hanoi["revenue_note"] is None
+    assert hanoi["current"]["spend"] == 500_000 and hanoi["current"]["revenue"] == 5_400_000
     assert [line["name"] for line in hanoi["marketers"]] == ["Hoàng Anh"]
-    assert hanoi["facebook"]["spend"] == 500_000 and hanoi["attention"] == []
-    assert hanoi["team_kpi"] is None
+    assert hanoi["facebook"]["spend"] == 500_000
+    assert [alert["kind"] for alert in hanoi["attention"]] == ["no_revenue"]
     reports = world.client.get(
         "/api/ads/history", params={"month": "2026-10", "connection_id": str(second.id)}
     ).json()
-    assert reports["revenue_note"] == "filtered"
+    assert reports["revenue_note"] is None
     assert reports["months"][-1]["figures"]["spend"] == 500_000
-    assert reports["months"][-1]["figures"]["revenue"] is None
-    assert reports["months"][-1]["kpi"] is None
+    assert reports["months"][-1]["figures"]["revenue"] == 5_400_000
     assert sum(line["figures"]["spend"] for line in reports["days"]) == 500_000
 
     apex = world.client.get(

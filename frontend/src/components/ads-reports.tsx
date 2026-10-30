@@ -300,7 +300,6 @@ function MonthReport({
   open: boolean;
   onToggle: () => void;
 }) {
-  const filtered = data.revenue_note === "filtered";
   const last = lastDayWithData(data);
   // The month in view is still running while its last day is not over.
   const running = data.days.length > 0 && data.days.length < daysIn(data.end);
@@ -370,9 +369,6 @@ function MonthReport({
       <p className="mt-1 text-xs text-[var(--text-muted)]">
         {running && last
           ? `* ${monthLabel(current.month)} tính đến ${formatShortDate(last)}${current.kpi ? "" : ", chưa có KPI"}. `
-          : ""}
-        {filtered
-          ? "Đang lọc một BM: doanh thu và KPI nhập theo người, không tách theo BM."
           : ""}
         {data.revenue_note === "platform"
           ? "Doanh thu Google / TikTok nhập ở dòng ◆ của nguồn, không theo người."
@@ -445,7 +441,6 @@ function DayReport({
   open: boolean;
   onToggle: () => void;
 }) {
-  const filtered = data.revenue_note === "filtered";
   const days = data.days;
   const total = days.reduce(
     (sum, line) => ({
@@ -521,7 +516,6 @@ function DayReport({
       />
       {lastLine &&
       lastLine.figures.spend > 0 &&
-      !filtered &&
       lastLine.figures.revenue == null ? (
         <p className="mt-1 text-xs text-[var(--text-muted)]">
           Ngày {formatShortDate(lastLine.day)} đã có chi tiêu, chưa có doanh
@@ -670,7 +664,6 @@ function DayReport({
         DT = chi tiêu ÷ doanh thu hoa hồng · khách đến cửa chưa nhập · số
         của {platformLabel(data.platform)}
         {isManual(data.platform) ? " (nhập tay)" : ""}.
-        {filtered ? " Đang lọc một BM: không có doanh thu." : ""}
       </p>
     </Fold>
   );
@@ -738,22 +731,16 @@ function OverLimit({ data }: { data: AdsHistory }) {
     .filter(
       (line): line is { day: string; ratio: number } => line.ratio != null,
     );
-  if (
-    data.revenue_note === "filtered" ||
-    data.revenue_note === "platform" ||
-    !rated.length
-  ) {
+  if (data.revenue_note === "platform" || !rated.length) {
     return (
       <div className={WAITING}>
         <div className="text-xs font-semibold uppercase text-[var(--text-muted)]">
           Ngày Ads / DT vượt 100%
         </div>
         <div className="mt-1 text-sm text-[var(--text-muted)]">
-          {data.revenue_note === "filtered"
-            ? "Không tách doanh thu theo BM."
-            : data.revenue_note === "platform"
-              ? "Doanh thu nhập theo nguồn, không theo người."
-              : "Chưa có doanh thu trong tháng."}
+          {data.revenue_note === "platform"
+            ? "Doanh thu nhập theo nguồn, không theo người."
+            : "Chưa có doanh thu trong tháng."}
         </div>
       </div>
     );

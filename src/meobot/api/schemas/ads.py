@@ -296,6 +296,8 @@ class AdsDashboardResponse(BaseModel):
     previous_start: date
     previous_end: date
     grouping: str
+    #: Revenue by customer flow: hcm_hcm, hn_hn, hn_hcm, hcm_hn (inside "Miền").
+    flows: dict[str, float] = {}
     user_id: uuid.UUID | None
     kpis: list[KpiResponse]
     series: list[SeriesPointResponse]
@@ -386,6 +388,7 @@ class AdsDashboardResponse(BaseModel):
             last_synced_at=data.last_synced_at,
             revenue=data.current.revenue,
             revenue_note=data.revenue_note,
+            flows=data.flows,
             revenue_net=data.current.revenue_net,
             highlights=HighlightsResponse(
                 best_revenue_day=SeriesPointResponse.from_point(data.highlights.best_revenue_day)
@@ -581,6 +584,9 @@ class TeamReportResponse(BaseModel):
     team_kpi_rate: float | None
     month_progress: float
     sources: list[SourceResponse]
+    #: The four customer flows: hcm_hcm (SG), hn_hn (HN), hn_hcm (HN chuyển SG),
+    #: hcm_hn (SG chuyển HN); ``revenue`` null outside "Miền".
+    flows: list[SourceResponse] = []
     marketers: list[MarketerResponse]
     facebook: FiguresResponse
     attention: list[AlertResponse]
@@ -619,6 +625,15 @@ class TeamReportResponse(BaseModel):
                     revenue_net=item.revenue_net,
                 )
                 for item in report.sources
+            ],
+            flows=[
+                SourceResponse(
+                    key=item.key,
+                    label=item.label,
+                    revenue=item.revenue,
+                    revenue_net=item.revenue_net,
+                )
+                for item in report.flows
             ],
             marketers=[
                 MarketerResponse(
