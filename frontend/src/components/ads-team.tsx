@@ -18,6 +18,8 @@ import {
   percent,
   PlatformSelect,
   platformLabel,
+  BmRevenueNote,
+  Money,
   ratioTone,
   RegionRevenue,
 } from "@/components/ads";
@@ -392,10 +394,22 @@ function Report({
               <Tile
                 testid="team-revenue"
                 wide
-                label="Doanh thu tổng"
+                label={
+                  data.bm_region
+                    ? `Doanh thu MKT ${data.bm_region === "HN" ? "HN" : "SG"} (theo BM)`
+                    : "Doanh thu tổng"
+                }
                 value={now.revenue === null ? "Chưa nhập" : money(now.revenue)}
                 change={delta(now.revenue, before.revenue)}
-                sub={`Thực thu, xét KPI · DT hoa hồng ${money(now.revenue_net)}`}
+                sub={
+                  data.bm_region && data.regions ? (
+                    <BmRevenueNote region={data.bm_region} flows={data.regions.flows} />
+                  ) : (
+                    <>
+                      Thực thu, xét KPI · DT hoa hồng <Money value={now.revenue_net} />
+                    </>
+                  )
+                }
               />
               <Tile
                 testid="team-ratio"
@@ -406,7 +420,11 @@ function Report({
               />
               <KpiProgress data={data} />
               {data.regions ? (
-                <RegionRevenue regions={data.regions} className="sm:col-span-2" />
+                <RegionRevenue
+                  regions={data.regions}
+                  only={data.bm_region ?? null}
+                  className="sm:col-span-2"
+                />
               ) : null}
               <Sources data={data} />
             </>
@@ -421,7 +439,7 @@ function Report({
             value={money(now.invoice)}
             sub={
               now.invoice
-                ? `Chênh với chi tiêu ${money(now.invoice - now.spend)}`
+                ? <>Chênh với chi tiêu <Money value={now.invoice - now.spend} /></>
                 : manual
                   ? "Chưa nhập lập hoá đơn"
                   : "Chưa có hoá đơn Meta"

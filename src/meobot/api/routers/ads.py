@@ -93,8 +93,6 @@ router = APIRouter(prefix="/api/ads", tags=["ads"])
 #: "Miền" (``region`` / ``site``): every choice of ``REGION_FLOWS``.
 REGION_PATTERN = f"^({'|'.join(REGIONS)})$"
 
-#: The dashboard's default: the last 14 days up to yesterday.
-DEFAULT_DAYS = 14
 MAX_PERIOD_DAYS = 366
 
 
@@ -374,9 +372,10 @@ async def dashboard(
     """One person's numbers (a Trưởng phòng / the OWNER: ``user_id`` or the
     whole department; a member: always their own)."""
     access = await _access(session, actor)
-    yesterday = vn_today() - timedelta(days=1)
-    period_end = end or yesterday
-    period_start = start or period_end - timedelta(days=DEFAULT_DAYS - 1)
+    # Default (2026-10-30): the whole month - of the day picked, else this one.
+    anchor = start or end or vn_today()
+    period_start = start or (end.replace(day=1) if end else anchor.replace(day=1))
+    period_end = end or month_of(period_start).end
     if period_end < period_start:
         raise AdsPeriodInvalidError("Ngày kết thúc phải sau ngày bắt đầu.")
     if (period_end - period_start).days + 1 > MAX_PERIOD_DAYS:

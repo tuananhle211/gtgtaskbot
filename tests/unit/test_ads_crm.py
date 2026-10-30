@@ -339,6 +339,13 @@ async def test_06_sync_now_and_the_configured_flag(world: World) -> None:
         "/api/ads/crm/sync", json={"since": "2026-10-01", "until": "2099-01-01"}
     )
     assert future.status_code == 422
+    # The dashboard's default: the whole month (2026-10-30).
+    from meobot.application.ads.accounts_service import month_of
+    from meobot.application.ads.sync_service import vn_today
+
+    board = world.client.get("/api/ads/dashboard").json()
+    month = month_of(vn_today())
+    assert (board["start"], board["end"]) == (month.start.isoformat(), month.end.isoformat())
 
 
 async def test_07_the_branch_tells_where_the_customer_was_served(world: World) -> None:
@@ -390,6 +397,13 @@ async def test_07_the_branch_tells_where_the_customer_was_served(world: World) -
     assert regions["hn"]["spend"] == 0 and regions["hn"]["ads_ratio"] == 0
     assert round(regions["hcm"]["ads_ratio"], 4) == round(1_000_000 / (5_000_000 / 1.08), 4)
     assert regions["flows"]["hn_hcm"] == 500_000
+    # BM Apex (Sài Gòn): the revenue the HCM accounts brought; Cơ sở unchanged.
+    from meobot.db.models.ads import AdsConnection
+
+    apex = (await world.session.execute(select(AdsConnection))).scalar_one()
+    sg = world.client.get("/api/ads/team", params={**PARAMS, "connection_id": str(apex.id)}).json()
+    assert sg["bm_region"] == "HCM" and sg["current"]["revenue"] == 5_000_000
+    assert sg["regions"]["hn"]["site"] == 3_000_000
     assert team("site_hcm")["current"]["revenue"] == 4_500_000
     assert team("site_hn")["current"]["revenue"] == 3_000_000
     assert team("mkt_hn")["current"]["revenue"] == 2_500_000

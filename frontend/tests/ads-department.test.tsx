@@ -669,6 +669,47 @@ describe("step 2: revenue, KPI, Tổng team", () => {
     expect(screen.queryByLabelText("Miền")).toBeNull();
   });
 
+  it("a BM picks its region's Marketing revenue; Cơ sở stays whole", async () => {
+    const figures = (over: Record<string, unknown>) => ({
+      marketing: 0,
+      site: 0,
+      marketing_net: 0,
+      spend: 0,
+      invoice: 0,
+      ads_ratio: null,
+      tone: null,
+      ...over,
+    });
+    stubFetch([
+      ...MEMBER,
+      {
+        match: "/api/ads/dashboard",
+        body: {
+          ...DASHBOARD,
+          kpis: [...DASHBOARD.kpis, kpi("revenue", "Doanh thu tổng", 2_500_000, null)],
+          bm_region: "HN",
+          regions: {
+            hn: figures({ marketing: 2_500_000, site: 3_000_000 }),
+            hcm: figures({ marketing: 7_500_000, site: 7_000_000 }),
+            other_spend: 0,
+            other_invoice: 0,
+            flows: { hcm_hcm: 6_500_000, hn_hn: 2_000_000, hn_hcm: 500_000, hcm_hn: 1_000_000 },
+          },
+        },
+      },
+    ]);
+    renderWithQuery(<AdsDashboardPage />);
+    const hero = await screen.findByTestId("kpi-revenue");
+    expect(hero).toHaveTextContent("Doanh thu MKT HN (theo BM)");
+    expect(hero).toHaveTextContent("HN làm ở HN 2.000.000 ₫ · HN chuyển SG 500.000 ₫");
+    // The amounts stand out.
+    expect(within(hero).getByText("500.000 ₫").tagName).toBe("STRONG");
+    const marketing = screen.getByTestId("revenue-marketing");
+    expect(marketing).toHaveTextContent("BM HN");
+    expect(marketing).not.toHaveTextContent("SG chuyển HN");
+    expect(screen.getByTestId("revenue-site")).toHaveTextContent("10.000.000 ₫");
+  });
+
   it("a person's accounts in several BMs are filtered apart", async () => {
     const stub = stubFetch([
       ...MEMBER,

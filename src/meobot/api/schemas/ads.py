@@ -345,6 +345,8 @@ class AdsDashboardResponse(BaseModel):
     #: Revenue by customer flow: hcm_hcm, hn_hn, hn_hcm, hcm_hn (inside "Miền").
     flows: dict[str, float] = {}
     regions: RegionSplitResponse | None = None
+    #: The picked BM's region (HN / HCM): the revenue is that region's Marketing.
+    bm_region: str | None = None
     user_id: uuid.UUID | None
     kpis: list[KpiResponse]
     series: list[SeriesPointResponse]
@@ -437,6 +439,7 @@ class AdsDashboardResponse(BaseModel):
             revenue_note=data.revenue_note,
             flows=data.flows,
             regions=RegionSplitResponse.from_split(data.regions),
+            bm_region=data.bm_region.value if data.bm_region else None,
             revenue_net=data.current.revenue_net,
             highlights=HighlightsResponse(
                 best_revenue_day=SeriesPointResponse.from_point(data.highlights.best_revenue_day)
@@ -636,6 +639,7 @@ class TeamReportResponse(BaseModel):
     #: hcm_hn (SG chuyển HN); ``revenue`` null outside "Miền".
     flows: list[SourceResponse] = []
     regions: RegionSplitResponse | None = None
+    bm_region: str | None = None
     marketers: list[MarketerResponse]
     facebook: FiguresResponse
     attention: list[AlertResponse]
@@ -685,6 +689,7 @@ class TeamReportResponse(BaseModel):
                 for item in report.flows
             ],
             regions=RegionSplitResponse.from_split(report.regions),
+            bm_region=report.bm_region.value if report.bm_region else None,
             marketers=[
                 MarketerResponse(
                     user_id=line.user_id,

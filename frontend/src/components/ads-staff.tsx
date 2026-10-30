@@ -18,6 +18,8 @@ import {
   percent,
   PlatformSelect,
   platformLabel,
+  BmRevenueNote,
+  Money,
   ratioTone,
   RegionRevenue,
   SeriesChart,
@@ -370,13 +372,33 @@ function Workspace({
             </div>
           ) : (
             <KpiCard
-              kpi={kpi.revenue}
+              kpi={
+                data.bm_region
+                  ? {
+                      ...kpi.revenue,
+                      label: `Doanh thu MKT ${data.bm_region === "HN" ? "HN" : "SG"} (theo BM)`,
+                    }
+                  : kpi.revenue
+              }
               hero
-              note={`Doanh thu hoa hồng ${money(data.revenue_net)} · Bill TB chưa có dữ liệu`}
+              note={
+                data.bm_region && data.regions ? (
+                  <BmRevenueNote region={data.bm_region} flows={data.regions.flows} />
+                ) : (
+                  <>
+                    Doanh thu hoa hồng <Money value={data.revenue_net} /> · Bill TB chưa có
+                    dữ liệu
+                  </>
+                )
+              }
             />
           )}
           {!byPlatform && revenue !== null && data.regions ? (
-            <RegionRevenue regions={data.regions} className="sm:col-span-2" />
+            <RegionRevenue
+              regions={data.regions}
+              only={data.bm_region ?? null}
+              className="sm:col-span-2"
+            />
           ) : null}
           {manual ? null : (
             <Missing

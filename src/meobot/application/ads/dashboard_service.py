@@ -19,8 +19,9 @@ marketer's Google numbers have no revenue (``revenue_note`` ``platform``), the
 whole department's take that ◆ line. A typed-in platform lists every account
 in Khối 3, even one with nothing typed yet, so it can be filled in.
 
-The ad-account filters (brand, BM, cơ sở) narrow the costs only; the revenue
-is per person and stays whole (2026-10-30). ``region`` ("Miền") narrows the
+The ad-account filters (brand, cơ sở) narrow the costs only; a BM also narrows
+the revenue to what its region's CRM accounts brought (BM Hà Nội = HN accounts,
+``bm_region``), while "Doanh thu Cơ sở" stays whole (2026-10-30). ``region`` ("Miền") narrows the
 revenue only, to the customer flows of ``REGION_FLOWS`` (by marketing team,
 by the branch that served, or one flow); ``flows`` splits what is left.
 """
@@ -47,6 +48,8 @@ from meobot.application.ads.revenue_service import (
     RevenueRow,
     in_region,
 )
+from meobot.application.ads.sync_service import vn_today
+from meobot.application.ads.team_service import BM_REGION_FLOWS, bm_region
 from meobot.application.audit_service import AuditService
 from meobot.db.models.ads import AdsAccount, AdsChargeDaily, AdsConnection, AdsSpendDaily
 from meobot.db.models.user import User
@@ -217,6 +220,8 @@ class Dashboard:
     flows: dict[str, float] = field(default_factory=dict)
     #: Doanh thu Marketing / Cơ sở by region, cost by the BM's cơ sở, hiệu suất.
     regions: RegionSplit = field(default_factory=RegionSplit)
+    #: The picked BM's region: the revenue shown is that region's Marketing.
+    bm_region: CrmRegion | None = None
 
 
 class AdsDashboardService:
@@ -263,11 +268,16 @@ class AdsDashboardService:
         ids = list(accounts)
         spend_rows = await self._rows(AdsSpendDaily, ids, previous.start, period.end)
         charge_rows = await self._rows(AdsChargeDaily, ids, previous.start, period.end)
-        revenue_rows: list[RevenueRow] = []
+        # A BM shows the revenue its region's CRM accounts brought (BM Hà Nội
+        # = HN accounts); "Doanh thu Cơ sở" (``regions``) stays whole.
+        picked = await bm_region(self._session, connection_id)
+        if picked is not None:
+            region = BM_REGION_FLOWS[picked]
+        whole: list[RevenueRow] = []
         if not (manual and person is not None):
             source = PLATFORM_SOURCES.get(platform)
-            revenue_rows = [
-                cut
+            whole = [
+                row
                 for row in await AdsRevenueService(self._session, AuditService(self._session)).rows(
                     previous.start, period.end
                 )
@@ -278,8 +288,8 @@ class AdsDashboardService:
                     if manual
                     else row.user_id is not None and (person is None or row.user_id == person)
                 )
-                and (cut := in_region(row, region)) is not None
             ]
+        revenue_rows = [cut for row in whole if (cut := in_region(row, region)) is not None]
 
         def revenue_in(window: Period) -> dict[str, float | None]:
             inside = [row for row in revenue_rows if window.start <= row.day <= window.end]
@@ -366,6 +376,7 @@ class AdsDashboardService:
             }
         )
         note = "platform" if manual and person is not None else None
+        today = vn_today()
 
         def account_region(account_id: str) -> CrmRegion | None:
             account, connection = accounts[account_id]
@@ -407,7 +418,8 @@ class AdsDashboardService:
             connections=connections,
             last_synced_at=last_synced,
             revenue_note=note,
-            highlights=_highlights(days, period),
+            # The month runs ahead of today: the cards read the days gone by.
+            highlights=_highlights([point for point in days if point.start <= today], period),
             days=_days_of(period),
             platform=platform,
             flows={
@@ -423,7 +435,8 @@ class AdsDashboardService:
                 )
                 for flow in FLOWS
             },
-            regions=region_split(revenue_rows, costs, period),
+            regions=region_split(whole, costs, period),
+            bm_region=picked,
             can_add_account=manual
             and (access.manage_accounts or person is None or person == access.user_id),
             sites=sites,

@@ -4071,6 +4071,8 @@ export interface AdsDashboard {
   flows?: Partial<Record<AdsFlow, number>>;
   /** Doanh thu Marketing / Cơ sở by region, hiệu suất. */
   regions?: AdsRegionSplit | null;
+  /** The picked BM's region: the revenue shown is that region's Marketing. */
+  bm_region?: "HN" | "HCM" | null;
   kpis: AdsKpi[];
   series: AdsSeriesPoint[];
   best_day: AdsSeriesPoint | null;
@@ -4327,6 +4329,8 @@ export interface AdsTeamReport {
   }>;
   /** Doanh thu Marketing / Cơ sở by region, hiệu suất. */
   regions?: AdsRegionSplit | null;
+  /** The picked BM's region: the revenue shown is that region's Marketing. */
+  bm_region?: "HN" | "HCM" | null;
   marketers: Array<{
     user_id: Uuid;
     name: string;

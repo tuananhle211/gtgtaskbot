@@ -25,7 +25,8 @@ line's SG part (the marketers' HCM CRM accounts), ``hn`` = the HN part (HN CRM
 accounts, the ◆ "HN chuyển HCM" line), ``all`` = both; the team KPI is measured
 on both whatever is picked. ``connection_id`` narrows the costs to one BM's ad
 accounts (spend, charges, phone numbers, the marketers holding an account
-there); the revenue is per person, not per BM, so it stays whole. Customers,
+there) and the revenue to that BM's region's Marketing revenue (BM Hà Nội =
+the HN CRM accounts' - ``bm_region``); the Cơ sở split and the KPI stay whole. Customers,
 bookings and bill figures are not entered yet.
 
 ``platform`` (0081) switches Khối 1, Khối 3 and the reports to one platform's
@@ -230,6 +231,8 @@ class TeamReport:
     flows: list[SourceLine] = field(default_factory=list)
     #: Doanh thu Marketing / Cơ sở by region, cost by the BM's cơ sở, hiệu suất.
     regions: RegionSplit = field(default_factory=RegionSplit)
+    #: The picked BM's region: the revenue shown is that region's Marketing.
+    bm_region: CrmRegion | None = None
     #: The BM filter in force and every BM to pick from.
     connection_id: uuid.UUID | None = None
     connections: list[AdsConnection] = field(default_factory=list)
@@ -381,6 +384,19 @@ class _Book:
         return figures
 
 
+#: A BM's cơ sở -> the Marketing revenue it shows (2026-10-30): BM Hà Nội =
+#: what the HN CRM accounts brought, BM Sài Gòn = the HCM ones.
+BM_REGION_FLOWS = {CrmRegion.HN: "mkt_hn", CrmRegion.HCM: "mkt_hcm"}
+
+
+async def bm_region(session: AsyncSession, connection_id: uuid.UUID | None) -> CrmRegion | None:
+    """The region of a BM (its cơ sở), ``None`` without a BM or a known site."""
+    if connection_id is None:
+        return None
+    connection = await session.get(AdsConnection, connection_id)
+    return place_region(connection.site) if connection else None
+
+
 def _month_days(period: Period) -> list[date]:
     """The month's days up to today (a month not begun yet: its first day)."""
     last = max(vn_today(), period.start)
@@ -445,6 +461,10 @@ class AdsTeamService:
         period = month_period(month)
         first_month = period.start.replace(month=min(REPORT_FROM_MONTH, period.start.month))
         raw = await self._load(Period(start=first_month, end=period.end))
+        # A BM shows the revenue its region's CRM accounts brought.
+        region = await bm_region(self._session, connection_id)
+        if region is not None:
+            site = BM_REGION_FLOWS[region]
         book = raw.narrow(
             platform=platform,
             connection_id=connection_id,
@@ -506,6 +526,11 @@ class AdsTeamService:
         kpi_month = month_period(period.end)
         kpi_span = Period(start=kpi_month.start, end=period.end)
         filtered = connection_id is not None
+        # A BM shows the revenue its region's CRM accounts brought; "Doanh thu
+        # Cơ sở" (``regions``) and the KPI stay whole.
+        region = await bm_region(self._session, connection_id)
+        if region is not None:
+            site = BM_REGION_FLOWS[region]
         raw = await self._load(Period(start=min(previous.start, kpi_month.start), end=period.end))
         books = {
             item: raw.narrow(
@@ -720,6 +745,7 @@ class AdsTeamService:
             sources=sources,
             flows=flows,
             regions=region_split(book.revenue_rows, costs, period),
+            bm_region=region,
             marketers=marketers,
             facebook=facebook,
             attention=attention[:5],

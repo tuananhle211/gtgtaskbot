@@ -700,8 +700,9 @@ async def test_13_two_syncs_meeting_the_same_new_accounts(world: World) -> None:
 
 
 async def test_14_every_report_filters_by_bm(world: World) -> None:
-    """Pick a BM: spend, charges and the marketers narrow to its accounts; the
-    revenue (per person, not per BM) stays whole (2026-10-30)."""
+    """Pick a BM: spend, charges and the marketers narrow to its accounts, and
+    the revenue to what its region's CRM accounts brought (BM Hà Nội = HN; a
+    typed line is the HCM team's); "Doanh thu Cơ sở" stays whole (2026-10-30)."""
     from meobot.db.models.ads import AdsConnection
 
     _, ngoc, anh = await staffed(world)
@@ -722,7 +723,8 @@ async def test_14_every_report_filters_by_bm(world: World) -> None:
         "/api/ads/dashboard", params={**params, "connection_id": str(second.id)}
     ).json()
     assert [line["account_id"] for line in staff["accounts"]] == ["222"]
-    assert staff["revenue"] == 5_400_000 and staff["revenue_note"] is None
+    assert staff["revenue"] is None and staff["revenue_note"] is None
+    assert staff["bm_region"] == "HN" and staff["regions"]["hcm"]["site"] == 5_400_000
 
     whole = world.client.get("/api/ads/team", params={"month": "2026-10"}).json()
     assert whole["revenue_note"] is None and whole["connection_id"] is None
@@ -733,7 +735,8 @@ async def test_14_every_report_filters_by_bm(world: World) -> None:
         "/api/ads/team", params={"month": "2026-10", "connection_id": str(second.id)}
     ).json()
     assert hanoi["connection_id"] == str(second.id) and hanoi["revenue_note"] is None
-    assert hanoi["current"]["spend"] == 500_000 and hanoi["current"]["revenue"] == 5_400_000
+    assert hanoi["current"]["spend"] == 500_000 and hanoi["current"]["revenue"] is None
+    assert hanoi["bm_region"] == "HN" and hanoi["regions"]["hcm"]["site"] == 5_400_000
     assert [line["name"] for line in hanoi["marketers"]] == ["Hoàng Anh"]
     assert hanoi["facebook"]["spend"] == 500_000
     assert [alert["kind"] for alert in hanoi["attention"]] == ["no_revenue"]
@@ -742,13 +745,15 @@ async def test_14_every_report_filters_by_bm(world: World) -> None:
     ).json()
     assert reports["revenue_note"] is None
     assert reports["months"][-1]["figures"]["spend"] == 500_000
-    assert reports["months"][-1]["figures"]["revenue"] == 5_400_000
+    assert reports["months"][-1]["figures"]["revenue"] is None
     assert sum(line["figures"]["spend"] for line in reports["days"]) == 500_000
 
     apex = world.client.get(
         "/api/ads/team", params={"month": "2026-10", "connection_id": str(first.id)}
     ).json()
     assert apex["current"]["spend"] == 3_000_000
+    # BM Apex is in Sài Gòn: the HCM team's revenue.
+    assert apex["bm_region"] == "HCM" and apex["current"]["revenue"] == 5_400_000
     assert [line["user_id"] for line in apex["marketers"]] == [str(ngoc.id)]
     assert str(anh.id) not in {line["user_id"] for line in apex["marketers"]}
 

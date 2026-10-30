@@ -69,6 +69,36 @@ export function PlatformSelect({
   );
 }
 
+/** An amount inside a sentence, bold so it stands out from the words. */
+export function Money({ value }: { value: number | null | undefined }) {
+  return <strong className="font-semibold text-[var(--text)]">{money(value)}</strong>;
+}
+
+/**
+ * The note under the revenue when a BM is picked (2026-10-30): the revenue is
+ * that region's CRM accounts', made of the customers served at home and those
+ * sent to the other cơ sở.
+ */
+export function BmRevenueNote({
+  region,
+  flows,
+}: {
+  region: "HN" | "HCM";
+  flows: AdsRegionSplit["flows"];
+}) {
+  return region === "HN" ? (
+    <>
+      HN làm ở HN <Money value={flows.hn_hn ?? 0} /> · HN chuyển SG{" "}
+      <Money value={flows.hn_hcm ?? 0} />
+    </>
+  ) : (
+    <>
+      SG làm ở SG <Money value={flows.hcm_hcm ?? 0} /> · SG chuyển HN{" "}
+      <Money value={flows.hcm_hn ?? 0} />
+    </>
+  );
+}
+
 const REGION_TONE: Record<string, string> = {
   good: "bg-[var(--good-soft)] text-[var(--good)]",
   watch: "bg-[var(--warn-soft)] text-[var(--warn)]",
@@ -83,7 +113,7 @@ function RegionLine({
 }: {
   label: string;
   value: number;
-  parts: string;
+  parts: React.ReactNode;
   /** With a cost: the Marketing line shows its hiệu suất. */
   figures?: AdsRegionFigures;
 }) {
@@ -105,8 +135,8 @@ function RegionLine({
             {percent(figures.ads_ratio)}
           </span>
           <span>
-            = chi phí {label} {money(figures.invoice || figures.spend)} ÷ DT hoa hồng{" "}
-            {money(figures.marketing_net)}
+            = chi phí BM {label} <Money value={figures.invoice || figures.spend} /> ÷ doanh
+            thu CRM {label} (hoa hồng) <Money value={figures.marketing_net} />
           </span>
         </div>
       ) : null}
@@ -123,34 +153,58 @@ function RegionLine({
  */
 export function RegionRevenue({
   regions,
+  only = null,
   className = "",
 }: {
   regions: AdsRegionSplit;
+  /** A BM picked: Doanh thu Marketing shows its region alone; Cơ sở stays whole. */
+  only?: "HN" | "HCM" | null;
   className?: string;
 }) {
   const flow = (key: keyof AdsRegionSplit["flows"]) => regions.flows[key] ?? 0;
   const card = `rounded-xl border border-[var(--border)] bg-[var(--surface)] p-4 ${className}`;
-  const total = regions.hn.marketing + regions.hcm.marketing;
+  const total =
+    only === "HN"
+      ? regions.hn.marketing
+      : only === "HCM"
+        ? regions.hcm.marketing
+        : regions.hn.marketing + regions.hcm.marketing;
   return (
     <>
       <div data-testid="revenue-marketing" className={card}>
         <div className="flex items-baseline justify-between gap-2">
-          <span className="text-sm text-[var(--text-muted)]">Doanh thu Marketing</span>
+          <span className="text-sm text-[var(--text-muted)]">
+            Doanh thu Marketing{only ? ` · BM ${only === "HN" ? "HN" : "SG"}` : ""}
+          </span>
           <span className="text-sm font-semibold tabular-nums">{money(total)}</span>
         </div>
         <ul className="mt-2 space-y-2 text-sm">
-          <RegionLine
-            label="HN"
-            value={regions.hn.marketing}
-            parts={`HN ${money(flow("hn_hn"))} + HN chuyển SG ${money(flow("hn_hcm"))}`}
-            figures={regions.hn}
-          />
-          <RegionLine
-            label="SG"
-            value={regions.hcm.marketing}
-            parts={`SG ${money(flow("hcm_hcm"))} + SG chuyển HN ${money(flow("hcm_hn"))}`}
-            figures={regions.hcm}
-          />
+          {only !== "HCM" ? (
+            <RegionLine
+              label="HN"
+              value={regions.hn.marketing}
+              parts={
+                <>
+                  HN <Money value={flow("hn_hn")} /> + HN chuyển SG{" "}
+                  <Money value={flow("hn_hcm")} />
+                </>
+              }
+              figures={regions.hn}
+            />
+          ) : null}
+          {only !== "HN" ? (
+            <RegionLine
+              label="SG"
+              value={regions.hcm.marketing}
+              parts={
+                <>
+                  SG <Money value={flow("hcm_hcm")} /> + SG chuyển HN{" "}
+                  <Money value={flow("hcm_hn")} />
+                </>
+              }
+              figures={regions.hcm}
+            />
+          ) : null}
         </ul>
       </div>
       <div data-testid="revenue-site" className={card}>
@@ -164,12 +218,22 @@ export function RegionRevenue({
           <RegionLine
             label="HN"
             value={regions.hn.site}
-            parts={`HN ${money(flow("hn_hn"))} + SG chuyển HN ${money(flow("hcm_hn"))}`}
+            parts={
+              <>
+                HN <Money value={flow("hn_hn")} /> + SG chuyển HN{" "}
+                <Money value={flow("hcm_hn")} />
+              </>
+            }
           />
           <RegionLine
             label="SG"
             value={regions.hcm.site}
-            parts={`SG ${money(flow("hcm_hcm"))} + HN chuyển SG ${money(flow("hn_hcm"))}`}
+            parts={
+              <>
+                SG <Money value={flow("hcm_hcm")} /> + HN chuyển SG{" "}
+                <Money value={flow("hn_hcm")} />
+              </>
+            }
           />
         </ul>
       </div>
@@ -289,7 +353,7 @@ export function KpiCard({
 }: {
   kpi: AdsKpi;
   hero?: boolean;
-  note?: string;
+  note?: React.ReactNode;
   /** The card's border classes (a highlighted card passes a coloured one). */
   border?: string;
 }) {
