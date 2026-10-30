@@ -627,6 +627,39 @@ describe("9. only the PR stream's people", () => {
   ];
   const TAGS = { [OWNER]: ["ADS", "PR"], [HAO]: ["ADS"], [LEAD]: ["PR"] };
 
+  it("lists the PR department's staff only - not Ban Giám đốc, whose seat also carries the PR tag", async () => {
+    const seat = (fn: string, name: string) => ({
+      department_id: `d-${fn}`,
+      code: fn,
+      name,
+      function: fn,
+      position: "MEMBER",
+      position_label: "Thành viên",
+    });
+    await open(roster(), [
+      {
+        match: "/api/units/PR/members",
+        method: "GET",
+        body: {
+          unit: "PR",
+          unit_label: "Luồng PR",
+          assignable_roles: [],
+          members: [
+            { user_id: LEAD, full_name: "Lê Trưởng Nhóm", departments: [seat("PR", "PR Thương Hiệu")] },
+            { user_id: HAO, full_name: "Hảo", departments: [seat("BOARD", "Ban Giám đốc")] },
+            { user_id: OWNER, full_name: "Chị Chủ", departments: [seat("BOARD", "Ban Giám đốc"), seat("PR", "PR Thương Hiệu")] },
+          ],
+        },
+      },
+    ]);
+    const names = screen.getAllByTestId("member-card").map((card) => card.textContent ?? "");
+    expect(names.some((text) => text.includes("Lê Trưởng Nhóm"))).toBe(true);
+    // Seated in both: still PR's.
+    expect(names.some((text) => text.includes("Chị Chủ"))).toBe(true);
+    // Ban Giám đốc only: not on PR's list.
+    expect(names.some((text) => text.includes("Hảo"))).toBe(false);
+  });
+
   it("lists only the people seated in PR, with no stream tag on anybody", async () => {
     await open(roster(), extra(TAGS));
     expect(screen.getAllByTestId("member-card")).toHaveLength(2);

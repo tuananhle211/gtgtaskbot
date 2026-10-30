@@ -70,9 +70,26 @@ export function usePrRoster() {
     queryKey: ["units", "PR", "members"],
     queryFn: () => api.unitMembers("PR"),
   });
+  // The PR team = people seated in a PR department (2026-10-30). The PR tag
+  // alone is wider: a Ban Giám đốc seat carries one too (directors see PR's
+  // screens) but they are not PR's staff. A row without `departments` (an
+  // older API) still counts by its tag.
+  const team = useMemo(
+    () =>
+      new Set(
+        (stream.data?.members ?? [])
+          .filter(
+            (member) =>
+              member.departments === undefined ||
+              member.departments.some((seat) => seat.function === "PR"),
+          )
+          .map((member) => member.user_id),
+      ),
+    [stream.data],
+  );
   const data = useMemo(() => {
     if (!roster.data || !stream.data) return undefined;
-    const inPr = new Set(stream.data.members.map((member) => member.user_id));
+    const inPr = team;
     const members = roster.data.members.filter((row) => inPr.has(row.user_id));
     const counts: RosterCounts = {
       ...roster.data.counts,
@@ -83,15 +100,14 @@ export function usePrRoster() {
       pending: members.filter((row) => row.status === "pending").length,
     };
     return { ...roster.data, members, counts };
-  }, [roster.data, stream.data]);
-  // Everybody with an account but no open PR tag: who "Thêm thành viên" may bring in.
+  }, [roster.data, stream.data, team]);
+  // Everybody with an account outside the PR team: who "Thêm thành viên" may bring in.
   const outsiders = useMemo(() => {
     if (!roster.data || !stream.data) return [];
-    const inPr = new Set(stream.data.members.map((member) => member.user_id));
     return roster.data.members.filter(
-      (row) => !inPr.has(row.user_id) && row.status !== "revoked",
+      (row) => !team.has(row.user_id) && row.status !== "revoked",
     );
-  }, [roster.data, stream.data]);
+  }, [roster.data, stream.data, team]);
   // Each PR member's seats ("Phòng ban"): the chips on their card.
   const seatsOf = useMemo(
     () =>
