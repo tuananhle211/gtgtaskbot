@@ -5847,6 +5847,8 @@ export interface MemberRow {
   role_label: string;
   /** Whether the account is active. Optional: older APIs list active ones only. */
   active?: boolean;
+  /** `active` / `suspended` (vô hiệu hoá) / `revoked` (thu hồi). Optional: older APIs omit it. */
+  account_status?: "active" | "suspended" | "revoked" | "pending";
   /** The ORD function tag ("BT" / "TK" / "D") and whether they lead it. */
   function_tag?: string | null;
   is_lead?: boolean;
@@ -6004,6 +6006,8 @@ export const api = {
     post<void>(`/api/account/members/${userId}/deactivate`),
   reactivateAccount: (userId: Uuid) =>
     post<void>(`/api/account/members/${userId}/reactivate`),
+  /** "Khôi phục tài khoản": OWNER only, undoes a revocation (422 `account_not_revoked`). */
+  restoreAccount: (userId: Uuid) => post<void>(`/api/account/members/${userId}/restore`),
   /**
    * OWNER only. 204: the account is gone for good; their past orders and work
    * stay, named "<tên> (đã xoá)". 403 `member_delete_forbidden` (also oneself

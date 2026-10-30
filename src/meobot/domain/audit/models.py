@@ -469,6 +469,8 @@ class AuditAction(StrEnum):
     USER_POINT_COEFFICIENT_SET = "user.point_coefficient.set"
     #: "Định mức" (2026-10-29): points per hour / hours per day / quota %.
     PERFORMANCE_QUOTA_UPDATED = "performance.quota.updated"
+    #: "Loại khỏi PR" (2026-10-30): out of the PR departments, account kept.
+    PR_MEMBER_REMOVED = "pr.member.removed"
     #: PR task codes (0085): a claim sent, approved, refused.
     PR_POINTS_CLAIMED = "pr.points.claimed"
     PR_POINTS_DECIDED = "pr.points.decided"

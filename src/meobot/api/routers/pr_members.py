@@ -15,11 +15,12 @@ Vocabulary, because it is easy to say the wrong thing on a button:
 * ``deactivate`` is ``UserService.suspend`` - *Vô hiệu hóa thành viên*. The
   person stops being able to sign in or act; their history, their role and
   their grants stay on the row and come back on ``reactivate``.
-* ``revoke`` is ``UserService.revoke`` - *Loại khỏi PR*. **Terminal in phase
-  1.** ``UserService.restore`` exists as a service method but no Telegram
-  command or tool exposes it, so the web exposes nothing either: a button the
-  canonical surface does not have would be a second lifecycle. A revoked row
-  stays readable - its history and its effective permissions - and that is all.
+* ``revoke`` is *Loại khỏi PR* and, since 2026-10-30, **only takes the person
+  out of the PR departments** (their seats close, the PR tag follows) - the
+  account stays active and keeps everything else. It used to be
+  ``UserService.revoke``, which ended the whole account (an ADMIN was cut off
+  that way by mistake). Ending an account is ``/revoke_user`` on Telegram; it
+  is undone by the OWNER's "Khôi phục tài khoản" (``/api/account``).
 * Nothing is deleted. A member who owns content, contributed work or approved
   something is referenced from those rows, and a route that removed the row
   would leave every one of them pointing at nobody.
@@ -60,6 +61,7 @@ from meobot.application.user_service import UserService
 from meobot.core.errors import AuthorizationError, ValidationError
 from meobot.core.time import utcnow
 from meobot.db.models.user import User
+from meobot.domain.audit.models import AuditAction, AuditResult
 from meobot.domain.identity.labels import role_label
 from meobot.domain.identity.models import Actor, Role
 from meobot.domain.units.models import UnitCode, UnitMemberRole
@@ -232,14 +234,26 @@ async def revoke_member(
     request_id: RequestIdDep,
     users: UsersDep,
     membership: MembershipDep,
+    session: Annotated[AsyncSession, Depends(get_session)],
 ) -> MemberResponse:
-    """*Loại khỏi PR.* ``/revoke_user``, over HTTP. The row stays; history stays."""
-    user = await users.revoke(
+    """*Loại khỏi PR* (2026-10-30): out of every PR department - the seats
+    close and the PR tag with them - the account stays active. Who may do it
+    is the lifecycle's own rule (``UserService.check_target``); somebody who
+    still holds open PR work is refused (422 ``member_has_open_work``)."""
+    user = await users.check_target(
         actor=actor,
-        request_id=request_id,
         user_id=user_id,
-        reason=body.reason,
         authorized_by_module=await membership.module_authorises(actor, user_id),
+    )
+    await departments.unplace(session, UnitCode.PR, user.id, guard_open_work=True)
+    await AuditService(session).record_action(
+        request_id=request_id,
+        actor=actor,
+        action=AuditAction.PR_MEMBER_REMOVED.value,
+        result=AuditResult.SUCCESS,
+        entity_type="user",
+        entity_id=str(user.id),
+        after_data={"reason": body.reason},
     )
     return await _member_response(membership, actor, user)
 

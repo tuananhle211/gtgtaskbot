@@ -446,9 +446,32 @@ async def test_4f_the_pr_head_manages_the_accounts_of_pr_members(world: World) -
         assert response.status_code == 403, target.full_name
         assert error_reason(response) == "member_manage_forbidden", target.full_name
 
+    # "Loại khỏi PR" (2026-10-30): out of the PR department, account kept.
     gone = world.client.post(f"{MEMBERS}/{world.member.id}/revoke", json={"reason": "Đã nghỉ"})
-    assert gone.status_code == 200 and gone.json()["status"] == "revoked"
-    assert len(await audit_rows(world, AuditAction.USER_REVOKED)) == 1
+    assert gone.status_code == 200 and gone.json()["status"] == "active"
+    assert await open_pr_seats(world, world.member) == 0
+    assert len(await audit_rows(world, AuditAction.PR_MEMBER_REMOVED)) == 1
+    assert len(await audit_rows(world, AuditAction.USER_REVOKED)) == 0
+
+
+async def open_pr_seats(world: World, user: User) -> int:
+    from sqlalchemy import func, select
+
+    from meobot.db.models.department import Department, DepartmentMember
+    from meobot.domain.org.models import DepartmentFunction
+
+    return int(
+        await world.session.scalar(
+            select(func.count(DepartmentMember.id))
+            .join(Department, Department.id == DepartmentMember.department_id)
+            .where(
+                DepartmentMember.user_id == user.id,
+                DepartmentMember.left_at.is_(None),
+                Department.function == DepartmentFunction.PR,
+            )
+        )
+        or 0
+    )
 
 
 async def test_4d_nobody_is_promoted_into_owner_and_nobody_changes_themselves(
@@ -589,9 +612,12 @@ async def test_5d_reactivation_restores_role_and_grants_unchanged(world: World) 
     assert len(await audit_rows(world, AuditAction.USER_ENABLED)) == 1
 
 
-async def test_5e_only_the_owner_deactivates_and_a_revoked_member_cannot_be_reactivated(
+async def test_5e_removed_from_pr_stays_active_and_only_the_owner_restores_a_revoked_one(
     world: World,
 ) -> None:
+    from meobot.application.audit_service import AuditService
+    from meobot.application.user_service import UserService
+
     admin = User(full_name="Quản trị", role=Role.ADMIN)
     world.session.add(admin)
     await world.session.flush()
@@ -602,18 +628,36 @@ async def test_5e_only_the_owner_deactivates_and_a_revoked_member_cannot_be_reac
         assert response.status_code == 403, user.full_name
         assert error_reason(response) == "member_manage_forbidden"
 
+    # "Loại khỏi PR" no longer ends the account (2026-10-30).
     world.act_as(world.owner)
     gone = world.client.post(f"{MEMBERS}/{world.member.id}/revoke", json={"reason": "Đã nghỉ"})
-    assert gone.status_code == 200 and gone.json()["status"] == "revoked"
-    back = world.client.post(f"{MEMBERS}/{world.member.id}/reactivate")
-    # ``UserService.enable`` has always answered this with a ValidationError;
-    # the web keeps the status and the code rather than inventing a new one.
-    assert back.status_code == 422 and error_reason(back) == "member_revoked"
-    assert "không thể kích hoạt lại" in back.json()["error"]["message"]
+    assert gone.status_code == 200 and gone.json()["status"] == "active"
     await world.session.refresh(world.member)
-    assert world.member.status is UserStatus.REVOKED
-    assert len(await audit_rows(world, AuditAction.USER_REVOKED)) == 1
-    assert len(await audit_rows(world, AuditAction.USER_ENABLED)) == 0
+    assert world.member.status is UserStatus.ACTIVE and world.member.active
+    assert await open_pr_seats(world, world.member) == 0
+
+    # A revoked account (``/revoke_user``) is never reactivated - only the
+    # OWNER's "Khôi phục tài khoản" brings it back.
+    await UserService(world.session, AuditService(world.session)).revoke(
+        actor=world.actor(world.owner), request_id=world.request_id, user_id=world.member.id
+    )
+    back = world.client.post(f"{MEMBERS}/{world.member.id}/reactivate")
+    assert back.status_code == 422 and error_reason(back) == "member_revoked"
+    restore = f"/api/account/members/{world.member.id}/restore"
+    world.act_as(admin)
+    refused = world.client.post(restore)
+    assert refused.status_code == 403 and error_reason(refused) == "account_status_forbidden"
+    world.act_as(world.owner)
+    listed = world.client.get("/api/account/members", params={"include_inactive": "true"}).json()
+    row = next(item for item in listed["members"] if item["user_id"] == str(world.member.id))
+    assert row["account_status"] == "revoked" and row["active"] is False
+    assert world.client.post(restore).status_code == 204
+    await world.session.refresh(world.member)
+    assert world.member.status is UserStatus.ACTIVE and world.member.active
+    restored = await audit_rows(world, AuditAction.USER_ENABLED)
+    assert len(restored) == 1 and restored[0].after_data["reason"] == "restored"
+    again = world.client.post(restore)
+    assert again.status_code == 422 and error_reason(again) == "account_not_revoked"
 
 
 async def test_5f_responsibilities_count_what_is_open_and_change_nothing(world: World) -> None:
@@ -778,9 +822,12 @@ async def test_6e_a_member_may_read_their_own_permissions_but_not_a_colleagues(
 
 def test_7a_the_web_router_delegates_every_write_to_user_service() -> None:
     source = (SRC / "api" / "routers" / "pr_members.py").read_text(encoding="utf-8")
-    for method in ("add_user", "change_role", "suspend", "enable", "revoke"):
+    for method in ("add_user", "change_role", "suspend", "enable", "check_target"):
         assert f"users.{method}(" in source, method
-    # Phase 1: revocation is terminal on the web, as it is on Telegram.
+    # 2026-10-30: "Loại khỏi PR" only leaves the PR department - it no longer
+    # ends the account, and this screen restores nothing (the OWNER's
+    # "Khôi phục tài khoản" lives on /api/account).
+    assert "users.revoke(" not in source and "departments.unplace(" in source
     assert "users.restore(" not in source and "/restore" not in source
     forbidden = (
         "user.role =",

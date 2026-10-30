@@ -39,6 +39,7 @@ from meobot.application.org.access import Access
 from meobot.application.org.departments import department_people, head_team
 from meobot.application.org.seats import load_seats
 from meobot.application.units.directory import manager_fits
+from meobot.application.user_service import UserService
 from meobot.application.web_auth_service import IssuedLogin, WebAuthService
 from meobot.core.time import ensure_utc, utcnow
 from meobot.db.models.department import DepartmentMember
@@ -663,6 +664,34 @@ class AccountService:
             after_data={"member_code": code},
         )
         return code
+
+    async def restore_member(
+        self, *, actor: Actor, request_id: uuid.UUID, user_id: uuid.UUID
+    ) -> User:
+        """ "Khôi phục tài khoản" (2026-10-30): undo a revocation. The OWNER only
+        (a revoked account was ended on purpose); never oneself, never a deleted
+        account. ``UserService.restore`` does it and audits it
+        (``user.enabled``, reason "restored").
+
+        Raises:
+            AccountStatusForbiddenError: not the OWNER, or on oneself.
+            AccountNotFoundError: no such account (or deleted).
+            AccountValidationError: ``account_not_revoked``.
+        """
+        if actor.role is not Role.OWNER:
+            raise AccountStatusForbiddenError("Chỉ Chủ sở hữu khôi phục được tài khoản đã thu hồi.")
+        if actor.user_id == user_id:
+            raise AccountStatusForbiddenError()
+        target = await self._session.get(User, user_id)
+        if target is None or target.deleted_at is not None:
+            raise AccountNotFoundError()
+        if target.status is not UserStatus.REVOKED:
+            raise AccountValidationError(
+                "account_not_revoked", "Tài khoản này không ở trạng thái đã thu hồi."
+            )
+        return await UserService(self._session, self._audit).restore(
+            actor=actor, request_id=request_id, user_id=user_id
+        )
 
     async def delete_member(
         self, *, actor: Actor, request_id: uuid.UUID, user_id: uuid.UUID

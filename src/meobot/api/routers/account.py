@@ -396,6 +396,25 @@ async def reactivate_member(
     return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
+@router.post(
+    "/members/{user_id}/restore",
+    status_code=status.HTTP_204_NO_CONTENT,
+    responses={
+        **_STATUS_RESPONSES,
+        422: {"model": ErrorEnvelope, "description": "account_not_revoked."},
+    },
+)
+async def restore_member(
+    user_id: uuid.UUID,
+    actor: CurrentActorDep,
+    accounts: AccountServiceDep,
+    request_id: RequestIdDep,
+) -> Response:
+    """*Khôi phục tài khoản* (2026-10-30): undo a revocation. The OWNER only."""
+    await accounts.restore_member(actor=actor, request_id=request_id, user_id=user_id)
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+
 @router.delete(
     "/members/{user_id}",
     status_code=status.HTTP_204_NO_CONTENT,

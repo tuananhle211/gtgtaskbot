@@ -44,8 +44,10 @@ import {
  *
  * Vocabulary, because the wrong word on a button is a promise the server does
  * not keep: **Vô hiệu hóa** is `suspend` (reversible: **Kích hoạt lại**);
- * **Loại khỏi PR** is `revoke`, terminal in phase 1 - no button undoes it,
- * because no Telegram command does either. There is no delete. A member who
+ * **Loại khỏi PR** (2026-10-30) only takes the person out of the PR department -
+ * the account stays active (it used to end the whole account; the OWNER's
+ * "Khôi phục tài khoản" on Quản lý tài khoản undoes such a revocation). There
+ * is no delete. A member who
  * owned content, contributed work or approved something is history, and
  * history keeps its people.
  */
@@ -853,7 +855,7 @@ function ResponsibilitiesSummary({ held, name }: { held: MemberResponsibilities;
   );
 }
 
-/** *Loại khỏi PR.* `revoke`, with an audit reason. */
+/** *Loại khỏi PR*: out of the PR department, with an audit reason. */
 function RevokePanel({ member, onDone }: { member: Member; onDone: () => void }) {
   const invalidate = useInvalidateMembership();
   const [reason, setReason] = useState("");
@@ -870,8 +872,9 @@ function RevokePanel({ member, onDone }: { member: Member; onDone: () => void })
       className="mt-3 space-y-2 rounded bg-[var(--surface-muted)] p-3"
     >
       <p className="text-sm text-[var(--text-muted)]">
-        Loại khỏi PR là thu hồi quyền truy cập lâu dài và không kích hoạt lại được trong giai đoạn
-        này. Tài khoản và toàn bộ lịch sử vẫn còn. Nếu chỉ cần tạm ngưng, dùng “Vô hiệu hóa”.
+        Loại khỏi PR chỉ bỏ người này ra khỏi phòng PR - tài khoản vẫn hoạt động và dùng được các
+        phần khác. Người còn việc PR đang làm phải bàn giao trước. Muốn chặn đăng nhập hẳn, dùng
+        “Vô hiệu hóa”.
       </p>
       <label className="block text-sm">
         Lý do (vào lịch sử, không hiện cho thành viên)

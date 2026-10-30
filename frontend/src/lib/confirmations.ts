@@ -480,11 +480,11 @@ export const deactivateMemberConfirmation = (
   };
 };
 
-/** *Loại khỏi PR.* Terminal in phase 1; the row is never deleted. */
+/** *Loại khỏi PR* (2026-10-30): out of the PR department only, account kept. */
 export const revokeMemberConfirmation = (name: string): ConfirmSpec => ({
   title: `Loại ${name} khỏi PR?`,
   description:
-    "Tài khoản mất quyền truy cập và không thể kích hoạt lại trong giai đoạn này. Toàn bộ lịch sử nội dung, công việc và KPI của họ được giữ nguyên, và vẫn xem được ở đây.",
+    "Chỉ bỏ người này ra khỏi phòng PR: họ không còn thấy các màn của PR. Tài khoản vẫn hoạt động và dùng được các phần khác; lịch sử nội dung, công việc và KPI được giữ nguyên.",
   confirmLabel: "Loại khỏi PR",
   variant: "destructive",
 });
@@ -1131,6 +1131,13 @@ export const reactivateAccountConfirmation = (name: string): ConfirmSpec => ({
   title: `Kích hoạt lại tài khoản ${name}?`,
   description: `“${name}” đăng nhập và thao tác lại được ngay, với các luồng và vai trò vẫn còn giữ.`,
   confirmLabel: "Kích hoạt lại",
+});
+
+/** "Khôi phục tài khoản" (2026-10-30): the OWNER undoes a revocation. */
+export const restoreAccountConfirmation = (name: string): ConfirmSpec => ({
+  title: `Khôi phục tài khoản ${name}?`,
+  description: `Tài khoản “${name}” đã bị thu hồi. Khôi phục thì đăng nhập và thao tác lại được ngay, với vai trò và phòng ban vẫn còn giữ.`,
+  confirmLabel: "Khôi phục",
 });
 
 /** "Gắn vào luồng…": an account with no stream joins one, in one role. */

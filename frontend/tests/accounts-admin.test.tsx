@@ -173,6 +173,7 @@ function stubPage(role: string, me: Record<string, unknown>, rows = ROWS, extra:
 
 /** `/api/units/directory`: every account, with seats, for "Thêm người vào phòng". */
 const OUTSIDER = "dddddddd-dddd-dddd-dddd-dddddddddddd";
+const GONE = "ffffffff-ffff-ffff-ffff-ffffffffffff";
 const DIRECTORY = [
   { user_id: NHU, full_name: "Quỳnh Như", base_role: "EMPLOYEE", base_role_label: "Nhân viên", active: true, units: ["ADS"], departments: [seat(TK, "TK", "Thiết Kế", "MEMBER")] },
   { user_id: LUONG, full_name: "Hiền Lương", base_role: "EMPLOYEE", base_role_label: "Nhân viên", active: true, units: ["ADS"], departments: [seat(BT, "BT", "Biên Tập", "HEAD")] },
@@ -333,6 +334,43 @@ describe("Quản lý tài khoản for the OWNER", () => {
     const sent = calls(stub).find((call) => call.url.endsWith("/api/account/login-link"));
     expect(sent?.body).toEqual({ user_id: NHU });
     expect(within(dialog).getByRole("button", { name: "Mở tài khoản này" })).toBeInTheDocument();
+  });
+
+  it("marks a revoked account and lets only the OWNER restore it (2026-10-30)", async () => {
+    const revoked = {
+      ...ROWS,
+      members: [...ROWS.members, row(GONE, "Người Bị Thu Hồi", { active: false, account_status: "revoked" })],
+    };
+    const stub = stubPage("OWNER", OWNER_ME, revoked, [
+      { match: `/api/account/members/${GONE}/restore`, method: "POST", status: 204 },
+    ]);
+    renderWithQuery(<AccountsAdminPage />);
+    await screen.findByText("Người Bị Thu Hồi");
+    const gone = rowOf("Người Bị Thu Hồi");
+    expect(within(gone).getByText("Đã thu hồi")).toBeInTheDocument();
+    await userEvent.click(within(gone).getByRole("button", { name: "Thao tác với Người Bị Thu Hồi" }));
+    const menu = screen.getByRole("menu", { name: "Thao tác với Người Bị Thu Hồi" });
+    // Never "Kích hoạt lại" on a revoked account: "Khôi phục tài khoản".
+    expect(within(menu).queryByRole("menuitem", { name: "Kích hoạt lại…" })).not.toBeInTheDocument();
+    await userEvent.click(within(menu).getByRole("menuitem", { name: "Khôi phục tài khoản…" }));
+    expect(screen.getByRole("dialog")).toHaveTextContent("Khôi phục tài khoản Người Bị Thu Hồi?");
+    await confirm();
+    await waitFor(() =>
+      expect(calls(stub).find((call) => call.method === "POST")?.url).toBe(
+        `/api/account/members/${GONE}/restore`,
+      ),
+    );
+  });
+
+  it("offers no restore to an ADMIN viewer", async () => {
+    stubPage("ADMIN", { ...OWNER_ME, role: "ADMIN" }, {
+      ...ROWS,
+      members: [...ROWS.members, row(GONE, "Người Bị Thu Hồi", { active: false, account_status: "revoked" })],
+    });
+    renderWithQuery(<AccountsAdminPage />);
+    await screen.findByText("Người Bị Thu Hồi");
+    await userEvent.click(within(rowOf("Người Bị Thu Hồi")).getByRole("button", { name: "Thao tác với Người Bị Thu Hồi" }));
+    expect(screen.queryByRole("menuitem", { name: "Khôi phục tài khoản…" })).not.toBeInTheDocument();
   });
 
   it("offers no impersonation to an ADMIN viewer", async () => {

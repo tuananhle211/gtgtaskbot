@@ -420,6 +420,16 @@ class UserService:
         logger.info("user_revoked", extra={"user_id": str(user.id)})
         return user
 
+    async def check_target(
+        self, *, actor: Actor, user_id: uuid.UUID, authorized_by_module: bool = False
+    ) -> User:
+        """The account, once the actor may act on it at all (the same guard as
+        every lifecycle write) - for a write done elsewhere, e.g. taking
+        somebody out of PR (2026-10-30)."""
+        user = await self._require(user_id)
+        self._guard_target(actor, user, authorized_by_module=authorized_by_module)
+        return user
+
     async def restore(
         self,
         *,

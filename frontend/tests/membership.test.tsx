@@ -483,28 +483,25 @@ describe("4. deactivating, reactivating, revoking, restoring", () => {
     await waitFor(() => expect(lastCall(fetchMock, `/members/${LEAD}/reactivate`)).toBeTruthy());
   });
 
-  it("revokes as 'Loại khỏi PR' with its own warning, and revocation is terminal", async () => {
+  it("'Loại khỏi PR' only takes the person out of PR, the account stays (2026-10-30)", async () => {
     const fetchMock = await open(roster(), [
       {
         match: `/api/pr/members/${HAO}/revoke`,
         method: "POST",
-        body: member({ status: "revoked" }),
+        body: member({ status: "active" }),
       },
     ]);
     fireEvent.click(card("Hảo").getByText("Loại khỏi PR"));
     const panel = within(screen.getByTestId("revoke-panel"));
-    expect(panel.getByText(/Nếu chỉ cần tạm ngưng, dùng “Vô hiệu hóa”/)).toBeInTheDocument();
+    expect(panel.getByText(/chỉ bỏ người này ra khỏi phòng PR - tài khoản vẫn hoạt động/)).toBeInTheDocument();
     fireEvent.click(panel.getByRole("button", { name: "Loại khỏi PR" }));
     expect(dialog().getByText("Loại Hảo khỏi PR?")).toBeInTheDocument();
-    expect(
-      dialog().getByText(/lịch sử nội dung, công việc và KPI của họ được giữ nguyên/),
-    ).toBeInTheDocument();
+    expect(dialog().getByText(/Tài khoản vẫn hoạt động và dùng được các phần khác/)).toBeInTheDocument();
     await confirm();
     await waitFor(() => expect(lastCall(fetchMock, `/members/${HAO}/revoke`)).toBeTruthy());
     expect(lastCall(fetchMock, `/members/${HAO}/revoke`).body).toEqual({ reason: null });
-    // The dialog promised no undo, and the screen offers none.
+    // This screen restores nothing: that is the OWNER's, on Quản lý tài khoản.
     expect(fetchMock.calls.some((call) => call.url.includes("/restore"))).toBe(false);
-    expect(ACTION_INVENTORY.some((entry) => /Khôi phục/.test(entry.action))).toBe(false);
   });
 
   it("never says 'team' on a button or in a dialog", () => {

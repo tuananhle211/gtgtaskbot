@@ -31,7 +31,7 @@ import {
   Select,
 } from "@/components/pr";
 import { RowMenu, type RowMenuItem } from "@/components/row-menu";
-import { ErrorBox, Loading, NoticeBox } from "@/components/states";
+import { ErrorBox, Loading, NoticeBox, Pill } from "@/components/states";
 import {
   DeactivatedPill,
   mayChangeAccountStatus,
@@ -41,6 +41,7 @@ import {
   deactivateAccountConfirmation,
   deleteAccountConfirmation,
   reactivateAccountConfirmation,
+  restoreAccountConfirmation,
   resetMemberPasswordConfirmation,
 } from "@/lib/confirmations";
 import { formatTokens, parseTokens } from "@/lib/deadline";
@@ -373,7 +374,7 @@ function placeableDepartments(
 type Viewer = { role?: string; userId: string | null };
 
 /** What the "⋯" menu may open for this row, besides the links. */
-type RowAction = "reset" | "status" | "delete" | "role" | "impersonate" | null;
+type RowAction = "reset" | "status" | "restore" | "delete" | "role" | "impersonate" | null;
 
 function AccountRow({
   row,
@@ -408,6 +409,7 @@ function AccountRow({
     void queryClient.invalidateQueries({ queryKey: ["departments"] });
   };
   const active = row.active ?? true;
+  const revoked = row.account_status === "revoked";
   const isSelf = viewer.userId === row.user_id;
   const [action, setAction] = useState<RowAction>(null);
   const done = (text: string) => {
@@ -431,6 +433,10 @@ function AccountRow({
           ? `Đã vô hiệu hoá tài khoản ${row.full_name}.`
           : `Đã kích hoạt lại tài khoản ${row.full_name}.`,
       ),
+  });
+  const restore = useMutation({
+    mutationFn: () => api.restoreAccount(row.user_id),
+    onSuccess: () => done(`Đã khôi phục tài khoản ${row.full_name}.`),
   });
   const remove = useMutation({
     mutationFn: () => api.deleteMember(row.user_id),
@@ -466,7 +472,16 @@ function AccountRow({
       onSelect: () => setAction("impersonate"),
     });
   }
-  if (
+  // A revoked account ("thu hồi") is the OWNER's to restore, never reactivated.
+  if (revoked) {
+    if (viewer.role === "OWNER" && !isSelf && row.role !== "OWNER") {
+      items.push({
+        key: "restore",
+        label: "Khôi phục tài khoản…",
+        onSelect: () => setAction("restore"),
+      });
+    }
+  } else if (
     mayChangeAccountStatus(viewer, { user_id: row.user_id, role: row.role })
   ) {
     items.push({
@@ -494,9 +509,11 @@ function AccountRow({
             : reactivateAccountConfirmation(row.full_name),
           run: status,
         }
-        : action === "delete"
-          ? { spec: deleteAccountConfirmation(row.full_name), run: remove }
-          : null;
+        : action === "restore"
+          ? { spec: restoreAccountConfirmation(row.full_name), run: restore }
+          : action === "delete"
+            ? { spec: deleteAccountConfirmation(row.full_name), run: remove }
+            : null;
 
   return (
     <tr
@@ -515,7 +532,7 @@ function AccountRow({
             </p>
             {active ? null : (
               <span className="mt-1 block">
-                <DeactivatedPill />
+                {revoked ? <Pill tone="bad">Đã thu hồi</Pill> : <DeactivatedPill />}
               </span>
             )}
           </div>

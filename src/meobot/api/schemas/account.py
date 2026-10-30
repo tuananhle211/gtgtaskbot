@@ -310,6 +310,9 @@ class MemberRowResponse(BaseModel):
     avatar_url: str | None = None
     #: Additive: false for a deactivated account (listed with ``include_inactive``).
     active: bool = True
+    #: Additive (2026-10-30): ``active`` / ``suspended`` (vô hiệu hoá) /
+    #: ``revoked`` (thu hồi - only the OWNER's "Khôi phục tài khoản" undoes it).
+    account_status: str = "active"
     #: Additive: each open tag in full (``units`` keeps the bare codes).
     unit_tags: list[AccountUnitResponse] = []
     #: Additive: the ORD department tag ("BT" / "TK" / "D") and whether the
@@ -341,6 +344,7 @@ class MemberRowResponse(BaseModel):
             employment_status_label=EMPLOYMENT_STATUS_LABELS[view.user.employment_status],
             departments=[MemberSeatResponse.from_domain(seat) for seat in view.seats],
             active=bool(view.user.active),
+            account_status=view.user.status.value,
             unit_tags=tags,
             function_tag=None if function is None else function.function_tag,
             is_lead=False if function is None else function.is_lead,
