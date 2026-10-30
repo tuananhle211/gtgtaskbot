@@ -124,6 +124,9 @@ STATE_CHUA_GIAO = "CHUA_GIAO"
 WAITING_STATES: frozenset[str] = frozenset(
     {STATE_CHO_DUYET, STATE_CHO_PHAN_CONG, STATE_DA_GIAO, STATE_CHUA_GIAO}
 )
+#: How a step of a cancelled order reads: muted (slate), never waiting, so a
+#: cancelled row cannot look as if it were still live. ``(status, label)``.
+_CANCELLED_CELL: tuple[str, str] = (OrderStage.CANCELLED.value, "Đã huỷ")
 
 
 def awaiting_hand_out(node: OrderNode) -> bool:
@@ -699,6 +702,15 @@ class AdsBoardSource:
         if query.state:
             condition = _task_state(query.state.strip().upper())
             statement = statement.where(Order.id.is_(None) if condition is None else condition)
+        # A cancelled order carries no live work and only clutters the board, so
+        # it is hidden unless the viewer explicitly asks for it: the "Đã huỷ"
+        # task state (or a direct CANCELLED stage filter). Every other filter,
+        # and the no-filter default, leaves it out.
+        wants_cancelled = (query.state or "").strip().upper() == "DA_HUY" or (
+            query.status or ""
+        ).strip().upper() == OrderStage.CANCELLED.value
+        if not wants_cancelled:
+            statement = statement.where(Order.stage != OrderStage.CANCELLED)
         if query.owner_user_id is not None:
             statement = statement.where(Order.owner_user_id == query.owner_user_id)
         if query.assignee_user_id is not None:
@@ -1113,6 +1125,7 @@ class AdsBoardSource:
         assignees = assignees or {}
         by_type = {node.node_type: node for node in nodes}
         phase = ADS_STAGE_PHASE[order.stage]
+        cancelled = order.stage is OrderStage.CANCELLED
         cells = []
         # A legacy link node may still be the active one; it has no cell.
         current: OrderNode | None = next(
@@ -1130,7 +1143,23 @@ class AdsBoardSource:
                 workers, cell_state, label = multi
                 person_name = format_names(tuple(workers))
                 person_user_id = None
+            is_current = node.status in ACTIVE_NODE_STATUSES
             since = node.approved_at or node.submitted_at or node.assigned_at or node.activated_at
+            deadline_at = _node_deadline(node)
+            deadline_status = _node_deadline_status(node, now)
+            # A cancelled order has no live work: every step that was not
+            # finished reads "Đã huỷ" (muted, not current, no deadline), so the
+            # row can never look as if it were still waiting on somebody or
+            # overdue. Finished steps keep "Hoàn thành" - that work happened.
+            if cancelled and node.status is not OrderNodeStatus.HOAN_THANH:
+                cell_state, label = _CANCELLED_CELL
+                is_current = False
+                deadline_at = None
+                deadline_status = None
+                if node.assignee_user_id is None and node.preassigned_user_id is None:
+                    # Only a "Chờ X phân công" placeholder; nobody actually held it.
+                    person_name = None
+                    person_user_id = None
             cells.append(
                 TaskCell(
                     key=node_type.value,
@@ -1139,11 +1168,11 @@ class AdsBoardSource:
                     person_user_id=person_user_id,
                     status=cell_state,
                     status_label=label,
-                    is_current=node.status in ACTIVE_NODE_STATUSES,
+                    is_current=is_current,
                     since=None if since is None else ensure_utc(since),
                     revisions=node.revision_count,
-                    deadline_at=_node_deadline(node),
-                    deadline_status=_node_deadline_status(node, now),
+                    deadline_at=deadline_at,
+                    deadline_status=deadline_status,
                     tokens=_node_tokens(node) if self._unit.effort_enabled else None,
                 )
             )
@@ -1151,9 +1180,16 @@ class AdsBoardSource:
         desired = (
             None if order.desired_deadline_at is None else ensure_utc(order.desired_deadline_at)
         )
-        cells.append(
-            replace(final, deadline_at=desired, deadline_status=_order_deadline_status(order, now))
-        )
+        if cancelled:
+            # The product was never reviewed: the final cell reads "Đã huỷ" too.
+            final = replace(final, status=_CANCELLED_CELL[0], status_label=_CANCELLED_CELL[1])
+            cells.append(replace(final, deadline_at=None, deadline_status=None))
+        else:
+            cells.append(
+                replace(
+                    final, deadline_at=desired, deadline_status=_order_deadline_status(order, now)
+                )
+            )
         submitted = ensure_utc(order.submitted_at)
         if order.stage is OrderStage.COMPLETED and order.completed_at is not None:
             stage_since: datetime | None = ensure_utc(order.completed_at)
@@ -1215,9 +1251,13 @@ class AdsBoardSource:
             delivered_at=_product_handed_in(order, by_type),
             extras=tuple(extras),
             desired_deadline_at=desired,
-            deadline_at=_node_deadline(current) if current is not None else desired,
+            deadline_at=(
+                None if cancelled else _node_deadline(current) if current is not None else desired
+            ),
             deadline_status=(
-                _node_deadline_status(current, now)
+                None
+                if cancelled
+                else _node_deadline_status(current, now)
                 if current is not None
                 else _order_deadline_status(order, now)
             ),

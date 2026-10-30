@@ -458,6 +458,39 @@ async def test_11b_the_task_state_filter_reads_the_whole_order(world: World) -> 
     assert tasks(world, unit="PR")["task_states"] == []
 
 
+async def test_11c_a_cancelled_order_leaves_the_board_unless_asked_for(world: World) -> None:
+    """A cancelled order is hidden from the board by default and only shows
+    under the "Đã huỷ" task state; its steps then read "Đã huỷ" (muted), never
+    "Chờ ... phân công" nor a deadline, so the row cannot look still live."""
+    ads = await ads_world(world)
+    live = act(world, ads.head, "/approve", create(world, ads, video_type="TD"))
+    doomed = act(world, ads.head, "/approve", create(world, ads, video_type="TD"))
+    doomed = act(world, ads.head, "/cancel", doomed, note="Khách đổi ý")
+    assert doomed["order"]["stage"] == "CANCELLED"
+    code = doomed["order"]["code"]
+    world.act_as(ads.head)
+
+    def codes(**params: Any) -> set[str]:
+        return {row["code"] for row in tasks(world, unit="ADS", **params)["items"]}
+
+    # Hidden by default and under another state; only "Đã huỷ" lists it.
+    assert code not in codes()
+    assert live["order"]["code"] in codes()
+    assert code not in codes(state="CHO_PHAN_CONG")
+    assert codes(state="DA_HUY") == {code}
+
+    # Shown under DA_HUY: the row and its THIET_KE cell read "Đã huỷ", muted,
+    # not current and with no deadline (before: "Chờ ... phân công", amber).
+    row = next(
+        item for item in tasks(world, unit="ADS", state="DA_HUY")["items"] if item["code"] == code
+    )
+    assert row["status"] == "CANCELLED" and row["status_label"] == "Đã huỷ"
+    assert row["deadline_at"] is None
+    tk = next(cell for cell in row["cells"] if cell["key"] == "THIET_KE")
+    assert tk["status"] == "CANCELLED" and tk["status_label"] == "Đã huỷ"
+    assert tk["is_current"] is False and tk["deadline_at"] is None
+
+
 async def test_09b_several_people_on_one_step_are_all_named(world: World) -> None:
     """Two heads: the order waits for both by name, never for "Trưởng phòng"."""
     ads = await ads_world(world)

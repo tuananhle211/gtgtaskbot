@@ -75,6 +75,8 @@ const STEP_COLORS: Record<string, StatusColor> = {
   CHO_DUYET: "amber",
   DANG_SUA: "red",
   HOAN_THANH: "green",
+  // A cancelled order's steps read "Đã huỷ": muted, never a live/waiting state.
+  CANCELLED: "slate",
   PENDING: "slate",
   DONE: "green",
   // A Design assignee's own standing (0073): waiting to accept is amber like
