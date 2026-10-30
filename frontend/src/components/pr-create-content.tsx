@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { useMutation, useQuery } from "@tanstack/react-query";
-import { api } from "@/lib/api";
+import { api, prStaff } from "@/lib/api";
 import {
   CONTENT_TYPE_ORDER,
   PRIORITY_ORDER,
@@ -164,7 +164,7 @@ export function CreateContentForm({ onCreated }: { onCreated: () => void }) {
             className="mt-1 w-full"
           >
             <option value="">— chọn —</option>
-            {(people.data ?? []).map((person) => (
+            {prStaff(people.data, [ownerId]).map((person) => (
               <option key={person.user_id} value={person.user_id}>
                 {person.full_name}
               </option>

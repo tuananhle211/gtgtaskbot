@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { api } from "@/lib/api";
+import { api, prStaff } from "@/lib/api";
 import { TASK_STATUS_ORDER, formatWhen, priorityLabel, taskStatusLabel } from "@/lib/labels";
 import { Empty, ErrorBox, Loading, Pill } from "@/components/states";
 import { Select } from "@/components/pr";
@@ -186,7 +186,7 @@ function TaskRow({
                 className="rounded border border-[var(--border)] bg-transparent px-2 py-1 text-sm"
               >
                 <option value="">— chọn người —</option>
-                {(people.data ?? []).map((person) => (
+                {prStaff(people.data, [assignee]).map((person) => (
                   <option key={person.user_id} value={person.user_id}>
                     {person.full_name}
                   </option>

@@ -56,6 +56,7 @@ from meobot.application.orders.effort_service import EffortService
 from meobot.application.orders.query_service import OrderDetail
 from meobot.application.orders.services import OrderServices
 from meobot.application.orders.token_ledger import OrderTokenLedgerService
+from meobot.application.org.seats import function_staff
 from meobot.application.pr_action_service import (
     PrActionKind,
     PrAvailableAction,
@@ -106,6 +107,7 @@ from meobot.domain.orders.models import (
 )
 from meobot.domain.orders.pipeline import OrderActionKind, function_node, hands_in_product
 from meobot.domain.orders.task_codes import TASK_PHASES, describe_change, phase_label
+from meobot.domain.org.models import DepartmentFunction
 from meobot.domain.pr.models import (
     PrApprovalDecision,
     PrApprovalStage,
@@ -1035,12 +1037,19 @@ class TaskDetailService:
         return None
 
     async def _pr_producers(self) -> tuple[PersonRef, ...]:
-        """Who may hold a production: ``PR_PRODUCTION_EXECUTE``, asked of the
-        same capability service the assignment checks."""
+        """Who may hold a production: somebody seated in a PR department
+        (2026-10-30: never a Ban Giám đốc or other department's account) with
+        ``PR_PRODUCTION_EXECUTE``, asked of the same capability service the
+        assignment checks."""
         capabilities: PrCapabilityService = self._pr.capabilities
+        staff = await function_staff(self._session, DepartmentFunction.PR)
+        if not staff:
+            return ()
         users = (
             await self._session.scalars(
-                select(User).where(User.active.is_(True)).order_by(User.full_name, User.id)
+                select(User)
+                .where(User.active.is_(True), User.id.in_(staff))
+                .order_by(User.full_name, User.id)
             )
         ).all()
         eligible = []

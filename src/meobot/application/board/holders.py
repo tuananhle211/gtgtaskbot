@@ -27,21 +27,21 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from meobot.application.audit_service import AuditService
-from meobot.application.org.seats import grants_of, load_grants, load_seats
+from meobot.application.org.seats import function_staff, grants_of, load_grants, load_seats
 from meobot.application.pr_capability_service import PrCapabilityService
 from meobot.application.units.directory import (
     UnitDirectoryService,
     UnitMemberRow,
     manager_fits,
 )
-from meobot.db.models.org_unit import OrgUnit, OrgUnitMember
+from meobot.db.models.org_unit import OrgUnit
 from meobot.db.models.pr import PrContentItem, PrContentTarget
 from meobot.db.models.user import User
 from meobot.domain.identity.models import Actor, Role
 from meobot.domain.orders.models import PRODUCTION_NODES, OrderNodeType, OrderVideoType
 from meobot.domain.orders.permissions import AdsPermission, AdsPermissions
 from meobot.domain.orders.pipeline import ROLE_NODES, OrderActorContext, function_node
-from meobot.domain.org.models import MODULE_ORDER, Position, Seat
+from meobot.domain.org.models import MODULE_ORDER, DepartmentFunction, Position, Seat
 from meobot.domain.pr.grants import ContentScopeKey
 from meobot.domain.pr.policy import APPROVAL_CAPABILITIES, PrCapability, grant_admits
 from meobot.domain.pr.workflow import STAGE_APPROVAL_GATES
@@ -383,19 +383,15 @@ async def ads_approvers(session: AsyncSession, unit_id: uuid.UUID) -> AdsApprove
 
 
 async def pr_member_ids(session: AsyncSession) -> set[uuid.UUID]:
-    """Everybody with an open tag in the PR stream (a seat in a PR department).
+    """Everybody seated in a PR department (Phòng PR Thương Hiệu).
 
     The people a PR task is said to wait on come from here (2026-10-19): an
     OWNER or ADMIN may still decide any gate or hand a piece out, but they
     are never *named* as its holder unless they sit in PR themselves - the
-    task belongs to the department.
+    task belongs to the department. A Ban Giám đốc seat carries the PR stream
+    tag too, so the tag is not enough (2026-10-30).
     """
-    found = await session.execute(
-        select(OrgUnitMember.user_id)
-        .join(OrgUnit, OrgUnit.id == OrgUnitMember.unit_id)
-        .where(OrgUnit.code == UnitCode.PR, OrgUnitMember.left_at.is_(None))
-    )
-    return {user_id for (user_id,) in found.all()}
+    return set(await function_staff(session, DepartmentFunction.PR))
 
 
 async def pr_reviewers(
@@ -405,7 +401,7 @@ async def pr_reviewers(
 
     Keyed by item id, for items at a gate only; empty = nobody holds a grant
     that reaches it. Grants are read once per gate, targets once for the page.
-    Only people tagged in PR are named (:func:`pr_member_ids`).
+    Only people seated in PR are named (:func:`pr_member_ids`).
     """
     at_gate = [item for item in items if item.workflow_stage in STAGE_APPROVAL_GATES]
     if not at_gate:

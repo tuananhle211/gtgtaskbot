@@ -9,6 +9,7 @@ import {
   type RecurringTemplate,
   type RecurringTemplateInput,
   type WorkType,
+  prStaff,
 } from "@/lib/api";
 import {
   RECURRING_FREQUENCIES,
@@ -839,7 +840,7 @@ function TemplateForm({
       <fieldset className="space-y-1">
         <legend className="text-xs">Người thực hiện</legend>
         <div className="flex flex-wrap gap-2">
-          {people.data?.map((person) => (
+          {prStaff(people.data, assignees).map((person) => (
             <label key={person.user_id} className="flex items-center gap-1 text-xs">
               <input
                 type="checkbox"

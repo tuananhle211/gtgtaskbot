@@ -19,6 +19,7 @@ import {
   type TikTokVideo,
   type TopPost,
   type UnavailableMetric,
+  prStaff,
 } from "@/lib/api";
 import {
   CHANNEL_CATEGORIES,
@@ -710,7 +711,7 @@ function ChannelDetail({ channelId }: { channelId: string }) {
               className="mt-1 w-full rounded border border-[var(--border)] bg-transparent px-2 py-1.5"
             >
               <option value="">— chọn —</option>
-              {(people.data ?? []).map((person) => (
+              {prStaff(people.data, [userId]).map((person) => (
                 <option key={person.user_id} value={person.user_id}>
                   {person.full_name}
                 </option>

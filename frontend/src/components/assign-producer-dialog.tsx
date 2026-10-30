@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { api, type ContentSummary, type Uuid } from "@/lib/api";
+import { api, prStaff, type ContentSummary, type Person } from "@/lib/api";
 import { assignProducerConfirmation } from "@/lib/confirmations";
 import { ConfirmButton } from "@/components/confirm";
 import { Modal, ModalBody, ModalFooter } from "@/components/modal";
@@ -11,7 +11,8 @@ import { SecondaryButton, Select } from "@/components/pr";
 /**
  * "Giao sản xuất" from the board: pick the producer, then confirm - the same
  * two steps and the same write (`POST /api/pr/contents/{id}/producer`) as the
- * piece's own page.
+ * piece's own page. Only PR department staff are offered (2026-10-30), plus
+ * the current producer.
  */
 export function AssignProducerDialog({
   item,
@@ -20,7 +21,7 @@ export function AssignProducerDialog({
   onClose,
 }: {
   item: ContentSummary;
-  people: { user_id: Uuid; full_name: string }[];
+  people: Person[];
   names: Map<string, string>;
   onClose: () => void;
 }) {
@@ -54,7 +55,7 @@ export function AssignProducerDialog({
             className="mt-1 w-full"
           >
             <option value="">{current ? "Bỏ phân công" : "Chọn người…"}</option>
-            {people.map((person) => (
+            {prStaff(people, [current]).map((person) => (
               <option key={person.user_id} value={person.user_id}>
                 {person.full_name}
               </option>

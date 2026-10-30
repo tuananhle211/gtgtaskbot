@@ -184,6 +184,9 @@ class PersonResponse(BaseModel):
     role: str
     #: 0067: the caller may grant / revoke this person's PR rights.
     can_manage_permissions: bool = False
+    #: 2026-10-30: seated in a PR department - the only people PR work is
+    #: handed to (a Ban Giám đốc seat also carries the PR tag).
+    pr_staff: bool = False
 
 
 class BrandResponse(BaseModel):

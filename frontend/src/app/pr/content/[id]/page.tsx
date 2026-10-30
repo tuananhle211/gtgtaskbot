@@ -13,6 +13,7 @@ import {
   type ContentTarget,
   type ContentVersion,
   type Person,
+  prStaff,
 } from "@/lib/api";
 import {
   ARTIFACT_TYPE_ORDER,
@@ -1084,7 +1085,7 @@ function ProductionCard({
           // now local state and the confirmation names the person: "Phân công
           // Hà Chi", "Chuyển sang Hà Chi", "Bỏ phân công".
           <AssignProducerControl
-            people={people}
+            people={prStaff(people, [producerId])}
             names={names}
             producerId={producerId}
             pending={assign.isPending}

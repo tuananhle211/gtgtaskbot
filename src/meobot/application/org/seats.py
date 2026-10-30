@@ -51,6 +51,26 @@ async def load_seats(
     return {user_id: tuple(seats) for user_id, seats in found.items()}
 
 
+async def function_staff(
+    session: AsyncSession, function: DepartmentFunction
+) -> frozenset[uuid.UUID]:
+    """Everybody with an open seat in an active department of ``function``.
+
+    For PR (2026-10-30) these are the people PR work is handed to: the PR
+    stream tag also follows a Ban Giám đốc seat, so the tag is not the
+    department's staff."""
+    found = await session.scalars(
+        select(DepartmentMember.user_id)
+        .join(Department, Department.id == DepartmentMember.department_id)
+        .where(
+            Department.function == function,
+            Department.active.is_(True),
+            DepartmentMember.left_at.is_(None),
+        )
+    )
+    return frozenset(found.all())
+
+
 async def load_grants(
     session: AsyncSession, module: str, department_ids: Iterable[uuid.UUID]
 ) -> dict[tuple[uuid.UUID, str], tuple[tuple[str, str], ...]]:

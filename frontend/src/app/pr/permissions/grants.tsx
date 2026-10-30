@@ -3,7 +3,7 @@
 import { useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import type { CapabilityGrant, Channel, GrantScope } from "@/lib/api";
-import { api } from "@/lib/api";
+import { api, prStaff } from "@/lib/api";
 import {
   CONTENT_TYPE_ORDER,
   GRANT_EXPIRY_PRESETS,
@@ -96,7 +96,8 @@ export function GrantsTab() {
   });
   const inPr = new Set((stream.data?.members ?? []).map((member) => member.user_id));
   // 0067: only the people whose rights the viewer may administer are offered.
-  const prPeople = (people.data ?? []).filter(
+  // 2026-10-30: PR department staff, not every PR-tagged account.
+  const prPeople = prStaff(people.data).filter(
     (person) => inPr.has(person.user_id) && person.can_manage_permissions !== false,
   );
   const channels = useQuery({

@@ -7,11 +7,17 @@ from typing import Any
 
 import pytest
 
+from meobot.application.org.departments import (
+    ensure_default_departments,
+    seat_person,
+    sync_stream_tags,
+)
 from meobot.db.models.order import Order
 from meobot.domain.board.models import ADS_STAGE_PHASE, PR_STAGE_PHASE, Phase
 from meobot.domain.identity.models import Role
 from meobot.domain.orders.labels import PROCESS_SEPARATOR as SEP
 from meobot.domain.orders.models import OrderStage
+from meobot.domain.org.models import Position
 from meobot.domain.pr.grants import GrantScope, PrGrantScopeMode
 from meobot.domain.pr.models import PrWorkflowStage
 from meobot.domain.pr.policy import PrCapability
@@ -525,6 +531,39 @@ async def test_10b_an_approved_pr_piece_names_who_hands_out_production(world: Wo
     # hand it out, but sits in no PR department.
     assert world.lead.full_name in row["current_person_name"]
     assert world.owner.full_name not in row["current_person_name"]
+
+
+async def test_10c_a_board_director_is_neither_named_nor_offered_for_pr_work(
+    world: World,
+) -> None:
+    """2026-10-30: a Ban Giám đốc seat carries the PR tag, but PR work is the
+    PR department's - a director (here an ADMIN heading BGĐ) is not named as
+    who hands production out, not offered on "Giao sản xuất", and
+    ``/api/pr/people`` marks only PR staff."""
+    departments = await ensure_default_departments(world.session)
+    director = await person(world, "Giám Đốc Ban", Role.ADMIN)
+    await seat_person(world.session, departments["BGD"].id, director.id, Position.HEAD)
+    await sync_stream_tags(world.session, [director.id])
+    item = await world.content()
+    item.workflow_stage = PrWorkflowStage.APPROVED
+    item.producer_user_id = None
+    await world.session.flush()
+    world.act_as(world.owner)
+    row = next(r for r in tasks(world, unit="PR")["items"] if r["code"] == item.code)
+    assert world.lead.full_name in row["current_person_name"]
+    assert director.full_name not in row["current_person_name"]
+
+    page = world.client.get(f"/api/tasks/{item.code}").json()
+    assign = next(a for a in page["actions"] if a["key"] == "pr:ASSIGN_PRODUCER")
+    offered = {option["name"] for option in assign["assignee_options"]}
+    assert world.member.full_name in offered
+    assert director.full_name not in offered and world.owner.full_name not in offered
+
+    people = {p["full_name"]: p for p in world.client.get("/api/pr/people").json()}
+    assert people[world.member.full_name]["pr_staff"] is True
+    assert people[world.lead.full_name]["pr_staff"] is True
+    assert people[director.full_name]["pr_staff"] is False
+    assert people[world.owner.full_name]["pr_staff"] is False
 
 
 async def test_09c_two_people_on_a_step_both_hold_it_and_one_decision_is_enough(

@@ -150,6 +150,7 @@ from meobot.api.schemas.pr import (
     UpdatePublicationRequest,
     UpdateTargetRequest,
 )
+from meobot.application.org.seats import function_staff
 from meobot.application.pr_ai_review_service import RecordAiReviewCommand
 from meobot.application.pr_approval_service import RecordApprovalCommand
 from meobot.application.pr_bulk_approval_service import BulkApproveCommand
@@ -205,6 +206,7 @@ from meobot.db.models.pr_content_comment import PrContentComment
 from meobot.db.models.user import User
 from meobot.domain.audit.models import AuditAction
 from meobot.domain.identity.models import Actor
+from meobot.domain.org.models import DepartmentFunction
 from meobot.domain.pr.channel_connections import PrChannelSyncTrigger
 from meobot.domain.pr.channel_metrics import PrChannelPlatform, platform_from_code, stale_days
 from meobot.domain.pr.comments import DEFAULT_COMMENT_PAGE, MAX_COMMENT_PAGE
@@ -609,6 +611,9 @@ async def list_people(
         .scalars()
         .all()
     )
+    # Everybody stays (names on old work are drawn from this list); the
+    # pickers that hand work out offer only ``pr_staff`` (2026-10-30).
+    staff = await function_staff(session, DepartmentFunction.PR)
     people = []
     for row in rows:
         people.append(
@@ -617,6 +622,7 @@ async def list_people(
                 full_name=row.full_name,
                 role=row.role.value,
                 can_manage_permissions=await services.capabilities.manages(actor, row),
+                pr_staff=row.id in staff,
             )
         )
     return people

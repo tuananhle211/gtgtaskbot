@@ -269,6 +269,26 @@ export interface Person {
   role: string;
   /** 0067: the viewer may grant / revoke this person's PR rights. Optional. */
   can_manage_permissions?: boolean;
+  /**
+   * 2026-10-30: seated in a PR department - the only people PR work is
+   * handed to (a Ban Giám đốc seat also carries the PR tag). Optional.
+   */
+  pr_staff?: boolean;
+}
+
+/**
+ * The people a PR picker offers (2026-10-30): PR department staff only, plus
+ * whoever is already chosen (`keep`) so a value is never dropped from its
+ * box. An answer without `pr_staff` (older API) keeps everybody.
+ */
+export function prStaff(
+  people: Person[] | undefined,
+  keep: Iterable<string | null | undefined> = [],
+): Person[] {
+  const kept = new Set([...keep].filter(Boolean));
+  return (people ?? []).filter(
+    (person) => person.pr_staff !== false || kept.has(person.user_id),
+  );
 }
 
 /**

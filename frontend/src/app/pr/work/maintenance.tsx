@@ -3,7 +3,7 @@
 import { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
-import { api, type MaintenancePreview, type MaintenanceRun, type ReportingPeriod } from "@/lib/api";
+import { api, type MaintenancePreview, type MaintenanceRun, type ReportingPeriod, prStaff } from "@/lib/api";
 import { CONTENT_TYPE_ORDER, contentTypeLabel } from "@/lib/labels";
 import { ErrorBox, Loading, Pill } from "@/components/states";
 import { PrimaryButton, SecondaryButton, Select } from "@/components/pr";
@@ -142,7 +142,7 @@ export function WorkMaintenancePanel() {
             className="mt-1 text-xs"
           >
             <option value="">Tất cả</option>
-            {(people.data ?? []).map((one) => (
+            {prStaff(people.data, [userId]).map((one) => (
               <option key={one.user_id} value={one.user_id}>
                 {one.full_name}
               </option>

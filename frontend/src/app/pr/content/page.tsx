@@ -14,6 +14,7 @@ import {
   type ContentFilters,
   type ContentSummary,
   type Uuid,
+  prStaff,
 } from "@/lib/api";
 import { bulkArchiveConfirmation } from "@/lib/confirmations";
 import { AssignProducerDialog } from "@/components/assign-producer-dialog";
@@ -736,7 +737,7 @@ function ContentWorkspace() {
               }
             >
               <option value="">Mọi người phụ trách</option>
-              {(people.data ?? []).map((person) => (
+              {prStaff(people.data, [responsible]).map((person) => (
                 <option key={person.user_id} value={person.user_id}>
                   {person.full_name}
                 </option>

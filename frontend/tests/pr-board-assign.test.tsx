@@ -8,7 +8,7 @@ import { screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 
 import { STAGE_ORDER } from "@/lib/labels";
-import type { ContentSummary } from "@/lib/api";
+import { prStaff, type ContentSummary, type Person } from "@/lib/api";
 import { CONTENT, renderWithQuery, SESSION, settleLanes, stubFetch, urlStore } from "./helpers";
 
 const SEARCH = { value: new URLSearchParams("group=PRODUCTION") };
@@ -55,7 +55,12 @@ function board(items: ContentSummary[]) {
   };
 }
 
-function open(mayAssign: boolean) {
+const PEOPLE: Person[] = [
+  { user_id: SESSION.user_id, full_name: "Lê Trưởng Nhóm", role: "TEAM_LEAD" },
+  { user_id: PRODUCER, full_name: "Minh Dựng", role: "EMPLOYEE" },
+];
+
+function open(mayAssign: boolean, people: Person[] = PEOPLE) {
   const stub = stubFetch([
     { match: "/api/auth/session", body: SESSION },
     {
@@ -73,10 +78,7 @@ function open(mayAssign: boolean) {
     { match: "/api/pr/channels", body: [] },
     {
       match: "/api/pr/people",
-      body: [
-        { user_id: SESSION.user_id, full_name: "Lê Trưởng Nhóm", role: "TEAM_LEAD" },
-        { user_id: PRODUCER, full_name: "Minh Dựng", role: "EMPLOYEE" },
-      ],
+      body: people,
     },
     { match: "/api/pr/contents/board", body: board([WAITING]) },
   ]);
@@ -110,5 +112,35 @@ describe("Giao sản xuất on the PR board", () => {
     await settleLanes();
     expect(await screen.findByText(WAITING.title)).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /Giao sản xuất ·/ })).not.toBeInTheDocument();
+  });
+
+  it("offers only PR department staff (2026-10-30)", async () => {
+    const DIRECTOR = "33333333-3333-3333-3333-333333333333";
+    open(true, [
+      { ...PEOPLE[0], pr_staff: true },
+      { ...PEOPLE[1], pr_staff: true },
+      { user_id: DIRECTOR, full_name: "Giám Đốc Ban", role: "ADMIN", pr_staff: false },
+    ]);
+    await settleLanes();
+    await userEvent.click(
+      await screen.findByRole("button", { name: `Giao sản xuất · ${WAITING.title}` }),
+    );
+    const picker = within(screen.getByRole("dialog")).getByRole("combobox");
+    const names = within(picker).getAllByRole("option").map((option) => option.textContent);
+    expect(names).toEqual(["Chọn người…", "Lê Trưởng Nhóm", "Minh Dựng"]);
+  });
+});
+
+describe("prStaff", () => {
+  const people: Person[] = [
+    { user_id: "a", full_name: "PR", role: "EMPLOYEE", pr_staff: true },
+    { user_id: "b", full_name: "BGĐ", role: "ADMIN", pr_staff: false },
+    { user_id: "c", full_name: "Cũ", role: "EMPLOYEE" },
+  ];
+
+  it("drops non-PR people but keeps whoever is already chosen", () => {
+    expect(prStaff(people).map((one) => one.user_id)).toEqual(["a", "c"]);
+    expect(prStaff(people, ["b"]).map((one) => one.user_id)).toEqual(["a", "b", "c"]);
+    expect(prStaff(undefined)).toEqual([]);
   });
 });

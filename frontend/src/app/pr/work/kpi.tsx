@@ -13,6 +13,7 @@ import {
   type ReportingPeriod,
   type WorkPlanDetail,
   type WorkType,
+  prStaff,
 } from "@/lib/api";
 import { formatQuantity, formatRate, formatWhen } from "@/lib/labels";
 import { Empty, ErrorBox, Loading, Pill } from "@/components/states";
@@ -1894,7 +1895,7 @@ function CreatePlanForm({
         className="w-full text-sm"
       >
         <option value="">Chọn nhân sự</option>
-        {people.data?.map((person) => (
+        {prStaff(people.data, [userId]).map((person) => (
           <option key={person.user_id} value={person.user_id}>
             {person.full_name}
           </option>

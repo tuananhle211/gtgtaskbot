@@ -28,6 +28,7 @@ import {
   type WorkPage as WorkPageResult,
   type WorkSummary,
   type WorkType,
+  prStaff,
 } from "@/lib/api";
 import {
   WORK_ASSIGNMENT_MODES,
@@ -706,7 +707,7 @@ function LedgerWorkspace({
             aria-label="Người thực hiện"
           >
             <option value="">Tất cả nhân sự</option>
-            {people.data?.map((one) => (
+            {prStaff(people.data, [person]).map((one) => (
               <option key={one.user_id} value={one.user_id}>
                 {one.full_name}
               </option>
@@ -1569,7 +1570,7 @@ function ReportResultForm({
           className="w-full rounded border border-[var(--border)] bg-[var(--surface)] px-2 py-1.5 text-sm"
         >
           <option value="">Tôi</option>
-          {people.data?.map((person) => (
+          {prStaff(people.data, [subject]).map((person) => (
             <option key={person.user_id} value={person.user_id}>
               {person.full_name}
             </option>
@@ -3217,7 +3218,7 @@ function WorkForm({
         <fieldset className="space-y-1">
           <legend className="text-xs">Người thực hiện</legend>
           <div className="flex flex-wrap gap-2">
-            {people.data?.map((person) => (
+            {prStaff(people.data, assignees).map((person) => (
               <label
                 key={person.user_id}
                 className="flex items-center gap-1 text-xs"
