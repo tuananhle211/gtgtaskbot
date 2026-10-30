@@ -32,7 +32,7 @@ from sqlalchemy.orm import Mapped, mapped_column
 from meobot.core.time import utcnow
 from meobot.db.base import Base, TimestampMixin, UUIDPrimaryKeyMixin, value_enum
 from meobot.db.models.pr import RESTRICT, USERS_TABLE
-from meobot.domain.ads.crm import CrmRegion
+from meobot.domain.ads.crm import CrmRegion, HotlineKind
 from meobot.domain.ads.models import AdsBrand, AdsPlatform, RevenueSource
 
 ADS_CONNECTIONS = "ads_connections"
@@ -299,13 +299,24 @@ class AdsBudget(Base, UUIDPrimaryKeyMixin):
     )
 
 
+#: A CRM account counts for one person, one ◆ source, or itself as a former
+#: marketer (0084) - or for nobody.
+ONE_OWNER = (
+    "(CASE WHEN user_id IS NULL THEN 0 ELSE 1 END)"
+    " + (CASE WHEN source IS NULL THEN 0 ELSE 1 END)"
+    " + (CASE WHEN former THEN 1 ELSE 0 END) <= 1"
+)
+
+
 class AdsCrmAccount(Base):
     """A marketing account on the CRM (0083): whose it is in the app (or which
     ◆ source it fills) and its region - HCM fills "Doanh số SG", HN "Doanh số
-    HN". A person holds several. Neither a person nor a source = not counted."""
+    HN". A person holds several. ◆ Hotline accounts carry their hotline kind; a
+    marketer who left (no app account) counts as ``former`` under the CRM
+    name. None of these = not counted."""
 
     __tablename__ = ADS_CRM_ACCOUNTS
-    __table_args__ = (CheckConstraint("user_id IS NULL OR source IS NULL", name="one_owner"),)
+    __table_args__ = (CheckConstraint(ONE_OWNER, name="one_owner"),)
 
     #: The CRM's marketing user id.
     crm_id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=False)
@@ -321,6 +332,15 @@ class AdsCrmAccount(Base):
     )
     source: Mapped[RevenueSource | None] = mapped_column(
         value_enum(RevenueSource, name="ads_revenue_source", length=12), nullable=True
+    )
+    #: A ◆ Hotline account: which hotline (0084).
+    hotline_kind: Mapped[HotlineKind | None] = mapped_column(
+        value_enum(HotlineKind, name="ads_crm_hotline_kind", length=10), nullable=True
+    )
+    #: A marketer who left and has no account in the app (0084): their revenue
+    #: is a line of its own under the CRM name - no cost, no page.
+    former: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False, server_default=text("false")
     )
     note: Mapped[str | None] = mapped_column(Text, nullable=True)
     updated_by_user_id: Mapped[uuid.UUID | None] = mapped_column(

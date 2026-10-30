@@ -51,6 +51,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from meobot.application.ads.access import AdsAccess, AdsNotVisibleError
 from meobot.application.ads.accounts_service import ads_people
+from meobot.application.ads.crm_revenue import FORMER_PREFIX
 from meobot.application.ads.regions import RegionSplit, place_region, region_split
 from meobot.application.ads.revenue_service import (
     FLOW_LABELS,
@@ -64,7 +65,13 @@ from meobot.application.ads.revenue_service import (
 )
 from meobot.application.ads.sync_service import vn_today
 from meobot.application.audit_service import AuditService
-from meobot.db.models.ads import AdsAccount, AdsChargeDaily, AdsConnection, AdsSpendDaily
+from meobot.db.models.ads import (
+    AdsAccount,
+    AdsChargeDaily,
+    AdsConnection,
+    AdsCrmAccount,
+    AdsSpendDaily,
+)
 from meobot.db.models.user import User
 from meobot.domain.ads.crm import CrmRegion
 from meobot.domain.ads.models import (
@@ -141,6 +148,20 @@ class MarketerLine:
         """A marketer's Ads / Doanh thu: spend ÷ commission revenue."""
         net = self.current.revenue_net
         return ratio(self.current.spend, net) if net else None
+
+
+@dataclass(slots=True)
+class OtherLine:
+    """A revenue line beside the marketers in the tables (0084): the ◆ Hotline
+    (its hotlines split) or a former marketer (the CRM name). No cost, no page."""
+
+    key: str
+    #: ``hotline`` / ``former``.
+    kind: str
+    name: str
+    current: Figures
+    #: The hotline's revenue by kind (FB / TIKTOK / GOOGLE / OTHER).
+    kinds: dict[str, float] = field(default_factory=dict)
 
 
 @dataclass(frozen=True, slots=True)
@@ -233,6 +254,8 @@ class TeamReport:
     regions: RegionSplit = field(default_factory=RegionSplit)
     #: The picked BM's region: the revenue shown is that region's Marketing.
     bm_region: CrmRegion | None = None
+    #: The ◆ Hotline and the former marketers, as lines of the tables.
+    others: list[OtherLine] = field(default_factory=list)
     #: The BM filter in force and every BM to pick from.
     connection_id: uuid.UUID | None = None
     connections: list[AdsConnection] = field(default_factory=list)
@@ -439,6 +462,41 @@ class AdsTeamService:
         )
         sites = {row.id: row.site for row in await self._session.scalars(select(AdsConnection))}
         return _Raw(accounts, spend_rows, charge_rows, revenue_rows, sites)
+
+    async def _others(self, book: _Book, period: Period, site: str) -> list[OtherLine]:
+        """The ◆ Hotline (CRM and typed) and every former marketer with revenue
+        in the period, inside the region shown."""
+        hotline = Figures()
+        kinds: dict[str, float] = defaultdict(float)
+        former: dict[str, Figures] = defaultdict(Figures)
+        for row in book.revenue_rows:
+            if not period.start <= row.day <= period.end:
+                continue
+            value = region_amount(row, site)
+            if not value:
+                continue
+            if row.source is RevenueSource.HOTLINE:
+                hotline.add_revenue(value, row.day)
+                kinds[row.kind or "OTHER"] += float(value)
+            elif row.key.startswith(FORMER_PREFIX):
+                former[row.key].add_revenue(value, row.day)
+        lines: list[OtherLine] = []
+        if hotline.revenue:
+            lines.append(OtherLine("s:HOTLINE", "hotline", "Hotline", hotline, dict(kinds)))
+        if former:
+            ids = [int(key[len(FORMER_PREFIX) :]) for key in former]
+            names = {
+                f"{FORMER_PREFIX}{account.crm_id}": account.name
+                for account in await self._session.scalars(
+                    select(AdsCrmAccount).where(AdsCrmAccount.crm_id.in_(ids))
+                )
+            }
+            lines += [
+                OtherLine(key, "former", names.get(key, key), figures)
+                for key, figures in former.items()
+            ]
+        lines.sort(key=lambda line: (-(line.current.revenue or 0.0), line.name))
+        return lines
 
     async def history(
         self,
@@ -666,6 +724,8 @@ class AdsTeamService:
             key=lambda line: (-(line.current.revenue or 0.0), -line.current.spend, line.name)
         )
 
+        others = [] if manual else await self._others(book, period, site)
+
         channels: list[Channel] = []
         for item in AdsPlatform:
             crew = [
@@ -746,6 +806,7 @@ class AdsTeamService:
             flows=flows,
             regions=region_split(book.revenue_rows, costs, period),
             bm_region=region,
+            others=others,
             marketers=marketers,
             facebook=facebook,
             attention=attention[:5],
@@ -769,6 +830,7 @@ __all__ = [
     "History",
     "MarketerLine",
     "MonthLine",
+    "OtherLine",
     "SourceLine",
     "TeamReport",
 ]

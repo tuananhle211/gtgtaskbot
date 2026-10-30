@@ -853,6 +853,21 @@ describe("step 2: revenue, KPI, Tổng team", () => {
       }),
       revenue_hcm: 12_000_000,
       revenue_hn_transfer: 2_000_000,
+      others: [
+        {
+          key: "s:HOTLINE",
+          kind: "hotline",
+          name: "Hotline",
+          figures: figures({ revenue: 4_000_000, revenue_net: 3_703_704 }),
+          kinds: { FB: 3_000_000, GOOGLE: 1_000_000 },
+        },
+        {
+          key: "c:140",
+          kind: "former",
+          name: "Đã nghỉ - HN-FB-ĐỖ MINH SANG",
+          figures: figures({ revenue: 55_000_000, revenue_net: 50_925_926 }),
+        },
+      ],
       marketers_hn: 1_000_000,
       team_kpi: 20_000_000,
       team_kpi_rate: 0.7,
@@ -995,6 +1010,15 @@ describe("step 2: revenue, KPI, Tổng team", () => {
     expect(screen.getByTestId("team-sources")).toHaveTextContent(
       "Doanh số chuyển miền",
     );
+    // The ◆ Hotline and a former marketer: revenue only, no link, no cost.
+    const hotline = screen.getByTestId("other-s:HOTLINE");
+    expect(hotline).toHaveTextContent("Facebook 3 tr · Google 1 tr");
+    expect(hotline).toHaveTextContent("4.000.000 ₫");
+    expect(within(hotline).queryByRole("button")).toBeNull();
+    const former = screen.getByTestId("other-c:140");
+    expect(former).toHaveTextContent("Đã nghỉ - HN-FB-ĐỖ MINH SANG");
+    expect(former).toHaveTextContent("Đã nghỉ");
+    expect(screen.getByTestId("marketer-total-all")).toBeInTheDocument();
     expect(screen.getByTestId("alert-u-2")).toHaveTextContent(
       "chưa có doanh thu",
     );

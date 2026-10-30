@@ -220,10 +220,14 @@ function ImportButton() {
   );
 }
 
-/** The select's value: `u:<user id>`, `s:<source>` or "" (counted for nobody). */
+/**
+ * The select's value: `u:<user id>`, `s:<source>`, `former` (a marketer who
+ * left, counted under the CRM name) or "" (counted for nobody).
+ */
 function ownerOf(account: AdsCrmAccount): string {
   if (account.user_id) return `u:${account.user_id}`;
   if (account.source) return `s:${account.source}`;
+  if (account.former) return "former";
   return "";
 }
 
@@ -239,25 +243,30 @@ function Workspace({ data, month }: { data: AdsCrmOverview; month: string }) {
       void queryClient.invalidateQueries({ queryKey: ["ads"] });
     },
   });
+  // A hotline goes where it was served (the branch): it needs no region.
+  const needsRegion = (a: AdsCrmAccount) =>
+    Boolean(ownerOf(a)) && !a.region && a.source !== "HOTLINE";
   const rows = useMemo(() => {
     const needle = search.trim().toLowerCase();
     return data.accounts.filter((account) => {
       if (only === "loose" && ownerOf(account)) return false;
-      if (only === "region" && (account.region || !ownerOf(account))) return false;
+      if (only === "region" && !needsRegion(account)) return false;
       if (!needle) return true;
       return [account.name, account.user_name, account.member_code, String(account.crm_id)]
         .filter(Boolean)
         .some((text) => String(text).toLowerCase().includes(needle));
     });
   }, [data.accounts, search, only]);
-  const noRegion = data.accounts.filter((a) => ownerOf(a) && !a.region).length;
+  const noRegion = data.accounts.filter(needsRegion).length;
   const [year, monthNumber] = data.month.split("-");
   const pickOwner = (account: AdsCrmAccount, value: string) => {
     const body: AdsCrmAccountUpdate = value.startsWith("u:")
-      ? { user_id: value.slice(2), source: null }
+      ? { user_id: value.slice(2), source: null, former: false }
       : value.startsWith("s:")
-        ? { source: value.slice(2), user_id: null }
-        : { user_id: null, source: null };
+        ? { source: value.slice(2), user_id: null, former: false }
+        : value === "former"
+          ? { former: true, user_id: null, source: null }
+          : { user_id: null, source: null, former: false };
     update.mutate({ crmId: account.crm_id, body });
   };
   return (
@@ -368,7 +377,7 @@ function Workspace({ data, month }: { data: AdsCrmOverview; month: string }) {
                         })
                       }
                       className={`min-h-10 rounded-lg border bg-[var(--surface)] px-2 text-sm ${
-                        ownerOf(account) && !account.region
+                        needsRegion(account)
                           ? "border-[var(--warn)]"
                           : "border-[var(--border)]"
                       }`}
@@ -406,7 +415,31 @@ function Workspace({ data, month }: { data: AdsCrmOverview; month: string }) {
                           </option>
                         ))}
                       </optgroup>
+                      <optgroup label="Khác">
+                        <option value="former">Nhân viên đã nghỉ (dùng tên CRM)</option>
+                      </optgroup>
                     </Select>
+                    {account.source === "HOTLINE" ? (
+                      <select
+                        aria-label={`Loại hotline ${account.name}`}
+                        value={account.hotline_kind ?? ""}
+                        disabled={update.isPending}
+                        onChange={(event) =>
+                          update.mutate({
+                            crmId: account.crm_id,
+                            body: { hotline_kind: event.target.value || null },
+                          })
+                        }
+                        className="mt-1 min-h-10 rounded-lg border border-[var(--border)] bg-[var(--surface)] px-2 text-sm"
+                      >
+                        <option value="">Loại hotline…</option>
+                        {(data.hotline_kinds ?? []).map((kind) => (
+                          <option key={kind.value} value={kind.value}>
+                            {kind.label}
+                          </option>
+                        ))}
+                      </select>
+                    ) : null}
                   </td>
                   <td className="text-right tabular-nums">{account.payments || "—"}</td>
                   <td className="text-right font-semibold tabular-nums">

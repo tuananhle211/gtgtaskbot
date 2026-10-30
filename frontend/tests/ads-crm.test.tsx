@@ -121,17 +121,64 @@ describe("Tài khoản CRM", () => {
     expect(sent(stub, "PATCH", "/api/ads/crm/accounts/12")[0].body).toEqual({
       source: "HOTLINE",
       user_id: null,
+      former: false,
+    });
+    await userEvent.selectOptions(
+      screen.getByLabelText("Tính cho Hotline FB"),
+      "former",
+    );
+    await waitFor(() =>
+      expect(sent(stub, "PATCH", "/api/ads/crm/accounts/12")).toHaveLength(2),
+    );
+    expect(sent(stub, "PATCH", "/api/ads/crm/accounts/12")[1].body).toEqual({
+      former: true,
+      user_id: null,
+      source: null,
     });
     await userEvent.selectOptions(
       screen.getByLabelText("Khu vực Hotline FB"),
       "HN",
     );
     await waitFor(() =>
-      expect(sent(stub, "PATCH", "/api/ads/crm/accounts/12")).toHaveLength(2),
+      expect(sent(stub, "PATCH", "/api/ads/crm/accounts/12")).toHaveLength(3),
     );
-    expect(sent(stub, "PATCH", "/api/ads/crm/accounts/12")[1].body).toEqual({
+    expect(sent(stub, "PATCH", "/api/ads/crm/accounts/12")[2].body).toEqual({
       region: "HN",
     });
+  });
+
+  it("a Hotline account picks its hotline", async () => {
+    const hotline = {
+      ...OVERVIEW,
+      hotline_kinds: [
+        { value: "FB", label: "Facebook" },
+        { value: "TIKTOK", label: "TikTok" },
+        { value: "GOOGLE", label: "Google" },
+      ],
+      accounts: [
+        account({
+          crm_id: 802,
+          name: "Hotline  Google",
+          region: null,
+          source: "HOTLINE",
+          source_label: "Hotline",
+          hotline_kind: "GOOGLE",
+        }),
+      ],
+    };
+    const stub = stubFetch([
+      { match: "/api/ads/crm/accounts/802", method: "PATCH", body: hotline },
+      { match: "/api/ads/crm", method: "GET", body: hotline },
+    ]);
+    renderWithQuery(<AdsCrmPage />);
+    const kind = await screen.findByLabelText("Loại hotline Hotline Google");
+    expect(kind).toHaveValue("GOOGLE");
+    await userEvent.selectOptions(kind, "TIKTOK");
+    await waitFor(() =>
+      expect(sent(stub, "PATCH", "/api/ads/crm/accounts/802")[0].body).toEqual({
+        hotline_kind: "TIKTOK",
+      }),
+    );
   });
 
   it("warns when the server has no key and filters the loose accounts", async () => {
@@ -144,6 +191,10 @@ describe("Tài khoản CRM", () => {
     await userEvent.selectOptions(screen.getByLabelText("Hiện"), "loose");
     expect(screen.queryByTestId("crm-10")).not.toBeInTheDocument();
     expect(screen.getByTestId("crm-12")).toBeInTheDocument();
+    // Given, no region: only Vương Anh Đức (a hotline would need none).
+    await userEvent.selectOptions(screen.getByLabelText("Hiện"), "region");
+    expect(screen.getByTestId("crm-11")).toBeInTheDocument();
+    expect(screen.queryByTestId("crm-12")).not.toBeInTheDocument();
   });
 
   it("shows every problem of a refused workbook", async () => {

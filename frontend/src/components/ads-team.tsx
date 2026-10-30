@@ -912,6 +912,18 @@ function Ranking({
   );
 }
 
+const HOTLINE_KINDS: Record<string, string> = {
+  FB: "Facebook",
+  TIKTOK: "TikTok",
+  GOOGLE: "Google",
+  OTHER: "Khác",
+};
+
+/**
+ * Khối 3: one row per marketer (a click opens their dashboard), then the ◆
+ * Hotline (its hotlines split) and the former marketers under their CRM name -
+ * revenue only, no cost, no page (0084).
+ */
 function MarketerTable({
   data,
   onPick,
@@ -984,6 +996,43 @@ function MarketerTable({
               </td>
             </tr>
           ))}
+          {(data.others ?? []).map((line) => (
+            <tr
+              key={line.key}
+              data-testid={`other-${line.key}`}
+              className="bg-[var(--surface-muted)]"
+            >
+              <td>
+                <span className="font-medium">{line.name}</span>{" "}
+                <span className={`st ${line.kind === "hotline" ? "st-blue" : "st-slate"}`}>
+                  {line.kind === "hotline" ? "Hotline" : "Đã nghỉ"}
+                </span>
+                {line.kind === "hotline" && line.kinds ? (
+                  <div className="text-xs text-[var(--text-muted)]">
+                    {Object.entries(line.kinds)
+                      .map(([kind, value]) => `${HOTLINE_KINDS[kind] ?? kind} ${compactMoney(value)}`)
+                      .join(" · ")}
+                  </div>
+                ) : (
+                  <div className="text-xs text-[var(--text-muted)]">
+                    Tài khoản CRM, không có trong app
+                  </div>
+                )}
+              </td>
+              <td className="text-right text-[var(--text-muted)]">—</td>
+              <td className="text-right text-[var(--text-muted)]">—</td>
+              <td className="text-right text-[var(--text-muted)]">—</td>
+              <td className="text-right text-[var(--text-muted)]">—</td>
+              <td className="text-right tabular-nums">
+                {money(line.figures.revenue)}
+              </td>
+              <td className="text-right tabular-nums">
+                {money(line.figures.revenue_net)}
+              </td>
+              <td className="text-right text-[var(--text-muted)]">—</td>
+              <td className="text-right text-[var(--text-muted)]">—</td>
+            </tr>
+          ))}
         </tbody>
         <tfoot>
           <tr className="font-semibold">
@@ -1003,6 +1052,32 @@ function MarketerTable({
               <Ratio value={fb.ads_ratio} />
             </td>
           </tr>
+          {data.others?.length ? (
+            <tr className="font-semibold" data-testid="marketer-total-all">
+              <td>TỔNG GỒM HOTLINE &amp; ĐÃ NGHỈ</td>
+              <td className="text-right tabular-nums">{money(fb.spend)}</td>
+              <td className="text-right tabular-nums">{money(fb.invoice)}</td>
+              <td />
+              <td />
+              <td className="text-right tabular-nums">
+                {money(
+                  (fb.revenue ?? 0) +
+                    data.others.reduce((sum, line) => sum + (line.figures.revenue ?? 0), 0),
+                )}
+              </td>
+              <td className="text-right tabular-nums">
+                {money(
+                  (fb.revenue_net ?? 0) +
+                    data.others.reduce(
+                      (sum, line) => sum + (line.figures.revenue_net ?? 0),
+                      0,
+                    ),
+                )}
+              </td>
+              <td />
+              <td />
+            </tr>
+          ) : null}
         </tfoot>
       </table>
     </div>

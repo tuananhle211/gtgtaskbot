@@ -121,6 +121,8 @@ class RevenueRow:
     #: CRM accounts); the rest is the HCM team's. Typed lines: 0.
     hn_team_hcm: Decimal = Decimal(0)
     hn_team_hn: Decimal = Decimal(0)
+    #: A ◆ Hotline line from the CRM: its hotline (FB / TIKTOK / GOOGLE).
+    kind: str | None = None
 
     @property
     def gross(self) -> Decimal:
@@ -241,7 +243,7 @@ class AdsRevenueService:
         lines = await self._lines(with_sources=True, with_team=False)
         known = {line.key for line in lines}
         book = await crm_book(self._session, day, day)
-        crm = {line.key: line for line in book.lines}
+        crm = book.totals(day)
         # A person who left the department keeps a line while it has a number;
         # so does somebody outside it holding a CRM account.
         extra = [
@@ -250,7 +252,14 @@ class AdsRevenueService:
             if key not in known
         ]
         extra += [
-            EntryLine(key, "Ngoài Phòng Ads (CRM)", line.user_id, line.source, None, None)
+            EntryLine(
+                key,
+                f"{book.labels[key]} (đã nghỉ)" if key in book.labels else "Ngoài Phòng Ads (CRM)",
+                line.user_id,
+                line.source,
+                None,
+                None,
+            )
             for key, line in crm.items()
             if key not in known and key not in stored
         ]
@@ -398,6 +407,7 @@ class AdsRevenueService:
                 line.amount_hn,
                 line.hn_team_hcm,
                 line.hn_team_hn,
+                line.kind,
             )
             for line in book.lines
         ]

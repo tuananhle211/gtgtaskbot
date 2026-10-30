@@ -18,7 +18,7 @@ from meobot.application.ads.revenue_service import EntryLine
 from meobot.application.ads.team_service import Channel, Figures, History, TeamReport
 from meobot.db.models.ads import AdsConnection
 from meobot.domain.ads.budget import BUDGET_STATUS_LABELS, BudgetWeek
-from meobot.domain.ads.crm import REGION_LABELS, CrmRegion
+from meobot.domain.ads.crm import HOTLINE_KIND_LABELS, REGION_LABELS, CrmRegion, HotlineKind
 from meobot.domain.ads.models import (
     BRAND_LABELS,
     MANUAL_PLATFORMS,
@@ -550,6 +550,19 @@ class MarketerResponse(BaseModel):
     tone: str | None
 
 
+class OtherLineResponse(BaseModel):
+    """The ◆ Hotline / a former marketer, a line beside the marketers: no
+    cost, no page."""
+
+    key: str
+    #: ``hotline`` / ``former``.
+    kind: str
+    name: str
+    figures: FiguresResponse
+    #: The hotline's revenue by kind: FB / TIKTOK / GOOGLE / OTHER.
+    kinds: dict[str, float] = {}
+
+
 class SourceResponse(BaseModel):
     key: str
     label: str
@@ -640,6 +653,7 @@ class TeamReportResponse(BaseModel):
     flows: list[SourceResponse] = []
     regions: RegionSplitResponse | None = None
     bm_region: str | None = None
+    others: list[OtherLineResponse] = []
     marketers: list[MarketerResponse]
     facebook: FiguresResponse
     attention: list[AlertResponse]
@@ -690,6 +704,16 @@ class TeamReportResponse(BaseModel):
             ],
             regions=RegionSplitResponse.from_split(report.regions),
             bm_region=report.bm_region.value if report.bm_region else None,
+            others=[
+                OtherLineResponse(
+                    key=line.key,
+                    kind=line.kind,
+                    name=line.name,
+                    figures=FiguresResponse.from_figures(line.current),
+                    kinds=line.kinds,
+                )
+                for line in report.others
+            ],
             marketers=[
                 MarketerResponse(
                     user_id=line.user_id,
@@ -942,6 +966,11 @@ class CrmAccountResponse(BaseModel):
     member_code: str | None
     source: str | None
     source_label: str | None
+    #: A ◆ Hotline account's hotline (FB / TIKTOK / GOOGLE).
+    hotline_kind: str | None = None
+    hotline_kind_label: str | None = None
+    #: A marketer who left (no app account): a line under the CRM name.
+    former: bool = False
     note: str | None
     #: The month's counted payments and thực thu.
     payments: int
@@ -962,6 +991,11 @@ class CrmAccountResponse(BaseModel):
             member_code=view.person.member_code if view.person else None,
             source=account.source.value if account.source else None,
             source_label=REVENUE_SOURCE_LABELS[account.source] if account.source else None,
+            hotline_kind=account.hotline_kind.value if account.hotline_kind else None,
+            hotline_kind_label=HOTLINE_KIND_LABELS[account.hotline_kind]
+            if account.hotline_kind
+            else None,
+            former=account.former,
             note=account.note,
             payments=view.payments,
             total=float(view.total),
@@ -986,6 +1020,7 @@ class CrmOverviewResponse(BaseModel):
     people: list[CrmPersonResponse]
     sources: list[CrmOptionResponse]
     regions: list[CrmOptionResponse]
+    hotline_kinds: list[CrmOptionResponse] = []
     mapped_total: float
     unassigned_total: float
     unassigned_accounts: int
@@ -1016,6 +1051,10 @@ class CrmOverviewResponse(BaseModel):
                 CrmOptionResponse(value=region.value, label=label)
                 for region, label in REGION_LABELS.items()
             ],
+            hotline_kinds=[
+                CrmOptionResponse(value=kind.value, label=label)
+                for kind, label in HOTLINE_KIND_LABELS.items()
+            ],
             mapped_total=float(data.mapped_total),
             unassigned_total=float(data.unassigned_total),
             unassigned_accounts=data.unassigned_accounts,
@@ -1028,6 +1067,9 @@ class UpdateCrmAccountRequest(BaseModel):
     user_id: uuid.UUID | None = None
     source: RevenueSource | None = None
     region: CrmRegion | None = None
+    hotline_kind: HotlineKind | None = None
+    #: A marketer who left: their revenue is a line under the CRM name.
+    former: bool | None = None
     note: str | None = Field(default=None, max_length=500)
 
 

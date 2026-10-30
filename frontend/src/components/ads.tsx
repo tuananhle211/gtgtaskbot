@@ -135,8 +135,8 @@ function RegionLine({
             {percent(figures.ads_ratio)}
           </span>
           <span>
-            = chi phí BM {label} <Money value={figures.invoice || figures.spend} /> ÷ doanh
-            thu CRM {label} (hoa hồng) <Money value={figures.marketing_net} />
+            = chi tiêu BM {label} <Money value={figures.spend} /> ÷ doanh thu CRM{" "}
+            {label} <Money value={figures.marketing} />
           </span>
         </div>
       ) : null}
@@ -149,7 +149,7 @@ function RegionLine({
  * the customer (Doanh thu Marketing: HN = HN + HN chuyển SG, SG = SG + SG
  * chuyển HN) and by the branch that served them (Doanh thu Cơ sở: HN = HN +
  * SG chuyển HN, SG = SG + HN chuyển SG). Both add up to the total; hiệu suất =
- * the region's marketing cost (its BM) ÷ its Marketing revenue without VAT.
+ * the region's BM spend ÷ its CRM Marketing revenue (VAT included).
  */
 export function RegionRevenue({
   regions,

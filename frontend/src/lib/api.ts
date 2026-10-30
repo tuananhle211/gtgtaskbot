@@ -4218,6 +4218,11 @@ export interface AdsCrmAccount {
   member_code: string | null;
   source: string | null;
   source_label: string | null;
+  /** A ◆ Hotline account's hotline: FB / TIKTOK / GOOGLE. */
+  hotline_kind?: string | null;
+  hotline_kind_label?: string | null;
+  /** A marketer who left (no app account): a line under the CRM name. */
+  former?: boolean;
   note: string | null;
   /** The month's counted payments and thực thu. */
   payments: number;
@@ -4237,6 +4242,7 @@ export interface AdsCrmOverview {
   people: Array<{ user_id: Uuid; name: string; member_code: string | null; in_ads: boolean }>;
   sources: Array<{ value: string; label: string }>;
   regions: Array<{ value: string; label: string }>;
+  hotline_kinds?: Array<{ value: string; label: string }>;
   mapped_total: number;
   unassigned_total: number;
   unassigned_accounts: number;
@@ -4245,6 +4251,8 @@ export interface AdsCrmOverview {
 export interface AdsCrmAccountUpdate {
   user_id?: Uuid | null;
   source?: string | null;
+  hotline_kind?: string | null;
+  former?: boolean;
   region?: "HN" | "HCM" | null;
   note?: string | null;
 }
@@ -4329,6 +4337,18 @@ export interface AdsTeamReport {
   }>;
   /** Doanh thu Marketing / Cơ sở by region, hiệu suất. */
   regions?: AdsRegionSplit | null;
+  /**
+   * The ◆ Hotline and the former marketers (CRM name), lines beside the
+   * marketers: no cost, no page.
+   */
+  others?: Array<{
+    key: string;
+    kind: "hotline" | "former";
+    name: string;
+    figures: AdsFigures;
+    /** The hotline's revenue by kind: FB / TIKTOK / GOOGLE / OTHER. */
+    kinds?: Record<string, number>;
+  }>;
   /** The picked BM's region: the revenue shown is that region's Marketing. */
   bm_region?: "HN" | "HCM" | null;
   marketers: Array<{

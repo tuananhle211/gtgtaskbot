@@ -8,9 +8,9 @@ The same revenue counted two ways, both adding up to the total:
   SG = SG + HN chuyển SG.
 
 The cost is split by the ad account's cơ sở (its BM's site, else the typed-in
-account's: "Hà Nội" -> HN, "Sài Gòn" -> SG). Hiệu suất of a region = its
-marketing cost (charges, else spend) ÷ its Marketing revenue without VAT
-(``commission_revenue``) - "Chi phí Marketing HN / Doanh thu HN + HN chuyển SG".
+account's: "Hà Nội" -> HN, "Sài Gòn" -> SG). Hiệu suất of a region (chốt
+30/10) = its BM spend (chi tiêu) ÷ its CRM Marketing revenue VAT included -
+"Chi tiêu BM HN / Doanh thu HN + HN chuyển SG".
 """
 
 from __future__ import annotations
@@ -45,13 +45,10 @@ class RegionFigures:
     invoice: float = 0.0
 
     @property
-    def charged(self) -> float:
-        return self.invoice or self.spend
-
-    @property
     def ads_ratio(self) -> float | None:
-        """Hiệu suất: marketing cost ÷ Marketing revenue (hoa hồng)."""
-        return ratio(self.charged, self.marketing_net) if self.marketing_net else None
+        """Hiệu suất (chốt 30/10): the region's BM spend ÷ its CRM Marketing
+        revenue, VAT included."""
+        return ratio(self.spend, self.marketing) if self.marketing else None
 
 
 @dataclass(slots=True)

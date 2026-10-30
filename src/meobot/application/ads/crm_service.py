@@ -47,7 +47,14 @@ from meobot.core.time import utcnow
 from meobot.db.models.ads import AdsCrmAccount, AdsCrmPayment
 from meobot.db.models.system_setting import SystemSetting
 from meobot.db.models.user import User
-from meobot.domain.ads.crm import COUNTED_PAYMENT_TYPES, CrmRegion, branch_site, region_of
+from meobot.domain.ads.crm import (
+    COUNTED_PAYMENT_TYPES,
+    CrmRegion,
+    HotlineKind,
+    branch_site,
+    hotline_kind_of,
+    region_of,
+)
 from meobot.domain.ads.models import REVENUE_SOURCE_LABELS, RevenueSource
 from meobot.domain.audit.models import AuditAction, AuditResult
 from meobot.domain.identity.models import Actor
@@ -57,6 +64,8 @@ from meobot.integrations.crm.client import CrmClient, CrmError
 MAX_IMPORT_BYTES = 5 * 1024 * 1024
 #: "Không tính" in the source column = neither a person nor a source.
 NOT_COUNTED = "khong tinh"
+#: "Nhân viên đã nghỉ" in the source column = a former marketer (0084).
+FORMER_WORDS = ("nhan vien da nghi", "da nghi", "nghi viec")
 
 
 class AdsCrmInvalidError(ValidationError):
@@ -385,8 +394,8 @@ class AdsCrmService:
         crm_id: int,
         fields: Mapping[str, Any],
     ) -> AdsCrmAccount:
-        """``user_id`` / ``source`` (one or neither) / ``region`` / ``note``;
-        a key left out keeps its value."""
+        """``user_id`` / ``source`` / ``former`` (one or none) / ``region`` /
+        ``hotline_kind`` / ``note``; a key left out keeps its value."""
         self._require(access)
         account = await self._session.get(AdsCrmAccount, crm_id)
         if account is None:
@@ -409,8 +418,28 @@ class AdsCrmService:
                 source = None
             else:
                 user_id = None
+        former = bool(fields.get("former", account.former))
+        if former and (user_id is not None or source is not None):
+            if fields.get("former"):
+                if ("user_id" in fields and fields["user_id"] is not None) or (
+                    "source" in fields and fields["source"] is not None
+                ):
+                    raise AdsCrmInvalidError(
+                        "Nhân viên đã nghỉ không gắn thêm người hay nguồn.",
+                        field_name="former",
+                    )
+                user_id = source = None
+            else:
+                former = False
         account.user_id = user_id
         account.source = source
+        account.former = former
+        if source is not RevenueSource.HOTLINE:
+            account.hotline_kind = None
+        elif "hotline_kind" in fields:
+            account.hotline_kind = fields["hotline_kind"]
+        elif account.hotline_kind is None:
+            account.hotline_kind = hotline_kind_of(account.name)
         if "region" in fields:
             account.region = fields["region"]
         if "note" in fields:
@@ -437,6 +466,8 @@ class AdsCrmService:
             "user_id": str(account.user_id) if account.user_id else None,
             "source": account.source.value if account.source else None,
             "region": account.region.value if account.region else None,
+            "hotline_kind": account.hotline_kind.value if account.hotline_kind else None,
+            "former": account.former,
             "note": account.note,
         }
 
@@ -467,7 +498,17 @@ class AdsCrmService:
         }
         accounts = {a.crm_id: a for a in await self._session.scalars(select(AdsCrmAccount))}
         result = ImportResult()
-        planned: list[tuple[int, str | None, uuid.UUID | None, RevenueSource | None, Any]] = []
+        planned: list[
+            tuple[
+                int,
+                str | None,
+                uuid.UUID | None,
+                RevenueSource | None,
+                Any,
+                bool,
+                HotlineKind | None,
+            ]
+        ] = []
         found = False
         for sheet in book.worksheets:
             rows = sheet.iter_rows(values_only=True)
@@ -519,8 +560,16 @@ class AdsCrmService:
                         result.problems.append(f"{where}: mã nhân viên “{code}” không có trên APM.")
                         continue
                     user_id = user.id
-                if source_text and source_text != NOT_COUNTED:
-                    source = _SOURCES_BY_LABEL.get(source_text)
+                former = source_text in FORMER_WORDS
+                kind: HotlineKind | None = None
+                if former and user_id is not None:
+                    result.problems.append(f"{where}: nhân viên đã nghỉ thì để trống mã nhân viên.")
+                    continue
+                if source_text and source_text != NOT_COUNTED and not former:
+                    if source_text.startswith("hotline"):
+                        source, kind = RevenueSource.HOTLINE, hotline_kind_of(source_text)
+                    else:
+                        source = _SOURCES_BY_LABEL.get(source_text)
                     if source is None:
                         result.problems.append(
                             f"{where}: nguồn “{cell('source')}” không có trong danh sách."
@@ -541,7 +590,7 @@ class AdsCrmService:
                         )
                         continue
                 crm_name = str(cell("name") or "").strip() or None
-                planned.append((crm_id, crm_name, user_id, source, region))
+                planned.append((crm_id, crm_name, user_id, source, region, former, kind))
         if not found:
             raise AdsCrmImportError(
                 "Không thấy bảng có cột “CRM ID” và “Mã nhân viên APM”.",
@@ -552,7 +601,7 @@ class AdsCrmService:
                 f"File có {len(result.problems)} dòng lỗi, chưa lưu gì.", result.problems
             )
         now = utcnow()
-        for crm_id, crm_name, user_id, source, region in planned:
+        for crm_id, crm_name, user_id, source, region, former, kind in planned:
             account = accounts.get(crm_id)
             if account is None:
                 label = crm_name or f"CRM {crm_id}"
@@ -567,12 +616,30 @@ class AdsCrmService:
                 self._session.add(account)
                 accounts[crm_id] = account
                 result.created += 1
-            before = (account.user_id, account.source, account.region)
+            before = (
+                account.user_id,
+                account.source,
+                account.region,
+                account.former,
+                account.hotline_kind,
+            )
             account.user_id = user_id
             account.source = source
+            account.former = former
+            account.hotline_kind = (
+                (kind or account.hotline_kind or hotline_kind_of(account.name))
+                if source is RevenueSource.HOTLINE
+                else None
+            )
             if region is not ...:
                 account.region = region
-            if before != (account.user_id, account.source, account.region):
+            if before != (
+                account.user_id,
+                account.source,
+                account.region,
+                account.former,
+                account.hotline_kind,
+            ):
                 account.updated_by_user_id = actor.user_id
                 account.updated_at = now
                 result.changed += 1

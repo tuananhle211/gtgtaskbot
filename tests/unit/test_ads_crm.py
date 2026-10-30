@@ -390,12 +390,12 @@ async def test_07_the_branch_tells_where_the_customer_was_served(world: World) -
     regions = team("all")["regions"]
     assert (regions["hn"]["marketing"], regions["hcm"]["marketing"]) == (2_500_000, 5_000_000)
     assert (regions["hn"]["site"], regions["hcm"]["site"]) == (3_000_000, 4_500_000)
-    # The cost by the BM's cơ sở (BM Apex = Sài Gòn); hiệu suất = SG's charges
-    # ÷ SG Marketing revenue without VAT; no HN cost, no HN ratio worth a tone.
+    # The cost by the BM's cơ sở (BM Apex = Sài Gòn); no HN cost.
     # (the second charge falls on 22/10 Vietnam time, outside the days)
     assert regions["hcm"]["spend"] == 3_500_000 and regions["hcm"]["invoice"] == 1_000_000
     assert regions["hn"]["spend"] == 0 and regions["hn"]["ads_ratio"] == 0
-    assert round(regions["hcm"]["ads_ratio"], 4) == round(1_000_000 / (5_000_000 / 1.08), 4)
+    # Hiệu suất = BM spend ÷ CRM revenue VAT included.
+    assert regions["hcm"]["ads_ratio"] == 3_500_000 / 5_000_000
     assert regions["flows"]["hn_hcm"] == 500_000
     # BM Apex (Sài Gòn): the revenue the HCM accounts brought; Cơ sở unchanged.
     from meobot.db.models.ads import AdsConnection
@@ -419,3 +419,58 @@ async def test_07_the_branch_tells_where_the_customer_was_served(world: World) -
     whole = world.client.get("/api/ads/dashboard", params=PARAMS).json()["regions"]
     assert (whole["hn"]["marketing"], whole["hcm"]["site"]) == (2_500_000, 4_500_000)
     assert whole["hcm"]["spend"] == 3_000_000
+
+
+async def test_08_hotline_and_former_marketers_are_lines_of_their_own(world: World) -> None:
+    """A ◆ Hotline account (its hotline picked or read from the name) goes to the
+    BM of the branch that served; a former marketer (no app account) is a line
+    under the CRM name. Neither has a cost or a page."""
+    from meobot.db.models.ads import AdsConnection
+
+    head, _, _ = await staffed(world)
+    crm = FakeCrmClient(
+        users=CRM.users,
+        branch_list=[CrmBranch(12, "HN1"), CrmBranch(9, "SG")],
+        rows=[
+            CrmPayment(1, D1, Decimal(3_000_000), 4, 12, branch_id=12),  # hotline, HN
+            CrmPayment(2, D1, Decimal(1_000_000), 4, 12, branch_id=9),  # hotline, SG
+            CrmPayment(3, D1, Decimal(700_000), 4, 13, branch_id=9),  # former, HN -> SG
+        ],
+    )
+    await AdsCrmSyncService(world.session, crm).sync(D1, D2)
+    world.act_as(head)
+    hotline = world.client.patch("/api/ads/crm/accounts/12", json={"source": "HOTLINE"}).json()
+    row = next(r for r in hotline["accounts"] if r["crm_id"] == 12)
+    assert row["hotline_kind"] == "FB" and row["hotline_kind_label"] == "Facebook"
+    assert {o["value"] for o in hotline["hotline_kinds"]} == {"FB", "TIKTOK", "GOOGLE"}
+    former = world.client.patch(
+        "/api/ads/crm/accounts/13", json={"former": True, "region": "HN"}
+    ).json()
+    assert next(r for r in former["accounts"] if r["crm_id"] == 13)["former"] is True
+    both = world.client.patch(
+        "/api/ads/crm/accounts/13", json={"former": True, "source": "HOTLINE"}
+    )
+    assert both.status_code == 422
+
+    team = world.client.get("/api/ads/team", params=PARAMS).json()
+    others = {line["kind"]: line for line in team["others"]}
+    assert others["hotline"]["name"] == "Hotline"
+    assert others["hotline"]["figures"]["revenue"] == 4_000_000
+    assert others["hotline"]["figures"]["spend"] == 0
+    assert others["hotline"]["kinds"] == {"FB": 4_000_000}
+    assert others["former"]["name"] == "MKT - HOÀNG ANH"
+    assert others["former"]["figures"]["revenue"] == 700_000
+    # The hotline is nobody's team: HN-served = HN, SG-served = SG; the former
+    # HN marketer's SG customer = HN chuyển SG.
+    flows = {flow["key"]: flow["revenue"] for flow in team["flows"]}
+    assert flows["hn_hn"] == 3_000_000 and flows["hcm_hcm"] == 1_000_000
+    assert flows["hn_hcm"] == 700_000
+    apex = (await world.session.execute(select(AdsConnection))).scalar_one()
+    sg = world.client.get("/api/ads/team", params={**PARAMS, "connection_id": str(apex.id)}).json()
+    assert [(line["kind"], line["figures"]["revenue"]) for line in sg["others"]] == [
+        ("hotline", 1_000_000)
+    ]
+    # The entry page names the former marketer.
+    day = world.client.get("/api/ads/revenue", params={"day": D1.isoformat()}).json()
+    names = {line["key"]: line["label"] for line in day["lines"]}
+    assert names["c:13"] == "MKT - HOÀNG ANH (đã nghỉ)"

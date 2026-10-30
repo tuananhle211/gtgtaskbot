@@ -33,6 +33,8 @@ from meobot.domain.ads.models import RevenueSource, subject_key
 
 #: The ``system_settings`` row holding what has been synced.
 SETTINGS_KEY = "ads_crm"
+#: A former marketer's line (0084): ``c:<CRM id>``, named after the account.
+FORMER_PREFIX = "c:"
 
 
 @dataclass(frozen=True, slots=True)
@@ -108,6 +110,8 @@ class CrmLine:
     #: Of each: brought by the HN team (HN CRM accounts).
     hn_team_hcm: Decimal = Decimal(0)
     hn_team_hn: Decimal = Decimal(0)
+    #: A ◆ Hotline line's hotline (FB / TIKTOK / GOOGLE), else ``None``.
+    kind: str | None = None
 
 
 def account_subject(account: AdsCrmAccount) -> str | None:
@@ -115,6 +119,8 @@ def account_subject(account: AdsCrmAccount) -> str | None:
         return subject_key(user_id=account.user_id)
     if account.source is not None:
         return subject_key(source=account.source)
+    if account.former:
+        return f"{FORMER_PREFIX}{account.crm_id}"
     return None
 
 
@@ -124,12 +130,34 @@ class CrmBook:
     #: Every person / source key that holds a CRM account.
     subjects: set[str] = field(default_factory=set)
     lines: list[CrmLine] = field(default_factory=list)
+    #: A former marketer's key -> their CRM account's name.
+    labels: dict[str, str] = field(default_factory=dict)
 
     def covers(self, day: date, key: str) -> bool:
         return key in self.subjects and self.coverage.covers(day)
 
-    def line(self, day: date, key: str) -> CrmLine | None:
-        return next((line for line in self.lines if line.day == day and line.key == key), None)
+    def totals(self, day: date) -> dict[str, CrmLine]:
+        """The day's lines summed per person / source (hotline kinds together)."""
+        out: dict[str, CrmLine] = {}
+        for line in self.lines:
+            if line.day != day:
+                continue
+            seen = out.get(line.key)
+            out[line.key] = (
+                line
+                if seen is None
+                else CrmLine(
+                    day,
+                    line.key,
+                    line.user_id,
+                    line.source,
+                    seen.amount + line.amount,
+                    seen.amount_hn + line.amount_hn,
+                    seen.hn_team_hcm + line.hn_team_hcm,
+                    seen.hn_team_hn + line.hn_team_hn,
+                )
+            )
+        return out
 
 
 async def crm_book(session: AsyncSession, start: date, end: date) -> CrmBook:
@@ -137,7 +165,11 @@ async def crm_book(session: AsyncSession, start: date, end: date) -> CrmBook:
     coverage, _ = await load_coverage(session)
     accounts = list(await session.scalars(select(AdsCrmAccount)))
     owned = {account.crm_id: account for account in accounts if account_subject(account)}
-    book = CrmBook(coverage, {key for a in owned.values() if (key := account_subject(a))})
+    book = CrmBook(
+        coverage,
+        {key for a in owned.values() if (key := account_subject(a))},
+        labels={f"{FORMER_PREFIX}{a.crm_id}": a.name for a in owned.values() if a.former},
+    )
     if not owned or coverage.synced_from is None or coverage.synced_to is None:
         return book
     first = max(start, coverage.synced_from)
@@ -145,7 +177,7 @@ async def crm_book(session: AsyncSession, start: date, end: date) -> CrmBook:
     if first > last:
         return book
     # [served HCM, served HN, HN team served HCM, HN team served HN]
-    sums: dict[tuple[date, str], list[Decimal]] = defaultdict(lambda: [Decimal(0)] * 4)
+    sums: dict[tuple[date, str, str | None], list[Decimal]] = defaultdict(lambda: [Decimal(0)] * 4)
     rows = await session.execute(
         select(
             AdsCrmPayment.payment_date,
@@ -165,22 +197,29 @@ async def crm_book(session: AsyncSession, start: date, end: date) -> CrmBook:
         account = owned[marketing_id]
         key = account_subject(account)
         assert key is not None
-        team = account.region or CrmRegion.HCM
-        site = coverage.site_of(branch_id) or team
+        site = coverage.site_of(branch_id) or account.region or CrmRegion.HCM
+        # A hotline is nobody's team: its revenue goes where it was served.
+        team = (
+            site if account.source is RevenueSource.HOTLINE else (account.region or CrmRegion.HCM)
+        )
         value = Decimal(total or 0)
-        line = sums[(day, key)]
+        kind = account.hotline_kind.value if account.hotline_kind else None
+        line = sums[(day, key, kind)]
         line[1 if site is CrmRegion.HN else 0] += value
         if team is CrmRegion.HN:
             line[3 if site is CrmRegion.HN else 2] += value
-    for (day, key), (amount, amount_hn, hn_hcm, hn_hn) in sorted(sums.items()):
+    for (day, key, kind), (amount, amount_hn, hn_hcm, hn_hn) in sorted(
+        sums.items(), key=lambda item: (item[0][0], item[0][1], item[0][2] or "")
+    ):
         sample = next(a for a in owned.values() if account_subject(a) == key)
         book.lines.append(
-            CrmLine(day, key, sample.user_id, sample.source, amount, amount_hn, hn_hcm, hn_hn)
+            CrmLine(day, key, sample.user_id, sample.source, amount, amount_hn, hn_hcm, hn_hn, kind)
         )
     return book
 
 
 __all__ = [
+    "FORMER_PREFIX",
     "SETTINGS_KEY",
     "Coverage",
     "CrmBook",

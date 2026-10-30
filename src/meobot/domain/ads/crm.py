@@ -50,6 +50,33 @@ def region_of(name: str | None) -> CrmRegion | None:
     return None
 
 
+class HotlineKind(StrEnum):
+    """Which hotline a ◆ Hotline CRM account is (2026-10-30)."""
+
+    FB = "FB"
+    TIKTOK = "TIKTOK"
+    GOOGLE = "GOOGLE"
+
+
+HOTLINE_KIND_LABELS: dict[HotlineKind, str] = {
+    HotlineKind.FB: "Facebook",
+    HotlineKind.TIKTOK: "TikTok",
+    HotlineKind.GOOGLE: "Google",
+}
+
+
+def hotline_kind_of(name: str | None) -> HotlineKind | None:
+    """From the account's name: "Hotline FB" -> FB, "Hotline tiktok" -> TIKTOK."""
+    words = set("".join(c if c.isalnum() else " " for c in _fold(name or "")).split())
+    if words & {"FB", "FACEBOOK", "MESS", "MESSENGER"}:
+        return HotlineKind.FB
+    if words & {"TIKTOK", "TT"}:
+        return HotlineKind.TIKTOK
+    if words & {"GOOGLE", "GG"}:
+        return HotlineKind.GOOGLE
+    return None
+
+
 def branch_site(name: str | None) -> CrmRegion | None:
     """A CRM branch's region from its name: "HN1", "HN2" -> HN, "SG" -> HCM."""
     folded = " ".join("".join(c if c.isalnum() else " " for c in _fold(name or "")).split())
@@ -72,9 +99,12 @@ DEFAULT_BRANCH_SITES: dict[int, CrmRegion] = {
 __all__ = [
     "COUNTED_PAYMENT_TYPES",
     "DEFAULT_BRANCH_SITES",
+    "HOTLINE_KIND_LABELS",
     "PAYMENT_POINTS",
     "REGION_LABELS",
     "CrmRegion",
+    "HotlineKind",
     "branch_site",
+    "hotline_kind_of",
     "region_of",
 ]
