@@ -16,11 +16,13 @@ from openpyxl.utils import get_column_letter
 from openpyxl.worksheet.worksheet import Worksheet
 
 from meobot.application.performance.coefficients import weigh
-from meobot.application.performance.report_service import CodeRow, TeamRow
+from meobot.application.performance.report_service import (
+    CodeRow,
+    EarnedLine,
+    TeamRow,
+    line_phase_label,
+)
 from meobot.core.time import ensure_utc
-from meobot.db.models.order import Order, OrderNodePoints
-from meobot.domain.orders.design_codes import items_from_json
-from meobot.domain.orders.task_codes import phase_label
 
 SUMMARY_COLUMNS = (
     ("Nhân sự", 26),
@@ -40,8 +42,8 @@ DETAIL_COLUMNS = (
     ("Ngày xong", 17),
     ("Nhân sự", 24),
     ("Phòng ban", 22),
-    ("Mã order", 11),
-    ("Tên order", 34),
+    ("Mã order / bài", 14),
+    ("Tên order / bài", 34),
     ("Pha", 10),
     ("Mã task", 10),
     ("Hình thức", 22),
@@ -66,7 +68,7 @@ def report_workbook(
     *,
     month: str,
     team: Sequence[TeamRow],
-    details: Sequence[tuple[OrderNodePoints, Order, Decimal]],
+    details: Sequence[tuple[EarnedLine, Decimal]],
     codes: Sequence[CodeRow] = (),
     quota: int | None = None,
     names: Mapping[uuid.UUID, str],
@@ -115,21 +117,19 @@ def report_workbook(
 
     detail = book.create_sheet("Chi tiết")
     detail.append([label for label, _ in DETAIL_COLUMNS])
-    for points_row, order, factor in details:
-        when = ensure_utc(points_row.first_completed_at).astimezone(tz).strftime("%d/%m/%Y %H:%M")
-        person = names.get(points_row.user_id, "—")
-        department = (
-            departments.get(points_row.department_id, "") if points_row.department_id else ""
-        )
-        for item in items_from_json(points_row.items) or ():
+    for line, factor in details:
+        when = ensure_utc(line.at).astimezone(tz).strftime("%d/%m/%Y %H:%M")
+        person = names.get(line.user_id, "—")
+        department = departments.get(line.department_id, "") if line.department_id else ""
+        for item in line.items:
             detail.append(
                 [
                     when,
                     person,
                     department,
-                    order.code,
-                    order.title,
-                    phase_label(points_row.phase),
+                    line.ref_code or "",
+                    line.ref_title or "",
+                    line_phase_label(line.source, line.phase),
                     "Việc khác" if item.free else item.code,
                     "" if item.free else item.form_label,
                     item.quantity,

@@ -120,6 +120,11 @@ const nextConfig = {
         source: "/api/resources/:path*",
         destination: `${target}/api/resources/:path*`,
       },
+      // The PR seeding group (0085).
+      {
+        source: "/api/seeding/:path*",
+        destination: `${target}/api/seeding/:path*`,
+      },
       // The points reports ("Hiệu suất").
       {
         source: "/api/performance/:path*",

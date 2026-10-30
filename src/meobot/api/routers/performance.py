@@ -328,9 +328,9 @@ async def export_report(
     team = await service.team(people, period)
     details = await service.detail_rows(people, period)
     codes = await service.codes(people, period, department_id=department_id)
-    names = await service.names({row.user_id for row, _, _ in details})
+    names = await service.names({row.user_id for row, _ in details})
     departments = await service.department_names(
-        {row.department_id for row, _, _ in details if row.department_id is not None}
+        {row.department_id for row, _ in details if row.department_id is not None}
     )
     content = report_workbook(
         month=period.label,

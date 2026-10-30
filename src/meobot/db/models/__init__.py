@@ -183,6 +183,14 @@ from meobot.db.models.user_avatar import UserAvatar
 from meobot.db.models.user_notification import UserNotification
 from meobot.db.models.user_permission import UserPermission
 from meobot.db.models.web_session import WebSession, WebSessionKind
+from meobot.db.models.work_points import (
+    PrPointClaim,
+    SeedingMember,
+    SeedingOtherReport,
+    SeedingPhone,
+    SeedingTarget,
+    WorkPoint,
+)
 
 __all__ = [
     "ActorProfileRow",
@@ -281,6 +289,7 @@ __all__ = [
     "PrPlatformPolicyRule",
     "PrPlatformPolicySnapshot",
     "PrPlatformPolicySource",
+    "PrPointClaim",
     "PrPostMetricSnapshot",
     "PrProductionSubmission",
     "PrPublication",
@@ -324,6 +333,10 @@ __all__ = [
     "ScriptType",
     "ScriptTypeVersion",
     "ScriptVersion",
+    "SeedingMember",
+    "SeedingOtherReport",
+    "SeedingPhone",
+    "SeedingTarget",
     "SheetProfile",
     "SheetTemplate",
     "SystemSetting",
@@ -342,6 +355,7 @@ __all__ = [
     "UserQuotaOverride",
     "WebSession",
     "WebSessionKind",
+    "WorkPoint",
     "WorkSchedule",
 ]
 
@@ -349,6 +363,8 @@ __all__ = [
 # path - web, Telegram, Celery - keeps it in step without knowing it exists.
 # Installed here because every process that writes a source row has imported
 # this package by then. Imported last: the hook module imports models.
+from meobot.application.performance.publish_points import install_publish_points
 from meobot.application.tasks.sync import install_task_sync
 
 install_task_sync()
+install_publish_points()

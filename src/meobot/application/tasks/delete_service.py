@@ -21,6 +21,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from meobot.application.audit_service import AuditService
 from meobot.application.orders.work_recorder import order_source_key
+from meobot.application.performance.publish_points import source_key as publication_key
 from meobot.application.pr_services import PrServices
 from meobot.application.tasks.detail_service import TaskDetailService
 from meobot.core.errors import AuthorizationError
@@ -30,15 +31,22 @@ from meobot.db.models.order import (
     OrderApproval,
     OrderEvent,
     OrderNode,
+    OrderNodePoints,
     OrderSubmission,
     OrderTokenLedger,
 )
+from meobot.db.models.pr_reporting import PrPublication
 from meobot.db.models.pr_work_result import PrWorkResult
 from meobot.db.models.task import SOURCE_PR_CONTENT, Task
 from meobot.db.models.user_notification import UserNotification
+from meobot.db.models.work_points import PrPointClaim, WorkPoint
 from meobot.domain.audit.models import AuditAction, AuditResult
 from meobot.domain.identity.models import Actor, Role
+from meobot.domain.orders.task_codes import TASK_PHASES
 from meobot.domain.pr.work_results import PrWorkResultSource
+
+#: 0085: the phases a PR claim writes points for.
+TASK_PHASE_KEYS = tuple(phase.value for phase in TASK_PHASES)
 
 
 class TaskDeleteForbiddenError(AuthorizationError):
@@ -72,12 +80,35 @@ class TaskDeleteService:
         task = await self._detail.resolve(actor, ref)
         if task.source_type == SOURCE_PR_CONTENT:
             assert task.pr_content_id is not None
+            await self._drop_pr_points(task.pr_content_id)
             await self._pr.lifecycle.delete_content(
                 actor=actor, request_id=request_id, content_id=task.pr_content_id
             )
             return
         assert task.order_id is not None
         await self._delete_order(actor, request_id, task.order_id)
+
+    async def _drop_pr_points(self, content_id: uuid.UUID) -> None:
+        """0085: a PR piece's task-code claims and the points they and its
+        publications earned go with it (``work_points`` has no foreign key)."""
+        claim_ids = (
+            await self._session.scalars(
+                select(PrPointClaim.id).where(PrPointClaim.content_id == content_id)
+            )
+        ).all()
+        publication_ids = (
+            await self._session.scalars(
+                select(PrPublication.id).where(PrPublication.content_id == content_id)
+            )
+        ).all()
+        keys = [publication_key(publication_id) for publication_id in publication_ids]
+        for claim_id in claim_ids:
+            keys.extend(f"pr_claim:{claim_id}:{phase}" for phase in TASK_PHASE_KEYS)
+        if keys:
+            await self._session.execute(delete(WorkPoint).where(WorkPoint.source_key.in_(keys)))
+        await self._session.execute(
+            delete(PrPointClaim).where(PrPointClaim.content_id == content_id)
+        )
 
     async def _delete_order(self, actor: Actor, request_id: uuid.UUID, order_id: uuid.UUID) -> None:
         order = await self._session.get(Order, order_id)
@@ -131,6 +162,10 @@ class TaskDeleteService:
             await self._session.execute(
                 delete(OrderSubmission).where(OrderSubmission.node_id.in_(node_ids))
             )
+        # 0074: the points its steps earned.
+        await self._session.execute(
+            delete(OrderNodePoints).where(OrderNodePoints.order_id == order_id)
+        )
         await self._session.execute(delete(OrderNode).where(OrderNode.order_id == order_id))
         await self._session.execute(delete(Task).where(Task.order_id == order_id))
         await self._session.execute(delete(Order).where(Order.id == order_id))

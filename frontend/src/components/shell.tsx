@@ -198,6 +198,9 @@ function performanceBranch(me: UnitsMe | undefined): NavGroup {
       ...(me?.performance?.view_all
         ? [{ href: "/performance/company", label: "Toàn công ty", icon: "report" as NavIcon }]
         : []),
+      ...(me?.performance?.review_pr
+        ? [{ href: "/performance/pr-claims", label: "Duyệt điểm PR", icon: "task" as NavIcon }]
+        : []),
       ...(me?.performance?.manage_coefficients
         ? [{ href: "/performance/coefficients", label: "Hệ số & định mức", icon: "settings" as NavIcon }]
         : []),
@@ -266,6 +269,14 @@ const PR_GROUP: NavGroup = {
     { href: "/pr/reports", label: "Báo cáo", icon: "report" },
   ],
 };
+
+/** "Phòng PR", with "Seeding" (0085) for the seeding group and the Trưởng phòng PR. */
+function prBranch(me: UnitsMe | undefined): NavGroup {
+  const seeding = Boolean(me?.seeding?.member || me?.seeding?.manage);
+  return seeding
+    ? { ...PR_GROUP, children: [...PR_GROUP.children, { href: "/seeding", label: "Seeding", icon: "people" }] }
+    : PR_GROUP;
+}
 
 /**
  * The ORD token grid (people × days). For whoever hands out ORD work: OWNER /
@@ -348,7 +359,7 @@ export function navFor(me: UnitsMe | undefined, sessionRole?: string): NavEntry[
     ...(orders ? [orderBoards(me, sessionRole)] : []),
     ...(effort ? EFFORT_NAV : []),
     ...(ads ? [ads] : []),
-    ...(pr ? [PR_GROUP] : []),
+    ...(pr ? [prBranch(me)] : []),
     ...(resources ? [resources] : []),
     ...(library ? [library] : []),
     ...(admin ? [ADMIN_NAV] : []),

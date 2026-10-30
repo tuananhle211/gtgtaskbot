@@ -32,6 +32,7 @@ from meobot.api.routers import (
     pr_content_work,
     pr_members,
     pr_performance,
+    pr_points,
     pr_work,
     pr_work_maintenance,
     pr_work_quota,
@@ -40,6 +41,7 @@ from meobot.api.routers import (
     resources,
     script_types,
     scripts,
+    seeding,
     sheet_profiles,
     system,
     tasks,
@@ -223,6 +225,9 @@ def _include_web_facing_routers(app: FastAPI) -> None:
     app.include_router(permissions.router)
     # The points reports ("Hiệu suất"): open to every signed-in account,
     # each route decides whose points the caller sees.
+    # PR task codes + the seeding group (0085): beside the points reports.
+    app.include_router(pr_points.router)
+    app.include_router(seeding.router)
     app.include_router(performance.router)
     # The Ads order engine, behind the Ads unit gate the same way the PR
     # routers sit behind the PR one.

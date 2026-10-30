@@ -260,6 +260,51 @@ export function pointCoefficientConfirmation({
   };
 }
 
+/** PR task codes (0085): one's own codes for one stage, to the Trưởng phòng. */
+export function prClaimConfirmation({
+  stage,
+  points,
+  standsAtOnce,
+}: {
+  stage: string;
+  points: string;
+  /** A Trưởng phòng's own codes need nobody's approval. */
+  standsAtOnce: boolean;
+}): ConfirmSpec {
+  return {
+    title: `Gửi mã task ${stage.toLowerCase()} (${points} điểm)?`,
+    description: standsAtOnce
+      ? "Bạn là Trưởng phòng: điểm được tính ngay."
+      : "Trưởng phòng PR sẽ duyệt; điểm chỉ được tính sau khi duyệt.",
+    confirmLabel: "Gửi",
+    variant: "primary",
+  };
+}
+
+/** A Trưởng phòng's decision on PR codes, seeding numbers or "việc khác". */
+export function pointsDecisionConfirmation({
+  approve,
+  what,
+}: {
+  approve: boolean;
+  /** "mã task của Hà Chi", "12 số điện thoại"… */
+  what: string;
+}): ConfirmSpec {
+  return approve
+    ? {
+        title: `Duyệt ${what}?`,
+        description: "Điểm được cộng vào báo cáo hiệu suất của người làm.",
+        confirmLabel: "Duyệt",
+        variant: "primary",
+      }
+    : {
+        title: `Không duyệt ${what}?`,
+        description: "Người làm thấy lý do và có thể sửa rồi gửi lại.",
+        confirmLabel: "Không duyệt",
+        variant: "destructive",
+      };
+}
+
 /** "Định mức" (2026-10-29): the settings every report's quota bar follows. */
 export function quotaConfirmation({
   pointsPerDay,

@@ -56,8 +56,9 @@ AssistantPermission(StrEnum):
 
 - `ModuleSpec(module="ASSISTANT", label="Trợ lý AI", permissions=AssistantPermission,
   scopes=SCOPES_ALL_ONLY, owner_only={"CHAT"})`.
-- **`owner_only`** như `PERFORMANCE COEFFICIENT`: chỉ **OWNER** tích/thu hồi (ADMIN
-  không), vì quyền này lộ toàn bộ số liệu công ty.
+- **`owner_only`** như `PERFORMANCE COEFFICIENT`: **chỉ OWNER** tích/thu hồi — **ADMIN
+  không được** (đã chốt). Cơ chế: `Access.scope` cho OWNER theo vai trò nhưng không
+  cho ADMIN; `PermissionService._grantable` chỉ cho OWNER cấp.
 - Scope chỉ `NONE/ALL` (ô tích bật = ALL). Không có `OWN` — "tích là xem toàn công ty".
 - Không có `defaults` theo phòng: không phòng nào tự có; chỉ cấp cá nhân.
 
@@ -127,7 +128,9 @@ Mỗi tool nhận tham số tối thiểu (kỳ/tháng, phòng/người tuỳ ch
 
 ## 6. An toàn & chi phí
 
-- OWNER-only cấp quyền; chỉ-đọc; không lộ secret (`.env`, key…).
+- **Chỉ OWNER** cấp quyền (ADMIN không); chỉ-đọc; không lộ secret (`.env`, key…).
+- **Không log riêng** câu hỏi AI (đã chốt): chỉ dùng audit sẵn có của từng tool khi
+  nó chạy.
 - Mỗi câu hỏi tốn 1 lượt gọi 9router (token). Không đáng kể nhưng có thật.
 - Chất lượng phụ thuộc model ASSISTANT đang chọn; ép dùng-số-từ-tool để chặn bịa.
 
@@ -149,8 +152,13 @@ Mỗi tool nhận tham số tối thiểu (kỳ/tháng, phòng/người tuỳ ch
 3. **Đợt 2**: hiệu suất + Ads KPI/ngân sách.
 4. **Đợt 3**: tài nguyên + PR + vòng lặp nhiều tool (hỏi gộp A–Z).
 
-## 9. Điểm còn mở (quyết khi code)
+## 9. Đã chốt / điểm còn mở
 
-- Một câu hỏi gộp nhiều mảng: đợt 3 (multi-tool) hay làm sớm bằng 1 tool "tổng hợp"?
-- Có cho **ADMIN** cấp quyền này không, hay **chỉ OWNER** (đang đề xuất chỉ OWNER)?
-- Có cần log riêng các câu hỏi AI của sếp để xem lại không (ngoài audit tool)?
+**Đã chốt:**
+- Chỉ **OWNER** cấp quyền "Trợ lý AI" (ADMIN không).
+- **Không** làm log riêng câu hỏi AI — chỉ audit theo tool.
+- Người được tích **xem toàn công ty**; hỏi–đáp tức thời; không bịa số.
+
+**Còn mở (quyết khi tới đợt đó):**
+- Câu hỏi gộp nhiều mảng ("tổng hợp A–Z trong một câu"): để **đợt 4** làm bằng
+  multi-tool. Nếu sếp muốn sớm, có thể thêm 1 tool "tổng hợp công ty" ở đợt 2–3.

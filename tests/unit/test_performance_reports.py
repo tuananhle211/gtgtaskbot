@@ -98,6 +98,7 @@ async def test_01_everybody_sees_their_own_month(world: World) -> None:
         "view_all": False,
         "export": False,
         "manage_coefficients": False,
+        "review_pr": False,
     }
 
 
@@ -199,6 +200,7 @@ async def test_05_a_performance_grant_opens_the_company(world: World) -> None:
         "view_all": True,
         "export": False,
         "manage_coefficients": False,
+        "review_pr": False,
     }
     assert flags["can_view_profiles"] is True
     profile = get(world, ads.orderer, f"/api/account/members/{ads.editor.id}/profile")

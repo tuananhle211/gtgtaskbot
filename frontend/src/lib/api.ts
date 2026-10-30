@@ -3442,6 +3442,8 @@ export interface UnitsMe {
   resources?: ResourcesAccess | null;
   /** The points reports' screens ("Hiệu suất"). Optional: an older API omits it. */
   performance?: PerformanceAccess | null;
+  /** The PR seeding group's menu (0085). Optional: an older API omits it. */
+  seeding?: SeedingAccess | null;
   /** Phòng Ads (0078): only the ADS department (+ OWNER / ADMIN). */
   ads?: AdsAccess | null;
   /**
@@ -4657,6 +4659,125 @@ export interface PerformanceAccess {
   export: boolean;
   /** "Hệ số điểm": the OWNER (or a `PERFORMANCE COEFFICIENT` grant). Optional: older APIs omit it. */
   manage_coefficients?: boolean;
+  /** "Duyệt điểm PR" (0085): a Trưởng phòng PR / the OWNER / an ADMIN. */
+  review_pr?: boolean;
+}
+
+/** One person's task codes for one stage of a PR piece (0085). */
+export interface PrClaim {
+  id: Uuid;
+  content_id: Uuid;
+  content_code?: string | null;
+  content_title?: string | null;
+  /** CONTENT ("Nội dung") / PRODUCTION ("Sản xuất"). */
+  stage: string;
+  stage_label: string;
+  user_id: Uuid;
+  name: string;
+  /** Per phase: `{"THIET_KE": [...], "DUNG": [...]}`. */
+  items: Record<string, DesignCodeItem[]>;
+  points: number;
+  note: string | null;
+  status: "PENDING" | "APPROVED" | "REJECTED";
+  submitted_at: string;
+  decided_by: string | null;
+  decided_at: string | null;
+  return_reason: string | null;
+  decision_note: string | null;
+}
+
+export interface PrStage {
+  stage: string;
+  label: string;
+  phases: TaskPhase[];
+  /** The work is done: codes may be typed. */
+  open: boolean;
+  waiting: string | null;
+  may_claim: boolean;
+  claims: PrClaim[];
+}
+
+export interface PrContentPoints {
+  content_id: Uuid;
+  code: string;
+  title: string;
+  stages: PrStage[];
+  may_review: boolean;
+}
+
+export interface PrCatalog {
+  phases: Record<string, DesignCode[]>;
+  forms: TaskForm[];
+}
+
+/** The PR seeding group (0085). */
+export interface SeedingAccess {
+  member: boolean;
+  manage: boolean;
+}
+
+export interface SeedingPerson {
+  user_id: Uuid;
+  name: string;
+  departments: string[];
+}
+
+export interface SeedingPeriod {
+  kind: "WEEK" | "MONTH";
+  start: string;
+  end: string;
+  target: number | null;
+  approved: number;
+  pending: number;
+  rate: number | null;
+}
+
+export interface SeedingOverview {
+  day: string;
+  week: SeedingPeriod;
+  month: SeedingPeriod;
+  members: Array<{
+    person: SeedingPerson;
+    approved_week: number;
+    approved_month: number;
+    pending: number;
+    phone_points_month: number;
+    other_points_month: number;
+  }>;
+  phone_points: number;
+  access: SeedingAccess;
+}
+
+export interface SeedingLine {
+  number: number;
+  raw: string;
+  phone: string | null;
+  status: "NEW" | "DUPLICATE" | "REPEATED" | "INVALID";
+}
+
+export interface SeedingPhone {
+  id: Uuid;
+  phone: string;
+  user_id: Uuid;
+  name: string;
+  submitted_at: string;
+  status: "PENDING" | "APPROVED" | "REJECTED";
+  decided_by: string | null;
+  decided_at: string | null;
+  decision_note: string | null;
+}
+
+export interface SeedingOther {
+  id: Uuid;
+  user_id: Uuid;
+  name: string;
+  description: string;
+  points: number;
+  submitted_at: string;
+  status: "PENDING" | "APPROVED" | "REJECTED";
+  decided_by: string | null;
+  decided_at: string | null;
+  decision_note: string | null;
 }
 
 /**
@@ -4706,7 +4827,8 @@ export type PerformanceLineStatus = "EARNED" | "PENDING_REVIEW" | "IN_PROGRESS";
 
 export interface PerformanceLine {
   node_id: Uuid;
-  order_id: Uuid;
+  /** `null` for a line that is not an ORD step (PR, seeding). */
+  order_id: Uuid | null;
   order_code: string;
   order_title: string;
   phase: string;
@@ -4715,6 +4837,10 @@ export interface PerformanceLine {
   points: number;
   status: PerformanceLineStatus;
   at: string | null;
+  /** ORDER / PR_CONTENT / PR_PUBLISH / SEEDING_PHONES / SEEDING_OTHER. Optional: older APIs omit it. */
+  source?: string;
+  /** Where the line opens ("/tasks/<code>"), if anywhere. */
+  link?: string | null;
 }
 
 export interface PerformancePerson {
@@ -4805,6 +4931,9 @@ export interface TimelineBar {
   /** After the coefficient. */
   points: number;
   codes: string[];
+  source?: string;
+  /** Where the bar opens, if anywhere (seeding lines have none). */
+  link?: string | null;
 }
 
 export interface TimelineGroup {
@@ -7620,6 +7749,37 @@ export const api = {
     get<PerformanceTimeline>(`/api/performance/timeline${query({ month, department_id: departmentId })}`),
   performanceOverview: (month?: string) =>
     get<PerformanceOverview>(`/api/performance/overview${query({ month })}`),
+  /** PR task codes (0085). */
+  prPointsCatalog: () => get<PrCatalog>("/api/performance/pr/catalog"),
+  prContentPoints: (contentId: Uuid) => get<PrContentPoints>(`/api/performance/pr/contents/${contentId}`),
+  /** 422 `pr_points_not_open` / `pr_points_codes_required`, 403 `pr_points_forbidden`, 409 `pr_claim_decided`. */
+  submitPrClaim: (
+    contentId: Uuid,
+    body: { stage: string; task_codes: Record<string, DesignCodePick[]>; note?: string | null },
+  ) => post<PrClaim>(`/api/performance/pr/contents/${contentId}/claims`, body),
+  prClaims: (status?: string) => get<PrClaim[]>(`/api/performance/pr/claims${query({ status })}`),
+  decidePrClaim: (id: Uuid, body: { approve: boolean; return_reason?: string | null; note?: string | null }) =>
+    post<PrClaim>(`/api/performance/pr/claims/${id}/decide`, body),
+  /** The PR seeding group (0085): 403 `seeding_forbidden` outside it. */
+  seedingOverview: (day?: string) => get<SeedingOverview>(`/api/seeding/overview${query({ day })}`),
+  setSeedingTarget: (body: { kind: "WEEK" | "MONTH"; day: string; target: number | null }) =>
+    put<void>("/api/seeding/targets", body),
+  seedingMembers: () => get<SeedingPerson[]>("/api/seeding/members"),
+  seedingCandidates: () => get<SeedingPerson[]>("/api/seeding/candidates"),
+  addSeedingMember: (userId: Uuid) => post<void>("/api/seeding/members", { user_id: userId }),
+  removeSeedingMember: (userId: Uuid) => del<void>(`/api/seeding/members/${userId}`),
+  submitSeedingPhones: (text: string) =>
+    post<{ accepted: number; lines: SeedingLine[] }>("/api/seeding/phones", { text }),
+  seedingPhones: (params: { status?: string; mine?: boolean } = {}) =>
+    get<SeedingPhone[]>(`/api/seeding/phones${query(params)}`),
+  decideSeedingPhones: (body: { ids: Uuid[]; approve: boolean; note?: string | null }) =>
+    post<{ decided: number }>("/api/seeding/phones/decide", body),
+  submitSeedingOther: (body: { description: string; points: number }) =>
+    post<SeedingOther>("/api/seeding/other", body),
+  seedingOthers: (params: { status?: string; mine?: boolean } = {}) =>
+    get<SeedingOther[]>(`/api/seeding/other${query(params)}`),
+  decideSeedingOthers: (body: { ids: Uuid[]; approve: boolean; note?: string | null }) =>
+    post<{ decided: number }>("/api/seeding/other/decide", body),
   /** One person's quota for `month` and the settings behind it. */
   performanceQuota: (month?: string) =>
     get<PerformanceQuota>(`/api/performance/quota${query({ month })}`),

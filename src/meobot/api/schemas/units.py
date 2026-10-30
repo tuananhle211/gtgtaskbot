@@ -16,6 +16,7 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from meobot.api.schemas.performance import PerformanceAccessResponse
 from meobot.api.schemas.resources import ResourceAccessResponse
+from meobot.api.schemas.seeding import SeedingAccessResponse
 from meobot.application.orders.effort_service import BanStats, EffortGrid
 from meobot.application.units.directory import UnitMemberRow
 from meobot.db.models.org_unit import UnitDesignCode, UnitDuration, UnitPlatform, UnitVideoKind
@@ -263,6 +264,8 @@ class UnitMeResponse(BaseModel):
     can_view_profiles: bool = False
     #: The points reports: "Phòng của tôi" / "Toàn công ty" / the Excel file.
     performance: PerformanceAccessResponse = PerformanceAccessResponse()
+    #: The PR seeding group's menu (0085).
+    seeding: SeedingAccessResponse = SeedingAccessResponse()
     ads: AdsAccessResponse = AdsAccessResponse()
 
     @classmethod
@@ -279,6 +282,7 @@ class UnitMeResponse(BaseModel):
         resources: ResourceAccessResponse | None = None,
         performance: PerformanceAccessResponse | None = None,
         ads: AdsAccessResponse | None = None,
+        seeding: SeedingAccessResponse | None = None,
     ) -> UnitMeResponse:
         entries = sorted(entries, key=lambda entry: stream_rank(entry.code))
         heads = any(seat.position is Position.HEAD for seat in membership.seats)
@@ -306,6 +310,7 @@ class UnitMeResponse(BaseModel):
             resources=resources or ResourceAccessResponse(),
             performance=performance or PerformanceAccessResponse(),
             ads=ads or AdsAccessResponse(),
+            seeding=seeding or SeedingAccessResponse(),
         )
 
 

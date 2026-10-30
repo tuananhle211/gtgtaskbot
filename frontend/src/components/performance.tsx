@@ -43,11 +43,48 @@ export function monthOf(date: Date): string {
 /** "T10" from "2026-10": the trend's axis labels. */
 const shortMonth = (code: string) => `T${Number(code.split("-")[1] ?? "") || code}`;
 
-const PHASES = ["BIEN_TAP", "THIET_KE", "DUNG"] as const;
+/** Every report phase, in order: the three production steps (ORD and PR), then
+ * what is earned outside them (0085). */
+const PHASES = ["BIEN_TAP", "THIET_KE", "DUNG", "PUBLISH", "SEEDING", "OTHER"] as const;
 export const PHASE_NAMES: Record<string, string> = {
-  BIEN_TAP: "Biên kịch",
-  THIET_KE: "Design",
+  BIEN_TAP: "Biên kịch · Nội dung",
+  THIET_KE: "Design · Thiết kế",
   DUNG: "Dựng",
+  PUBLISH: "Đăng bài",
+  SEEDING: "Seeding",
+  OTHER: "Việc khác",
+};
+
+/** The colours of the phases beside the three steps' own (`PHASE_STYLE`). */
+const EXTRA_STYLE: Record<string, { bar: string; chip: string; ink: string }> = {
+  PUBLISH: {
+    bar: "bg-[var(--magenta)]",
+    chip: "border-[var(--magenta)] text-[var(--magenta)]",
+    ink: "text-[var(--magenta)]",
+  },
+  SEEDING: {
+    bar: "bg-[var(--brand-sky)]",
+    chip: "border-[var(--brand-sky)] text-[var(--text)]",
+    ink: "text-[var(--text)]",
+  },
+  OTHER: {
+    bar: "bg-[var(--text-muted)]",
+    chip: "border-[var(--border)] text-[var(--text-muted)]",
+    ink: "text-[var(--text-muted)]",
+  },
+};
+export const reportStyle = (phase: string) => EXTRA_STYLE[phase] ?? phaseStyle(phase);
+
+/** Where a line opens: its own link, else (an older API) the order's page. */
+const lineHref = (line: PerformanceLine): string | null =>
+  line.link ?? (line.order_code && (!line.source || line.source === "ORDER") ? `/tasks/${line.order_code}` : null);
+
+/** "PR" / "Seeding" beside a line that is not an ORD step. */
+export const SOURCE_TAGS: Record<string, string> = {
+  PR_CONTENT: "PR",
+  PR_PUBLISH: "PR",
+  SEEDING_PHONES: "Seeding",
+  SEEDING_OTHER: "Seeding",
 };
 
 export function MonthField({ value, onChange }: { value: string; onChange: (month: string) => void }) {
@@ -370,7 +407,7 @@ export function PhaseSplit({ byPhase }: { byPhase: Record<string, number> }) {
             {PHASES.filter((phase) => byPhase[phase]).map((phase) => (
               <span
                 key={phase}
-                className={`h-full ${phaseStyle(phase).bar}`}
+                className={`h-full ${reportStyle(phase).bar}`}
                 style={{ width: `${((byPhase[phase] ?? 0) / total) * 100}%` }}
               />
             ))}
@@ -379,7 +416,7 @@ export function PhaseSplit({ byPhase }: { byPhase: Record<string, number> }) {
             {PHASES.map((phase) => (
               <li key={phase} className="flex items-center justify-between gap-3 text-sm">
                 <span className="inline-flex items-center gap-2">
-                  <span aria-hidden="true" className={`h-2.5 w-2.5 rounded-sm ${phaseStyle(phase).bar}`} />
+                  <span aria-hidden="true" className={`h-2.5 w-2.5 rounded-sm ${reportStyle(phase).bar}`} />
                   {PHASE_NAMES[phase]}
                 </span>
                 <span className="tabular-nums">
@@ -442,7 +479,7 @@ export function CodeTable({
               </tr>
             </thead>
             {groups.map((group) => {
-              const style = phaseStyle(group.phase);
+              const style = reportStyle(group.phase);
               return (
                 <tbody key={group.phase} className="divide-y divide-[var(--border)] border-b border-[var(--border)]">
                   <tr className="bg-[var(--surface-muted)]">
@@ -566,16 +603,25 @@ export function PerformanceLines({ lines }: { lines: PerformanceLine[] }) {
             </thead>
             <tbody className="divide-y divide-[var(--border)]">
               {shown.map((line) => {
-                const style = phaseStyle(line.phase);
+                const style = reportStyle(line.phase);
                 return (
                   <tr key={`${line.node_id}-${line.status}`} className="align-top">
                     <td className="whitespace-nowrap px-4 py-2.5 tabular-nums text-[var(--text-muted)]">
                       {line.at ? formatShortDateTime(line.at) : "–"}
                     </td>
                     <td className="px-4 py-2.5">
-                      <Link href={`/tasks/${line.order_code}`} className="font-mono text-xs font-semibold text-[var(--accent)] hover:underline">
-                        {line.order_code}
-                      </Link>
+                      {lineHref(line) && line.order_code ? (
+                        <Link href={lineHref(line)!} className="font-mono text-xs font-semibold text-[var(--accent)] hover:underline">
+                          {line.order_code}
+                        </Link>
+                      ) : line.order_code ? (
+                        <span className="font-mono text-xs font-semibold">{line.order_code}</span>
+                      ) : null}
+                      {line.source && SOURCE_TAGS[line.source] ? (
+                        <span className="ml-1.5 rounded border border-[var(--border)] px-1 text-[10px] font-semibold text-[var(--text-muted)]">
+                          {SOURCE_TAGS[line.source]}
+                        </span>
+                      ) : null}
                       <p className="max-w-[16rem] truncate text-xs text-[var(--text-muted)]" title={line.order_title}>
                         {line.order_title}
                       </p>

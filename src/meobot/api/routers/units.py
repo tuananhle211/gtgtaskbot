@@ -25,6 +25,7 @@ from meobot.api.deps import (
 )
 from meobot.api.schemas.performance import PerformanceAccessResponse
 from meobot.api.schemas.resources import ResourceAccessResponse
+from meobot.api.schemas.seeding import SeedingAccessResponse
 from meobot.api.schemas.units import (
     AdsAccessResponse,
     BanStatsResponse,
@@ -89,9 +90,11 @@ from meobot.application.org import departments
 from meobot.application.org.seats import load_seats
 from meobot.application.performance.access import performance_access
 from meobot.application.performance.coefficients import may_set_coefficients
+from meobot.application.performance.pr_points import reviews_pr
 from meobot.application.resources.access import resource_access
 from meobot.application.resources.requests import ResourceRequestService
 from meobot.application.resources.service import ResourceService
+from meobot.application.seeding.service import seeding_access
 from meobot.application.units.admin import ROLES_BY_UNIT, UnitAdminService
 from meobot.application.units.directory import NOT_VISIBLE, UnitDirectoryService
 from meobot.core.errors import ValidationError
@@ -272,6 +275,10 @@ async def my_units(
         performance=PerformanceAccessResponse.from_access(
             await performance_access(directory.session, membership),
             manage_coefficients=may_set_coefficients(membership),
+            review_pr=reviews_pr(membership),
+        ),
+        seeding=SeedingAccessResponse.from_access(
+            await seeding_access(directory.session, membership)
         ),
         ads=_ads_block(membership),
     )

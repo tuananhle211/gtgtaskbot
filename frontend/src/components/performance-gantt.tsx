@@ -4,8 +4,7 @@ import Link from "next/link";
 import { useMemo, useState } from "react";
 import type { TimelineBar, TimelineGroup } from "@/lib/api";
 import { PersonLink } from "@/components/person-link";
-import { PHASE_NAMES, QuotaBar, formatScore } from "@/components/performance";
-import { phaseStyle } from "@/components/design-codes-picker";
+import { PHASE_NAMES, QuotaBar, formatScore, reportStyle } from "@/components/performance";
 import { Empty } from "@/components/states";
 import { formatShortDate, formatShortDateTime } from "@/lib/datetime";
 
@@ -31,7 +30,33 @@ const BAR_TONE: Record<string, { fill: string; edge: string }> = {
   BIEN_TAP: { fill: "var(--accent-soft)", edge: "var(--accent)" },
   THIET_KE: { fill: "var(--yellow-soft)", edge: "var(--yellow)" },
   DUNG: { fill: "var(--good-soft)", edge: "var(--good)" },
+  // 0085: what is earned outside the steps, a mark on the day it counted.
+  PUBLISH: { fill: "var(--magenta-soft)", edge: "var(--magenta)" },
+  SEEDING: { fill: "var(--surface-muted)", edge: "var(--brand-sky)" },
+  OTHER: { fill: "var(--surface-muted)", edge: "var(--text-muted)" },
 };
+
+/** A bar (or its label) opens its task when it has one; seeding has none. */
+function BarBox({
+  href,
+  children,
+  ...rest
+}: {
+  href?: string | null;
+  children: React.ReactNode;
+  title?: string;
+  "aria-label"?: string;
+  className: string;
+  style?: React.CSSProperties;
+}) {
+  return href ? (
+    <Link href={href} {...rest}>
+      {children}
+    </Link>
+  ) : (
+    <span {...rest}>{children}</span>
+  );
+}
 const toneOf = (phase: string) => BAR_TONE[phase] ?? BAR_TONE.THIET_KE;
 const stripes = (color: string) =>
   `repeating-linear-gradient(135deg, ${color} 0 5px, transparent 5px 9px)`;
@@ -289,16 +314,21 @@ export function Gantt({
                   ? group.bars.map((bar) => {
                       const geometry = barGeometry(bar, frame, now);
                       const tone = toneOf(bar.phase);
-                      const style = phaseStyle(bar.phase);
+                      const style = reportStyle(bar.phase);
                       const edge = bar.late ? "var(--bad)" : tone.edge;
                       const line = bar.status === "UPCOMING" ? "dotted" : bar.done_at ? "solid" : "dashed";
                       return (
                         <div key={`${bar.node_id}-${bar.status}`} className="flex border-t border-[var(--border)]">
                           <div className={`${LEFT} sticky left-0 z-10 border-r border-[var(--border)] bg-[var(--surface)] py-2 pl-12 pr-3`}>
                             <p className="truncate text-sm" title={bar.order_title}>
-                              <Link href={`/tasks/${bar.order_code}`} className="font-mono text-xs font-semibold text-[var(--accent)] hover:underline">
-                                {bar.order_code}
-                              </Link>{" "}
+                              {bar.order_code ? (
+                                <BarBox
+                                  href={bar.link ?? `/tasks/${bar.order_code}`}
+                                  className="font-mono text-xs font-semibold text-[var(--accent)] hover:underline"
+                                >
+                                  {bar.order_code}
+                                </BarBox>
+                              ) : null}{" "}
                               {bar.order_title}
                             </p>
                             <p className="mt-0.5 flex flex-wrap items-center gap-x-1.5 text-xs text-[var(--text-muted)]">
@@ -316,8 +346,8 @@ export function Gantt({
                             {grid}
                             {geometry ? (
                               <>
-                                <Link
-                                  href={`/tasks/${bar.order_code}`}
+                                <BarBox
+                                  href={bar.link ?? (bar.order_code ? `/tasks/${bar.order_code}` : null)}
                                   title={barTitle(bar)}
                                   aria-label={barTitle(bar).replaceAll("\n", ". ")}
                                   className="absolute top-1/2 flex h-7 -translate-y-1/2 items-center overflow-hidden rounded-[4px] text-[11px] font-medium text-[var(--text)] hover:brightness-95 focus-visible:outline focus-visible:outline-2 focus-visible:outline-[var(--accent)]"
@@ -335,7 +365,7 @@ export function Gantt({
                                     style={{ width: `${geometry.actual * 100}%`, background: tone.fill }}
                                   />
                                   <span className="relative truncate px-2">{barText(bar)}</span>
-                                </Link>
+                                </BarBox>
                                 {geometry.deadline !== null ? (
                                   <span
                                     aria-hidden="true"

@@ -20,6 +20,12 @@ points take this month's.
 Department figures use the department the points were recorded for
 (``order_node_points.department_id``, 0075: the step's phase). Who may read
 what is decided by the caller (:mod:`meobot.application.performance.access`).
+
+Since 0085 a second ledger, ``work_points``, is read beside it (PR task codes,
+publications, seeding - :mod:`meobot.domain.performance.work_points`): both
+arrive as one kind of :class:`EarnedLine` row, so every figure, line, code table,
+trend, Gantt bar and Excel line counts them alike. Only ORD steps carry a
+deadline; PR pieces count as finished tasks, the rest add points only.
 """
 
 from __future__ import annotations
@@ -53,6 +59,7 @@ from meobot.db.models.order import (
     OrderNodePoints,
 )
 from meobot.db.models.user import User
+from meobot.db.models.work_points import WorkPoint
 from meobot.domain.orders.design_codes import DesignItem, items_from_json, total_points
 from meobot.domain.orders.models import (
     TERMINAL_STAGES,
@@ -63,11 +70,69 @@ from meobot.domain.orders.models import (
     OrderStage,
 )
 from meobot.domain.orders.task_codes import TASK_PHASES, phase_label
+from meobot.domain.performance.work_points import (
+    EXTRA_PHASE_LABELS,
+    PHASE_ORDER,
+    PR_PHASE_LABELS,
+    STEP_SOURCES,
+    WorkPointSource,
+)
 
 #: Steps still being worked on.
 OPEN_STATUSES = (OrderNodeStatus.DANG_LAM, OrderNodeStatus.DANG_SUA, OrderNodeStatus.CHO_DUYET)
 #: Orders that will never finish their steps.
 DEAD_STAGES = (OrderStage.CANCELLED,)
+#: The source of an ORD step's points (``order_node_points``).
+SOURCE_ORDER = "ORDER"
+SOURCE_LABELS: dict[str, str] = {
+    SOURCE_ORDER: "ORD",
+    WorkPointSource.PR_CONTENT.value: "PR",
+    WorkPointSource.PR_PUBLISH.value: "PR",
+    WorkPointSource.SEEDING_PHONES.value: "Seeding",
+    WorkPointSource.SEEDING_OTHER.value: "Seeding",
+}
+
+
+def report_phase_label(phase: str) -> str:
+    """A phase's name on the reports, whatever earned it."""
+    if phase in EXTRA_PHASE_LABELS:
+        return EXTRA_PHASE_LABELS[phase]
+    try:
+        return phase_label(OrderNodeType(phase))
+    except ValueError:
+        return phase
+
+
+def line_phase_label(source: str, phase: str) -> str:
+    """A line's phase: a PR piece's reads "Nội dung (PR)" / "Dựng (PR)"."""
+    if source == WorkPointSource.PR_CONTENT.value and phase in PR_PHASE_LABELS:
+        return PR_PHASE_LABELS[phase]
+    return report_phase_label(phase)
+
+
+@dataclass(frozen=True, slots=True)
+class EarnedLine:
+    """One counted line from either ledger."""
+
+    source: str
+    #: The ORD node, or the ``work_points`` row.
+    ref_id: uuid.UUID
+    user_id: uuid.UUID
+    department_id: uuid.UUID | None
+    phase: str
+    items: tuple[DesignItem, ...]
+    #: Before the coefficient.
+    points: int
+    at: datetime
+    ref_code: str | None
+    ref_title: str | None
+    ref_link: str | None
+    deadline_met: bool | None = None
+    order_id: uuid.UUID | None = None
+
+    @property
+    def counts_step(self) -> bool:
+        return self.source == SOURCE_ORDER or self.source in STEP_SOURCES
 
 
 @dataclass(frozen=True, slots=True)
@@ -96,8 +161,11 @@ class Figures:
 class PersonLine:
     """One step on the person's list."""
 
+    #: The ORD node, or the ``work_points`` row.
     node_id: uuid.UUID
-    order_id: uuid.UUID
+    #: ``None`` for a line that is not an ORD step.
+    order_id: uuid.UUID | None
+    #: The order's / PR piece's code ("" for seeding).
     order_code: str
     order_title: str
     phase: str
@@ -111,6 +179,10 @@ class PersonLine:
     at: datetime | None = None
     #: Each item's points after the coefficient, in ``items`` order.
     item_points: tuple[int, ...] = ()
+    #: ORDER / PR_CONTENT / PR_PUBLISH / SEEDING_PHONES / SEEDING_OTHER.
+    source: str = SOURCE_ORDER
+    #: Where the line opens ("/tasks/<code>"), if anywhere.
+    link: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -219,6 +291,8 @@ class TimelineBar:
     points: int
     #: "D3", "T1 x2", "D4 · Animated (125%)", "Việc khác".
     codes: tuple[str, ...] = ()
+    source: str = SOURCE_ORDER
+    link: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -246,32 +320,33 @@ class PerformanceReportService:
 
     async def person(self, user_id: uuid.UUID, month: Month) -> PersonReport:
         figures = (await self.figures([user_id], month)).get(user_id, Figures())
-        earned = await self._earned_rows([user_id], month)
+        earned = await self._earned([user_id], month.start, month.end)
         book = await load_coefficients(self._session, [user_id])
         factor = book.of(user_id, first_day(month))
         now_factor = book.of(user_id, month_of(utcnow(), self._tz))
         by_phase: dict[str, int] = defaultdict(int)
         by_week = [0, 0, 0, 0, 0]
         lines: list[PersonLine] = []
-        for points_row, order in earned:
-            points = weigh(points_row.points, factor)
-            items = items_from_json(points_row.items)
-            by_phase[points_row.phase.value] += points
-            local = ensure_utc(points_row.first_completed_at).astimezone(self._tz).date()
+        for row in earned:
+            points = weigh(row.points, factor)
+            by_phase[row.phase] += points
+            local = ensure_utc(row.at).astimezone(self._tz).date()
             by_week[min((local.day - 1) // 7, 4)] += points
             lines.append(
                 PersonLine(
-                    node_id=points_row.node_id,
-                    order_id=order.id,
-                    order_code=order.code,
-                    order_title=order.title,
-                    phase=points_row.phase.value,
-                    phase_label=phase_label(points_row.phase),
-                    items=items,
+                    node_id=row.ref_id,
+                    order_id=row.order_id,
+                    order_code=row.ref_code or "",
+                    order_title=row.ref_title or "",
+                    phase=row.phase,
+                    phase_label=line_phase_label(row.source, row.phase),
+                    items=row.items,
                     points=points,
                     status="EARNED",
-                    at=points_row.first_completed_at,
-                    item_points=tuple(weigh(item.points, factor) for item in items),
+                    at=row.at,
+                    item_points=tuple(weigh(item.points, factor) for item in row.items),
+                    source=row.source,
+                    link=row.ref_link,
                 )
             )
         for node, order, items in (await self._pending([user_id])).get(user_id, []):
@@ -293,6 +368,7 @@ class PerformanceReportService:
                         else "IN_PROGRESS"
                     ),
                     at=node.submitted_at or node.accepted_at or node.assigned_at,
+                    link=f"/tasks/{order.code}",
                 )
             )
         names = await self._names([user_id])
@@ -340,32 +416,19 @@ class PerformanceReportService:
         raw: dict[uuid.UUID, dict[str, int]] = {user_id: defaultdict(int) for user_id in ids}
         book = await load_coefficients(self._session, ids)
         start = first_day(month)
-        done = await self._session.execute(
-            select(OrderNodePoints.user_id, OrderNodePoints.points, OrderNode.deadline_met)
-            .join(OrderNode, OrderNode.id == OrderNodePoints.node_id)
-            .where(
-                OrderNodePoints.user_id.in_(ids),
-                OrderNodePoints.first_completed_at >= month.start,
-                OrderNodePoints.first_completed_at < month.end,
-            )
-        )
-        for user_id, points, deadline_met in done.all():
-            raw[user_id]["points"] += book.weigh(user_id, points, start)
-            raw[user_id]["steps_done"] += 1
-            if deadline_met is not None:
-                raw[user_id]["with_deadline"] += 1
-                if deadline_met is False:
-                    raw[user_id]["late_count"] += 1
+        for row in await self._earned(ids, month.start, month.end):
+            raw[row.user_id]["points"] += book.weigh(row.user_id, row.points, start)
+            if row.counts_step:
+                raw[row.user_id]["steps_done"] += 1
+            if row.deadline_met is not None:
+                raw[row.user_id]["with_deadline"] += 1
+                if row.deadline_met is False:
+                    raw[row.user_id]["late_count"] += 1
         previous = _previous(month, self._tz)
-        before = await self._session.execute(
-            select(OrderNodePoints.user_id, OrderNodePoints.points).where(
-                OrderNodePoints.user_id.in_(ids),
-                OrderNodePoints.first_completed_at >= previous.start,
-                OrderNodePoints.first_completed_at < previous.end,
+        for row in await self._earned(ids, previous.start, previous.end):
+            raw[row.user_id]["previous_points"] += book.weigh(
+                row.user_id, row.points, first_day(previous)
             )
-        )
-        for user_id, points in before.all():
-            raw[user_id]["previous_points"] += book.weigh(user_id, points, first_day(previous))
         today = month_of(utcnow(), self._tz)
         for user_id, steps in (await self._pending(ids)).items():
             raw[user_id]["pending_count"] = len(steps)
@@ -384,32 +447,23 @@ class PerformanceReportService:
     # --- the company ----------------------------------------------------------------
 
     async def overview(self, month: Month) -> Overview:
-        rows = (
-            await self._session.execute(
-                select(OrderNodePoints, OrderNode.deadline_met)
-                .join(OrderNode, OrderNode.id == OrderNodePoints.node_id)
-                .where(
-                    OrderNodePoints.first_completed_at >= month.start,
-                    OrderNodePoints.first_completed_at < month.end,
-                )
-            )
-        ).all()
+        rows = await self._earned(None, month.start, month.end)
         buckets: dict[uuid.UUID | None, _Bucket] = {}
         by_person: dict[uuid.UUID, int] = defaultdict(int)
-        book = await load_coefficients(self._session, {row[0].user_id for row in rows})
+        book = await load_coefficients(self._session, {row.user_id for row in rows})
         start = first_day(month)
-        for points_row, deadline_met in rows:
-            factor = book.of(points_row.user_id, start)
-            points = weigh(points_row.points, factor)
-            bucket = buckets.setdefault(points_row.department_id, _Bucket())
-            bucket.people.add(points_row.user_id)
+        for row in rows:
+            points = book.weigh(row.user_id, row.points, start)
+            bucket = buckets.setdefault(row.department_id, _Bucket())
+            bucket.people.add(row.user_id)
             bucket.points += points
-            bucket.steps += 1
-            if deadline_met is not None:
+            if row.counts_step:
+                bucket.steps += 1
+            if row.deadline_met is not None:
                 bucket.with_deadline += 1
-                if deadline_met is False:
+                if row.deadline_met is False:
                     bucket.late += 1
-            by_person[points_row.user_id] += points
+            by_person[row.user_id] += points
         names = await self._department_names([key for key in buckets if key is not None])
         departments = tuple(
             sorted(
@@ -438,7 +492,7 @@ class PerformanceReportService:
         top = await self.team(top_ids, month)
         code_rows = tuple(
             sorted(
-                _tally_codes((row, book.of(row.user_id, start)) for row, _ in rows),
+                _tally_codes((row, book.of(row.user_id, start)) for row in rows),
                 key=lambda row: -row.points,
             )[:15]
         )
@@ -462,20 +516,12 @@ class PerformanceReportService:
         """How many of each task code (and form) these people did in the month
         - everybody when ``user_ids`` is None, only the points counted for
         ``department_id`` when given - by phase, then code, then form."""
-        statement = select(OrderNodePoints).where(
-            OrderNodePoints.first_completed_at >= month.start,
-            OrderNodePoints.first_completed_at < month.end,
-        )
-        if user_ids is not None:
-            if not user_ids:
-                return ()
-            statement = statement.where(OrderNodePoints.user_id.in_(list(user_ids)))
-        if department_id is not None:
-            statement = statement.where(OrderNodePoints.department_id == department_id)
-        rows = (await self._session.scalars(statement)).all()
+        if user_ids is not None and not user_ids:
+            return ()
+        rows = await self._earned(user_ids, month.start, month.end, department_id=department_id)
         book = await load_coefficients(self._session, {row.user_id for row in rows})
         start = first_day(month)
-        phases = {phase.value: index for index, phase in enumerate(TASK_PHASES)}
+        phases = {phase: index for index, phase in enumerate(PHASE_ORDER)}
         return tuple(
             sorted(
                 _tally_codes((row, book.of(row.user_id, start)) for row in rows),
@@ -560,6 +606,29 @@ class PerformanceReportService:
                     late=node.deadline_met is False,
                     points=book.weigh(points_row.user_id, points_row.points, start_month),
                     codes=_code_labels(items),
+                    link=f"/tasks/{order.code}",
+                )
+            )
+        # PR pieces, publications, seeding: a mark on the day they counted.
+        for line in await self._earned(ids, month.start, month.end):
+            if line.source == SOURCE_ORDER:
+                continue
+            bars[line.user_id].append(
+                TimelineBar(
+                    node_id=line.ref_id,
+                    order_code=line.ref_code or "",
+                    order_title=line.ref_title or line_phase_label(line.source, line.phase),
+                    phase=line.phase,
+                    phase_label=line_phase_label(line.source, line.phase),
+                    start=line.at,
+                    done_at=line.at,
+                    deadline_at=None,
+                    status="EARNED",
+                    late=False,
+                    points=book.weigh(line.user_id, line.points, start_month),
+                    codes=_code_labels(line.items),
+                    source=line.source,
+                    link=line.ref_link,
                 )
             )
         for user_id, steps in pending.items():
@@ -588,6 +657,7 @@ class PerformanceReportService:
                         late=deadline is not None and ensure_utc(deadline) < now,
                         points=book.weigh(user_id, total_points(items), today),
                         codes=_code_labels(items),
+                        link=f"/tasks/{order.code}",
                     )
                 )
         for user_id, steps in upcoming.items():
@@ -610,6 +680,7 @@ class PerformanceReportService:
                         late=deadline is not None and ensure_utc(deadline) < now,
                         points=book.weigh(user_id, total_points(items), today),
                         codes=_code_labels(items),
+                        link=f"/tasks/{order.code}",
                     )
                 )
         names = await self._names(ids)
@@ -643,20 +714,12 @@ class PerformanceReportService:
         windows = [month]
         for _ in range(months - 1):
             windows.insert(0, _previous(windows[0], self._tz))
-        statement = select(
-            OrderNodePoints.department_id,
-            OrderNodePoints.first_completed_at,
-            OrderNodePoints.points,
-            OrderNodePoints.user_id,
-        ).where(
-            OrderNodePoints.first_completed_at >= windows[0].start,
-            OrderNodePoints.first_completed_at < month.end,
-        )
-        if user_ids is not None:
-            if not user_ids:
-                return tuple(TrendPoint(window.label, 0, {}) for window in windows)
-            statement = statement.where(OrderNodePoints.user_id.in_(list(user_ids)))
-        rows = (await self._session.execute(statement)).all()
+        if user_ids is not None and not user_ids:
+            return tuple(TrendPoint(window.label, 0, {}) for window in windows)
+        rows = [
+            (row.department_id, row.at, row.points, row.user_id)
+            for row in await self._earned(user_ids, windows[0].start, month.end)
+        ]
         book = await load_coefficients(self._session, {row[3] for row in rows})
         names = await self._department_names({row[0] for row in rows if row[0] is not None})
         points: list[TrendPoint] = []
@@ -667,19 +730,20 @@ class PerformanceReportService:
                 if window.start <= ensure_utc(at) < window.end:
                     weighed = book.weigh(user_id, value, first_day(window))
                     total += weighed
-                    split[names.get(department_id, "Chưa có phòng")] += weighed
+                    label = names.get(department_id) if department_id is not None else None
+                    split[label or "Chưa có phòng"] += weighed
             points.append(TrendPoint(window.label, total, dict(split)))
         return tuple(points)
 
     async def detail_rows(
         self, user_ids: Sequence[uuid.UUID] | None, month: Month
-    ) -> list[tuple[OrderNodePoints, Order, Decimal]]:
-        """Every counted step of the month, with the person's coefficient for
+    ) -> list[tuple[EarnedLine, Decimal]]:
+        """Every counted line of the month, with the person's coefficient for
         it (for the Excel export)."""
-        rows = await self._earned_rows(user_ids, month)
-        book = await load_coefficients(self._session, {row.user_id for row, _ in rows})
+        rows = await self._earned(user_ids, month.start, month.end)
+        book = await load_coefficients(self._session, {row.user_id for row in rows})
         start = first_day(month)
-        return [(row, order, book.of(row.user_id, start)) for row, order in rows]
+        return [(row, book.of(row.user_id, start)) for row in rows]
 
     async def names(self, user_ids: Iterable[uuid.UUID]) -> dict[uuid.UUID, str]:
         return await self._names(user_ids)
@@ -688,15 +752,8 @@ class PerformanceReportService:
         return await self._department_names(ids)
 
     async def people_with_points(self, month: Month) -> list[uuid.UUID]:
-        rows = await self._session.scalars(
-            select(OrderNodePoints.user_id)
-            .where(
-                OrderNodePoints.first_completed_at >= month.start,
-                OrderNodePoints.first_completed_at < month.end,
-            )
-            .distinct()
-        )
-        return list(rows.all())
+        rows = await self._earned(None, month.start, month.end)
+        return list(dict.fromkeys(row.user_id for row in rows))
 
     async def department_people(self, department_id: uuid.UUID, month: Month) -> list[uuid.UUID]:
         """Who is seated in the department now, plus whoever earned points for
@@ -707,34 +764,77 @@ class PerformanceReportService:
             for user_id, held in seats.items()
             if any(seat.department_id == department_id for seat in held)
         ]
-        earned = await self._session.scalars(
-            select(OrderNodePoints.user_id)
-            .where(
-                OrderNodePoints.department_id == department_id,
-                OrderNodePoints.first_completed_at >= month.start,
-                OrderNodePoints.first_completed_at < month.end,
-            )
-            .distinct()
-        )
-        return list(dict.fromkeys([*seated, *earned.all()]))
+        earned = await self._earned(None, month.start, month.end, department_id=department_id)
+        return list(dict.fromkeys([*seated, *(row.user_id for row in earned)]))
 
     # --- helpers -------------------------------------------------------------------------
 
-    async def _earned_rows(
-        self, user_ids: Sequence[uuid.UUID] | None, month: Month
-    ) -> list[tuple[OrderNodePoints, Order]]:
-        statement = (
-            select(OrderNodePoints, Order)
+    async def _earned(
+        self,
+        user_ids: Sequence[uuid.UUID] | None,
+        start: datetime,
+        end: datetime,
+        *,
+        department_id: uuid.UUID | None = None,
+    ) -> list[EarnedLine]:
+        """Every line counted in ``[start, end)`` from both ledgers, newest first
+        - everybody when ``user_ids`` is None; only what counts for
+        ``department_id`` when given."""
+        if user_ids is not None and not user_ids:
+            return []
+        ids = list(user_ids) if user_ids is not None else None
+        orders = (
+            select(OrderNodePoints, Order.code, Order.title, OrderNode.deadline_met)
             .join(Order, Order.id == OrderNodePoints.order_id)
+            .join(OrderNode, OrderNode.id == OrderNodePoints.node_id)
             .where(
-                OrderNodePoints.first_completed_at >= month.start,
-                OrderNodePoints.first_completed_at < month.end,
+                OrderNodePoints.first_completed_at >= start,
+                OrderNodePoints.first_completed_at < end,
             )
-            .order_by(OrderNodePoints.first_completed_at.desc())
         )
-        if user_ids is not None:
-            statement = statement.where(OrderNodePoints.user_id.in_(list(user_ids)))
-        return [(row[0], row[1]) for row in (await self._session.execute(statement)).all()]
+        work = select(WorkPoint).where(WorkPoint.earned_at >= start, WorkPoint.earned_at < end)
+        if ids is not None:
+            orders = orders.where(OrderNodePoints.user_id.in_(ids))
+            work = work.where(WorkPoint.user_id.in_(ids))
+        if department_id is not None:
+            orders = orders.where(OrderNodePoints.department_id == department_id)
+            work = work.where(WorkPoint.department_id == department_id)
+        rows: list[EarnedLine] = [
+            EarnedLine(
+                source=SOURCE_ORDER,
+                ref_id=points.node_id,
+                user_id=points.user_id,
+                department_id=points.department_id,
+                phase=points.phase.value,
+                items=items_from_json(points.items),
+                points=points.points,
+                at=ensure_utc(points.first_completed_at),
+                ref_code=code,
+                ref_title=title,
+                ref_link=f"/tasks/{code}",
+                deadline_met=deadline_met,
+                order_id=points.order_id,
+            )
+            for points, code, title, deadline_met in (await self._session.execute(orders)).all()
+        ]
+        rows.extend(
+            EarnedLine(
+                source=row.source,
+                ref_id=row.id,
+                user_id=row.user_id,
+                department_id=row.department_id,
+                phase=row.phase,
+                items=items_from_json(row.items),
+                points=row.points,
+                at=ensure_utc(row.earned_at),
+                ref_code=row.ref_code,
+                ref_title=row.ref_title,
+                ref_link=row.ref_link,
+            )
+            for row in (await self._session.scalars(work)).all()
+        )
+        rows.sort(key=lambda row: row.at, reverse=True)
+        return rows
 
     async def _pending(
         self, user_ids: Sequence[uuid.UUID]
@@ -885,7 +985,7 @@ class _Bucket:
 
 @dataclass(slots=True)
 class _CodeBucket:
-    phase: OrderNodeType
+    phase: str
     code: str
     form: str
     form_label: str | None
@@ -909,14 +1009,14 @@ def _code_labels(items: Iterable[DesignItem]) -> tuple[str, ...]:
     return tuple(labels)
 
 
-def _tally_codes(rows: Iterable[tuple[OrderNodePoints, Decimal]]) -> list[CodeRow]:
+def _tally_codes(rows: Iterable[tuple[EarnedLine, Decimal]]) -> list[CodeRow]:
     """Counted steps, each with its person's coefficient -> one row per
     (phase, code, form). A free line ("Việc khác") is one row per phase."""
     buckets: dict[tuple[str, str, str], _CodeBucket] = {}
     for points_row, factor in rows:
-        for item in items_from_json(points_row.items):
+        for item in points_row.items:
             form = "" if item.free else item.form
-            key = (points_row.phase.value, "" if item.free else str(item.code_id), form)
+            key = (points_row.phase, "" if item.free else str(item.code_id), form)
             bucket = buckets.get(key)
             if bucket is None:
                 bucket = buckets[key] = _CodeBucket(
@@ -932,11 +1032,11 @@ def _tally_codes(rows: Iterable[tuple[OrderNodePoints, Decimal]]) -> list[CodeRo
             bucket.quantity += item.quantity
             bucket.points += weigh(item.points, factor)
             bucket.people.add(points_row.user_id)
-            bucket.steps.add(points_row.node_id)
+            bucket.steps.add(points_row.ref_id)
     return [
         CodeRow(
-            phase=bucket.phase.value,
-            phase_label=phase_label(bucket.phase),
+            phase=bucket.phase,
+            phase_label=report_phase_label(bucket.phase),
             code=bucket.code,
             name=(
                 next(iter(bucket.names))
@@ -963,6 +1063,7 @@ def _previous(month: Month, tz: ZoneInfo) -> Month:
 __all__ = [
     "CodeRow",
     "DepartmentRow",
+    "EarnedLine",
     "Figures",
     "Overview",
     "PerformanceReportService",
@@ -972,4 +1073,6 @@ __all__ = [
     "TimelineBar",
     "TimelineGroup",
     "TrendPoint",
+    "line_phase_label",
+    "report_phase_label",
 ]

@@ -36,16 +36,23 @@ class PerformanceAccessResponse(BaseModel):
     view_all: bool = False
     export: bool = False
     manage_coefficients: bool = False
+    #: A Trưởng phòng PR / the OWNER / an ADMIN: "Duyệt điểm PR" (0085).
+    review_pr: bool = False
 
     @classmethod
     def from_access(
-        cls, access: PerformanceAccess, *, manage_coefficients: bool = False
+        cls,
+        access: PerformanceAccess,
+        *,
+        manage_coefficients: bool = False,
+        review_pr: bool = False,
     ) -> PerformanceAccessResponse:
         return cls(
             view_team=access.view_team,
             view_all=access.view_all,
             export=access.export,
             manage_coefficients=manage_coefficients,
+            review_pr=review_pr,
         )
 
 
@@ -81,7 +88,8 @@ class FiguresResponse(BaseModel):
 
 class PersonLineResponse(BaseModel):
     node_id: uuid.UUID
-    order_id: uuid.UUID
+    #: ``None`` for a line that is not an ORD step.
+    order_id: uuid.UUID | None
     order_code: str
     order_title: str
     phase: str
@@ -91,6 +99,10 @@ class PersonLineResponse(BaseModel):
     #: EARNED (counted this month) / PENDING_REVIEW / IN_PROGRESS (dự kiến).
     status: str
     at: datetime | None
+    #: ORDER / PR_CONTENT / PR_PUBLISH / SEEDING_PHONES / SEEDING_OTHER.
+    source: str = "ORDER"
+    #: Where the line opens, if anywhere.
+    link: str | None = None
 
     @classmethod
     def from_domain(cls, line: PersonLine) -> PersonLineResponse:
@@ -112,6 +124,8 @@ class PersonLineResponse(BaseModel):
             points=line.points,
             status=line.status,
             at=line.at,
+            source=line.source,
+            link=line.link,
         )
 
 
@@ -413,6 +427,8 @@ class TimelineBarResponse(BaseModel):
     #: After the coefficient.
     points: int
     codes: list[str]
+    source: str = "ORDER"
+    link: str | None = None
 
     @classmethod
     def from_domain(cls, bar: TimelineBar) -> TimelineBarResponse:
@@ -429,6 +445,8 @@ class TimelineBarResponse(BaseModel):
             late=bar.late,
             points=bar.points,
             codes=list(bar.codes),
+            source=bar.source,
+            link=bar.link,
         )
 
 

@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from meobot.core.errors import AuthorizationError, NotFoundError, ValidationError
+from meobot.core.errors import AuthorizationError, ConflictError, NotFoundError, ValidationError
 
 
 class PerformanceForbiddenError(AuthorizationError):
@@ -61,6 +61,40 @@ class PerformanceQuotaInvalidError(ValidationError):
         super().__init__(message, details={"reason": "quota_invalid", "field": field})
 
 
+class PrPointsForbiddenError(AuthorizationError):
+    """Not in PR, not the person the stage is theirs to claim, or not a
+    Trưởng phòng PR deciding."""
+
+    code = "pr_points_forbidden"
+
+    def __init__(self, message: str = "Bạn không làm được việc này với điểm PR.") -> None:
+        super().__init__(message, details={"reason": "pr_points_forbidden"})
+
+
+class PrPointsInvalidError(ValidationError):
+    code = "pr_points_invalid"
+
+    def __init__(self, message: str, *, reason: str = "pr_points_invalid") -> None:
+        super().__init__(message, details={"reason": reason})
+
+
+class PrPointsNotFoundError(NotFoundError):
+    code = "pr_points_not_found"
+
+    def __init__(self) -> None:
+        super().__init__("Không tìm thấy.", details={"reason": "pr_points_not_found"})
+
+
+class PrClaimDecidedError(ConflictError):
+    code = "pr_claim_decided"
+
+    def __init__(self) -> None:
+        super().__init__(
+            "Phiếu điểm này đã được duyệt, không sửa được nữa.",
+            details={"reason": "pr_claim_decided"},
+        )
+
+
 __all__ = [
     "PerformanceCoefficientForbiddenError",
     "PerformanceCoefficientInvalidError",
@@ -68,4 +102,8 @@ __all__ = [
     "PerformancePersonNotFoundError",
     "PerformanceQuotaForbiddenError",
     "PerformanceQuotaInvalidError",
+    "PrClaimDecidedError",
+    "PrPointsForbiddenError",
+    "PrPointsInvalidError",
+    "PrPointsNotFoundError",
 ]
