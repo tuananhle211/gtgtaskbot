@@ -209,10 +209,14 @@ async def test_set_preferred_address_updates_only_the_caller(
     session, owner_actor: Actor, employee_actor: Actor
 ) -> None:  # type: ignore[no-untyped-def]
     service = ActorProfileService(session, APEXMED)
-    await service.set_preferred_address(owner_actor, "anh")
+    await service.set_preferred_address(employee_actor, "anh")
+    await service.set_preferred_address(owner_actor, "chị")
 
-    assert (await service.profile_for(owner_actor)).address == "anh"
-    assert (await service.profile_for(employee_actor)).address == DEFAULT_USER_ADDRESS
+    assert (await service.profile_for(employee_actor)).address == "anh"
+    # The OWNER holds the report assistant ("Trợ lý AI") by role, which always
+    # says "em" to "sếp" - whatever was stored.
+    owner = await service.profile_for(owner_actor)
+    assert (owner.address, owner.own_address) == ("sếp", "em")
 
 
 async def test_a_form_of_address_cannot_become_a_prompt_injection(

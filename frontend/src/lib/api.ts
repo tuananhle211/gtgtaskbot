@@ -8419,6 +8419,8 @@ export interface EffectivePermissionRow {
   gate_grants: CapabilityGrant[];
   /** A PR review gate: granted per person on the PR screen, not a cell here. */
   personal_only: boolean;
+  /** Held by the system role itself (OWNER: all; ADMIN: all but the OWNER-only ones). */
+  by_role?: boolean;
 }
 
 export interface ModulePermissions {

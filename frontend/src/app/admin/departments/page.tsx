@@ -669,9 +669,14 @@ function SeatRow({
       className={`border-b border-[var(--border)] align-top ${active ? "" : "opacity-60"}`}
     >
       <td className="px-3 py-2 font-medium">
-        <Link href={`/admin/people/${seat.user_id}`} className="hover:underline">
-          {seat.full_name}
-        </Link>
+        {/* A person's "Quyền" page is the OWNER's alone. */}
+        {owner ? (
+          <Link href={`/admin/people/${seat.user_id}`} className="hover:underline">
+            {seat.full_name}
+          </Link>
+        ) : (
+          seat.full_name
+        )}
         {active ? null : (
           <span className="mt-1 block">
             <Pill tone="bad">Đã vô hiệu hoá</Pill>

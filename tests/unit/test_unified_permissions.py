@@ -5,9 +5,9 @@
   access changed;
 * an ADMIN holds every ORD permission; the stored Admin column is ignored;
 * a person's page shows what they hold in every module and where from;
-* personal grants add to the seats: given by the OWNER, an ADMIN, or a head
-  holding ``MANAGE_PERMISSIONS`` over their own members - never to oneself,
-  never wider than one holds, never the review gates nor the right to grant;
+* personal grants add to the seats: given by the OWNER alone (2026-10-31 -
+  not an ADMIN, not a head holding ``MANAGE_PERMISSIONS``; the page itself is
+  the OWNER's alone), never the review gates nor the right to grant;
 * a revoked grant stops at once; the PR head grants review gates to their
   members on the PR screen.
 """
@@ -106,15 +106,31 @@ async def test_02_the_page_shows_every_module_with_its_sources(world: World) -> 
     assert pr["MANAGE_PERMISSIONS"]["scope"] == "OWN"
     assert pr["PR_TEAM_LEAD_REVIEW"]["personal_only"] is True
     assert pr["PR_TEAM_LEAD_REVIEW"]["scope"] == "NONE"
-    # One reads one's own page; a colleague's is refused.
-    assert page(world, ads.orderer, ads.orderer).status_code == 200
-    refused = page(world, ads.orderer, ads.writer)
-    assert refused.status_code == 403 and error_reason(refused.json()) == "permission_forbidden"
-    # An ADMIN: everything, by role.
+    # The page is the OWNER's alone (2026-10-31): not one's own, not an ADMIN's,
+    # not a head's - even one holding "Cấp / thu hồi quyền".
     admin = await person(world, "Quản trị", Role.ADMIN)
+    for viewer, target in (
+        (ads.orderer, ads.orderer),
+        (ads.orderer, ads.writer),
+        (admin, ads.writer),
+        (admin, admin),
+        (world.lead, world.member),
+    ):
+        refused = page(world, viewer, target)
+        assert refused.status_code == 403, viewer.full_name
+        assert error_reason(refused.json()) == "permission_forbidden"
+    # An ADMIN: everything by role but the OWNER-only permissions, which the
+    # OWNER may tick for them like for anybody.
     body = page(world, world.owner, admin).json()
     assert body["sees_all"] is True
-    assert rows_of(body, "ORDER")["NODE_ASSIGN"]["scope"] == "ALL"
+    node_assign = rows_of(body, "ORDER")["NODE_ASSIGN"]
+    assert node_assign["scope"] == "ALL" and node_assign["by_role"] is True
+    chat = rows_of(body, "ASSISTANT")["CHAT"]
+    assert chat["scope"] == "NONE" and chat["by_role"] is False
+    assistant = next(item for item in body["modules"] if item["module"] == "ASSISTANT")
+    assert assistant["grantable"] == {"CHAT": ["ALL"]}
+    owner_page = page(world, world.owner, world.owner).json()
+    assert rows_of(owner_page, "ASSISTANT")["CHAT"]["by_role"] is True
 
 
 # --- personal grants --------------------------------------------------------------------
@@ -185,69 +201,58 @@ async def test_03_a_personal_grant_adds_to_the_seat_and_a_revocation_stops_it(
     assert world.client.get("/api/orders/approvers").json()["own_gate"] is True
 
 
-async def test_04_a_head_grants_only_their_members_only_what_they_hold(world: World) -> None:
-    ads = await ads_world(world)
+async def test_04_only_the_owner_grants_personally(world: World) -> None:
+    """2026-10-31: a person's grants are the OWNER's alone - a head holding
+    "Cấp / thu hồi quyền" and an ADMIN are refused, the staff too."""
     tn_head = await person(world, "Trưởng phòng Tài nguyên")
     tn_staff = await person(world, "Nhân viên Tài nguyên")
+    admin = await person(world, "Quản trị", Role.ADMIN)
     assert seat(world, "TN", tn_head, position="HEAD").status_code == 200
     assert seat(world, "TN", tn_staff).status_code == 200
-    # Without MANAGE_PERMISSIONS the TN head manages nobody in Tài nguyên.
-    refused = give(world, tn_head, tn_staff, module="RESOURCES", permission="IMPORT", scope="ALL")
-    assert refused.status_code == 403 and error_reason(refused.json()) == "permission_forbidden"
     tn = department(world, "TN")
     turned_on = owner(world).put(
         f"/api/departments/{tn['id']}/grants",
         json={"module": "RESOURCES", "cells": {"HEAD": {"MANAGE_PERMISSIONS": "OWN"}}},
     )
     assert turned_on.status_code == 200, turned_on.json()
-    # Now: their own member, a permission they hold (IMPORT ALL) - yes.
-    body = page(world, tn_head, tn_staff).json()
+    for granter in (tn_head, admin, tn_staff):
+        refused = give(
+            world, granter, tn_staff, module="RESOURCES", permission="IMPORT", scope="ALL"
+        )
+        assert refused.status_code == 403, granter.full_name
+        assert error_reason(refused.json()) == "permission_forbidden"
+        world.act_as(granter)
+        saved = world.client.put(
+            f"/api/permissions/people/{tn_staff.id}/grants",
+            json={"module": "RESOURCES", "permissions": {}},
+        )
+        assert saved.status_code == 403, granter.full_name
+    # The OWNER gives anything but "Cấp / thu hồi quyền" itself.
+    body = page(world, world.owner, tn_staff).json()
     resources = next(item for item in body["modules"] if item["module"] == "RESOURCES")
     assert resources["can_manage"] is True and resources["grantable"]["IMPORT"] == ["ALL"]
     assert "MANAGE_PERMISSIONS" not in resources["grantable"]
-    order = next(item for item in body["modules"] if item["module"] == "ORDER")
-    assert order["can_manage"] is False
-    made = give(world, tn_head, tn_staff, module="RESOURCES", permission="IMPORT", scope="ALL")
+    refused = give(
+        world,
+        world.owner,
+        tn_staff,
+        module="RESOURCES",
+        permission="MANAGE_PERMISSIONS",
+        scope="ALL",
+    )
+    assert refused.status_code == 422
+    assert error_reason(refused.json()) == "permission_not_grantable"
+    made = give(world, world.owner, tn_staff, module="RESOURCES", permission="IMPORT", scope="ALL")
     assert made.status_code == 201, made.json()
     world.act_as(tn_staff)
     assert world.client.get("/api/units/me").json()["resources"]["import_excel"] is True
-    # Not somebody outside their department, not themselves, not the OWNER, not ORD.
-    for target in (ads.writer, tn_head, world.owner):
-        refused = give(world, tn_head, target, module="RESOURCES", permission="EDIT", scope="ALL")
-        assert refused.status_code == 403, target.full_name
-    refused = give(world, tn_head, tn_staff, module="ORDER", permission="ORDER_CREATE", scope="ALL")
-    assert refused.status_code == 403
-    # A head who holds VIEW OWN cannot hand out VIEW ALL.
-    limited = await person(world, "Trưởng phòng ADS 2")
-    assert seat(world, "ADS", limited, position="HEAD").status_code == 200
-    ads_department = department(world, "ADS")
-    assert (
-        owner(world)
-        .put(
-            f"/api/departments/{ads_department['id']}/grants",
-            json={"module": "RESOURCES", "cells": {"HEAD": {"MANAGE_PERMISSIONS": "OWN"}}},
-        )
-        .status_code
-        == 200
-    )
-    too_wide = give(world, limited, ads.orderer, module="RESOURCES", permission="VIEW", scope="ALL")
-    assert (
-        too_wide.status_code == 422 and error_reason(too_wide.json()) == "permission_not_grantable"
-    )
-    narrow = give(world, limited, ads.orderer, module="RESOURCES", permission="VIEW", scope="OWN")
-    assert narrow.status_code == 201
-    # The head may revoke what they gave; the staff may not.
-    grant_id = made.json()["id"]
-    world.act_as(tn_staff)
-    assert (
-        world.client.delete(f"/api/permissions/people/{tn_staff.id}/grants/{grant_id}").status_code
-        == 403
-    )
-    world.act_as(tn_head)
-    assert (
-        world.client.delete(f"/api/permissions/people/{tn_staff.id}/grants/{grant_id}").status_code
-        == 204
-    )
+    # Taken back by the OWNER alone.
+    path = f"/api/permissions/people/{tn_staff.id}/grants/{made.json()['id']}"
+    for user in (tn_staff, tn_head, admin):
+        world.act_as(user)
+        assert world.client.delete(path).status_code == 403, user.full_name
+    world.act_as(world.owner)
+    assert world.client.delete(path).status_code == 204
 
 
 async def test_05_the_pr_head_shapes_their_members_review_rights(world: World) -> None:
@@ -269,7 +274,9 @@ async def test_05_the_pr_head_shapes_their_members_review_rights(world: World) -
         },
     )
     assert made.status_code in (200, 201), made.json()
-    body = page(world, world.lead, world.member).json()
+    # (Their own way onto the person's "Quyền" page is closed: the OWNER's alone.)
+    assert page(world, world.lead, world.member).status_code == 403
+    body = page(world, world.owner, world.member).json()
     gate = rows_of(body, "PR")["PR_TEAM_LEAD_REVIEW"]
     assert gate["scope"] == "SCOPED" and len(gate["gate_grants"]) == 1
     # Not to themselves.
@@ -305,7 +312,7 @@ async def test_06_an_admin_holds_every_ord_permission_whatever_the_old_column_sa
     world.act_as(admin)
     me = world.client.get("/api/units/me").json()
     assert me["can_view_all"] is True
-    body = page(world, admin, admin).json()
+    body = page(world, world.owner, admin).json()
     assert rows_of(body, "ORDER")["NODE_ASSIGN"]["scope"] == "ALL"
 
 

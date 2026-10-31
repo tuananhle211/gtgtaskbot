@@ -444,7 +444,8 @@ function AccountRow({
   });
 
   const items: RowMenuItem[] = [];
-  if (manages)
+  // A person's "Quyền" page is the OWNER's alone.
+  if (viewer.role === "OWNER")
     items.push({
       key: "grants",
       label: "Quyền",

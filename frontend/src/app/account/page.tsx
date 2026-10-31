@@ -929,7 +929,7 @@ function Members({
                             <PersonLink userId={row.user_id} name={row.full_name} className="person" />
                             <span className="block text-xs text-[var(--text-muted)]">
                               {row.role_label} · {String(row.telegram_user_id)}
-                              {mayReset ? (
+                              {me.role === "OWNER" ? (
                                 <>
                                   {" · "}
                                   <Link

@@ -65,6 +65,8 @@ class EffectiveRowResponse(BaseModel):
     sources: list[SourceResponse]
     gate_grants: list[CapabilityGrantResponse] = []
     personal_only: bool = False
+    #: Held by the system role itself (OWNER: all; ADMIN: all but OWNER-only).
+    by_role: bool = False
 
     @classmethod
     def from_row(cls, row: EffectiveRow) -> EffectiveRowResponse:
@@ -76,6 +78,7 @@ class EffectiveRowResponse(BaseModel):
             sources=[SourceResponse.from_grant(grant) for grant in row.sources],
             gate_grants=[CapabilityGrantResponse.from_grant(grant) for grant in row.gate_grants],
             personal_only=row.personal_only,
+            by_role=row.by_role,
         )
 
 
@@ -143,7 +146,8 @@ class PersonOverviewResponse(BaseModel):
     role_label: str
     employment_status: str
     employment_status_label: str
-    #: OWNER / ADMIN: holds everything, everywhere.
+    #: OWNER / ADMIN: holds everything, everywhere (an ADMIN not the OWNER-only
+    #: permissions - see ``EffectiveRowResponse.by_role``).
     sees_all: bool
     seats: list[SeatResponse]
     modules: list[ModuleOverviewResponse]

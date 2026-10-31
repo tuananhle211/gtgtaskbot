@@ -116,6 +116,17 @@ CHAT_DISABLED_REPLY = (
     "gõ /help để xem danh sách."
 )
 
+#: The two above in the report assistant's voice: whoever holds "Trợ lý AI" is
+#: "sếp" and the bot says "em" (2026-10-31).
+ASSISTANT_UNKNOWN_REPLY = (
+    "Dạ, em chưa rõ sếp muốn làm gì với yêu cầu này. Sếp nói cụ thể hơn giúp em "
+    "được không ạ? Hoặc gõ /help để xem những việc em làm được."
+)
+ASSISTANT_CHAT_DISABLED_REPLY = (
+    "Dạ, chế độ trò chuyện đang tắt trên hệ thống này. Sếp vẫn hỏi được báo cáo và "
+    "dùng các lệnh - gõ /help để xem danh sách."
+)
+
 #: What a Guest is told when they ask for something only a member can have.
 #: Deterministic and free: producing it costs no provider call, so it must not
 #: cost the Guest one of their ten questions either.
@@ -560,7 +571,12 @@ class ConversationService:
         )
 
         if canned_kind == "chat_disabled":
-            return await self._reply(CHAT_DISABLED_REPLY, ConversationMode.CLARIFY, message, target)
+            disabled = (
+                ASSISTANT_CHAT_DISABLED_REPLY
+                if actor_has_permission(actor, Permission.ASSISTANT_REPORT)
+                else CHAT_DISABLED_REPLY
+            )
+            return await self._reply(disabled, ConversationMode.CLARIFY, message, target)
         if canned_kind == "report_area":
             # Figures without a report: ask which one. The chat branch has no
             # numbers to give, so it is never asked to produce any.
@@ -937,7 +953,12 @@ class ConversationService:
         decision = self._policy.evaluate(plan, actor, context)
 
         if decision.code is DecisionCode.UNKNOWN_INTENT:
-            return ConversationReply(text=UNKNOWN_REPLY, plan=plan, decision=decision)
+            unknown = (
+                ASSISTANT_UNKNOWN_REPLY
+                if actor_has_permission(actor, Permission.ASSISTANT_REPORT)
+                else UNKNOWN_REPLY
+            )
+            return ConversationReply(text=unknown, plan=plan, decision=decision)
 
         if not decision.allowed:
             await self._audit_denial(actor, plan, decision, request_id)

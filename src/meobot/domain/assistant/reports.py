@@ -12,7 +12,9 @@ numbers**, never from a model's guess:
   the tool from the very numbers it returns; the model only picks the tool and
   its few arguments;
 * a question that asks for figures but names no report is asked back, never
-  answered from general knowledge.
+  answered from general knowledge;
+* the assistant speaks to its holders as "em" to "sếp" (2026-10-31) - in the
+  model's turns and in every sentence written here or by the report tools.
 
 This module holds the vocabulary and the word-matching that keep the
 assistant working when the model is not: which report a question is about,
@@ -31,6 +33,12 @@ from types import MappingProxyType
 from meobot.domain.member.normalization import strip_accents as fold
 
 MODULE_ASSISTANT = "ASSISTANT"
+
+
+#: How the assistant speaks to whoever holds it: it says "em", they are "sếp".
+#: Overrides a stored ``/set_preferred_address`` while the permission is held.
+ASSISTANT_SELF_ADDRESS = "em"
+ASSISTANT_USER_ADDRESS = "sếp"
 
 
 class AssistantPermission(StrEnum):
@@ -224,8 +232,8 @@ def area_question() -> str:
     """What the assistant asks when a figures question names no report."""
     areas = "\n".join(f"- {label}" for label in REPORT_AREAS.values())
     return (
-        "Mình chỉ đưa số liệu lấy thẳng từ báo cáo của hệ thống, không ước đoán. "
-        "Bạn muốn xem mảng nào?\n"
+        "Dạ, em chỉ đưa số liệu lấy thẳng từ báo cáo của hệ thống, không ước đoán. "
+        "Sếp muốn xem mảng nào ạ?\n"
         f"{areas}\n"
         'Ví dụ: "doanh thu tháng này", "order trễ hạn", "điểm hiệu suất tháng 9".'
     )
@@ -234,6 +242,8 @@ def area_question() -> str:
 __all__ = [
     "ASSISTANT_OWNER_ONLY",
     "ASSISTANT_PERMISSION_LABELS",
+    "ASSISTANT_SELF_ADDRESS",
+    "ASSISTANT_USER_ADDRESS",
     "MODULE_ASSISTANT",
     "REPORT_AREAS",
     "REPORT_TOOLS",

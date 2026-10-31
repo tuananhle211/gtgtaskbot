@@ -18,15 +18,17 @@ import { ErrorBox, Loading, NoticeBox, Pill } from "@/components/states";
 import { employmentTone, formatResourceDay } from "@/lib/resources";
 
 /**
- * "Quyền" of one person (0066), as a checklist per module.
+ * "Quyền" of one person (0066), as a checklist per module - the OWNER's
+ * page alone (2026-10-31: the API refuses everybody else, the links to it are
+ * drawn for the OWNER only).
  *
  * Every permission is a row with a tick. A tick the person's role or
  * department seat already gives is on and locked ("mặc định"); the rest can
- * be ticked by whoever may manage this module for this person (the OWNER, an
- * ADMIN, or a head holding "Cấp / thu hồi quyền" over them), within what
- * they may grant themselves. "Lưu" sends the whole module's checklist: a
- * tick becomes a personal grant, an untick a revocation. The PR review gates
- * are scoped per person on the PR screen and only point there.
+ * be ticked by the OWNER. An ADMIN's role gives everything but the OWNER-only
+ * permissions ("Trợ lý AI", "Hệ số điểm"), which stay tickable on their page
+ * (`by_role`). "Lưu" sends the whole module's checklist: a tick becomes a
+ * personal grant, an untick a revocation. The PR review gates are scoped per
+ * person on the PR screen and only point there.
  */
 export default function PersonPermissionsPage() {
   const params = useParams<{ id: string }>();
@@ -50,7 +52,11 @@ export default function PersonPermissionsPage() {
         <p className="flex flex-wrap items-center gap-2 text-sm">
           <Pill tone="neutral">{data.role_label}</Pill>
           <Pill tone={employmentTone(data.employment_status)}>{data.employment_status_label}</Pill>
-          {data.sees_all ? <Pill tone="good">Mọi quyền ở mọi module</Pill> : null}
+          {data.sees_all ? (
+            <Pill tone="good">
+              {data.role === "OWNER" ? "Mọi quyền ở mọi module" : "Mọi quyền, trừ quyền chỉ chủ sở hữu cấp"}
+            </Pill>
+          ) : null}
         </p>
         <p className="mt-2 text-sm text-[var(--text-muted)]">
           {data.seats.length === 0
@@ -87,7 +93,7 @@ type Tick = {
 };
 
 function tickOf(person: PersonPermissions, row: EffectivePermissionRow): Tick {
-  if (person.sees_all) return { locked: true, personal: null, inherited: "ALL" };
+  if (row.by_role) return { locked: true, personal: null, inherited: "ALL" };
   const inherited = row.sources
     .filter((source) => source.source === "DEPARTMENT")
     .map((source) => source.scope)
@@ -252,8 +258,8 @@ function ModuleChecklist({ person, module }: { person: PersonPermissions; module
                 )
               ) : null}
               <span className="text-xs text-[var(--text-muted)]">
-                {person.sees_all && !row.personal_only ? `mặc định · vai trò ${person.role_label}` : null}
-                {!person.sees_all && tick.locked
+                {row.by_role && !row.personal_only ? `mặc định · vai trò ${person.role_label}` : null}
+                {!row.by_role && tick.locked
                   ? `mặc định · ${row.sources.filter((s) => s.source === "DEPARTMENT").map(sourceText).join(", ")}`
                   : null}
                 {!tick.locked && tick.personal && (draft[row.permission] ?? tick.personal) !== null

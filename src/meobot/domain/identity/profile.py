@@ -16,6 +16,8 @@ context for conversation, and it is deliberately kept apart from authority:
 Address: ``preferred_address`` is what the user asked to be called. When it is
 absent MeoBot says "mình" for itself and "bạn" for the user - a neutral pair
 that assumes nothing about gender, which Vietnamese pronouns otherwise would.
+``self_address`` is what MeoBot calls itself; it is never stored, only set
+when the profile is composed (the report assistant says "em" to "sếp").
 """
 
 from __future__ import annotations
@@ -71,6 +73,9 @@ class ActorProfile(BaseModel):
         max_length=40,
         description="How TasksBot addresses this person. Empty means use 'bạn'.",
     )
+    #: What TasksBot calls itself with this person. Never stored: decided when
+    #: the profile is composed. Empty means 'mình'.
+    self_address: str = Field(default="", max_length=40)
     #: Authoritative, copied from the Actor. Never read from storage.
     role: Role = Role.EMPLOYEE
     job_title: str = Field(default="", max_length=200)
@@ -88,6 +93,11 @@ class ActorProfile(BaseModel):
     def address(self) -> str:
         """What MeoBot calls this person in a sentence."""
         return self.preferred_address.strip() or DEFAULT_USER_ADDRESS
+
+    @property
+    def own_address(self) -> str:
+        """What MeoBot calls itself when talking to this person."""
+        return self.self_address.strip() or DEFAULT_SELF_ADDRESS
 
     @property
     def short_name(self) -> str:
@@ -110,7 +120,7 @@ class ActorProfile(BaseModel):
         if self.preferred_name and self.preferred_name != self.display_name:
             lines.append(f"Muốn được gọi là: {self.preferred_name}")
         lines.append(
-            f"Xưng hô: gọi người dùng là '{self.address}', TasksBot xưng '{DEFAULT_SELF_ADDRESS}'"
+            f"Xưng hô: gọi người dùng là '{self.address}', TasksBot xưng '{self.own_address}'"
         )
         # The label, not the enum: this block is read back to the user by the
         # model, and "EMPLOYEE" is not a word anybody here uses.

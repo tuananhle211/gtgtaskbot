@@ -201,7 +201,27 @@ Mỗi tool nhận tham số tối thiểu (kỳ/tháng, phòng/người tuỳ ch
 - Thiếu dữ liệu → "chưa có dữ liệu"; một mảng của bản tổng hợp lỗi → "không
   lấy được số liệu", không bao giờ ra số.
 
-**"Thinking":** tin "🤔 Đang tổng hợp số liệu…" rồi sửa thành câu trả lời.
+**"Thinking":** tin "🤔 Dạ, em đang tổng hợp số liệu, sếp chờ em chút ạ…" rồi
+sửa thành câu trả lời.
+
+**Trang Quyền từng người chỉ OWNER (31/10):** chỉ OWNER xem và sửa phân quyền
+cá nhân (`/admin/people/<id>`; API trả 403 cho Quản trị viên, trưởng phòng, cả
+chính người đó; các link "Quyền" chỉ hiện với OWNER). Quản trị viên vẫn có mọi
+quyền theo vai trò, trừ quyền chỉ OWNER cấp ("Trợ lý AI", "Hệ số điểm"): trên
+trang của Quản trị viên các ô này tích / bỏ tích được (`by_role`), nên OWNER
+bật hoặc tắt Trợ lý AI cho từng Quản trị viên. Mặc định chỉ OWNER hỏi được AI.
+
+**Văn phong "em – sếp" (31/10):** với người có quyền Trợ lý AI (kể cả OWNER),
+bot xưng **"em"** và gọi người dùng là **"sếp"**:
+- Hồ sơ hội thoại (`ActorProfileService._compose`) đặt `preferred_address` =
+  "sếp", `self_address` = "em" (`ASSISTANT_USER_ADDRESS` / `ASSISTANT_SELF_ADDRESS`)
+  → mục [CURRENT USER] của prompt ghi "gọi người dùng là 'sếp', TasksBot xưng
+  'em'"; `REPORT_RESPONSE_RULES` nhắc lại (lễ phép, gọn, có thể mở đầu "Dạ").
+- Câu viết sẵn cũng theo: dòng mở đầu báo cáo "Dạ, em gửi sếp số liệu ạ:",
+  "Sếp đối chiếu trên web: …", câu hỏi lại "Sếp muốn xem mảng nào ạ?", các câu
+  dự phòng khi AI lỗi/chậm, chưa hiểu yêu cầu, tắt chat, gọi tên bot.
+- Ghi đè `/set_preferred_address` trong lúc còn quyền (giá trị đã lưu vẫn giữ,
+  quay lại khi quyền bị thu hồi); người không có quyền vẫn "mình – bạn".
 
 **Chưa làm / khác kế hoạch:**
 - Vòng lặp nhiều tool cho một câu hỏi: **chưa làm**; thay bằng
@@ -210,5 +230,5 @@ Mỗi tool nhận tham số tối thiểu (kỳ/tháng, phòng/người tuỳ ch
   một người ở Quản trị › Quản lý tài khoản › ⋯ › Quyền (`/admin/people/<id>`)
   › thẻ "Trợ lý AI", và trỏ mục
   "Trợ lý Telegram" ở `/admin/ai` sang model đang chạy (9router).
-- Test: `tests/unit/test_assistant_reports.py` (8 test); đã chạy thử các tool
-  (chỉ đọc) trên Postgres local.
+- Test: `tests/unit/test_assistant_reports.py` (9 test, test_09 = văn phong);
+  đã chạy thử các tool (chỉ đọc) trên Postgres local.

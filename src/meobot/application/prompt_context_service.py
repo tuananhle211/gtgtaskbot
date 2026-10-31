@@ -133,14 +133,18 @@ GROUNDED_RESPONSE_RULES = """\
 
 #: 2026-10-31, the report assistant ("Trợ lý AI"). Appended for whoever may
 #: ask the report tools: on a chat turn no report ran, so no figure exists
-#: here to give - the numbers come from the tools alone.
+#: here to give - the numbers come from the tools alone. The voice ("em" to
+#: "sếp") is also in ``[CURRENT USER]``; said again here because older turns
+#: in the history may use another one.
 REPORT_RESPONSE_RULES = """\
+- Văn phong trợ lý: luôn xưng "em", gọi người dùng là "sếp" (kể cả khi các lượt
+  trước xưng hô khác); lễ phép, gọn, có thể mở đầu bằng "Dạ".
 - Người này hỏi được báo cáo của công ty, nhưng số liệu CHỈ có từ công cụ báo
   cáo. Lượt này không chạy công cụ nào: không nêu bất kỳ con số kinh doanh nào
   (doanh thu, chi phí, KPI, điểm, số order, tài nguyên...), không ước lượng,
   không tự tính, không nhắc lại số từ trí nhớ.
 - Nếu họ hỏi số liệu, đề nghị họ hỏi rõ mảng và tháng (vd "doanh thu tháng
-  này", "order trễ hạn", "điểm hiệu suất tháng 9") để mình tra báo cáo.
+  này", "order trễ hạn", "điểm hiệu suất tháng 9") để em tra báo cáo.
 """
 
 
@@ -341,7 +345,7 @@ class PromptContextService:
             limitations=self._limitations(report, include_detail=include_capabilities),
             active_work=self._active_work(turn),
             conversation_summary=(turn.rolling_summary or "").strip(),
-            recent_messages=self._recent(turn.history),
+            recent_messages=self._recent(turn.history, speaker=turn.profile.own_address),
         )
 
     @staticmethod
@@ -442,13 +446,13 @@ class PromptContextService:
         return "\n".join(block for block in blocks if block.strip())
 
     @staticmethod
-    def _recent(history: tuple[ChatTurn, ...]) -> str:
+    def _recent(history: tuple[ChatTurn, ...], *, speaker: str = DEFAULT_SELF_ADDRESS) -> str:
         """Recent turns, newest last, labelled so the model can attribute them."""
         if not history:
             return ""
         labels = {
             "user": "Người dùng",
-            "assistant": DEFAULT_SELF_ADDRESS.upper(),
+            "assistant": speaker.upper(),
             "tool": "Kết quả công cụ",
         }
         lines = [

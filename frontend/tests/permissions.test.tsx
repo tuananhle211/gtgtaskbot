@@ -1,7 +1,9 @@
 /**
  * "Quyền" of one person (0066): every module with the scope held and its
- * source; a grant from whoever may, a revocation of a personal grant; the PR
- * review gates point at the PR screen; the roles tab shows the PR positions.
+ * source; a grant, a revocation of a personal grant; the PR review gates
+ * point at the PR screen; the roles tab shows the PR positions. The page is
+ * the OWNER's alone (2026-10-31): everybody else gets the server's refusal; on
+ * an ADMIN's page only what their role gives is locked.
  */
 import { describe, expect, it, vi } from "vitest";
 import { screen, waitFor, within } from "@testing-library/react";
@@ -107,12 +109,12 @@ const PAGE = {
   scope_labels: { NONE: "Không", OWN: "Của mình / phòng mình", ALL: "Toàn bộ", SCOPED: "Theo phạm vi đã cấp" },
 };
 
-const stubPage = () =>
+const stubPage = (page: unknown = PAGE) =>
   stubFetch([
     { match: "/api/auth/session", body: OWNER },
     { match: "/api/units/me", body: ME },
-    { match: "/api/permissions/people/u-1/grants", method: "PUT", body: PAGE },
-    { match: "/api/permissions/people/u-1", body: PAGE },
+    { match: "/api/permissions/people/u-1/grants", method: "PUT", body: page },
+    { match: "/api/permissions/people/u-1", body: page },
   ]);
 
 describe("Quyền của một người", () => {
@@ -183,17 +185,71 @@ describe("Quyền của một người", () => {
     });
   });
 
-  it("shows the server's refusal to somebody who manages nobody", async () => {
+  it("locks what an ADMIN's role gives and leaves the OWNER-only permissions tickable", async () => {
+    const CHAT = "Chat trợ lý AI trên Telegram (xem báo cáo toàn công ty)";
+    const stub = stubPage({
+      ...PAGE,
+      role: "ADMIN",
+      role_label: "Quản trị viên",
+      sees_all: true,
+      seats: [],
+      personal: [],
+      modules: [
+        {
+          module: "ORDER",
+          label: "Luồng order",
+          rows: [row("CANCEL", "Huỷ order", "ALL", [], { by_role: true })],
+          can_manage: true,
+          grantable: { CANCEL: ["OWN", "ALL"] },
+        },
+        {
+          module: "ASSISTANT",
+          label: "Trợ lý AI",
+          rows: [row("CHAT", CHAT, "NONE", [], { by_role: false })],
+          can_manage: true,
+          grantable: { CHAT: ["ALL"] },
+        },
+      ],
+    });
+    renderWithQuery(<PersonPermissionsPage />);
+    expect(await screen.findByText("Mọi quyền, trừ quyền chỉ chủ sở hữu cấp")).toBeInTheDocument();
+    const order = screen.getByRole("region", { name: "Luồng order" });
+    const cancel = within(order).getByRole("checkbox", { name: "Huỷ order" });
+    expect(cancel).toBeChecked();
+    expect(cancel).toBeDisabled();
+    expect(within(order).getByText(/mặc định · vai trò Quản trị viên/)).toBeInTheDocument();
+    const assistant = screen.getByRole("region", { name: "Trợ lý AI" });
+    const chat = within(assistant).getByRole("checkbox", { name: CHAT });
+    expect(chat).not.toBeChecked();
+    expect(chat).toBeEnabled();
+    await userEvent.click(chat);
+    await userEvent.click(within(assistant).getByRole("button", { name: "Lưu quyền" }));
+    const dialog = await screen.findByRole("dialog");
+    await userEvent.click(within(dialog).getByRole("button", { name: "Lưu quyền" }));
+    await waitFor(() => expect(calls(stub).filter((call) => call.method === "PUT")).toHaveLength(1));
+    expect(calls(stub).find((call) => call.method === "PUT")?.body).toEqual({
+      module: "ASSISTANT",
+      permissions: { CHAT: "ALL" },
+    });
+  });
+
+  it("shows the server's refusal to anybody but the OWNER", async () => {
     stubFetch([
-      { match: "/api/auth/session", body: SESSION },
+      { match: "/api/auth/session", body: { ...SESSION, role: "ADMIN" } },
       { match: "/api/units/me", body: ME },
       {
         match: "/api/permissions/people/u-1",
         status: 403,
-        body: { error: { code: "permission_forbidden", message: "Bạn không được xem quyền của người này.", details: {} } },
+        body: {
+          error: {
+            code: "permission_forbidden",
+            message: "Chỉ chủ sở hữu xem và sửa được phân quyền cá nhân.",
+            details: {},
+          },
+        },
       },
     ]);
     renderWithQuery(<PersonPermissionsPage />);
-    expect(await screen.findByText("Bạn không được xem quyền của người này.")).toBeInTheDocument();
+    expect(await screen.findByText("Chỉ chủ sở hữu xem và sửa được phân quyền cá nhân.")).toBeInTheDocument();
   });
 });

@@ -51,12 +51,22 @@ class DeterministicReplies:
     profile: ActorProfile
     report: CapabilityReport
 
+    @property
+    def _me(self) -> str:
+        """What MeoBot calls itself here ("mình", "em" for the report assistant)."""
+        return self.profile.own_address
+
+    @property
+    def _me_cap(self) -> str:
+        """``_me`` at the start of a sentence."""
+        return _capital(self.profile.own_address)
+
     # --- Openers ----------------------------------------------------------
     def greeting(self) -> str:
         """The answer to "Hello" when no model is available."""
         name = self.assistant.assistant_name
         return (
-            f"Chào {self.profile.address}, mình là {name} — {self.assistant.identity} "
+            f"Chào {self.profile.address}, {self._me} là {name} — {self.assistant.identity} "
             f"Hôm nay {self.profile.address} muốn bắt đầu với công việc, kịch bản hay "
             "một ý tưởng mới?"
         )
@@ -64,19 +74,21 @@ class DeterministicReplies:
     def identity(self) -> str:
         """The answer to "Bạn là ai?"."""
         lines = [
-            f"Mình là {self.assistant.assistant_name}. {self.assistant.identity}",
-            f"Nhiệm vụ của mình: {self.assistant.mission}",
+            f"{self._me_cap} là {self.assistant.assistant_name}. {self.assistant.identity}",
+            f"Nhiệm vụ của {self._me}: {self.assistant.mission}",
         ]
         workspace = self.assistant.workspace_line()
         if workspace:
-            lines.append(f"Mình làm việc cùng {workspace}.")
+            lines.append(f"{self._me_cap} làm việc cùng {workspace}.")
         if self.assistant.operating_domains:
-            lines.append("Mảng mình bám: " + ", ".join(self.assistant.operating_domains) + ".")
+            lines.append(
+                f"Mảng {self._me} bám: " + ", ".join(self.assistant.operating_domains) + "."
+            )
         return "\n\n".join(lines)
 
     def actor(self) -> str:
         """The answer to "Bạn đang nói chuyện với ai?"."""
-        lines = [f"Mình đang nói chuyện với {self.profile.short_name}."]
+        lines = [f"{self._me_cap} đang nói chuyện với {self.profile.short_name}."]
         details = [
             ("Chức danh", self.profile.job_title),
             ("Tổ chức", self.profile.organization),
@@ -87,7 +99,7 @@ class DeterministicReplies:
         if self.profile.responsibilities:
             lines.append("Phụ trách: " + ", ".join(self.profile.responsibilities) + ".")
         lines.append(
-            f"Mình gọi {self.profile.address} là '{self.profile.address}'. "
+            f"{self._me_cap} gọi {self.profile.address} là '{self.profile.address}'. "
             "Muốn đổi thì dùng /set_preferred_address."
         )
         return "\n".join(lines)
@@ -101,7 +113,7 @@ class DeterministicReplies:
         person specifically is not allowed to ask for.
         """
         blocks: list[str] = [
-            f"Đây là những gì mình làm được với quyền {role_label(self.profile.role)} của "
+            f"Đây là những gì {self._me} làm được với quyền {role_label(self.profile.role)} của "
             f"{self.profile.address}:"
         ]
         sections = (
@@ -109,7 +121,7 @@ class DeterministicReplies:
             ("⚙️ Có thể làm sau khi cấu hình", self.report.needs_configuration),
             ("🚧 Chưa được xây dựng", self.report.not_implemented),
             (
-                f"🔒 {self.profile.address.capitalize()} không có quyền sử dụng",
+                f"🔒 {_capital(self.profile.address)} không có quyền sử dụng",
                 self.report.not_permitted,
             ),
         )
@@ -144,21 +156,22 @@ class DeterministicReplies:
         """
         if _mentions_ideas(message):
             return (
-                "Mình có thể cùng bạn tìm hướng. Đây là nội dung cho "
+                f"{self._me_cap} có thể cùng {self.profile.address} tìm hướng. Đây là nội dung cho "
                 f"{self.assistant.organization_name or 'thương hiệu'}, một kênh bác sĩ, "
                 "hay thương hiệu cá nhân?"
             )
         return (
-            f"Mình nghe rồi. Để bám đúng ý {self.profile.address}, cho mình biết đây là "
-            "việc cho kênh nào và mục tiêu là gì — mình sẽ đi thẳng vào hướng triển khai."
+            f"{self._me_cap} nghe rồi. Để bám đúng ý {self.profile.address}, cho {self._me} biết "
+            f"đây là việc cho kênh nào và mục tiêu là gì — {self._me} sẽ đi thẳng vào hướng "
+            "triển khai."
         )
 
     def clarification(self, missing: str | None) -> str:
         """One question, when a real operation is missing its target."""
         target = missing or "đối tượng cụ thể"
         return (
-            f"Mình chưa rõ {target}. Bạn nói cụ thể giúp mình nhé — mình không tự đoán "
-            "để tránh thao tác nhầm vào dữ liệu thật."
+            f"{self._me_cap} chưa rõ {target}. {_capital(self.profile.address)} nói cụ thể giúp "
+            f"{self._me} nhé — {self._me} không tự đoán để tránh thao tác nhầm vào dữ liệu thật."
         )
 
     @staticmethod
@@ -178,6 +191,11 @@ _IDEA_WORDS: tuple[str, ...] = (
     "content",
     "hướng nội dung",
 )
+
+
+def _capital(word: str) -> str:
+    """``word`` at the start of a sentence; the rest kept ("anh Tuấn" stays)."""
+    return word[:1].upper() + word[1:]
 
 
 def _mentions_ideas(message: str) -> bool:

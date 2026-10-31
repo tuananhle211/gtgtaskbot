@@ -17,6 +17,11 @@ Two further rules, both about not overwriting a person's own words:
 * The configured OWNER's job title, organisation and form of address are
   *seeded* from settings on first contact and are editable afterwards. Settings
   are defaults, not overrides.
+
+One exception to "their own words": whoever holds the report assistant
+("Trợ lý AI", 2026-10-31) is spoken to as "sếp" by an assistant saying "em",
+whatever ``/set_preferred_address`` stored - the stored value comes back once
+the permission is gone.
 """
 
 from __future__ import annotations
@@ -29,8 +34,10 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from meobot.core.config import Settings
 from meobot.core.logging import get_logger
 from meobot.db.models.actor_profile import ActorProfileRow
+from meobot.domain.assistant.reports import ASSISTANT_SELF_ADDRESS, ASSISTANT_USER_ADDRESS
 from meobot.domain.identity.models import Actor, Role
 from meobot.domain.identity.profile import ActorProfile, owner_profile_defaults
+from meobot.domain.permissions.matrix import Permission, actor_has_permission
 
 logger = get_logger(__name__)
 
@@ -96,6 +103,9 @@ class ActorProfileService:
         merged.setdefault("display_name", actor.full_name)
         if not merged.get("display_name"):
             merged["display_name"] = actor.full_name
+        if actor_has_permission(actor, Permission.ASSISTANT_REPORT):
+            merged["preferred_address"] = ASSISTANT_USER_ADDRESS
+            merged["self_address"] = ASSISTANT_SELF_ADDRESS
 
         return ActorProfile(
             telegram_user_id=actor.telegram_user_id,

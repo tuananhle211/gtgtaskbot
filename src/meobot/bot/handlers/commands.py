@@ -43,6 +43,7 @@ from meobot.core.logging import get_logger
 from meobot.db.session import Database
 from meobot.domain.identity.labels import actor_label
 from meobot.domain.identity.models import Actor, Role
+from meobot.domain.permissions.matrix import Permission, actor_has_permission
 from meobot.tools.base import ToolRegistry
 
 logger = get_logger(__name__)
@@ -276,10 +277,16 @@ async def handle_set_preferred_address(
         await formatting.answer(message, "⛔ " + formatting.escape(str(exc)))
         return
 
-    await formatting.answer(
-        message,
-        formatting.escape(f"Từ giờ mình sẽ gọi bạn là “{stored}”."),
-    )
+    if actor_has_permission(actor, Permission.ASSISTANT_REPORT):
+        # The report assistant always says "em" to "sếp"; the stored value
+        # comes back once "Trợ lý AI" is taken away.
+        reply = (
+            f"Dạ, em đã lưu “{stored}”. Trong lúc quyền Trợ lý AI còn bật, "
+            "em vẫn xưng em và gọi sếp ạ."
+        )
+    else:
+        reply = f"Từ giờ mình sẽ gọi bạn là “{stored}”."
+    await formatting.answer(message, formatting.escape(reply))
 
 
 @router.message(Command("health"))

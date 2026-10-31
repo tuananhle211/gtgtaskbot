@@ -369,7 +369,10 @@ describe("Quản lý tài khoản for the OWNER", () => {
     });
     renderWithQuery(<AccountsAdminPage />);
     await screen.findByText("Người Bị Thu Hồi");
-    await userEvent.click(within(rowOf("Người Bị Thu Hồi")).getByRole("button", { name: "Thao tác với Người Bị Thu Hồi" }));
+    // Nothing an ADMIN may do on a revoked account, so no ⋯ menu at all.
+    expect(
+      within(rowOf("Người Bị Thu Hồi")).queryByRole("button", { name: "Thao tác với Người Bị Thu Hồi" }),
+    ).not.toBeInTheDocument();
     expect(screen.queryByRole("menuitem", { name: "Khôi phục tài khoản…" })).not.toBeInTheDocument();
   });
 
@@ -379,6 +382,15 @@ describe("Quản lý tài khoản for the OWNER", () => {
     await screen.findByText("Quỳnh Như");
     await userEvent.click(within(rowOf("Quỳnh Như")).getByRole("button", { name: "Thao tác với Quỳnh Như" }));
     expect(screen.queryByRole("menuitem", { name: "Đăng nhập thay…" })).not.toBeInTheDocument();
+  });
+
+  it("hides a person's Quyền from an ADMIN viewer: the OWNER's alone (2026-10-31)", async () => {
+    stubPage("ADMIN", { ...OWNER_ME, role: "ADMIN" });
+    renderWithQuery(<AccountsAdminPage />);
+    await screen.findByText("Quỳnh Như");
+    await userEvent.click(within(rowOf("Quỳnh Như")).getByRole("button", { name: "Thao tác với Quỳnh Như" }));
+    expect(screen.queryByRole("menuitem", { name: "Quyền" })).not.toBeInTheDocument();
+    expect(screen.getByRole("menuitem", { name: "Đặt lại mật khẩu…" })).toBeInTheDocument();
   });
 });
 

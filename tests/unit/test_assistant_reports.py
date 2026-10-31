@@ -11,7 +11,9 @@ Plan: ``docs/ai-assistant/BOT_REPORT_ASSISTANT_PLAN.md``.
   is the figure in ``ToolResult.data`` and on ``/api/...``;
 * the conversation: a report question reaches its tool even when the model
   is down or names none; a figures question naming no report is asked back;
-  nobody without the grant gets a report.
+  nobody without the grant gets a report;
+* the voice: whoever holds it is "sếp" and the bot says "em", in the model's
+  turns and in every sentence written without one.
 """
 
 from __future__ import annotations
@@ -25,7 +27,9 @@ from typing import Any
 import pytest
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from meobot.application.conversation_service import ConversationService
+from meobot.application.actor_profile_service import ActorProfileService
+from meobot.application.assistant.reports import REPORT_OPENER
+from meobot.application.conversation_service import ASSISTANT_UNKNOWN_REPLY, ConversationService
 from meobot.application.org.bot_access import with_unified_access
 from meobot.bot.commands import has_full_bot
 from meobot.core.errors import LLMError
@@ -158,14 +162,18 @@ async def test_02_only_the_owner_ticks_it_and_it_opens_the_bot(world: World) -> 
     admin_actor = await with_unified_access(world.session, world.actor(admin))
     assert not admin_actor.full_bot
     assert Permission.ASSISTANT_REPORT.value not in admin_actor.extra_permissions
+    # Nor sees the page it sits on: a person's "Quyền" is the OWNER's alone.
     world.act_as(admin)
+    hidden = world.client.get(f"/api/permissions/people/{world.member.id}")
+    assert hidden.status_code == 403
+    refused = grant(world, admin, world.member)
+    assert refused.status_code == 403
+    assert error_reason(refused.json()) == "permission_forbidden"
+    assert world.client.get("/api/units/me").json()["assistant"]["chat"] is False
+    world.act_as(world.owner)
     overview = world.client.get(f"/api/permissions/people/{world.member.id}").json()
     module = next(item for item in overview["modules"] if item["module"] == "ASSISTANT")
-    assert module["label"] == "Trợ lý AI" and module["grantable"] == {}
-    refused = grant(world, admin, world.member)
-    assert refused.status_code == 422
-    assert error_reason(refused.json()) == "permission_not_grantable"
-    assert world.client.get("/api/units/me").json()["assistant"]["chat"] is False
+    assert module["label"] == "Trợ lý AI" and module["grantable"] == {"CHAT": ["ALL"]}
     # The OWNER ticks the member: the whole bot and the report tools.
     before = await with_unified_access(world.session, world.actor(world.member))
     assert not has_full_bot(before)
@@ -190,6 +198,18 @@ async def test_02_only_the_owner_ticks_it_and_it_opens_the_bot(world: World) -> 
     after = await with_unified_access(world.session, world.actor(world.member))
     assert not has_full_bot(after)
     assert Permission.ASSISTANT_REPORT.value not in after.extra_permissions
+    # The OWNER ticks it for an ADMIN too, and unticks it (the checklist's save).
+    checklist = f"/api/permissions/people/{admin.id}/grants"
+    ticked = world.client.put(
+        checklist, json={"module": "ASSISTANT", "permissions": {"CHAT": "ALL"}}
+    )
+    assert ticked.status_code == 200, ticked.json()
+    assert has_full_bot(await with_unified_access(world.session, world.actor(admin)))
+    unticked = world.client.put(
+        checklist, json={"module": "ASSISTANT", "permissions": {"CHAT": None}}
+    )
+    assert unticked.status_code == 200, unticked.json()
+    assert not has_full_bot(await with_unified_access(world.session, world.actor(admin)))
 
 
 async def test_03_the_policy_refuses_a_report_to_anybody_not_ticked(world: World) -> None:
@@ -330,3 +350,51 @@ async def test_08_nobody_else_gets_a_report(world: World) -> None:
     )
     assert not (reply.plan and reply.plan.tool_name in REPORT_TOOLS)
     assert "states" not in reply.data
+
+
+# --- the voice ------------------------------------------------------------------------
+
+
+async def test_09_the_assistant_says_em_to_sep(world: World) -> None:
+    ads = await ads_world(world)
+    create(world, ads)
+    member = await granted(world, world.member)
+    plain = await with_unified_access(world.session, world.actor(world.lead))
+    profiles = ActorProfileService(world.session, world.settings)
+    # Who holds "Trợ lý AI" is "sếp", the bot says "em"; nobody else changes.
+    mine = await profiles.profile_for(member)
+    assert (mine.address, mine.own_address) == ("sếp", "em")
+    assert "gọi người dùng là 'sếp', TasksBot xưng 'em'" in mine.render_user_block()
+    theirs = await profiles.profile_for(plain)
+    assert (theirs.address, theirs.own_address) == ("bạn", "mình")
+    # Even over a stored form of address, which comes back once it is taken away.
+    telegram_id = 880_001
+    stored = member.model_copy(update={"telegram_user_id": telegram_id})
+    await profiles.set_preferred_address(stored, "anh")
+    assert (await profiles.profile_for(stored)).address == "sếp"
+    bare = world.actor(world.member).model_copy(update={"telegram_user_id": telegram_id})
+    assert (await profiles.profile_for(bare)).address == "anh"
+    # The model is told so on a chat turn.
+    llm = FakeLLMProvider()
+    await conversation(world, llm).handle_message(
+        actor=member, message="viết giúp em một caption ngắn", request_id=uuid.uuid4()
+    )
+    told = llm.seen_chats[-1].prompt_context
+    assert "TasksBot xưng 'em'" in told and 'luôn xưng "em"' in told
+    await conversation(world, llm).handle_message(
+        actor=plain, message="viết giúp mình một caption ngắn", request_id=uuid.uuid4()
+    )
+    told = llm.seen_chats[-1].prompt_context
+    assert "TasksBot xưng 'mình'" in told and 'luôn xưng "em"' not in told
+    # The sentences written without a model speak the same way.
+    reply = await conversation(world).handle_message(
+        actor=member, message="Tình hình order hôm nay ra sao?", request_id=uuid.uuid4()
+    )
+    assert reply.text.startswith(REPORT_OPENER)
+    assert "Sếp đối chiếu trên web: https://pr.example.com/tasks?unit=ADS" in reply.text
+    assert "Sếp muốn xem mảng nào ạ?" in area_question()
+    unknown = ActionPlan(intent="unknown", risk_level=RiskLevel.LOW, requires_confirmation=False)
+    answered = await conversation(world).execute_plan(
+        actor=member, plan=unknown, request_id=uuid.uuid4()
+    )
+    assert answered.text == ASSISTANT_UNKNOWN_REPLY

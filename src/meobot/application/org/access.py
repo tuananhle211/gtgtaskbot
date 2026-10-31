@@ -131,6 +131,9 @@ class Access:
     def manages(self, module: str, target: Access) -> bool:
         """May this person grant / revoke ``module``'s permissions for ``target``?
 
+        Asked by the PR screen's scoped review grants. The personal "Quyền"
+        page is the OWNER's alone (2026-10-31, ``PersonalPermissionService``).
+
         * the OWNER: anybody;
         * an ADMIN: anybody but the OWNER;
         * ``MANAGE_PERMISSIONS: ALL``: anybody but OWNER / ADMIN and oneself;

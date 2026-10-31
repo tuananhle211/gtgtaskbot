@@ -300,12 +300,13 @@ async def test_08_only_the_owner_sets_coefficients(world: World) -> None:
         assert refused.status_code == 403
         assert refused.json()["code"] == "performance_coefficient_forbidden"
         assert get(world, user, "/api/performance/coefficients").status_code == 403
-    # Nobody but the OWNER may grant it - not even an ADMIN.
+    # Nobody but the OWNER may grant it - not even an ADMIN (whose way onto a
+    # person's "Quyền" page is closed altogether since 2026-10-31).
     by_admin = give(
         world, admin, ads.orderer, module="PERFORMANCE", permission="COEFFICIENT", scope="ALL"
     )
-    assert by_admin.status_code == 422
-    assert by_admin.json()["error"]["details"]["reason"] == "permission_not_grantable"
+    assert by_admin.status_code == 403
+    assert by_admin.json()["error"]["details"]["reason"] == "permission_forbidden"
     by_owner = give(
         world, world.owner, ads.orderer, module="PERFORMANCE", permission="COEFFICIENT", scope="ALL"
     )

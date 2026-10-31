@@ -74,13 +74,32 @@ TIMEOUT_REPLY = (
 
 #: Shown while a report is read (2026-10-31, "Trợ lý AI"), then replaced by
 #: the answer - so the person sees the assistant at work, not silence.
-THINKING_REPLY = "🤔 Đang tổng hợp số liệu…"
+THINKING_REPLY = "🤔 Dạ, em đang tổng hợp số liệu, sếp chờ em chút ạ…"
 
 #: Used only when every recovery path inside the service has already failed.
 PROVIDER_DOWN_REPLY = (
     "Mình đang gặp lỗi kết nối với mô hình AI nên chưa thể trả lời đầy đủ. "
     "Các lệnh vận hành vẫn hoạt động. Mã tham chiếu lỗi: {reference}."
 )
+
+#: The same three canned replies in the report assistant's voice: whoever holds
+#: "Trợ lý AI" is "sếp" and the bot says "em" (2026-10-31).
+ASSISTANT_TIMEOUT_REPLY = (
+    "Dạ, mô hình AI trả lời lâu hơn bình thường nên em dừng lại giữa chừng. Sếp "
+    "nhắn lại giúp em nhé — các lệnh vận hành vẫn chạy bình thường. "
+    "Mã tham chiếu lỗi: {reference}."
+)
+ASSISTANT_PROVIDER_DOWN_REPLY = (
+    "Dạ, em đang gặp lỗi kết nối với mô hình AI nên chưa trả lời đầy đủ được. "
+    "Các lệnh vận hành vẫn hoạt động. Mã tham chiếu lỗi: {reference}."
+)
+MENTION_REPLY = "Mình đây. Bạn cần mình làm gì? Gõ /help để xem danh sách nhé."
+ASSISTANT_MENTION_REPLY = "Dạ em đây. Sếp cần em làm gì ạ? Gõ /help để xem danh sách nhé."
+
+
+def _is_assistant(actor: Actor) -> bool:
+    """Whether ``actor`` holds the report assistant, so is spoken to as "sếp"."""
+    return actor_has_permission(actor, Permission.ASSISTANT_REPORT)
 
 
 def short_reference(request_id: uuid.UUID) -> str:
@@ -147,7 +166,7 @@ async def handle_free_text(
         await _release(database, settings, access)
         if MENTION_PATTERN.search(raw):
             await formatting.answer(
-                message, "Mình đây. Bạn cần mình làm gì? Gõ /help để xem danh sách nhé."
+                message, ASSISTANT_MENTION_REPLY if _is_assistant(actor) else MENTION_REPLY
             )
         return
 
@@ -167,6 +186,9 @@ async def handle_free_text(
     await formatting.send_typing(message, enabled=settings.chat_typing_indicator)
     reference = short_reference(request_id)
     thinking = await _thinking(message, actor, text)
+    assistant = _is_assistant(actor)
+    timeout_reply = ASSISTANT_TIMEOUT_REPLY if assistant else TIMEOUT_REPLY
+    down_reply = ASSISTANT_PROVIDER_DOWN_REPLY if assistant else PROVIDER_DOWN_REPLY
 
     try:
         reply = await conversation_service.handle_message(
@@ -180,7 +202,7 @@ async def handle_free_text(
         await formatting.drop(thinking)
         await _release(database, settings, access)
         await formatting.answer(
-            message, formatting.escape(TIMEOUT_REPLY.format(reference=reference))
+            message, formatting.escape(timeout_reply.format(reference=reference))
         )
         return
     except LLMError as exc:
@@ -192,9 +214,7 @@ async def handle_free_text(
         )
         await formatting.drop(thinking)
         await _release(database, settings, access)
-        await formatting.answer(
-            message, formatting.escape(PROVIDER_DOWN_REPLY.format(reference=reference))
-        )
+        await formatting.answer(message, formatting.escape(down_reply.format(reference=reference)))
         return
     except MeoBotError as exc:
         logger.warning(
@@ -211,9 +231,7 @@ async def handle_free_text(
         logger.exception("conversation_unexpected_error", extra={"request_id": str(request_id)})
         await formatting.drop(thinking)
         await _release(database, settings, access)
-        await formatting.answer(
-            message, formatting.escape(PROVIDER_DOWN_REPLY.format(reference=reference))
-        )
+        await formatting.answer(message, formatting.escape(down_reply.format(reference=reference)))
         return
 
     # Model text is escaped first and only then given the small set of tags
@@ -235,7 +253,7 @@ async def handle_free_text(
 async def _thinking(message: Message, actor: Actor, text: str) -> Message | None:
     """ "Đang tổng hợp số liệu…" for a report question from somebody who may
     ask one; ``None`` otherwise, or when Telegram would not take it."""
-    if not actor_has_permission(actor, Permission.ASSISTANT_REPORT):
+    if not _is_assistant(actor):
         return None
     if report_topic(text) is None and not asks_for_figures(text):
         return None

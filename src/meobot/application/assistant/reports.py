@@ -61,6 +61,10 @@ logger = get_logger(__name__)
 
 NO_DATA = "chưa có dữ liệu"
 
+#: The first line of every report reply: the assistant speaks as "em" to
+#: "sếp" (2026-10-31).
+REPORT_OPENER = "Dạ, em gửi sếp số liệu ạ:"
+
 #: Every marketer's numbers, as the OWNER sees them on "Phòng Ads".
 COMPANY_ADS = AdsAccess(user_id=None, view=True, view_all=True)
 
@@ -112,11 +116,13 @@ class Report:
     notes: tuple[str, ...] = field(default_factory=tuple)
 
     def message(self, base_url: str) -> str:
-        parts = [f"**{self.title}**", *self.lines]
+        """The reply, in the assistant's voice ("em" to "sếp"); the figures are
+        the lines as written, nothing added between them."""
+        parts = [REPORT_OPENER, f"**{self.title}**", *self.lines]
         parts.extend(f"_{note}_" for note in self.notes)
         if self.link:
             base = base_url.strip().rstrip("/")
-            parts.append(f"Đối chiếu trên web: {base}{self.link}" if base else self.link)
+            parts.append(f"Sếp đối chiếu trên web: {base}{self.link}" if base else self.link)
         return "\n".join(parts)
 
 
@@ -734,7 +740,7 @@ class AssistantReportService:
             line = (
                 f'- Có {len(names)} {kind} khớp "{asked}": '
                 + ", ".join(names[:10])
-                + (". Bạn nói rõ tên đầy đủ giúp mình.")
+                + ". Sếp nói rõ tên đầy đủ giúp em ạ."
             )
         return Report(
             title=title,

@@ -1,21 +1,19 @@
 """The personal layer (0066): grants to one person, and the page that shows
 everything a person holds.
 
-Who may give a permission to whom is :meth:`~meobot.application.org.access.Access.manages`:
-the OWNER anybody, an ADMIN anybody but the OWNER, and whoever holds
-``MANAGE_PERMISSIONS`` in the module - ``ALL`` for anybody below OWNER /
-ADMIN, ``OWN`` for the members of the departments they head. Two more
-rules keep delegation from becoming escalation:
-
-* nobody grants ``MANAGE_PERMISSIONS`` itself through this layer (the OWNER
-  sets it on "Phòng ban");
-* a granter below OWNER / ADMIN gives only what they hold themselves, with
-  a scope no wider than their own.
+**The OWNER's alone (2026-10-31)**: only the OWNER reads a person's page and
+grants or revokes on it - an ADMIN, a head holding ``MANAGE_PERMISSIONS``
+and the person themselves are refused (403 ``permission_forbidden``) and the
+screens hide the way in. An ADMIN still holds every permission by role but
+the OWNER-only ones (``ModuleSpec.owner_only``: "Trợ lý AI", "Hệ số điểm"),
+which the OWNER ticks for them or takes back like for anybody else. Nobody
+grants ``MANAGE_PERMISSIONS`` through this layer (the OWNER sets it on
+"Phòng ban").
 
 The PR module's three review gates are not granted here: they carry a
 content-type and channel scope and go through the PR capability service
-(``/api/pr/members/.../capabilities``), which asks the same
-:meth:`~meobot.application.org.access.Access.manages` question.
+(``/api/pr/members/.../capabilities``), which still asks
+:meth:`~meobot.application.org.access.Access.manages` (the PR head included).
 """
 
 from __future__ import annotations
@@ -74,6 +72,9 @@ class EffectiveRow:
     #: A PR review gate: the scoped grants behind it.
     gate_grants: tuple[PrCapabilityGrant, ...] = ()
     personal_only: bool = False
+    #: Held by the system role itself - the OWNER everything, an ADMIN all
+    #: but the OWNER-only permissions - so not ticked off on the page.
+    by_role: bool = False
 
 
 @dataclass(frozen=True, slots=True)
@@ -81,7 +82,8 @@ class ModuleOverview:
     module: str
     label: str
     rows: tuple[EffectiveRow, ...]
-    #: The viewer may grant / revoke this module's permissions for this person.
+    #: The viewer may grant / revoke this module's permissions for this person
+    #: (the page is the OWNER's alone, so always true once it is read).
     can_manage: bool
     #: What the viewer may grant here: ``permission -> scopes``.
     grantable: dict[str, list[str]]
@@ -109,16 +111,17 @@ class PersonalPermissionService:
             raise NotFoundError("Không tìm thấy.", details={"reason": "account_not_found"})
         return user
 
+    async def _owner(self, actor: Actor) -> None:
+        """The page and its writes are the OWNER's alone."""
+        if not (await self._cache.for_actor(actor)).is_owner:
+            raise PermissionForbiddenError("Chỉ chủ sở hữu xem và sửa được phân quyền cá nhân.")
+
     async def overview(self, *, actor: Actor, user_id: uuid.UUID) -> PersonOverview:
         """Everything one person holds, module by module, with its sources -
-        for the person's "Quyền" page. Readable by whoever may manage any
-        module for them, by the OWNER / ADMIN, and by the person themselves."""
+        for the person's "Quyền" page. The OWNER's alone."""
+        await self._owner(actor)
         user = await self._user(user_id)
-        mine = await self._cache.for_actor(actor)
         theirs = await self._cache.for_user(user.id, user.role)
-        manageable = {module: mine.manages(module, theirs) for module in MODULES}
-        if not (mine.sees_all or any(manageable.values()) or actor.user_id == user.id):
-            raise PermissionForbiddenError("Bạn không được xem quyền của người này.")
         subject = Actor(user_id=user.id, full_name=user.full_name, role=user.role)
         gates: dict[PrCapability, list[PrCapabilityGrant]] = {}
         for grant in await self._pr.approval_grants_for(subject):
@@ -136,6 +139,7 @@ class PersonalPermissionService:
                     scope = "ALL" if theirs.sees_all else ("SCOPED" if gate_grants else "NONE")
                 else:
                     scope = theirs.scope(spec.module, key)
+                by_role = theirs.is_owner or (theirs.is_admin and key not in spec.owner_only)
                 rows.append(
                     EffectiveRow(
                         module=spec.module,
@@ -145,6 +149,7 @@ class PersonalPermissionService:
                         sources=sources,
                         gate_grants=gate_grants,
                         personal_only=key in spec.personal_only,
+                        by_role=by_role,
                     )
                 )
             modules.append(
@@ -152,8 +157,8 @@ class PersonalPermissionService:
                     module=spec.module,
                     label=spec.label,
                     rows=tuple(rows),
-                    can_manage=manageable[spec.module],
-                    grantable=self._grantable(mine, spec) if manageable[spec.module] else {},
+                    can_manage=True,
+                    grantable=self._grantable(spec),
                 )
             )
         departments = (
@@ -183,25 +188,14 @@ class PersonalPermissionService:
         )
 
     @staticmethod
-    def _grantable(mine: Access, spec: ModuleSpec) -> dict[str, list[str]]:
-        """What this granter may give in a module: everything (OWNER /
-        ADMIN), else what they hold themselves, no wider than they hold it."""
-        found: dict[str, list[str]] = {}
-        for key in spec.permission_keys():
-            if key == CommonPermission.MANAGE_PERMISSIONS.value or key in spec.personal_only:
-                continue
-            if key in spec.owner_only and not mine.is_owner:
-                continue
-            allowed = [scope for scope in ("OWN", "ALL") if scope in spec.allowed(key)]
-            if mine.sees_all:
-                found[key] = allowed
-                continue
-            held = mine.scope(spec.module, key)
-            if held == "ALL":
-                found[key] = allowed
-            elif held == "OWN" and "OWN" in allowed:
-                found[key] = ["OWN"]
-        return found
+    def _grantable(spec: ModuleSpec) -> dict[str, list[str]]:
+        """What the OWNER may give in a module: every permission with the
+        scopes it takes, but ``MANAGE_PERMISSIONS`` and the PR review gates."""
+        return {
+            key: [scope for scope in ("OWN", "ALL") if scope in spec.allowed(key)]
+            for key in spec.permission_keys()
+            if key != CommonPermission.MANAGE_PERMISSIONS.value and key not in spec.personal_only
+        }
 
     async def grant(
         self,
@@ -215,6 +209,7 @@ class PersonalPermissionService:
         note: str | None = None,
         effective_to: date | None = None,
     ) -> UserPermission:
+        await self._owner(actor)
         user = await self._user(user_id)
         if module not in MODULES:
             raise PermissionValidationError(
@@ -235,14 +230,10 @@ class PersonalPermissionService:
                 "ở màn Thành viên & Phân quyền (PR).",
                 details={"reason": "permission_use_pr_grant", "field": "permission"},
             )
-        mine = await self._cache.for_actor(actor)
-        theirs = await self._cache.for_user(user.id, user.role)
-        if not mine.manages(module, theirs):
-            raise PermissionForbiddenError()
-        grantable = self._grantable(mine, spec)
+        grantable = self._grantable(spec)
         if key not in grantable or scope not in grantable[key]:
             raise PermissionValidationError(
-                "Bạn chỉ cấp được quyền mình đang có, không rộng hơn phạm vi của mình.",
+                "Quyền này không cấp riêng được với phạm vi đó.",
                 details={"reason": "permission_not_grantable", "field": "permission"},
             )
         if effective_to is not None and effective_to < utcnow().date():
@@ -299,6 +290,7 @@ class PersonalPermissionService:
         hold personally with that scope is granted; a personal grant that is
         no longer ticked (or ticked with another scope) is revoked. What a
         seat gives is never touched here. Returns the personal grants left."""
+        await self._owner(actor)
         user = await self._user(user_id)
         if module not in MODULES:
             raise PermissionValidationError(
@@ -338,20 +330,13 @@ class PersonalPermissionService:
     async def revoke(
         self, *, actor: Actor, request_id: uuid.UUID, grant_id: uuid.UUID
     ) -> UserPermission:
+        await self._owner(actor)
         row = await self._session.get(UserPermission, grant_id)
         if row is None or row.revoked_at is not None:
             raise NotFoundError(
                 "Không tìm thấy quyền này.", details={"reason": "permission_not_found"}
             )
         user = await self._user(row.user_id)
-        mine = await self._cache.for_actor(actor)
-        theirs = await self._cache.for_user(user.id, user.role)
-        if not mine.manages(row.module, theirs):
-            raise PermissionForbiddenError()
-        spec = MODULES.get(row.module)
-        if spec is not None and row.permission in spec.owner_only and not mine.is_owner:
-            # Granted by the OWNER alone, so taken back by the OWNER alone.
-            raise PermissionForbiddenError()
         row.revoked_at = utcnow()
         row.revoked_by_user_id = actor.user_id
         await self._session.flush()
