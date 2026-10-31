@@ -1,8 +1,8 @@
 """The modules whose permissions departments (and personal grants) hold, in one table.
 
-Three modules declare their permission vocabulary here - the order flow, the
-PR module and the resources module - and every layer of authorization reads
-this table alone:
+The modules declare their permission vocabulary here - the order flow, the
+PR module, the resources module, the points reports and the report assistant
+on Telegram - and every layer of authorization reads this table alone:
 
 * the **department** layer: ``department_permissions`` (module x permission x
   position -> scope), edited on "Phòng ban";
@@ -29,6 +29,13 @@ from enum import StrEnum
 from types import MappingProxyType
 from typing import Any
 
+from meobot.domain.assistant.reports import (
+    ASSISTANT_OWNER_ONLY,
+    ASSISTANT_PERMISSION_LABELS,
+    MODULE_ASSISTANT,
+    AssistantPermission,
+    assistant_allowed_scopes,
+)
 from meobot.domain.identity.models import Role
 from meobot.domain.orders.permissions import (
     OWN_MEANING,
@@ -99,6 +106,8 @@ class ModuleSpec:
     scope_labels: Mapping[Any, Mapping[str, str]] = field(default_factory=dict)
     #: Permissions the OWNER alone holds by role (not an ADMIN) and grants.
     owner_only: frozenset[str] = frozenset()
+    #: False: granted per person only - no department cell, not on "Phòng ban".
+    department_cells: bool = True
 
     def permission(self, key: str) -> str:
         """The permission named ``key`` (the module's own, or a common one);
@@ -136,7 +145,9 @@ class ModuleSpec:
         return [item.value for item in self.permissions] + [item.value for item in CommonPermission]
 
     def department_keys(self) -> list[str]:
-        """The permissions a department cell may hold."""
+        """The permissions a department cell may hold (none in a per-person module)."""
+        if not self.department_cells:
+            return []
         return [key for key in self.permission_keys() if key not in self.personal_only]
 
     def default_grants(self, function: DepartmentFunction) -> dict[Position, dict[str, str]]:
@@ -208,6 +219,16 @@ MODULES: Mapping[str, ModuleSpec] = MappingProxyType(
             scope_labels=PERFORMANCE_SCOPE_LABELS,
             defaults=default_performance_grants,
             owner_only=PERFORMANCE_OWNER_ONLY,
+        ),
+        MODULE_ASSISTANT: ModuleSpec(
+            module=MODULE_ASSISTANT,
+            label="Trợ lý AI",
+            permissions=AssistantPermission,
+            labels=ASSISTANT_PERMISSION_LABELS,
+            own_meaning=MappingProxyType({}),
+            scopes=assistant_allowed_scopes,
+            owner_only=ASSISTANT_OWNER_ONLY,
+            department_cells=False,
         ),
     }
 )

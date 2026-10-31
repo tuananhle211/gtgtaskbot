@@ -172,6 +172,9 @@ class TaskActionResponse(_Out):
     task_codes: list[DesignCodeItemResponse] | None = None
     #: ORD (0074): the link handed in last (to send a hand-in again as it was).
     link_default: str | None = None
+    #: PR (2026-10-31): why the button is greyed out (no task codes for the
+    #: phase being left).
+    blocked: str | None = None
 
 
 class TaskCodesPersonResponse(_Out):

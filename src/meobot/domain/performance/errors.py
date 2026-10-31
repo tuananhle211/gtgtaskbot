@@ -78,6 +78,15 @@ class PrPointsInvalidError(ValidationError):
         super().__init__(message, details={"reason": reason})
 
 
+class PrTaskCodesRequiredError(ValidationError):
+    """2026-10-31: a PR piece may not leave a phase that has no task codes."""
+
+    code = "pr_task_codes_required"
+
+    def __init__(self, message: str, *, stage: str) -> None:
+        super().__init__(message, details={"reason": "pr_task_codes_required", "stage": stage})
+
+
 class PrPointsNotFoundError(NotFoundError):
     code = "pr_points_not_found"
 
@@ -106,4 +115,5 @@ __all__ = [
     "PrPointsForbiddenError",
     "PrPointsInvalidError",
     "PrPointsNotFoundError",
+    "PrTaskCodesRequiredError",
 ]

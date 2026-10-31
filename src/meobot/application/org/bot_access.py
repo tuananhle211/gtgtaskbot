@@ -6,6 +6,10 @@ the PR team, so the head of PR Thương Hiệu gets the whole bot, and every
 tool whose permission a PR capability is built on opens for whoever holds
 that capability through their seat or a personal grant. The system half -
 ``user.manage`` and its kin - never comes this way.
+
+Since 2026-10-31 the OWNER may also tick somebody for the report assistant
+("Trợ lý AI", module ``ASSISTANT``): they get the whole bot and the report
+tools (``assistant.report``), company-wide.
 """
 
 from __future__ import annotations
@@ -13,6 +17,7 @@ from __future__ import annotations
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from meobot.application.org.access import load_access
+from meobot.domain.assistant.reports import MODULE_ASSISTANT, AssistantPermission
 from meobot.domain.identity.models import Actor
 from meobot.domain.org.models import MODULE_PR, DepartmentFunction
 from meobot.domain.permissions.matrix import Permission
@@ -36,10 +41,16 @@ async def with_unified_access(session: AsyncSession, actor: Actor) -> Actor:
         if access.allows(MODULE_PR, capability.value)
         and baseline_permission(capability) not in SYSTEM_PERMISSIONS
     }
+    # 2026-10-31: whoever the OWNER ticked for "Trợ lý AI" chats with the
+    # assistant and asks its report tools, company-wide.
+    assistant = access.allows(MODULE_ASSISTANT, AssistantPermission.CHAT.value)
+    if assistant:
+        extra.add(Permission.ASSISTANT_REPORT.value)
     return actor.model_copy(
         update={
-            # The OWNER, and the PR head. An ADMIN keeps the basic bot, as before.
-            "full_bot": access.is_owner or access.heads(DepartmentFunction.PR),
+            # The OWNER, the PR head and the report assistant's people. An
+            # ADMIN keeps the basic bot, as before.
+            "full_bot": access.is_owner or access.heads(DepartmentFunction.PR) or assistant,
             "extra_permissions": frozenset(extra),
         }
     )

@@ -1038,7 +1038,7 @@ class DepartmentService:
 
     @staticmethod
     def _module(module: str) -> Any:
-        if module not in MODULES:
+        if module not in MODULES or not MODULES[module].department_cells:
             raise DepartmentValidationError(
                 f"Không có module phân quyền {module!r}.",
                 details={"reason": "department_module_invalid", "field": "module"},

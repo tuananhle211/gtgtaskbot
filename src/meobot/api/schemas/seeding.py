@@ -8,6 +8,7 @@ from datetime import date, datetime
 from pydantic import BaseModel, Field
 
 from meobot.application.seeding.service import (
+    Awaiting,
     LineResult,
     MemberFigures,
     OtherView,
@@ -21,24 +22,51 @@ from meobot.domain.performance.work_points import PHONE_POINTS
 
 
 class SeedingAccessResponse(BaseModel):
-    #: In the seeding group: sees the menu, hands numbers in.
+    #: In the seeding group: sees everything on the menu but the decisions.
     member: bool = False
     #: A Trưởng phòng PR / the OWNER / an ADMIN: people, KPI, decisions.
     manage: bool = False
+    #: 2026-10-31: may hand numbers / other work in (anybody seated in PR).
+    submit: bool = False
+    #: The KPI page and the group's people (the group and the managers).
+    sees_kpi: bool = False
+    #: What waits for a decision ("Duyệt (N)"), for the managers.
+    awaiting_phones: int = 0
+    awaiting_other: int = 0
+    awaiting: int = 0
+    phone_points: int = PHONE_POINTS
 
     @classmethod
-    def from_access(cls, access: SeedingAccess) -> SeedingAccessResponse:
-        return cls(member=access.member, manage=access.manage)
+    def from_access(
+        cls, access: SeedingAccess, awaiting: Awaiting | None = None
+    ) -> SeedingAccessResponse:
+        waiting = awaiting or Awaiting()
+        return cls(
+            member=access.member,
+            manage=access.manage,
+            submit=access.sees,
+            sees_kpi=access.sees_kpi,
+            awaiting_phones=waiting.phones,
+            awaiting_other=waiting.other,
+            awaiting=waiting.total,
+        )
 
 
 class SeedingPersonResponse(BaseModel):
     user_id: uuid.UUID
     name: str
     departments: list[str]
+    #: In the seeding group (the "Seeding" tag).
+    seeding: bool = False
 
     @classmethod
     def from_domain(cls, person: Person) -> SeedingPersonResponse:
-        return cls(user_id=person.user_id, name=person.name, departments=list(person.departments))
+        return cls(
+            user_id=person.user_id,
+            name=person.name,
+            departments=list(person.departments),
+            seeding=person.seeding,
+        )
 
 
 class SeedingPeriodResponse(BaseModel):
@@ -201,6 +229,7 @@ class SeedingOtherResponse(BaseModel):
 class SeedingDecisionRequest(BaseModel):
     ids: list[uuid.UUID] = Field(max_length=1000)
     approve: bool
+    #: Required to refuse (2026-10-31): the reason the person reads.
     note: str | None = Field(default=None, max_length=1000)
 
 

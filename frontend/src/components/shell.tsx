@@ -270,12 +270,22 @@ const PR_GROUP: NavGroup = {
   ],
 };
 
-/** "Phòng PR", with "Seeding" (0085) for the seeding group and the Trưởng phòng PR. */
+/**
+ * "Phòng PR", with "Báo cáo công việc/Seeding" (0085) for the seeding group,
+ * the Trưởng phòng PR and - since 2026-10-31 - everybody seated in PR
+ * (`submit`), its badge = what waits for the Trưởng phòng.
+ */
 function prBranch(me: UnitsMe | undefined): NavGroup {
-  const seeding = Boolean(me?.seeding?.member || me?.seeding?.manage);
-  return seeding
-    ? { ...PR_GROUP, children: [...PR_GROUP.children, { href: "/seeding", label: "Seeding", icon: "people" }] }
-    : PR_GROUP;
+  const access = me?.seeding;
+  const seeding = Boolean(access?.member || access?.manage || access?.submit);
+  if (!seeding) return PR_GROUP;
+  const item: NavItem = {
+    href: "/seeding",
+    label: "Báo cáo công việc/Seeding",
+    icon: "people",
+    badge: access?.manage ? access.awaiting || undefined : undefined,
+  };
+  return { ...PR_GROUP, children: [...PR_GROUP.children, item] };
 }
 
 /**

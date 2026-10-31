@@ -72,6 +72,11 @@ class Permission(StrEnum):
     # Analytics & reporting
     METRICS_READ = "metrics.read"
     REPORT_GENERATE = "report.generate"
+    #: The report assistant's tools ("Trợ lý AI", 2026-10-31): every report,
+    #: company-wide. The OWNER's by role; anybody else only through the
+    #: personal grant ``ASSISTANT CHAT`` (``Actor.extra_permissions``), which
+    #: the OWNER alone gives - never an ADMIN's by role.
+    ASSISTANT_REPORT = "assistant.report"
 
     # HR
     HR_REQUEST_LEAVE = "hr.request_leave"

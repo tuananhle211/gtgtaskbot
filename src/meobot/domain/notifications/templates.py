@@ -733,6 +733,16 @@ TEMPLATES: dict[str, MessageTemplate] = {
             optional=("note",),
             renderer=_order_update,
         ),
+        # --- Points to approve (2026-10-31) -------------------------------
+        # PERSONAL_PRIVATE: names who handed what in. Same neutral shape.
+        MessageTemplate(
+            key="performance.review",
+            version=1,
+            classification=PrivacyClassification.PERSONAL_PRIVATE,
+            required=("heading", "title", "code", "body", "link"),
+            optional=("note",),
+            renderer=_order_update,
+        ),
         # --- Account (0046) ---------------------------------------------
         # A credential: only ever the owner's private chat, and the outbox
         # blanks it once the row is settled.

@@ -10,7 +10,13 @@ from typing import Annotated
 from fastapi import APIRouter, Depends, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from meobot.api.deps import CurrentActorDep, RequestIdDep, UnitMembershipDep, get_session
+from meobot.api.deps import (
+    CurrentActorDep,
+    RequestIdDep,
+    UnitMembershipDep,
+    get_app_settings,
+    get_session,
+)
 from meobot.api.schemas.pr_points import (
     PrCatalogResponse,
     PrClaimRequest,
@@ -21,17 +27,21 @@ from meobot.api.schemas.pr_points import (
 from meobot.api.schemas.units import DesignCodeResponse, TaskFormResponse
 from meobot.application.audit_service import AuditService
 from meobot.application.performance.pr_points import PrPointService, in_pr
+from meobot.application.performance.review_notifications import ReviewNotifier
 from meobot.application.units.directory import UnitDirectoryService
+from meobot.core.config import Settings
 from meobot.domain.performance.errors import PrPointsForbiddenError
 from meobot.domain.units.models import UnitCode
 
 router = APIRouter(prefix="/api/performance/pr", tags=["performance"])
 
 SessionDep = Annotated[AsyncSession, Depends(get_session)]
+SettingsDep = Annotated[Settings, Depends(get_app_settings)]
 
 
-def _service(session: AsyncSession) -> PrPointService:
-    return PrPointService(session, AuditService(session))
+def _service(session: AsyncSession, settings: Settings | None = None) -> PrPointService:
+    notifier = ReviewNotifier(session, settings) if settings is not None else None
+    return PrPointService(session, AuditService(session), notifier=notifier)
 
 
 @router.get("/catalog", response_model=PrCatalogResponse)
@@ -66,11 +76,13 @@ async def submit_claim(
     membership: UnitMembershipDep,
     actor: CurrentActorDep,
     request_id: RequestIdDep,
+    app_settings: SettingsDep,
 ) -> PrClaimResponse:
     """One's own codes for one stage (sent again after a refusal). 422
     ``pr_points_not_open`` / ``pr_points_codes_required`` / the catalogue's
-    ``design_code_invalid`` …, 403 ``pr_points_forbidden``, 409 ``pr_claim_decided``."""
-    view = await _service(session).submit(
+    ``design_code_invalid`` …, 403 ``pr_points_forbidden``, 409 ``pr_claim_decided``.
+    The Trưởng phòng PR is told (2026-10-31)."""
+    view = await _service(session, app_settings).submit(
         actor=actor,
         membership=membership,
         request_id=request_id,

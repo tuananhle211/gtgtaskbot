@@ -72,6 +72,9 @@ export function notificationHref(item: AppNotification): string | null {
   if (item.target_kind === "resource_request" && item.target_id) {
     return `/resources/requests/${item.target_id}`;
   }
+  // 2026-10-31: what waits for the Trưởng phòng PR.
+  if (item.target_kind === "seeding") return "/seeding?tab=review";
+  if (item.target_kind === "pr_claim") return "/performance/pr-claims";
   return null;
 }
 

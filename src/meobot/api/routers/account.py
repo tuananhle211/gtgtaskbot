@@ -55,6 +55,7 @@ from meobot.application.resources.access import resource_access
 from meobot.application.resources.employment import (
     set_employment_status as set_employment_status_of,
 )
+from meobot.application.seeding.service import seeding_member_ids
 from meobot.application.user_service import UserService
 from meobot.domain.account.errors import PasswordRejectedError
 from meobot.domain.resources.models import EMPLOYMENT_STATUS_LABELS
@@ -240,6 +241,7 @@ async def members(
     membership: UnitMembershipDep,
     accounts: AccountServiceDep,
     settings: SettingsDep,
+    session: SessionDep,
     month: str | None = Query(default=None, max_length=7),
     unit: str | None = Query(default=None, max_length=10),
     include_inactive: bool = Query(default=False),
@@ -261,9 +263,13 @@ async def members(
         include_inactive=include_inactive,
         team=(team or "").strip().lower() == "mine",
     )
+    group = await seeding_member_ids(session)
     return MemberListResponse(
         month=listing.month.label,
-        members=[MemberRowResponse.from_view(view) for view in listing.members],
+        members=[
+            MemberRowResponse.from_view(view).model_copy(update={"seeding": view.user.id in group})
+            for view in listing.members
+        ],
         has_team=listing.has_team,
         can_view_all=listing.can_view_all,
         team=listing.team,

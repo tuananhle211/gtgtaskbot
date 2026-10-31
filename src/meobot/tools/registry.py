@@ -23,6 +23,7 @@ from meobot.tools.pr_admin_tools import build_pr_admin_tools
 from meobot.tools.pr_content_tools import build_pr_content_tools
 from meobot.tools.pr_review_tools import build_pr_review_tools
 from meobot.tools.pr_task_tools import build_pr_task_tools
+from meobot.tools.report_tools import build_report_tools
 from meobot.tools.script_tools import build_script_tools
 from meobot.tools.script_type_tools import build_script_type_tools
 from meobot.tools.sheet_tools import build_sheet_tools
@@ -60,6 +61,9 @@ def build_default_registry(
         *build_sheet_tools(sheets=resolved_sheets),
         *build_script_tools(llm=llm or FakeLLMProvider()),
         *build_invite_tools(),
+        # The report assistant ("Trợ lý AI", 2026-10-31): read-only, every
+        # report company-wide, for the OWNER and whoever the OWNER ticked.
+        *build_report_tools(),
         *build_drive_tools(
             drive=drive or NotConfiguredDriveClient(),
             sheets=resolved_sheets,

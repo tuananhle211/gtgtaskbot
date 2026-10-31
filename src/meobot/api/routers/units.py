@@ -28,6 +28,7 @@ from meobot.api.schemas.resources import ResourceAccessResponse
 from meobot.api.schemas.seeding import SeedingAccessResponse
 from meobot.api.schemas.units import (
     AdsAccessResponse,
+    AssistantAccessResponse,
     BanStatsResponse,
     CreateDesignCodeRequest,
     CreateDurationRequest,
@@ -71,6 +72,7 @@ from meobot.api.schemas.units import (
 )
 from meobot.application.account.avatar_service import avatar_urls
 from meobot.application.ads.access import ads_access
+from meobot.application.assistant.access import may_chat_assistant
 from meobot.application.audit_service import AuditService
 from meobot.application.orders.design_code_service import (
     DesignCodeService,
@@ -94,7 +96,11 @@ from meobot.application.performance.pr_points import reviews_pr
 from meobot.application.resources.access import resource_access
 from meobot.application.resources.requests import ResourceRequestService
 from meobot.application.resources.service import ResourceService
-from meobot.application.seeding.service import seeding_access
+from meobot.application.seeding.service import (
+    seeding_access,
+    seeding_awaiting,
+    seeding_member_ids,
+)
 from meobot.application.units.admin import ROLES_BY_UNIT, UnitAdminService
 from meobot.application.units.directory import NOT_VISIBLE, UnitDirectoryService
 from meobot.core.errors import ValidationError
@@ -277,11 +283,18 @@ async def my_units(
             manage_coefficients=may_set_coefficients(membership),
             review_pr=reviews_pr(membership),
         ),
-        seeding=SeedingAccessResponse.from_access(
-            await seeding_access(directory.session, membership)
-        ),
+        seeding=await _seeding_block(directory.session, membership),
         ads=_ads_block(membership),
+        assistant=AssistantAccessResponse(chat=may_chat_assistant(membership)),
     )
+
+
+async def _seeding_block(
+    session: AsyncSession, membership: UnitMembership
+) -> SeedingAccessResponse:
+    """The "Báo cáo công việc/Seeding" menu, with its "Duyệt" count."""
+    access = await seeding_access(session, membership)
+    return SeedingAccessResponse.from_access(access, await seeding_awaiting(session, access))
 
 
 def _ads_block(membership: UnitMembership) -> AdsAccessResponse:
@@ -373,12 +386,15 @@ async def unit_members(
     ids = [row.user.id for row in rows]
     avatars = await avatar_urls(session, ids)
     seats = await load_seats(session, ids)
+    group = await seeding_member_ids(session)
     return UnitMemberListResponse(
         unit=unit_code.value,
         unit_label=unit_label(unit_code),
         unit_short_label=unit_short_label(unit_code),
         members=[
-            UnitMemberResponse.from_row(row, avatars.get(row.user.id), seats.get(row.user.id, ()))
+            UnitMemberResponse.from_row(
+                row, avatars.get(row.user.id), seats.get(row.user.id, ())
+            ).model_copy(update={"seeding": row.user.id in group})
             for row in rows
         ],
         assignable_roles=_roles_for(unit_code),

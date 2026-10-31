@@ -20,7 +20,7 @@ import {
 import { Empty, ErrorBox, Loading, Pill } from "@/components/states";
 import { PrimaryButton, SecondaryButton, Select } from "@/components/pr";
 import { ConfirmButton } from "@/components/confirm";
-import { DepartmentTags } from "@/components/department-tags";
+import { DepartmentTags, SeedingTag } from "@/components/department-tags";
 import { taggableUnits } from "@/lib/units";
 import {
   changeRoleConfirmation,
@@ -116,10 +116,21 @@ export function usePrRoster() {
       ),
     [stream.data],
   );
+  // 2026-10-31: who is in the seeding group - a "Seeding" tag on the card.
+  const seeding = useMemo(
+    () =>
+      new Set(
+        (stream.data?.members ?? [])
+          .filter((member) => member.seeding)
+          .map((member) => member.user_id),
+      ),
+    [stream.data],
+  );
   return {
     data,
     outsiders,
     seatsOf,
+    seeding,
     /** Who holds an open PR tag, once known. */
     prIds: stream.data ? new Set(stream.data.members.map((member) => member.user_id)) : null,
     isPending: roster.isPending || stream.isPending,
@@ -250,6 +261,7 @@ export function MembersTab() {
               member={row}
               roster={data}
               seats={roster.seatsOf.get(row.user_id) ?? []}
+              seeding={roster.seeding.has(row.user_id)}
             />
           ))}
         </ul>
@@ -496,11 +508,14 @@ function MemberCard({
   member,
   roster,
   seats,
+  seeding = false,
 }: {
   member: Member;
   roster: MemberList;
   /** The person's seats ("Phòng ban"), ★ for a department they head. */
   seats: MemberSeat[];
+  /** In the PR seeding group (the "Seeding" tag). */
+  seeding?: boolean;
 }) {
   const invalidate = useInvalidateMembership();
   const [panel, setPanel] = useState<Panel>(null);
@@ -532,6 +547,7 @@ function MemberCard({
           <p className="flex flex-wrap items-center gap-2 font-medium">
             <span className="truncate">{member.full_name || "(chưa có tên)"}</span>
             <DepartmentTags seats={seats} empty={null} />
+            {seeding ? <SeedingTag /> : null}
           </p>
           <p className="mt-1 flex flex-wrap gap-1.5">
             <Pill tone="neutral">{member.role_label}</Pill>

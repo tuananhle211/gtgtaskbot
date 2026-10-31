@@ -348,6 +348,10 @@ class PersonalPermissionService:
         theirs = await self._cache.for_user(user.id, user.role)
         if not mine.manages(row.module, theirs):
             raise PermissionForbiddenError()
+        spec = MODULES.get(row.module)
+        if spec is not None and row.permission in spec.owner_only and not mine.is_owner:
+            # Granted by the OWNER alone, so taken back by the OWNER alone.
+            raise PermissionForbiddenError()
         row.revoked_at = utcnow()
         row.revoked_by_user_id = actor.user_id
         await self._session.flush()

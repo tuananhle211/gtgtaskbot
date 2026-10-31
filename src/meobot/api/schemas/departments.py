@@ -161,7 +161,7 @@ class CatalogResponse(BaseModel):
 
     @classmethod
     def build(cls) -> CatalogResponse:
-        modules = [ModuleEntry.build(spec) for spec in MODULES.values()]
+        modules = [ModuleEntry.build(spec) for spec in MODULES.values() if spec.department_cells]
         order = next(entry for entry in modules if entry.module == MODULE_ORDER)
         return cls(
             module=order.module,

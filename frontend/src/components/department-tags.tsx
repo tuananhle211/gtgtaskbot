@@ -40,6 +40,16 @@ export function DepartmentTags({
   );
 }
 
+/** 2026-10-31: the PR seeding group's member wears a "Seeding" tag beside
+ * their departments. */
+export function SeedingTag() {
+  return (
+    <span className="dept-tag" data-kind="seeding" title="Thành viên nhóm Seeding">
+      Seeding
+    </span>
+  );
+}
+
 /** One chip: "<tên phòng>", plus ★ ("Trưởng phòng") for the head. */
 export function DepartmentTag({ seat }: { seat: SeatChip }) {
   const head = isHeadSeat(seat);

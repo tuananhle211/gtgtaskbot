@@ -181,6 +181,29 @@ async def _send_one(
         logger.exception("telegram_plain_send_failed", extra={"length": len(text)})
 
 
+async def replace_or_answer(placeholder: Message | None, message: Message, text: str) -> None:
+    """Put ``text`` (HTML) where ``placeholder`` stood - "Đang tổng hợp số
+    liệu…" becoming the answer - or, when it cannot be edited in place (no
+    placeholder, a reply longer than one message, Telegram refusing), drop
+    the placeholder and answer as usual. Never raises for a formatting
+    problem, like :func:`answer`."""
+    if placeholder is not None and len(split_message(text)) == 1:
+        try:
+            await placeholder.edit_text(text, parse_mode=PARSE_MODE, disable_web_page_preview=True)
+            return
+        except Exception as exc:
+            logger.info("placeholder_edit_failed", extra={"error": type(exc).__name__})
+    await drop(placeholder)
+    await answer(message, text)
+
+
+async def drop(placeholder: Message | None) -> None:
+    """Delete a placeholder message, if there is one; never raises."""
+    if placeholder is not None:
+        with contextlib.suppress(Exception):
+            await placeholder.delete()
+
+
 async def answer_callback(
     query: CallbackQuery,
     text: str,

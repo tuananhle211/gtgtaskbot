@@ -248,6 +248,12 @@ class NotificationEvent(StrEnum):
     RESOURCE_REQUEST_CANCELLED = "resource_request_cancelled"
     #: The requester confirmed receipt: to the Phòng Tài nguyên, the ticket is closed.
     RESOURCE_REQUEST_COMPLETED = "resource_request_completed"
+    # --- Points to approve (2026-10-31) ----------------------------------
+    #: A PR piece's task codes wait for a Trưởng phòng PR.
+    PR_POINTS_REVIEW_REQUESTED = "pr_points_review_requested"
+    #: Phone numbers / "việc khác" handed in on "Báo cáo công việc/Seeding"
+    #: wait for a Trưởng phòng PR.
+    SEEDING_REVIEW_REQUESTED = "seeding_review_requested"
     #: A Guest's held-back first question, answered after approval.
     GUEST_REPLY = "guest_reply"
     #: One firing of a user-defined reminder.

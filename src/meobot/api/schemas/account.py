@@ -327,6 +327,8 @@ class MemberRowResponse(BaseModel):
     #: Additive (2026-10-17): the person's seats - what the rosters show
     #: instead of stream tags.
     departments: list[MemberSeatResponse] = []
+    #: Additive (2026-10-31): in the PR seeding group - a "Seeding" tag.
+    seeding: bool = False
 
     @classmethod
     def from_view(cls, view: MemberView) -> MemberRowResponse:

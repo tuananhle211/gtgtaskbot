@@ -220,6 +220,13 @@ class DesignAccessResponse(BaseModel):
     manage_library: bool = False
 
 
+class AssistantAccessResponse(BaseModel):
+    """The report assistant on Telegram ("Trợ lý AI", 2026-10-31): the OWNER,
+    or whoever the OWNER ticked."""
+
+    chat: bool = False
+
+
 class AdsAccessResponse(BaseModel):
     """Phòng Ads (0078): the nav's "Phòng Ads" branch, "Tài khoản QC" for a
     Trưởng phòng ADS, "Kết nối BM" for the OWNER."""
@@ -267,6 +274,7 @@ class UnitMeResponse(BaseModel):
     #: The PR seeding group's menu (0085).
     seeding: SeedingAccessResponse = SeedingAccessResponse()
     ads: AdsAccessResponse = AdsAccessResponse()
+    assistant: AssistantAccessResponse = AssistantAccessResponse()
 
     @classmethod
     def from_domain(
@@ -283,6 +291,7 @@ class UnitMeResponse(BaseModel):
         performance: PerformanceAccessResponse | None = None,
         ads: AdsAccessResponse | None = None,
         seeding: SeedingAccessResponse | None = None,
+        assistant: AssistantAccessResponse | None = None,
     ) -> UnitMeResponse:
         entries = sorted(entries, key=lambda entry: stream_rank(entry.code))
         heads = any(seat.position is Position.HEAD for seat in membership.seats)
@@ -311,6 +320,7 @@ class UnitMeResponse(BaseModel):
             performance=performance or PerformanceAccessResponse(),
             ads=ads or AdsAccessResponse(),
             seeding=seeding or SeedingAccessResponse(),
+            assistant=assistant or AssistantAccessResponse(),
         )
 
 
@@ -339,6 +349,8 @@ class UnitMemberResponse(BaseModel):
     daily_tokens: float | None = None
     #: Additive (2026-10-17): the person's seats, for the department chips.
     departments: list[DepartmentSeatResponse] = []
+    #: Additive (2026-10-31): in the PR seeding group - a "Seeding" tag.
+    seeding: bool = False
 
     @classmethod
     def from_row(

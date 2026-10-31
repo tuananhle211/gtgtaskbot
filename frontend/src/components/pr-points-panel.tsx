@@ -28,11 +28,14 @@ import { formatDateTime } from "@/lib/datetime";
 
 /**
  * "Điểm hiệu suất (PR)" on a PR piece (0085): its two stages - **Nội dung**
- * (the Biên kịch codes, the owner's to type once the content is approved)
- * and **Sản xuất** (Design and/or Dựng codes, typed by whoever made it, each
- * their own part, once production is through internal review). A Trưởng
- * phòng PR approves or refuses here; the points then count on the reports.
- * The PR workflow above is untouched.
+ * (the Biên kịch codes, the owner's) and **Sản xuất** (Design and/or Dựng
+ * codes, typed by whoever made it, each their own part). A Trưởng phòng PR
+ * approves or refuses here; the points then count on the reports.
+ *
+ * 2026-10-31: both are open from the start, the picker drawn open for whoever
+ * has not typed theirs yet, and the piece may not leave a phase without its
+ * codes - the task page greys the move out (`action.blocked`), so a change
+ * here refreshes the task too.
  */
 export function PrPointsPanel({ contentId }: { contentId: string }) {
   const points = useQuery({
@@ -54,7 +57,7 @@ export function PrPointsPanel({ contentId }: { contentId: string }) {
           Điểm hiệu suất (PR)
         </h2>
         <p className="text-xs text-[var(--text-muted)]">
-          Nhập mã task sau khi làm xong · Trưởng phòng PR duyệt rồi mới tính điểm
+          Chọn mã task ngay trong lúc làm · bắt buộc trước khi chuyển pha · Trưởng phòng PR duyệt rồi mới tính điểm
         </p>
       </header>
       <div className="grid gap-3 lg:grid-cols-2">
@@ -79,6 +82,8 @@ function StageCard({ contentId, stage, mayReview }: { contentId: string; stage: 
   const me = useQuery({ queryKey: ["account", "me"], queryFn: api.accountMe, retry: false });
   const mine = stage.claims.find((claim) => claim.user_id === me.data?.user_id);
   const [editing, setEditing] = useState(false);
+  // Waiting or approved codes are what lets the piece leave this phase.
+  const hasCodes = stage.claims.some((claim) => claim.status !== "REJECTED");
   const letter = stage.stage === "CONTENT" ? "N" : "S";
   return (
     <article className={PHASE_CARD} aria-label={`Điểm ${stage.label}`}>
@@ -94,7 +99,11 @@ function StageCard({ contentId, stage, mayReview }: { contentId: string; stage: 
             </p>
           </div>
         </div>
-        {!stage.open ? <Pill>Chưa tới lúc</Pill> : null}
+        {!stage.open ? (
+          <Pill>Đã đóng</Pill>
+        ) : hasCodes ? null : (
+          <Pill tone="warn">Cần chọn trước khi chuyển pha</Pill>
+        )}
       </div>
       <div className="space-y-3 border-t border-[var(--border)] p-4">
         {!stage.open && stage.waiting ? (
@@ -109,13 +118,15 @@ function StageCard({ contentId, stage, mayReview }: { contentId: string; stage: 
           ))}
         </ul>
         {stage.may_claim && mine?.status !== "APPROVED" ? (
-          editing ? (
+          editing || !mine ? (
+            // Always open for whoever has not typed theirs yet (2026-10-31).
             <ClaimForm
               contentId={contentId}
               stage={stage}
               start={mine}
               standsAtOnce={mayReview}
               onDone={() => setEditing(false)}
+              cancellable={Boolean(mine)}
             />
           ) : (
             <SecondaryButton type="button" onClick={() => setEditing(true)} className="w-full border-dashed">
@@ -191,6 +202,8 @@ export function Decision({ claim, contentId }: { claim: PrClaim; contentId?: str
       if (contentId) void queryClient.invalidateQueries({ queryKey: ["pr-points", contentId] });
       void queryClient.invalidateQueries({ queryKey: ["pr-claims"] });
       void queryClient.invalidateQueries({ queryKey: ["performance"] });
+      // A refused claim no longer opens the phase's way out.
+      void queryClient.invalidateQueries({ queryKey: ["task"] });
     },
   });
   const what = `mã task của ${claim.name}`;
@@ -248,12 +261,15 @@ function ClaimForm({
   start,
   standsAtOnce,
   onDone,
+  cancellable = false,
 }: {
   contentId: string;
   stage: PrStage;
   start?: PrClaim;
   standsAtOnce: boolean;
   onDone: () => void;
+  /** Editing a claim already sent: "Huỷ" goes back to it. */
+  cancellable?: boolean;
 }) {
   const queryClient = useQueryClient();
   const catalog = useQuery({ queryKey: ["pr-points-catalog"], queryFn: api.prPointsCatalog });
@@ -275,6 +291,8 @@ function ClaimForm({
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: ["pr-points", contentId] });
       void queryClient.invalidateQueries({ queryKey: ["performance"] });
+      // The task page's greyed-out move may open now.
+      void queryClient.invalidateQueries({ queryKey: ["task"] });
       onDone();
     },
   });
@@ -303,9 +321,11 @@ function ClaimForm({
         className="w-full rounded-lg border border-[var(--border)] bg-[var(--surface)] px-3 py-2 text-sm"
       />
       <div className="flex items-center justify-end gap-2">
-        <SecondaryButton type="button" onClick={onDone}>
-          Huỷ
-        </SecondaryButton>
+        {cancellable ? (
+          <SecondaryButton type="button" onClick={onDone}>
+            Huỷ
+          </SecondaryButton>
+        ) : null}
         <ConfirmButton
           spec={prClaimConfirmation({ stage: stage.label, points: formatScore(total), standsAtOnce })}
           disabled={!any}

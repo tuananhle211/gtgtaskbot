@@ -49,6 +49,7 @@ from sqlalchemy import exists, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from meobot.application.audit_service import AuditService
+from meobot.application.performance.pr_code_gate import require_codes
 from meobot.application.pr_ai_review_run_service import PrAiReviewRunService
 from meobot.application.pr_capability_service import PrCapabilityService
 from meobot.application.pr_content_work_projector import request_content_work_projection
@@ -291,6 +292,11 @@ class PrContentWorkflowService:
             PrWorkflowTransitionError: The edge is not available.
         """
         assert_content_transition(content.workflow_stage, target, trigger=trigger)
+        if trigger is not PrTransitionTrigger.UNDO:
+            # 2026-10-31: the phase being left must have its task codes. Here,
+            # on the one path every client takes, so neither Telegram nor a
+            # bulk action walks past it.
+            await require_codes(self._session, content.id, content.workflow_stage, target)
 
         before = content.workflow_stage
         # Read under the lock, before anything moves: the draft that is current

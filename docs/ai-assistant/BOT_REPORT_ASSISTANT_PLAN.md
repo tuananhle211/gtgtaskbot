@@ -2,7 +2,8 @@
 
 > Mục tiêu: người **được tích quyền** có thể chat với bot Telegram và hỏi **mọi báo
 > cáo A–Z của công ty**, trả lời **chính xác bằng số liệu thật, không bịa**.
-> Trạng thái: **kế hoạch, chưa code.** Chờ sếp duyệt.
+> Trạng thái: **đã code đợt 1–3 (2026-10-31), chưa commit, chưa thử trên Telegram thật.**
+> Xem mục 10 "Đã làm" ở cuối file.
 
 ## 1. Chốt yêu cầu (đã thống nhất với sếp)
 
@@ -162,3 +163,52 @@ Mỗi tool nhận tham số tối thiểu (kỳ/tháng, phòng/người tuỳ ch
 **Còn mở (quyết khi tới đợt đó):**
 - Câu hỏi gộp nhiều mảng ("tổng hợp A–Z trong một câu"): để **đợt 4** làm bằng
   multi-tool. Nếu sếp muốn sớm, có thể thêm 1 tool "tổng hợp công ty" ở đợt 2–3.
+
+## 10. Đã làm (2026-10-31)
+
+**Quyền "Trợ lý AI"** (đợt 1 của mục 8):
+- Module `ASSISTANT` / quyền `CHAT` trong `domain/org/modules.py` (từ vựng ở
+  `domain/assistant/reports.py`): `owner_only`, scope NONE/ALL, **chỉ cấp cá
+  nhân** (`department_cells=False` → không hiện ở Phòng ban, không đặt được
+  theo phòng). Trang "Quyền" của từng người tự có thẻ "Trợ lý AI".
+- Chỉ OWNER **cấp và thu hồi** (ADMIN không cấp, không thu hồi được; quy tắc
+  thu hồi áp dụng cho mọi quyền `owner_only`, kể cả hệ số điểm).
+- Cổng bot `with_unified_access`: người được tích → `full_bot` + quyền
+  `assistant.report` (`Permission.ASSISTANT_REPORT`) để gọi report tool.
+- `/api/units/me` có `assistant.chat`. Không cần migration.
+
+**Report tools** (đợt 1–3 gộp, `tools/report_tools.py`, số lấy từ
+`application/assistant/reports.py` = đúng service web đang dùng):
+
+| Tool | Nội dung | Link đối chiếu |
+|---|---|---|
+| `report.company` | tổng hợp mọi mảng trong một câu trả lời | `/dashboard` |
+| `report.ads_revenue` | doanh thu tổng, DT hoa hồng, chi phí, Ads/DT, SĐT, KPI team, Marketing/Cơ sở HN-SG, hiệu suất cơ sở, từng nền tảng, top marketer | `/ads` |
+| `report.ads_kpi_budget` | KPI từng marketer, ngân sách tuần (vượt/đạt/chưa đến ngưỡng); `person` | `/ads/budget` |
+| `report.performance` | điểm toàn công ty / một phòng / một người, định mức, trễ hạn, bị trả lại | `/performance/...` |
+| `report.orders` | order ORD theo trạng thái, trễ hạn (kèm dòng), order trong tháng; `state` | `/tasks?unit=ADS` |
+| `report.resources` | tổng, nhóm trạng thái, cảnh báo (đỏ), đề xuất mua đang mở | `/resources/reports` |
+| `report.pr` | task PR theo pha, nội dung trong tháng, bài đã đăng | `/tasks?unit=PR` |
+
+**Chống bịa số:**
+- Câu trả lời có số **do tool viết** từ chính số trong `ToolResult.data`; model
+  chỉ chọn tool và tham số (tháng, tên phòng/người, trạng thái).
+- Câu hỏi báo cáo đi thẳng tới tool kể cả khi model trả "chat", lỗi, hay
+  không nêu tool; khi model lập kế hoạch lỗi/không hiểu → tool + tháng đọc từ
+  câu hỏi (vẫn qua `PolicyEngine`). Vì vậy key AI lỗi vẫn ra số đúng.
+- Hỏi số mà không nói mảng → bot hỏi lại "mảng nào" (câu cố định, không gọi AI).
+- Lượt chat của người có quyền thêm luật: không nêu bất kỳ con số nào.
+- Thiếu dữ liệu → "chưa có dữ liệu"; một mảng của bản tổng hợp lỗi → "không
+  lấy được số liệu", không bao giờ ra số.
+
+**"Thinking":** tin "🤔 Đang tổng hợp số liệu…" rồi sửa thành câu trả lời.
+
+**Chưa làm / khác kế hoạch:**
+- Vòng lặp nhiều tool cho một câu hỏi: **chưa làm**; thay bằng
+  `report.company` (phương án mục 9 cho phép).
+- Chưa thử trên Telegram thật: cần build lại `api bot worker` rồi OWNER tích
+  một người ở Quản trị › Quản lý tài khoản › ⋯ › Quyền (`/admin/people/<id>`)
+  › thẻ "Trợ lý AI", và trỏ mục
+  "Trợ lý Telegram" ở `/admin/ai` sang model đang chạy (9router).
+- Test: `tests/unit/test_assistant_reports.py` (8 test); đã chạy thử các tool
+  (chỉ đọc) trên Postgres local.

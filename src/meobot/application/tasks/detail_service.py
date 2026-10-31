@@ -57,6 +57,7 @@ from meobot.application.orders.query_service import OrderDetail
 from meobot.application.orders.services import OrderServices
 from meobot.application.orders.token_ledger import OrderTokenLedgerService
 from meobot.application.org.seats import function_staff
+from meobot.application.performance.pr_code_gate import missing_codes
 from meobot.application.pr_action_service import (
     PrActionKind,
     PrAvailableAction,
@@ -367,6 +368,9 @@ class TaskActionView:
     #: ORD (0074): the link handed in last, so a hand-in sent back for its
     #: codes only can be sent again as it was.
     link_default: str | None = None
+    #: PR (2026-10-31): why the button is greyed out - the phase being left
+    #: has no task codes yet (``pr_code_gate``); the server refuses it too.
+    blocked: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -972,6 +976,7 @@ class TaskDetailService:
                 emphasis=emphasis,
                 requires_note=False,
                 inputs=("note",),
+                blocked=await self._codes_missing(content, target),
             )
         if kind is PrActionKind.APPROVAL and action.decision is not None:
             decision = action.decision
@@ -1018,6 +1023,7 @@ class TaskDetailService:
                 label="Bắt đầu sản xuất",
                 emphasis=emphasis,
                 requires_note=False,
+                blocked=await self._codes_missing(content, PrWorkflowStage.PRODUCTION),
             )
         if kind is PrActionKind.SUBMIT_PRODUCTION:
             return TaskActionView(
@@ -1026,6 +1032,7 @@ class TaskDetailService:
                 emphasis=emphasis,
                 requires_note=False,
                 inputs=("link", "note"),
+                blocked=await self._codes_missing(content, PrWorkflowStage.INTERNAL_REVIEW),
             )
         if kind is PrActionKind.UNDO_LAST_ACTION:
             return TaskActionView(
@@ -1035,6 +1042,9 @@ class TaskDetailService:
                 requires_note=False,
             )
         return None
+
+    async def _codes_missing(self, content: PrContentItem, target: PrWorkflowStage) -> str | None:
+        return await missing_codes(self._session, content.id, content.workflow_stage, target)
 
     async def _pr_producers(self) -> tuple[PersonRef, ...]:
         """Who may hold a production: somebody seated in a PR department

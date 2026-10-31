@@ -22,7 +22,7 @@ import {
 } from "@/components/account-fields";
 import { Avatar } from "@/components/avatar";
 import { ConfirmDialog } from "@/components/confirm";
-import { DepartmentTag, DepartmentTags } from "@/components/department-tags";
+import { DepartmentTag, DepartmentTags, SeedingTag } from "@/components/department-tags";
 import { Modal, ModalBody, ModalFooter } from "@/components/modal";
 import {
   PageHeader,
@@ -683,6 +683,7 @@ function SeatsCell({
   return (
     <div className="flex flex-wrap items-center gap-1.5">
       {seats.length === 0 ? <DepartmentTags seats={[]} /> : null}
+      {row.seeding ? <SeedingTag /> : null}
       {seats.map((seat) =>
         mayRemove(seat) ? (
           <span key={seat.department_id} className="dept-chip">

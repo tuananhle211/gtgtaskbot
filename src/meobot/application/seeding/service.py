@@ -1,7 +1,11 @@
-"""The PR seeding group (0085).
+"""The PR seeding group (0085) - "Báo cáo công việc/Seeding".
 
 * **Who**: a Trưởng phòng PR (or the OWNER / an ADMIN) puts people in the group
-  ("Thành viên seeding"); only they and the group see the "Seeding" menu.
+  ("Thành viên Seeding", who wear a "Seeding" tag). The group and the
+  Trưởng phòng see everything (KPI, people); since 2026-10-31 everybody else
+  seated in a PR department uses the same menu to hand numbers and other work
+  in (their own lists only, no KPI page). Everything waits for the Trưởng
+  phòng, who is told (:class:`ReviewNotifier`); a refusal needs a reason.
 * **KPI**: one number of phones for the whole team per week (Monday-Sunday)
   and per month, set by the Trưởng phòng; the bar is the share reached by the
   approved numbers handed in during that period.
@@ -28,8 +32,9 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from meobot.application.audit_service import AuditService
-from meobot.application.org.seats import load_seats
+from meobot.application.org.seats import function_staff, load_seats
 from meobot.application.performance.pr_points import reviews_pr
+from meobot.application.performance.review_notifications import ReviewNotifier
 from meobot.application.performance.work_ledger import drop_points, put_points
 from meobot.core.time import ensure_utc, utcnow
 from meobot.db.models.department import Department, DepartmentMember
@@ -79,17 +84,28 @@ DESCRIPTION_MAX = 2000
 @dataclass(frozen=True, slots=True)
 class SeedingAccess:
     user_id: uuid.UUID | None
+    #: In the seeding group.
     member: bool
+    #: A Trưởng phòng PR / the OWNER / an ADMIN: decides, sets the KPI.
     manage: bool
+    #: 2026-10-31: seated in a PR department - hands numbers / work in.
+    pr_staff: bool = False
 
     @property
     def sees(self) -> bool:
+        """The menu: hand numbers and other work in, read one's own."""
+        return self.member or self.manage or self.pr_staff
+
+    @property
+    def sees_kpi(self) -> bool:
+        """The KPI page and the group's people: the group and the managers."""
         return self.member or self.manage
 
 
 async def seeding_access(session: AsyncSession, membership: UnitMembership) -> SeedingAccess:
     manage = reviews_pr(membership)
     member = False
+    pr_staff = False
     if membership.user_id is not None:
         member = (
             await session.scalar(
@@ -99,7 +115,10 @@ async def seeding_access(session: AsyncSession, membership: UnitMembership) -> S
                 )
             )
         ) is not None
-    return SeedingAccess(user_id=membership.user_id, member=member, manage=manage)
+        pr_staff = membership.user_id in await function_staff(session, DepartmentFunction.PR)
+    return SeedingAccess(
+        user_id=membership.user_id, member=member, manage=manage, pr_staff=pr_staff
+    )
 
 
 @dataclass(frozen=True, slots=True)
@@ -107,6 +126,20 @@ class Person:
     user_id: uuid.UUID
     name: str
     departments: tuple[str, ...]
+    #: In the seeding group (the "Seeding" tag).
+    seeding: bool = False
+
+
+@dataclass(frozen=True, slots=True)
+class Awaiting:
+    """What waits for the Trưởng phòng (the "Duyệt (N)" count)."""
+
+    phones: int = 0
+    other: int = 0
+
+    @property
+    def total(self) -> int:
+        return self.phones + self.other
 
 
 @dataclass(frozen=True, slots=True)
@@ -166,15 +199,23 @@ class OtherView:
 
 
 class SeedingService:
-    def __init__(self, session: AsyncSession, audit: AuditService, *, tz: ZoneInfo) -> None:
+    def __init__(
+        self,
+        session: AsyncSession,
+        audit: AuditService,
+        *,
+        tz: ZoneInfo,
+        notifier: ReviewNotifier | None = None,
+    ) -> None:
         self._session = session
         self._audit = audit
         self._tz = tz
+        self._notifier = notifier
 
     # --- people -------------------------------------------------------------------
 
     async def members(self, access: SeedingAccess) -> list[Person]:
-        _require(access.sees)
+        _require(access.sees_kpi)
         ids = list(
             (
                 await self._session.scalars(
@@ -237,7 +278,7 @@ class SeedingService:
     # --- the KPI ------------------------------------------------------------------
 
     async def overview(self, access: SeedingAccess, day: date) -> Overview:
-        _require(access.sees)
+        _require(access.sees_kpi)
         week_first = week_start(day)
         week = await self._period(WEEK, week_first, week_first + timedelta(days=6))
         month_first = day.replace(day=1)
@@ -374,6 +415,10 @@ class SeedingService:
             entity_id=str(actor.user_id),
             after_data={"accepted": len(seen), "lines": len(lines)},
         )
+        if seen and not access.manage and self._notifier is not None:
+            await self._notifier.seeding_waiting(
+                actor=actor, what=f"{len(seen)} số điện thoại", kind="SĐT", key=str(request_id)
+            )
         return results
 
     async def phones(
@@ -418,6 +463,7 @@ class SeedingService:
         _require(access.manage)
         if not ids:
             raise SeedingInvalidError("Chọn ít nhất một số.", field="ids")
+        note = _reason(approve, note)
         rows = (
             await self._session.scalars(
                 select(SeedingPhone).where(
@@ -431,7 +477,7 @@ class SeedingService:
             row.status = APPROVED if approve else REJECTED
             row.decided_by_user_id = actor.user_id
             row.decided_at = now
-            row.decision_note = (note or "").strip() or None
+            row.decision_note = note
             touched.add((row.submitted_by_user_id, self._local_day(row.submitted_at)))
         await self._session.flush()
         for user_id, day in touched:
@@ -487,6 +533,13 @@ class SeedingService:
         )
         if access.manage:
             await self._approve_other(row, actor)
+        elif self._notifier is not None:
+            await self._notifier.seeding_waiting(
+                actor=actor,
+                what=f"1 việc khác ({points} điểm)",
+                kind="Việc khác",
+                key=str(row.id),
+            )
         return (await self._other_views([row]))[0]
 
     async def others(
@@ -520,6 +573,7 @@ class SeedingService:
         _require(access.manage)
         if not ids:
             raise SeedingInvalidError("Chọn ít nhất một mục.", field="ids")
+        note = _reason(approve, note)
         rows = (
             await self._session.scalars(
                 select(SeedingOtherReport).where(
@@ -528,7 +582,7 @@ class SeedingService:
             )
         ).all()
         for row in rows:
-            row.decision_note = (note or "").strip() or None
+            row.decision_note = note
             if approve:
                 await self._approve_other(row, actor)
             else:
@@ -547,6 +601,9 @@ class SeedingService:
             after_data={"approve": approve, "count": len(rows)},
         )
         return len(rows)
+
+    async def awaiting(self, access: SeedingAccess) -> Awaiting:
+        return await seeding_awaiting(self._session, access)
 
     # --- helpers ------------------------------------------------------------------
 
@@ -687,11 +744,21 @@ class SeedingService:
             return []
         names = await self._names(set(ids))
         seats = await load_seats(self._session, ids)
+        group = set(
+            (
+                await self._session.scalars(
+                    select(SeedingMember.user_id).where(
+                        SeedingMember.user_id.in_(list(ids)), SeedingMember.removed_at.is_(None)
+                    )
+                )
+            ).all()
+        )
         return [
             Person(
                 user_id=user_id,
                 name=names.get(user_id, "—"),
                 departments=tuple(seat.name for seat in seats.get(user_id, ())),
+                seeding=user_id in group,
             )
             for user_id in ids
         ]
@@ -735,9 +802,38 @@ class SeedingService:
         )
 
 
+async def seeding_member_ids(session: AsyncSession) -> frozenset[uuid.UUID]:
+    """Who is in the seeding group now - the rosters' "Seeding" tag."""
+    found = await session.scalars(
+        select(SeedingMember.user_id).where(SeedingMember.removed_at.is_(None))
+    )
+    return frozenset(found.all())
+
+
+async def seeding_awaiting(session: AsyncSession, access: SeedingAccess) -> Awaiting:
+    """What waits for a decision - for those who decide, else nothing."""
+    if not access.manage:
+        return Awaiting()
+    phones = await session.scalar(
+        select(func.count(SeedingPhone.id)).where(SeedingPhone.status == PENDING)
+    )
+    other = await session.scalar(
+        select(func.count(SeedingOtherReport.id)).where(SeedingOtherReport.status == PENDING)
+    )
+    return Awaiting(phones=int(phones or 0), other=int(other or 0))
+
+
 def _require(allowed: bool) -> None:
     if not allowed:
         raise SeedingForbiddenError()
+
+
+def _reason(approve: bool, note: str | None) -> str | None:
+    """A refusal says why (2026-10-31)."""
+    text = (note or "").strip() or None
+    if not approve and text is None:
+        raise SeedingInvalidError("Ghi lý do không duyệt.", field="note")
+    return text
 
 
 __all__ = [
@@ -746,6 +842,7 @@ __all__ = [
     "PENDING",
     "REJECTED",
     "WEEK",
+    "Awaiting",
     "LineResult",
     "MemberFigures",
     "OtherView",
@@ -756,4 +853,6 @@ __all__ = [
     "SeedingAccess",
     "SeedingService",
     "seeding_access",
+    "seeding_awaiting",
+    "seeding_member_ids",
 ]

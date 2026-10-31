@@ -1,7 +1,8 @@
 /**
  * PR task codes and the seeding group (0085): the "Điểm hiệu suất (PR)" panel
- * on a PR piece, the seeding page, and the menu entries that follow
- * `/api/units/me`.
+ * on a PR piece, "Báo cáo công việc/Seeding", and the menu entries that
+ * follow `/api/units/me`. 2026-10-31: the picker is open from the start, the
+ * KPI page is the group's, everybody in PR hands in, a refusal says why.
  */
 import { describe, expect, it, vi } from "vitest";
 import { screen, waitFor, within } from "@testing-library/react";
@@ -43,8 +44,8 @@ const POINTS = {
       stage: "PRODUCTION",
       label: "Sản xuất",
       phases: ["THIET_KE", "DUNG"],
-      open: false,
-      waiting: "Nhập mã sau khi sản xuất qua bước duyệt nội bộ.",
+      open: true,
+      waiting: null,
       may_claim: false,
       claims: [],
     },
@@ -52,7 +53,7 @@ const POINTS = {
 };
 
 describe("Điểm hiệu suất (PR) on a PR piece", () => {
-  it("lets the owner type the content's codes once it is done, and waits on production", async () => {
+  it("draws the owner's picker open from the start and sends the codes", async () => {
     const stub = stubFetch([
       { match: "/api/performance/pr/contents/pc-1/claims", method: "POST", body: { id: "cl-1" } },
       { match: "/api/performance/pr/contents/pc-1", body: POINTS },
@@ -60,10 +61,10 @@ describe("Điểm hiệu suất (PR) on a PR piece", () => {
       { match: "/api/account/me", body: ME },
     ]);
     renderWithQuery(<PrPointsPanel contentId="pc-1" />);
-    const production = await screen.findByRole("article", { name: "Điểm Sản xuất" });
-    expect(production).toHaveTextContent("Nhập mã sau khi sản xuất qua bước duyệt nội bộ.");
-    const content = screen.getByRole("article", { name: "Điểm Nội dung" });
-    await userEvent.click(within(content).getByRole("button", { name: "+ Nhập mã task của tôi" }));
+    const content = await screen.findByRole("article", { name: "Điểm Nội dung" });
+    // No codes yet: the phase may not move on, and the picker is already open.
+    expect(content).toHaveTextContent("Cần chọn trước khi chuyển pha");
+    expect(within(content).queryByRole("button", { name: "+ Nhập mã task của tôi" })).not.toBeInTheDocument();
     await waitFor(() =>
       expect(within(content).getByRole("combobox", { name: "Mã task công việc Biên kịch" })).toBeInTheDocument(),
     );
@@ -157,6 +158,7 @@ describe("Seeding", () => {
       },
       { match: "/api/seeding/phones", body: [] },
       { match: "/api/seeding/overview", body: OVERVIEW },
+      { match: "/api/seeding/access", body: { ...OVERVIEW.access, submit: true, sees_kpi: true, awaiting: 0 } },
     ]);
     renderWithQuery(<SeedingPage />);
     const week = await screen.findByRole("article", { name: "KPI tuần" });
@@ -179,6 +181,68 @@ describe("Seeding", () => {
 
 const NOTIFICATIONS = { match: "/api/notifications", body: { items: [], unread_count: 0 } };
 
+describe("Báo cáo công việc/Seeding for everybody in PR (2026-10-31)", () => {
+  it("gives a PR member outside the group the hand-in tabs only", async () => {
+    stubFetch([
+      { match: "/api/seeding/phones", body: [] },
+      { match: "/api/seeding/other", body: [] },
+      {
+        match: "/api/seeding/access",
+        body: { member: false, manage: false, submit: true, sees_kpi: false, awaiting: 0, phone_points: 200 },
+      },
+    ]);
+    renderWithQuery(<SeedingPage />);
+    expect(await screen.findByRole("heading", { name: "Báo cáo công việc/Seeding" })).toBeInTheDocument();
+    const tabs = screen.getAllByRole("tab").map((tab) => tab.textContent);
+    expect(tabs).toEqual(["Nộp SĐT", "Việc khác"]);
+    expect(screen.getByRole("tab", { name: "Nộp SĐT" })).toHaveAttribute("aria-selected", "true");
+  });
+
+  it("counts what waits on Duyệt and refuses only with a reason", async () => {
+    const waiting = {
+      id: "ph-1",
+      phone: "0911222333",
+      user_id: "u-writer",
+      name: "Biên tập PR",
+      submitted_at: "2026-10-31T03:00:00Z",
+      status: "PENDING",
+      decided_by: null,
+      decided_at: null,
+      decision_note: null,
+    };
+    const stub = stubFetch([
+      { match: "/api/seeding/phones/decide", method: "POST", body: { decided: 1 } },
+      { match: "/api/seeding/phones", body: [waiting] },
+      { match: "/api/seeding/other", body: [] },
+      { match: "/api/seeding/overview", body: { ...OVERVIEW, access: { member: false, manage: true } } },
+      { match: "/api/seeding/members", body: [] },
+      { match: "/api/seeding/candidates", body: [] },
+      {
+        match: "/api/seeding/access",
+        body: { member: false, manage: true, submit: true, sees_kpi: true, awaiting: 3, awaiting_phones: 1, awaiting_other: 2 },
+      },
+    ]);
+    renderWithQuery(<SeedingPage />);
+    await userEvent.click(await screen.findByRole("tab", { name: "Duyệt (3)" }));
+    expect(screen.getByRole("tab", { name: "Thành viên Seeding" })).toBeInTheDocument();
+    const phones = await screen.findByRole("region", { name: "SĐT chờ duyệt" });
+    await userEvent.click(await within(phones).findByRole("checkbox", { name: "Chọn 0911222333" }));
+    await userEvent.click(within(phones).getByRole("button", { name: "Không duyệt" }));
+    const dialog = screen.getAllByRole("dialog").at(-1)!;
+    const accept = dialog.querySelector<HTMLElement>("[data-confirm-accept]")!;
+    expect(accept).toBeDisabled();
+    await userEvent.type(within(dialog).getByRole("textbox", { name: /Lý do không duyệt/ }), "Số không có thật");
+    expect(accept).toBeEnabled();
+    await userEvent.click(accept);
+    await waitFor(() => expect(calls(stub).some((call) => call.method === "POST")).toBe(true));
+    expect(calls(stub).find((call) => call.method === "POST")?.body).toEqual({
+      ids: ["ph-1"],
+      approve: false,
+      note: "Số không có thật",
+    });
+  });
+});
+
 describe("the menu", () => {
   it('adds "Seeding" under Phòng PR for the group and "Duyệt điểm PR" for a Trưởng phòng PR', async () => {
     stubFetch([
@@ -191,7 +255,7 @@ describe("the menu", () => {
           can_view_all: false,
           can_admin: [],
           performance: { view_team: true, view_all: false, export: false, review_pr: true },
-          seeding: { member: true, manage: true },
+          seeding: { member: true, manage: true, submit: true, awaiting: 4 },
         },
       },
       NOTIFICATIONS,
@@ -199,8 +263,10 @@ describe("the menu", () => {
     renderWithQuery(<Shell>{null}</Shell>);
     const pr = await screen.findByRole("group", { name: "Phòng PR" });
     await waitFor(() =>
-      expect(within(pr).getByRole("link", { name: /Seeding/ })).toHaveAttribute("href", "/seeding"),
+      expect(within(pr).getByRole("link", { name: /Báo cáo công việc\/Seeding/ })).toHaveAttribute("href", "/seeding"),
     );
+    // What waits for the Trưởng phòng, on the menu.
+    expect(within(pr).getByRole("link", { name: /Báo cáo công việc\/Seeding/ })).toHaveTextContent("4");
     const performance = screen.getByRole("group", { name: "Hiệu suất" });
     expect(within(performance).getByRole("link", { name: /Duyệt điểm PR/ })).toHaveAttribute(
       "href",

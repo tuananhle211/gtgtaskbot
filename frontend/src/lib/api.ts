@@ -3467,6 +3467,12 @@ export interface UnitsMe {
   /** Phòng Ads (0078): only the ADS department (+ OWNER / ADMIN). */
   ads?: AdsAccess | null;
   /**
+   * The report assistant on Telegram ("Trợ lý AI", 2026-10-31): the OWNER, or
+   * whoever the OWNER ticked on the person's "Quyền" page. Optional: an older
+   * API omits it = no.
+   */
+  assistant?: { chat: boolean } | null;
+  /**
    * May open other people's profile pages (`/people/<id>`, 2026-10-19): the
    * OWNER / ADMIN, or a head of some department. Names are drawn as links
    * only then (`PersonLink`). Optional: an older API omits it = no.
@@ -3566,6 +3572,8 @@ export interface UnitMember {
   daily_tokens?: number | null;
   /** The person's seats ("Phòng ban"). Optional: an older API omits it. */
   departments?: MemberSeat[];
+  /** 2026-10-31: in the PR seeding group - a "Seeding" tag. Optional. */
+  seeding?: boolean;
 }
 
 export interface UnitMemberList {
@@ -4741,16 +4749,30 @@ export interface PrCatalog {
   forms: TaskForm[];
 }
 
-/** The PR seeding group (0085). */
+/**
+ * "Báo cáo công việc/Seeding" (0085; 2026-10-31). The group (`member`) and the
+ * Trưởng phòng PR (`manage`) see everything; anybody else seated in PR hands
+ * numbers and other work in (`submit`) without the KPI page (`sees_kpi`).
+ * The newer fields are optional: an older API omits them.
+ */
 export interface SeedingAccess {
   member: boolean;
   manage: boolean;
+  submit?: boolean;
+  sees_kpi?: boolean;
+  /** What waits for the Trưởng phòng ("Duyệt (N)"); 0 for everybody else. */
+  awaiting?: number;
+  awaiting_phones?: number;
+  awaiting_other?: number;
+  phone_points?: number;
 }
 
 export interface SeedingPerson {
   user_id: Uuid;
   name: string;
   departments: string[];
+  /** In the seeding group (the "Seeding" tag). Optional. */
+  seeding?: boolean;
 }
 
 export interface SeedingPeriod {
@@ -5675,6 +5697,11 @@ export interface TaskAction {
   task_codes?: DesignCodeItem[] | null;
   /** 0074: the link handed in last, to send a hand-in again as it was. */
   link_default?: string | null;
+  /**
+   * PR (2026-10-31): why the button is greyed out - the phase being left has
+   * no task codes yet. The server refuses it too (422 `pr_task_codes_required`).
+   */
+  blocked?: string | null;
 }
 
 /**
@@ -5901,6 +5928,8 @@ export interface MemberRow {
   avatar_url?: string | null;
   /** The person's seats ("Phòng ban"), what rosters show instead of stream tags. Optional. */
   departments?: MemberSeat[];
+  /** 2026-10-31: in the PR seeding group - a "Seeding" tag. Optional. */
+  seeding?: boolean;
   stats: MemberStats;
 }
 
@@ -7807,7 +7836,9 @@ export const api = {
   prClaims: (status?: string) => get<PrClaim[]>(`/api/performance/pr/claims${query({ status })}`),
   decidePrClaim: (id: Uuid, body: { approve: boolean; return_reason?: string | null; note?: string | null }) =>
     post<PrClaim>(`/api/performance/pr/claims/${id}/decide`, body),
-  /** The PR seeding group (0085): 403 `seeding_forbidden` outside it. */
+  /** What the caller may do on "Báo cáo công việc/Seeding", and what waits. */
+  seedingAccess: () => get<SeedingAccess>("/api/seeding/access"),
+  /** The PR seeding group's KPI (0085): 403 `seeding_forbidden` outside the group. */
   seedingOverview: (day?: string) => get<SeedingOverview>(`/api/seeding/overview${query({ day })}`),
   setSeedingTarget: (body: { kind: "WEEK" | "MONTH"; day: string; target: number | null }) =>
     put<void>("/api/seeding/targets", body),

@@ -180,7 +180,7 @@ async def load_all_grants(
     ).all()
     found: dict[tuple[uuid.UUID, str], list[tuple[str, str, str]]] = {}
     for row in rows:
-        if row.scope != "NONE" and row.module in MODULES:
+        if row.scope != "NONE" and row.module in MODULES and MODULES[row.module].department_cells:
             found.setdefault((row.department_id, row.position.value), []).append(
                 (row.module, row.permission, row.scope)
             )

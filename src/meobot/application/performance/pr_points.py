@@ -1,13 +1,15 @@
-"""PR task codes ("điểm PR", 0085): who did a PR piece's work types its codes
-once the stage is done, a Trưởng phòng PR approves, the points count.
+"""PR task codes ("điểm PR", 0085): who did a PR piece's work types its codes,
+a Trưởng phòng PR approves, the points count.
 
-* **Nội dung** (stage ``CONTENT``): the Biên kịch codes (N…), typed by the
-  piece's owner, open once the content has passed its reviews (APPROVED or
-  later);
+* **Order / Nội dung** (stage ``CONTENT``): the Biên kịch codes (N…), typed by
+  the piece's owner;
 * **Sản xuất** (stage ``PRODUCTION``): Design (T…) and/or Dựng (D…) codes,
   typed by the producer or anybody in PR who worked on it - each their own
-  part - open once production is through its internal review
-  (READY_TO_PUBLISH or later).
+  part.
+
+Both stay open from the piece's creation (2026-10-31; only a cancelled piece
+closes them), and the piece may not leave a phase without its codes
+(:mod:`meobot.application.performance.pr_code_gate`).
 
 The codes, forms and their rules are ORD's own catalogue (``unit_design_codes``
 of the ADS unit), so a point means the same everywhere. A Trưởng phòng PR (or
@@ -28,6 +30,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from meobot.application.audit_service import AuditService
 from meobot.application.orders.design_code_service import DesignCodeService
+from meobot.application.performance.review_notifications import ReviewNotifier
 from meobot.application.performance.work_ledger import put_points
 from meobot.application.units.directory import UnitDirectoryService
 from meobot.core.time import utcnow
@@ -67,26 +70,8 @@ PENDING = "PENDING"
 APPROVED = "APPROVED"
 REJECTED = "REJECTED"
 
-#: From when each stage may be claimed: the work is done.
-CONTENT_DONE = frozenset(
-    {
-        PrWorkflowStage.APPROVED,
-        PrWorkflowStage.PRODUCTION,
-        PrWorkflowStage.INTERNAL_REVIEW,
-        PrWorkflowStage.READY_TO_PUBLISH,
-        PrWorkflowStage.PUBLISHED,
-        PrWorkflowStage.MEASURED,
-        PrWorkflowStage.ARCHIVED,
-    }
-)
-PRODUCTION_DONE = frozenset(
-    {
-        PrWorkflowStage.READY_TO_PUBLISH,
-        PrWorkflowStage.PUBLISHED,
-        PrWorkflowStage.MEASURED,
-        PrWorkflowStage.ARCHIVED,
-    }
-)
+#: 2026-10-31: codes may be typed at any stage but this one.
+CLOSED = frozenset({PrWorkflowStage.CANCELLED})
 NOTE_MAX = 1000
 
 
@@ -142,10 +127,17 @@ class Catalogue:
 
 
 class PrPointService:
-    def __init__(self, session: AsyncSession, audit: AuditService) -> None:
+    def __init__(
+        self,
+        session: AsyncSession,
+        audit: AuditService,
+        *,
+        notifier: ReviewNotifier | None = None,
+    ) -> None:
         self._session = session
         self._audit = audit
         self._directory = UnitDirectoryService(session)
+        self._notifier = notifier
 
     # --- reading -----------------------------------------------------------------
 
@@ -289,6 +281,16 @@ class PrPointService:
         if reviews_pr(membership):
             # A Trưởng phòng's own codes stand at once.
             await self._approve(claim, content, actor)
+        elif self._notifier is not None:
+            await self._notifier.pr_claim_waiting(
+                actor=actor,
+                claim_id=claim.id,
+                content_code=content.code,
+                content_title=content.title,
+                stage_label=STAGE_LABELS[stage],
+                points=claim.points,
+                sent=now.isoformat(),
+            )
         return (await self._views([claim]))[0]
 
     async def decide(
@@ -367,15 +369,8 @@ class PrPointService:
         membership: UnitMembership,
         claims: list[ClaimView],
     ) -> StageView:
-        done = CONTENT_DONE if stage == STAGE_CONTENT else PRODUCTION_DONE
-        is_open = content.workflow_stage in done
-        waiting = None
-        if not is_open:
-            waiting = (
-                "Nhập mã sau khi nội dung được duyệt."
-                if stage == STAGE_CONTENT
-                else "Nhập mã sau khi sản xuất qua bước duyệt nội bộ."
-            )
+        is_open = content.workflow_stage not in CLOSED
+        waiting = None if is_open else "Bài đã huỷ, không nhập mã được nữa."
         user_id = membership.user_id
         if stage == STAGE_CONTENT:
             mine = user_id is not None and user_id in {content.owner_user_id}

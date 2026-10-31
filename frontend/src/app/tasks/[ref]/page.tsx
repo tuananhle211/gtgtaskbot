@@ -755,6 +755,8 @@ function ActionPanel({
             <ConfirmButton
               key={action.key}
               spec={form.specFor(action)}
+              disabled={Boolean(action.blocked)}
+              ariaLabel={action.blocked ? `${action.label} (chưa chọn mã task công việc)` : undefined}
               confirmDisabled={form.missing(action)}
               onConfirm={() => form.submit(action)}
               onOpenChange={(open) => {
@@ -775,6 +777,17 @@ function ActionPanel({
           );
         })}
       </div>
+      {/* 2026-10-31: a PR move greyed out until the phase has its task codes. */}
+      {[...new Set(ordered.map((action) => action.blocked).filter(Boolean))].map((reason) => (
+        <p
+          key={reason}
+          role="note"
+          data-testid="action-blocked"
+          className="mt-3 rounded-lg border border-[var(--warn)]/30 bg-[var(--warn-soft)] p-3 text-xs text-[var(--text)]"
+        >
+          {reason}
+        </p>
+      ))}
       {run.isError ? (
         <div className="mt-3">
           <NoticeBox error={run.error} onDismiss={() => run.reset()} />

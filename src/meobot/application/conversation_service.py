@@ -65,9 +65,17 @@ from meobot.application.prompt_context_service import (
 from meobot.core.config import Settings
 from meobot.core.errors import MeoBotError
 from meobot.core.logging import get_logger
+from meobot.core.time import utcnow
 from meobot.db.session import Database
 from meobot.domain.access.models import GuestPrincipal
 from meobot.domain.assistant.profile import AssistantProfile
+from meobot.domain.assistant.reports import (
+    REPORT_TOOLS,
+    area_question,
+    asks_for_figures,
+    month_in,
+    report_topic,
+)
 from meobot.domain.assistant.work_context import MeoBotAssistantContext
 from meobot.domain.audit.models import AuditAction, AuditResult
 from meobot.domain.conversations.decision import ConversationDecision, ConversationMode
@@ -75,8 +83,15 @@ from meobot.domain.conversations.patterns import deterministic_route, fallback_r
 from meobot.domain.conversations.references import RecentReference
 from meobot.domain.identity.models import Actor
 from meobot.domain.identity.profile import ActorProfile
+from meobot.domain.permissions.matrix import Permission, actor_has_permission
 from meobot.domain.policy.engine import PolicyEngine
-from meobot.domain.policy.models import ActionPlan, DecisionCode, PolicyContext, PolicyDecision
+from meobot.domain.policy.models import (
+    ActionPlan,
+    DecisionCode,
+    PolicyContext,
+    PolicyDecision,
+    RiskLevel,
+)
 from meobot.integrations.llm.base import (
     ChatRequest,
     ChatTurn,
@@ -474,7 +489,7 @@ class ConversationService:
                         prompt_context=prompt_context.render(),
                         actor_role=actor.role,
                         tool_names=sorted(
-                            tool.name for tool in self._registry.summaries_for(actor.role)
+                            tool.name for tool in self._registry.summaries_for(actor)
                         ),
                     )
                 )
@@ -493,7 +508,36 @@ class ConversationService:
         # the conversational outcome is refused, and refusing it after routing
         # is what keeps that true.
         if route.mode is RouteMode.CHAT and not self._settings.chat_enabled:
-            return MessageRoute.chat(confidence=1.0, label="chat_disabled"), "chat_disabled"
+            route, canned = (
+                MessageRoute.chat(confidence=1.0, label="chat_disabled"),
+                "chat_disabled",
+            )
+        return self._report_route(actor, message, route, canned)
+
+    def _report_route(
+        self, actor: Actor, message: str, route: MessageRoute, canned: str | None
+    ) -> tuple[MessageRoute, str | None]:
+        """The report assistant ("Trợ lý AI", 2026-10-31), for whoever holds it.
+
+        A question naming a report goes to that report's tool even when the
+        model said chat, could not route at all, or named no tool - a figure
+        is only ever read, never written by a model. A question that asks for
+        figures but names no report is asked back (``report_area``), never
+        handed to chat generation. A tool the model did pick stands.
+        """
+        if not actor_has_permission(actor, Permission.ASSISTANT_REPORT):
+            return route, canned
+        if canned in {"capabilities", "identity", "actor"}:
+            return route, canned
+        if route.mode is RouteMode.TOOL and route.possible_tool_name in self._registry:
+            return route, canned
+        topic = report_topic(message)
+        if topic is not None and topic.value in self._registry:
+            return MessageRoute.tool(
+                tool_name=topic.value, confidence=0.7, label="report:topic"
+            ), None
+        if route.mode is RouteMode.CHAT and asks_for_figures(message):
+            return MessageRoute.chat(confidence=0.7, label="report:area"), "report_area"
         return route, canned
 
     # --- Branches ---------------------------------------------------------
@@ -517,6 +561,10 @@ class ConversationService:
 
         if canned_kind == "chat_disabled":
             return await self._reply(CHAT_DISABLED_REPLY, ConversationMode.CLARIFY, message, target)
+        if canned_kind == "report_area":
+            # Figures without a report: ask which one. The chat branch has no
+            # numbers to give, so it is never asked to produce any.
+            return await self._reply(area_question(), ConversationMode.CLARIFY, message, target)
 
         text = await self._chat_text(
             message=message,
@@ -657,15 +705,35 @@ class ConversationService:
         prompt_context: PromptContext,
     ) -> ConversationReply:
         """Plan the action, then run the unchanged policy -> tool -> audit path."""
-        plan = await self._llm.plan_tool_action(
-            PlanningRequest(
-                message=message,
-                actor_role=actor.role,
-                available_tools=self._registry.summaries_for(actor.role),
-                conversation_hint=prompt_context.active_work or None,
-                suggested_tool_name=route.possible_tool_name,
+        fallback = self._report_plan(actor, message, route.possible_tool_name)
+        try:
+            plan = await self._llm.plan_tool_action(
+                PlanningRequest(
+                    message=message,
+                    actor_role=actor.role,
+                    available_tools=self._registry.summaries_for(actor),
+                    conversation_hint=prompt_context.active_work or None,
+                    suggested_tool_name=route.possible_tool_name,
+                )
             )
-        )
+        except Exception as exc:
+            if fallback is None:
+                raise
+            # A report needs no model to be read: its tool, this month or the
+            # month the message names. The policy engine still decides.
+            logger.warning(
+                "report_plan_fallback",
+                extra={"provider": self._llm.name, "error": type(exc).__name__},
+            )
+            plan = fallback
+        if plan.is_unknown and fallback is not None:
+            plan = fallback
+        if plan.tool_name in REPORT_TOOLS:
+            # A report only reads; a model calling it risky must not make it
+            # wait on /confirm (the tool's own LOW still meets the engine).
+            plan = plan.model_copy(
+                update={"risk_level": RiskLevel.LOW, "requires_confirmation": False}
+            )
         if plan.is_unknown:
             # Routing said "operation" but planning could not name one. Ask -
             # a guessed plan is exactly what must not reach the policy engine.
@@ -693,6 +761,31 @@ class ConversationService:
             entity_id=reply.tool_result.entity_id if reply.tool_result else None,
         )
         return reply.model_copy(update={"mode": ConversationMode.TOOL})
+
+    def _report_plan(self, actor: Actor, message: str, tool_name: str | None) -> ActionPlan | None:
+        """The plan for a report tool read off the message alone - only the
+        month, nothing a model would have to guess - or ``None`` when the
+        route is not a report this person may ask for."""
+        if (
+            tool_name not in REPORT_TOOLS
+            or tool_name not in self._registry
+            or not actor_has_permission(actor, Permission.ASSISTANT_REPORT)
+        ):
+            return None
+        tool = self._registry.get(tool_name)
+        arguments: dict[str, Any] = {}
+        month = month_in(message, utcnow().astimezone(self._settings.timezone).date())
+        if month is not None and "month" in tool.arguments_model.model_fields:
+            arguments["month"] = month
+        return ActionPlan(
+            intent=tool_name.replace(".", "_"),
+            risk_level=RiskLevel.LOW,
+            requires_confirmation=False,
+            tool_name=tool_name,
+            arguments=arguments,
+            reasoning="report_topic_fallback",
+            confidence=0.6,
+        )
 
     async def _reply(
         self,
@@ -1019,7 +1112,7 @@ class ConversationService:
                 message=message,
                 actor_role=actor.role,
                 actor_name=actor.full_name,
-                available_tools=self._registry.summaries_for(actor.role),
+                available_tools=self._registry.summaries_for(actor),
                 capability_brief=self._capabilities.brief_for(actor),
                 chat_enabled=self._settings.chat_enabled,
                 max_output_tokens=self._settings.chat_response_max_tokens,

@@ -35,7 +35,12 @@ async def ensure_units(session: AsyncSession) -> dict[UnitCode, OrgUnit]:
     for code in UnitCode:
         row = await session.get(OrgUnit, unit_seed_id(code))
         if row is None:
-            row = OrgUnit(id=unit_seed_id(code), code=code, name=f"Luồng {code.value}", settings={})
+            # The PR suites drive pieces through every stage without task
+            # codes: the 2026-10-31 gate is switched on by the tests about it.
+            settings = {"pr_task_codes_required": False} if code is UnitCode.PR else {}
+            row = OrgUnit(
+                id=unit_seed_id(code), code=code, name=f"Luồng {code.value}", settings=settings
+            )
             session.add(row)
         units[code] = row
     await session.flush()

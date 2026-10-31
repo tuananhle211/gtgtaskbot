@@ -54,7 +54,9 @@ from meobot.core.config import Settings
 from meobot.core.errors import IntegrationTimeoutError, LLMError, MeoBotError
 from meobot.core.logging import get_logger
 from meobot.db.session import Database
+from meobot.domain.assistant.reports import asks_for_figures, report_topic
 from meobot.domain.identity.models import Actor
+from meobot.domain.permissions.matrix import Permission, actor_has_permission
 
 logger = get_logger(__name__)
 
@@ -69,6 +71,10 @@ TIMEOUT_REPLY = (
     "nhắn lại giúp mình nhé — các lệnh vận hành vẫn chạy bình thường. "
     "Mã tham chiếu lỗi: {reference}."
 )
+
+#: Shown while a report is read (2026-10-31, "Trợ lý AI"), then replaced by
+#: the answer - so the person sees the assistant at work, not silence.
+THINKING_REPLY = "🤔 Đang tổng hợp số liệu…"
 
 #: Used only when every recovery path inside the service has already failed.
 PROVIDER_DOWN_REPLY = (
@@ -160,6 +166,7 @@ async def handle_free_text(
     # the user is waiting, which is now.
     await formatting.send_typing(message, enabled=settings.chat_typing_indicator)
     reference = short_reference(request_id)
+    thinking = await _thinking(message, actor, text)
 
     try:
         reply = await conversation_service.handle_message(
@@ -170,6 +177,7 @@ async def handle_free_text(
         )
     except IntegrationTimeoutError:
         logger.warning("conversation_timeout", extra={"request_id": str(request_id)})
+        await formatting.drop(thinking)
         await _release(database, settings, access)
         await formatting.answer(
             message, formatting.escape(TIMEOUT_REPLY.format(reference=reference))
@@ -182,6 +190,7 @@ async def handle_free_text(
             "conversation_llm_error",
             extra={"error_code": exc.code, "request_id": str(request_id)},
         )
+        await formatting.drop(thinking)
         await _release(database, settings, access)
         await formatting.answer(
             message, formatting.escape(PROVIDER_DOWN_REPLY.format(reference=reference))
@@ -192,6 +201,7 @@ async def handle_free_text(
             "conversation_failed",
             extra={"error_code": exc.code, "request_id": str(request_id)},
         )
+        await formatting.drop(thinking)
         await _release(database, settings, access)
         await formatting.answer(message, "⛔ " + formatting.escape(exc.message))
         return
@@ -199,6 +209,7 @@ async def handle_free_text(
         # Unexpected failure: log with traceback, tell the user something
         # neutral and actionable, and let the update finish.
         logger.exception("conversation_unexpected_error", extra={"request_id": str(request_id)})
+        await formatting.drop(thinking)
         await _release(database, settings, access)
         await formatting.answer(
             message, formatting.escape(PROVIDER_DOWN_REPLY.format(reference=reference))
@@ -210,7 +221,7 @@ async def handle_free_text(
     # in a generated sentence would otherwise be an unterminated HTML entity and
     # Telegram would reject the whole message; a raw "**" would simply be shown
     # to the user, which is the bug this release fixed.
-    delivered = await _deliver(message, reply.text)
+    delivered = await _deliver(message, reply.text, placeholder=thinking)
     if delivered and reply.executed_a_tool:
         # A turn that ran a tool is operational work, not conversation. The
         # member keeps their chat slot.
@@ -221,14 +232,31 @@ async def handle_free_text(
         await _release(database, settings, access)
 
 
-async def _deliver(message: Message, text: str) -> bool:
-    """Send the answer; report whether Telegram accepted it.
+async def _thinking(message: Message, actor: Actor, text: str) -> Message | None:
+    """ "Đang tổng hợp số liệu…" for a report question from somebody who may
+    ask one; ``None`` otherwise, or when Telegram would not take it."""
+    if not actor_has_permission(actor, Permission.ASSISTANT_REPORT):
+        return None
+    if report_topic(text) is None and not asks_for_figures(text):
+        return None
+    try:
+        return await message.answer(THINKING_REPLY)
+    except Exception:
+        logger.info("thinking_placeholder_failed")
+        return None
+
+
+async def _deliver(message: Message, text: str, *, placeholder: Message | None = None) -> bool:
+    """Send the answer (in place of ``placeholder`` when there is one); report
+    whether Telegram accepted it.
 
     ``formatting.answer`` never raises - it degrades and logs - so "did this
     reach the user" has to be asked separately from "did this raise".
     """
     try:
-        await formatting.answer(message, formatting.render_assistant_text(text))
+        await formatting.replace_or_answer(
+            placeholder, message, formatting.render_assistant_text(text)
+        )
     except Exception:  # pragma: no cover - answer() already swallows its own
         logger.exception("conversation_delivery_failed")
         return False

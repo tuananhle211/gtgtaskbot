@@ -1,10 +1,12 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { Suspense, useMemo, useState } from "react";
+import { useSearchParams } from "next/navigation";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   api,
   ApiError,
+  type SeedingAccess,
   type SeedingLine,
   type SeedingOther,
   type SeedingPeriod,
@@ -12,23 +14,29 @@ import {
 } from "@/lib/api";
 import { pointsDecisionConfirmation } from "@/lib/confirmations";
 import { ConfirmButton } from "@/components/confirm";
+import { SeedingTag } from "@/components/department-tags";
 import { formatScore } from "@/components/performance";
 import { PageHeader, PrimaryButton, Select } from "@/components/pr";
 import { Empty, ErrorBox, Loading, Pill } from "@/components/states";
 import { formatDate, formatDateTime } from "@/lib/datetime";
 
 /**
- * "Phòng PR › Seeding" (0085): the seeding group's page.
+ * "Phòng PR › Báo cáo công việc/Seeding" (0085; 2026-10-31).
  *
- * - **Tổng quan**: the team's phone KPI for this week (Monday-Sunday) and
- *   this month - one number for everybody, set by the Trưởng phòng PR - with
- *   the share reached by approved numbers, and each person's figures;
- * - **Nộp SĐT**: one number per line; each line says whether it went in
- *   (waits for the Trưởng phòng), was already in the system, twice here, or
- *   not a number. An approved number is worth 200 points;
- * - **Việc khác**: other work with its points, counted once approved;
- * - **Duyệt** / **Thành viên** (the Trưởng phòng PR): decide what waits, and
- *   who is in the group.
+ * - **Tổng quan** (the seeding group and the Trưởng phòng PR): the team's
+ *   phone KPI for this week (Monday-Sunday) and this month - one number for
+ *   everybody, set by the Trưởng phòng PR - with the share reached by
+ *   approved numbers, and each person's figures;
+ * - **Nộp SĐT** (anybody seated in PR): one number per line; each line says
+ *   whether it went in (waits for the Trưởng phòng), was already in the
+ *   system, twice here, or not a number. An approved number is worth 200;
+ * - **Việc khác** (anybody seated in PR): other work with its points, counted
+ *   once approved;
+ * - **Duyệt (N)** (the Trưởng phòng PR): decide what waits - a refusal says
+ *   why; **Thành viên Seeding**: who is in the group (the Trưởng phòng
+ *   edits it, the group reads it).
+ *
+ * `?tab=review` (the Trưởng phòng's notification) opens "Duyệt".
  */
 type Tab = "overview" | "phones" | "other" | "review" | "members";
 
@@ -45,41 +53,62 @@ const LINE_STATUS: Record<SeedingLine["status"], { label: string; tone: "good" |
   INVALID: { label: "Không phải số điện thoại", tone: "bad" },
 };
 
+const TABS: ReadonlyArray<Tab> = ["overview", "phones", "other", "review", "members"];
+
 export default function SeedingPage() {
-  const [tab, setTab] = useState<Tab>("overview");
-  const overview = useQuery({ queryKey: ["seeding", "overview"], queryFn: () => api.seedingOverview(), retry: false });
-  if (overview.isPending) return <Loading label="Đang tải seeding…" />;
-  if (overview.isError) {
-    if (overview.error instanceof ApiError && overview.error.status === 403) {
-      return (
-        <section role="alert" className="panel p-6">
-          <h1 className="text-lg font-semibold tracking-tight">Không xem được trang này</h1>
-          <p className="mt-2 text-sm text-[var(--text-muted)]">
-            Chỉ thành viên nhóm seeding và Trưởng phòng PR vào được mục này.
-          </p>
-        </section>
-      );
-    }
-    return <ErrorBox error={overview.error} onRetry={() => overview.refetch()} />;
-  }
-  const data = overview.data;
-  const manage = data.access.manage;
-  const tabs: Array<{ key: Tab; label: string }> = [
-    { key: "overview", label: "Tổng quan" },
+  return (
+    <Suspense fallback={<Loading label="Đang tải…" />}>
+      <SeedingWorkspace />
+    </Suspense>
+  );
+}
+
+/** The tabs this viewer has, in order. */
+function tabsFor(access: SeedingAccess): Array<{ key: Tab; label: string }> {
+  // An older API without the new flags: the group and the managers as before.
+  const seesKpi = access.sees_kpi ?? (access.member || access.manage);
+  const waiting = access.awaiting ?? 0;
+  return [
+    ...(seesKpi ? [{ key: "overview" as Tab, label: "Tổng quan" }] : []),
     { key: "phones", label: "Nộp SĐT" },
     { key: "other", label: "Việc khác" },
-    ...(manage
-      ? [
-          { key: "review" as Tab, label: "Duyệt" },
-          { key: "members" as Tab, label: "Thành viên" },
-        ]
+    ...(access.manage
+      ? [{ key: "review" as Tab, label: waiting > 0 ? `Duyệt (${waiting})` : "Duyệt" }]
       : []),
+    ...(seesKpi ? [{ key: "members" as Tab, label: "Thành viên Seeding" }] : []),
   ];
+}
+
+function SeedingWorkspace() {
+  const params = useSearchParams();
+  const asked = params.get("tab");
+  const [chosen, setChosen] = useState<Tab | null>(
+    TABS.includes(asked as Tab) ? (asked as Tab) : null,
+  );
+  const access = useQuery({ queryKey: ["seeding", "access"], queryFn: api.seedingAccess, retry: false });
+  if (access.isPending) return <Loading label="Đang tải…" />;
+  if (access.isError) return <ErrorBox error={access.error} onRetry={() => access.refetch()} />;
+  const flags = access.data;
+  if (!(flags.submit ?? (flags.member || flags.manage))) {
+    return (
+      <section role="alert" className="panel p-6">
+        <h1 className="text-lg font-semibold tracking-tight">Không xem được trang này</h1>
+        <p className="mt-2 text-sm text-[var(--text-muted)]">
+          Chỉ nhân viên phòng PR và Trưởng phòng PR vào được mục này.
+        </p>
+      </section>
+    );
+  }
+  const manage = flags.manage;
+  const tabs = tabsFor(flags);
+  const tab = tabs.some((item) => item.key === chosen) ? (chosen as Tab) : tabs[0].key;
+  const setTab = setChosen;
+  const phonePoints = flags.phone_points ?? 200;
   return (
     <div className="space-y-4">
       <PageHeader
-        title="Seeding"
-        subtitle={`Mỗi số điện thoại được duyệt = ${formatScore(data.phone_points)} điểm. KPI tính cho cả team theo tuần và tháng.`}
+        title="Báo cáo công việc/Seeding"
+        subtitle={`Nộp số điện thoại và việc khác để Trưởng phòng PR duyệt. Mỗi số điện thoại được duyệt = ${formatScore(phonePoints)} điểm.`}
       />
       <div role="tablist" aria-label="Phần của seeding" className="flex flex-wrap gap-1">
         {tabs.map((item) => (
@@ -99,21 +128,23 @@ export default function SeedingPage() {
           </button>
         ))}
       </div>
-      {tab === "overview" ? <Overview manage={manage} day={data.day} /> : null}
+      {tab === "overview" ? <Overview manage={manage} /> : null}
       {tab === "phones" ? <PhonesTab /> : null}
       {tab === "other" ? <OtherTab /> : null}
       {tab === "review" && manage ? <ReviewTab /> : null}
-      {tab === "members" && manage ? <MembersTab /> : null}
+      {tab === "members" ? <MembersTab manage={manage} /> : null}
     </div>
   );
 }
 
 // --- Tổng quan ----------------------------------------------------------------
 
-function Overview({ manage, day }: { manage: boolean; day: string }) {
+function Overview({ manage }: { manage: boolean }) {
   const overview = useQuery({ queryKey: ["seeding", "overview"], queryFn: () => api.seedingOverview() });
+  if (overview.isError) return <ErrorBox error={overview.error} onRetry={() => overview.refetch()} />;
   if (!overview.data) return <Loading />;
   const data = overview.data;
+  const day = data.day;
   return (
     <div className="space-y-4">
       <div className="grid gap-3 md:grid-cols-2">
@@ -142,7 +173,10 @@ function Overview({ manage, day }: { manage: boolean; day: string }) {
                 {data.members.map((row) => (
                   <tr key={row.person.user_id}>
                     <td className="px-4 py-2.5">
-                      <span className="font-medium">{row.person.name}</span>
+                      <span className="inline-flex flex-wrap items-center gap-1.5">
+                        <span className="font-medium">{row.person.name}</span>
+                        {row.person.seeding ? <SeedingTag /> : null}
+                      </span>
                       <p className="text-xs text-[var(--text-muted)]">{row.person.departments.join(", ")}</p>
                     </td>
                     <td className="px-4 py-2.5 text-right tabular-nums">{row.approved_week}</td>
@@ -333,9 +367,14 @@ function PhoneList({
             />
           ) : null}
           <span className="font-mono">{row.phone}</span>
-          <span className="min-w-0 flex-1 truncate text-xs text-[var(--text-muted)]">
-            {onToggle ? `${row.name} · ` : ""}
-            {formatDateTime(row.submitted_at)}
+          <span className="min-w-0 flex-1 text-xs text-[var(--text-muted)]">
+            <span className="block truncate">
+              {onToggle ? `${row.name} · ` : ""}
+              {formatDateTime(row.submitted_at)}
+            </span>
+            {row.status === "REJECTED" && row.decision_note ? (
+              <span className="block text-[var(--bad)]">Lý do: {row.decision_note}</span>
+            ) : null}
           </span>
           <Pill tone={STATUS[row.status].tone}>{STATUS[row.status].label}</Pill>
         </li>
@@ -450,6 +489,9 @@ function OtherList({
               {onToggle ? `${row.name} · ` : ""}
               {formatDateTime(row.submitted_at)}
             </span>
+            {row.status === "REJECTED" && row.decision_note ? (
+              <span className="block text-xs text-[var(--bad)]">Lý do: {row.decision_note}</span>
+            ) : null}
           </span>
           <span className="font-semibold tabular-nums">{formatScore(row.points)}đ</span>
           <Pill tone={STATUS[row.status].tone}>{STATUS[row.status].label}</Pill>
@@ -484,13 +526,17 @@ function ReviewTab() {
     otherSelection.setSelected(new Set());
     void queryClient.invalidateQueries({ queryKey: ["seeding"] });
     void queryClient.invalidateQueries({ queryKey: ["performance"] });
+    // The menu's "Duyệt" badge.
+    void queryClient.invalidateQueries({ queryKey: ["units", "me"] });
   };
   const decidePhones = useMutation({
-    mutationFn: (approve: boolean) => api.decideSeedingPhones({ ids: [...phoneSelection.selected], approve }),
+    mutationFn: ({ approve, note }: { approve: boolean; note?: string }) =>
+      api.decideSeedingPhones({ ids: [...phoneSelection.selected], approve, note: note ?? null }),
     onSuccess: after,
   });
   const decideOthers = useMutation({
-    mutationFn: (approve: boolean) => api.decideSeedingOthers({ ids: [...otherSelection.selected], approve }),
+    mutationFn: ({ approve, note }: { approve: boolean; note?: string }) =>
+      api.decideSeedingOthers({ ids: [...otherSelection.selected], approve, note: note ?? null }),
     onSuccess: after,
   });
   const phoneRows = phones.data ?? [];
@@ -516,7 +562,7 @@ function ReviewTab() {
           what={`${phoneCount} số điện thoại`}
           pending={decidePhones.isPending}
           error={decidePhones.error}
-          onDecide={(approve) => decidePhones.mutate(approve)}
+          onDecide={(approve, note) => decidePhones.mutate({ approve, note })}
         />
       </section>
       <section className="panel overflow-hidden" aria-label="Việc khác chờ duyệt">
@@ -536,7 +582,7 @@ function ReviewTab() {
           what={`${otherCount} việc khác`}
           pending={decideOthers.isPending}
           error={decideOthers.error}
-          onDecide={(approve) => decideOthers.mutate(approve)}
+          onDecide={(approve, note) => decideOthers.mutate({ approve, note })}
         />
       </section>
     </div>
@@ -554,17 +600,39 @@ function DecisionBar({
   what: string;
   pending: boolean;
   error: unknown;
-  onDecide: (approve: boolean) => void;
+  /** `note` = the reason, required to refuse (2026-10-31). */
+  onDecide: (approve: boolean, note?: string) => void;
 }) {
+  const [reason, setReason] = useState("");
+  const refuse = pointsDecisionConfirmation({ approve: false, what });
   return (
     <div className="flex justify-end gap-2 border-t border-[var(--border)] px-4 py-3">
       <ConfirmButton
-        spec={pointsDecisionConfirmation({ approve: false, what })}
+        spec={{
+          ...refuse,
+          details: (
+            <label className="block text-xs font-medium text-[var(--text)]">
+              Lý do không duyệt (bắt buộc)
+              <textarea
+                value={reason}
+                onChange={(event) => setReason(event.target.value)}
+                rows={3}
+                maxLength={1000}
+                placeholder="Người nộp sẽ đọc lý do này"
+                className="mt-1 w-full rounded-lg border border-[var(--border)] bg-[var(--surface)] px-3 py-2 text-sm"
+              />
+            </label>
+          ),
+        }}
         tone="danger"
         disabled={count === 0}
+        confirmDisabled={reason.trim() === ""}
         pending={pending}
         error={error}
-        onConfirm={() => onDecide(false)}
+        onOpenChange={(open) => {
+          if (open) setReason("");
+        }}
+        onConfirm={() => onDecide(false, reason.trim())}
       >
         Không duyệt
       </ConfirmButton>
@@ -583,10 +651,14 @@ function DecisionBar({
 
 // --- Thành viên (Trưởng phòng PR) ---------------------------------------------------
 
-function MembersTab() {
+function MembersTab({ manage }: { manage: boolean }) {
   const queryClient = useQueryClient();
   const members = useQuery({ queryKey: ["seeding", "members"], queryFn: api.seedingMembers });
-  const candidates = useQuery({ queryKey: ["seeding", "candidates"], queryFn: api.seedingCandidates });
+  const candidates = useQuery({
+    queryKey: ["seeding", "candidates"],
+    queryFn: api.seedingCandidates,
+    enabled: manage,
+  });
   const [chosen, setChosen] = useState("");
   const after = () => {
     setChosen("");
@@ -600,39 +672,41 @@ function MembersTab() {
     [candidates.data, chosen],
   );
   return (
-    <section className="panel space-y-3 p-4" aria-label="Thành viên seeding">
-      <div className="flex flex-wrap items-end gap-2">
-        <label className="text-sm font-medium">
-          Thêm người trong phòng PR
-          <Select
-            aria-label="Thêm người trong phòng PR"
-            value={chosen}
-            onChange={(event) => setChosen(event.target.value)}
-            className="mt-1 min-w-64"
+    <section className="panel space-y-3 p-4" aria-label="Thành viên Seeding">
+      {manage ? (
+        <div className="flex flex-wrap items-end gap-2">
+          <label className="text-sm font-medium">
+            Thêm người trong phòng PR
+            <Select
+              aria-label="Thêm người trong phòng PR"
+              value={chosen}
+              onChange={(event) => setChosen(event.target.value)}
+              className="mt-1 min-w-64"
+            >
+              <option value="">Chọn người…</option>
+              {(candidates.data ?? []).map((person) => (
+                <option key={person.user_id} value={person.user_id}>
+                  {person.name}
+                </option>
+              ))}
+            </Select>
+          </label>
+          <ConfirmButton
+            spec={{
+              title: `Thêm ${name} vào nhóm Seeding?`,
+              description: "Người này mang tag Seeding và xem được trang Tổng quan KPI cùng danh sách Thành viên Seeding.",
+              confirmLabel: "Thêm",
+              variant: "primary",
+            }}
+            disabled={!chosen}
+            pending={add.isPending}
+            error={add.error}
+            onConfirm={() => add.mutate()}
           >
-            <option value="">Chọn người…</option>
-            {(candidates.data ?? []).map((person) => (
-              <option key={person.user_id} value={person.user_id}>
-                {person.name}
-              </option>
-            ))}
-          </Select>
-        </label>
-        <ConfirmButton
-          spec={{
-            title: `Thêm ${name} vào nhóm seeding?`,
-            description: "Người này sẽ thấy mục Seeding, nộp được số điện thoại và việc khác.",
-            confirmLabel: "Thêm",
-            variant: "primary",
-          }}
-          disabled={!chosen}
-          pending={add.isPending}
-          error={add.error}
-          onConfirm={() => add.mutate()}
-        >
-          Thêm
-        </ConfirmButton>
-      </div>
+            Thêm
+          </ConfirmButton>
+        </div>
+      ) : null}
       {members.isPending ? (
         <Loading />
       ) : (members.data ?? []).length === 0 ? (
@@ -641,24 +715,27 @@ function MembersTab() {
         <ul className="divide-y divide-[var(--border)] rounded-lg border border-[var(--border)]">
           {(members.data ?? []).map((person) => (
             <li key={person.user_id} className="flex items-center justify-between gap-3 px-3 py-2 text-sm">
-              <span>
+              <span className="inline-flex flex-wrap items-center gap-1.5">
                 <span className="font-medium">{person.name}</span>
-                <span className="ml-2 text-xs text-[var(--text-muted)]">{person.departments.join(", ")}</span>
+                <SeedingTag />
+                <span className="text-xs text-[var(--text-muted)]">{person.departments.join(", ")}</span>
               </span>
-              <ConfirmButton
-                spec={{
-                  title: `Bỏ ${person.name} khỏi nhóm seeding?`,
-                  description: "Người này không còn thấy mục Seeding. Điểm đã được duyệt vẫn giữ.",
-                  confirmLabel: "Bỏ khỏi nhóm",
-                  variant: "destructive",
-                }}
-                tone="danger"
-                ariaLabel={`Bỏ ${person.name} khỏi nhóm`}
-                pending={remove.isPending}
-                onConfirm={() => remove.mutate(person.user_id)}
-              >
-                Bỏ
-              </ConfirmButton>
+              {manage ? (
+                <ConfirmButton
+                  spec={{
+                    title: `Bỏ ${person.name} khỏi nhóm Seeding?`,
+                    description: "Người này không còn xem trang Tổng quan KPI, vẫn nộp được SĐT và việc khác như nhân viên PR khác. Điểm đã được duyệt vẫn giữ.",
+                    confirmLabel: "Bỏ khỏi nhóm",
+                    variant: "destructive",
+                  }}
+                  tone="danger"
+                  ariaLabel={`Bỏ ${person.name} khỏi nhóm`}
+                  pending={remove.isPending}
+                  onConfirm={() => remove.mutate(person.user_id)}
+                >
+                  Bỏ
+                </ConfirmButton>
+              ) : null}
             </li>
           ))}
         </ul>

@@ -199,6 +199,11 @@ class UnitSettings(BaseModel):
     #: for the phase's Trưởng phòng, points counted when the step is done. Off =
     #: hand-ins ask for none, nothing waits on them and nothing is scored.
     design_codes_enabled: bool = True
+    #: PR (2026-10-31): a PR piece may not be sent for review / start
+    #: production / be handed in for internal review while that phase has no
+    #: task codes (``application/performance/pr_code_gate.py``). Read from the
+    #: PR unit only; the test worlds' PR unit keeps it off.
+    pr_task_codes_required: bool = True
     #: 0074: the forms ("hình thức") a task-code line may take, per phase. The
     #: OWNER / an ADMIN edits them on "Danh mục điểm".
     task_forms: tuple[TaskFormSetting, ...] = Field(default_factory=_default_task_forms)

@@ -212,6 +212,11 @@
 .dept-tag[data-position="HEAD"] {
   font-weight: 700;
 }
+/* 2026-10-31: the PR seeding group's "Seeding" tag. */
+.dept-tag[data-kind="seeding"] {
+  background: var(--good-soft);
+  color: var(--good);
+}
 .dept-tag .dept-star {
   color: var(--warn);
   font-size: 10px;

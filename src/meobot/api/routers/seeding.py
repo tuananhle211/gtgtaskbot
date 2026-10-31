@@ -1,5 +1,7 @@
-""" "Seeding" (0085): the PR seeding group's KPI, phone numbers and other
-work. Members and the Trưởng phòng PR only (403 ``seeding_forbidden``)."""
+""" "Báo cáo công việc/Seeding" (0085): the PR seeding group's KPI, phone
+numbers and other work. The KPI and the people: the group and the Trưởng
+phòng PR; handing in: anybody seated in PR too (2026-10-31). Else 403
+``seeding_forbidden``."""
 
 from __future__ import annotations
 
@@ -33,6 +35,7 @@ from meobot.api.schemas.seeding import (
     SeedingTargetRequest,
 )
 from meobot.application.audit_service import AuditService
+from meobot.application.performance.review_notifications import ReviewNotifier
 from meobot.application.seeding.service import SeedingAccess, SeedingService, seeding_access
 from meobot.core.config import Settings
 from meobot.core.time import utcnow
@@ -48,12 +51,22 @@ async def _context(
     session: AsyncSession, membership: UnitMembershipDep, app_settings: Settings
 ) -> tuple[SeedingService, SeedingAccess]:
     access = await seeding_access(session, membership)
-    return SeedingService(session, AuditService(session), tz=app_settings.timezone), access
+    service = SeedingService(
+        session,
+        AuditService(session),
+        tz=app_settings.timezone,
+        notifier=ReviewNotifier(session, app_settings),
+    )
+    return service, access
 
 
 @router.get("/access", response_model=SeedingAccessResponse)
-async def access_flags(session: SessionDep, membership: UnitMembershipDep) -> SeedingAccessResponse:
-    return SeedingAccessResponse.from_access(await seeding_access(session, membership))
+async def access_flags(
+    session: SessionDep, membership: UnitMembershipDep, app_settings: SettingsDep
+) -> SeedingAccessResponse:
+    """What the caller may do here, and what waits for them ("Duyệt (N)")."""
+    service, access = await _context(session, membership, app_settings)
+    return SeedingAccessResponse.from_access(access, await service.awaiting(access))
 
 
 @router.get("/overview", response_model=SeedingOverviewResponse)

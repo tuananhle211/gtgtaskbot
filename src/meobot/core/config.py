@@ -369,10 +369,10 @@ class Settings(BaseSettings):
     #: issuing** rather than emitting a link to nowhere: a link with the wrong
     #: host is a token handed to a stranger's server.
     web_base_url: str = ""
-    #: How long a login link stays usable. Short: it is single-use, arrives
-    #: instantly in a Telegram DM, and a link that works tomorrow is a link
-    #: that works for whoever reads the chat tomorrow.
-    web_login_token_ttl_seconds: int = Field(default=600, ge=60, le=3600)
+    #: How long a login link stays usable. An hour at most: it is single-use,
+    #: arrives instantly in a Telegram DM, and a link that works tomorrow is a
+    #: link that works for whoever reads the chat tomorrow.
+    web_login_token_ttl_seconds: int = Field(default=3600, ge=60, le=3600)
     #: How long a browser session lasts before the person asks the bot again.
     #: One working day, so nobody is signed in overnight on a shared machine.
     web_session_ttl_seconds: int = Field(default=43200, ge=300, le=604800)

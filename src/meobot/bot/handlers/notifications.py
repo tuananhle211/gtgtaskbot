@@ -377,6 +377,8 @@ def _event_label(event_type: str) -> str:
         "resource_request_rejected": "Đề xuất tài nguyên bị từ chối",
         "resource_request_cancelled": "Đề xuất tài nguyên đã huỷ",
         "resource_request_completed": "Đề xuất tài nguyên hoàn thành",
+        "pr_points_review_requested": "Mã task PR chờ duyệt",
+        "seeding_review_requested": "Báo cáo công việc chờ duyệt",
     }.get(event_type, "Tin nhắn")
 
 

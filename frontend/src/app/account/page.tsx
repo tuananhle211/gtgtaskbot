@@ -39,7 +39,7 @@ import {
   MemberCodeField,
   PasswordStatus,
 } from "@/components/account-fields";
-import { DepartmentTags } from "@/components/department-tags";
+import { DepartmentTags, SeedingTag } from "@/components/department-tags";
 import { PersonLink } from "@/components/person-link";
 import { Glyph, StatCards, formatPoints, formatRate } from "@/components/stat-cards";
 import { PasswordDialog, PasswordForm } from "./password";
@@ -951,6 +951,7 @@ function Members({
                       </td>
                       <td>
                         <DepartmentTags seats={row.departments ?? []} />
+                        {row.seeding ? <SeedingTag /> : null}
                       </td>
                       <td>
                         {mayReset ? (

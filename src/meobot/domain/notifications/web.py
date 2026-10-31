@@ -77,6 +77,8 @@ WEB_TITLES: Mapping[NotificationEvent, str] = MappingProxyType(
         NotificationEvent.RESOURCE_REQUEST_REJECTED: "Đề xuất tài nguyên bị từ chối",
         NotificationEvent.RESOURCE_REQUEST_CANCELLED: "Đề xuất tài nguyên đã huỷ",
         NotificationEvent.RESOURCE_REQUEST_COMPLETED: "Đề xuất tài nguyên đã hoàn thành",
+        NotificationEvent.PR_POINTS_REVIEW_REQUESTED: "Có mã task PR chờ bạn duyệt",
+        NotificationEvent.SEEDING_REVIEW_REQUESTED: "Có báo cáo công việc chờ bạn duyệt",
     }
 )
 

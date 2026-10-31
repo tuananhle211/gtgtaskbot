@@ -682,6 +682,40 @@ describe("a PR task", () => {
     );
   });
 
+  it("greys a move out while its phase has no task codes, saying why (2026-10-31)", async () => {
+    currentRef = CONTENT_ID;
+    const reason = "Chưa chọn mã task công việc pha Order (Nội dung).";
+    const blocked: UnifiedTaskDetail = {
+      ...PR,
+      actions: [
+        {
+          key: "pr:TRANSITION:TEAM_LEAD_REVIEW",
+          label: "Gửi Trưởng nhóm duyệt",
+          emphasis: "PRIMARY",
+          requires_note: false,
+          inputs: ["note"],
+          assignee_options: [],
+          blocked: reason,
+        },
+        {
+          key: "pr:TRANSITION:CANCELLED",
+          label: "Huỷ",
+          emphasis: "DANGER",
+          requires_note: false,
+          inputs: ["note"],
+          assignee_options: [],
+        },
+      ],
+    };
+    stubFetch([{ match: `/api/tasks/${CONTENT_ID}`, body: blocked }]);
+    renderWithQuery(<TaskDetailPage />);
+
+    const move = await screen.findByRole("button", { name: /Gửi Trưởng nhóm duyệt/ });
+    expect(move).toBeDisabled();
+    expect(screen.getByTestId("action-blocked")).toHaveTextContent(reason);
+    expect(screen.getByRole("button", { name: "Huỷ" })).toBeEnabled();
+  });
+
   it("opens the PR module's own editors on the content id", async () => {
     currentRef = PR.task.code;
     const content = {
