@@ -474,3 +474,82 @@ async def test_08_hotline_and_former_marketers_are_lines_of_their_own(world: Wor
     day = world.client.get("/api/ads/revenue", params={"day": D1.isoformat()}).json()
     names = {line["key"]: line["label"] for line in day["lines"]}
     assert names["c:13"] == "MKT - HOÀNG ANH (đã nghỉ)"
+
+
+async def test_09_a_day_lists_who_paid_what(world: World) -> None:
+    """ "Báo cáo ngày" (0086): a day opens on the customer codes behind its
+    revenue - each customer's thực thu that day, refunds included, points not -
+    plus what was typed by hand; together the day's revenue, narrowed like the
+    report (a member: their own; a BM: its region's Marketing)."""
+    parsed = parse_payment(
+        {"id": 1, "payment_date": "2026-10-20", "price": 1, "customer": {"account_code": " KH9 "}}
+    )
+    assert parsed.customer_code == "KH9"
+    head, ngoc, anh = await staffed(world)
+    crm = FakeCrmClient(
+        users=CRM.users,
+        branch_list=[CrmBranch(12, "HN1"), CrmBranch(1, "HN2"), CrmBranch(9, "SG")],
+        rows=[
+            CrmPayment(1, D1, Decimal(4_000_000), 4, 10, branch_id=9, customer_code="KH001"),
+            CrmPayment(2, D1, Decimal(1_000_000), 1, 10, branch_id=9, customer_code="KH001"),
+            CrmPayment(3, D1, Decimal(2_000_000), 4, 11, branch_id=1, customer_code="KH002"),
+            CrmPayment(4, D1, Decimal(700_000), 3, 10, branch_id=9, customer_code="KH003"),
+            CrmPayment(5, D1, Decimal(-300_000), 7, 10, branch_id=9, customer_code="KH004"),
+            CrmPayment(6, D1, Decimal(900_000), 4, 12, branch_id=12, customer_code="KH005"),
+            CrmPayment(7, D2, Decimal(800_000), 4, 10, branch_id=9, customer_code="KH006"),
+        ],
+    )
+    await AdsCrmSyncService(world.session, crm).sync(D1, D2)
+    stored = await world.session.get(AdsCrmPayment, 1)
+    assert stored is not None and stored.customer_code == "KH001"
+    world.act_as(head)
+    for crm_id, body in (
+        (10, {"user_id": str(ngoc.id)}),
+        (11, {"user_id": str(ngoc.id)}),
+        (12, {"source": "HOTLINE"}),
+    ):
+        world.client.patch(f"/api/ads/crm/accounts/{crm_id}", json=body)
+    world.client.put(
+        "/api/ads/revenue", json={"day": D1.isoformat(), "entries": {f"u:{anh.id}": 4_000_000}}
+    )
+
+    def detail(**params: str) -> Any:
+        response = world.client.get(
+            "/api/ads/history/day", params={"day": D1.isoformat(), **params}
+        )
+        assert response.status_code == 200, response.json()
+        return response.json()
+
+    def listed(body: Any) -> list[tuple[str | None, float, int]]:
+        return [(c["customer_code"], c["amount"], c["payments"]) for c in body["customers"]]
+
+    team = detail()
+    assert listed(team) == [
+        ("KH001", 5_000_000, 2),
+        ("KH002", 2_000_000, 1),
+        ("KH005", 900_000, 1),
+        ("KH004", -300_000, 1),
+    ]
+    assert team["typed"] == 4_000_000 and team["revenue"] == 11_600_000
+    # The same figure as the day's line of the report.
+    history = world.client.get("/api/ads/history", params={"month": "2026-10"}).json()
+    line = next(d for d in history["days"] if d["day"] == D1.isoformat())
+    assert line["figures"]["revenue"] == team["revenue"]
+
+    one = detail(user_id=str(ngoc.id))
+    assert [c[0] for c in listed(one)] == ["KH001", "KH002", "KH004"]
+    assert (one["revenue"], one["typed"]) == (6_700_000, 0)
+
+    # BM Apex (Sài Gòn): what the HCM team brought - the hotline served in HN
+    # and the HN account's customer leave; Anh's typed line stays.
+    from meobot.db.models.ads import AdsConnection
+
+    apex = (await world.session.execute(select(AdsConnection))).scalar_one()
+    sg = detail(connection_id=str(apex.id))
+    assert [c[0] for c in listed(sg)] == ["KH001", "KH004"]
+    assert (sg["revenue"], sg["typed"]) == (8_700_000, 4_000_000)
+
+    # A member sees only their own, whoever they ask for.
+    world.act_as(anh)
+    mine = detail(user_id=str(ngoc.id))
+    assert (mine["customers"], mine["typed"], mine["revenue"]) == ([], 4_000_000, 4_000_000)

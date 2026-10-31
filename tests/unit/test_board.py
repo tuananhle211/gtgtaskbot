@@ -100,6 +100,8 @@ async def test_03_the_ads_board_shows_orders_with_their_nodes(world: World) -> N
     assert cells["FINAL"]["label"] == "Duyệt final" and cells["FINAL"]["status"] == "CHUA_TOI"
     assert btd["detail_path"] == f"/tasks/{btd['code']}"
     assert btd["owner_name"] == ads.orderer.full_name
+    # Which department the order came from: the orderer's department name.
+    assert btd["owner_department"] == "ADS"
     d = by_code[quick["order"]["code"]]
     assert d["phase"] == "REVIEW"
     assert d["status_label"] == f"Chờ {ads.head.full_name} duyệt order"

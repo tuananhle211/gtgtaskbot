@@ -146,6 +146,9 @@ class OrderEventKind(StrEnum):
 
     SUBMITTED = "SUBMITTED"
     RESUBMITTED = "RESUBMITTED"
+    #: The orderer edited the order while nothing had progressed on it yet
+    #: (before the head's approval / before anyone accepted a step).
+    ORDER_EDITED = "ORDER_EDITED"
     ORDER_APPROVED = "ORDER_APPROVED"
     ORDER_RETURNED = "ORDER_RETURNED"
     NODE_ACTIVATED = "NODE_ACTIVATED"

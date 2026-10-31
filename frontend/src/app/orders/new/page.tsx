@@ -98,7 +98,11 @@ export default function NewOrderPage() {
       <div className="space-y-4">
         <PageHeader
           title={`Sửa order ${order.code}`}
-          subtitle="Sửa theo góp ý của Trưởng phòng rồi gửi lại để duyệt"
+          subtitle={
+            order.stage === "ORDER_RETURNED"
+              ? "Sửa theo góp ý của Trưởng phòng rồi gửi lại để duyệt"
+              : "Sửa order khi chưa có ai xử lý; order giữ nguyên trạng thái"
+          }
         />
         <AdsOrderForm
           key={`${order.id}:${order.version}`}
@@ -312,10 +316,13 @@ function AdsOrderForm({
   // plain "Nội dung" the AI does not read.
   const designOnly = nodes.length === 1 && nodes[0] === "THIET_KE";
   const reviewsScript = aiReview && !designOnly;
+  // A returned order is fixed and sent again (/resubmit); a fresh, not-yet-
+  // progressed one is edited in place (/edit, keeps its stage).
+  const resubmitting = editing?.stage === "ORDER_RETURNED";
   const create = useMutation({
     mutationFn: (body: CreateOrderBody) =>
       editing
-        ? api.orderAction(editing.id, "/resubmit", {
+        ? api.orderAction(editing.id, resubmitting ? "/resubmit" : "/edit", {
           version: editing.version,
           title: body.title,
           platform_id: body.platform_id,
@@ -853,12 +860,19 @@ function AdsOrderForm({
           <ConfirmButton
             spec={
               editing
-                ? {
-                  title: `Gửi lại order ${editing.code}?`,
-                  description:
-                    "Order đã sửa quay lại cho Trưởng phòng ADS duyệt.",
-                  confirmLabel: "Gửi lại order",
-                }
+                ? resubmitting
+                  ? {
+                    title: `Gửi lại order ${editing.code}?`,
+                    description:
+                      "Order đã sửa quay lại cho Trưởng phòng ADS duyệt.",
+                    confirmLabel: "Gửi lại order",
+                  }
+                  : {
+                    title: `Lưu thay đổi order ${editing.code}?`,
+                    description:
+                      "Order được sửa tại chỗ, giữ nguyên trạng thái. Người đang chờ duyệt sẽ thấy bản mới.",
+                    confirmLabel: "Lưu thay đổi",
+                  }
                 : {
                   title: "Gửi order?",
                   description: designOnly
@@ -873,7 +887,7 @@ function AdsOrderForm({
             disabled={!ready}
             tone="primary"
           >
-            {editing ? "Gửi lại order" : "Gửi order"}
+            {editing ? (resubmitting ? "Gửi lại order" : "Lưu thay đổi") : "Gửi order"}
           </ConfirmButton>
           )}
         </div>

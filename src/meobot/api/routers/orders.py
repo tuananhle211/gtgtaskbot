@@ -187,6 +187,26 @@ def _preassigned(value: dict[str, uuid.UUID] | None) -> dict[OrderNodeType, uuid
     return parsed
 
 
+def _order_edit(body: ResubmitOrderRequest, fields: set[str]) -> OrderEdit:
+    """The edit fields shared by resubmit and edit: only what the form set."""
+    return OrderEdit(
+        title=body.title,
+        order_content=body.order_content,
+        script_source=_script_source(body.script_source) if "script_source" in fields else None,
+        design_link=body.design_link,
+        reference_link=body.reference_link,
+        source_link=body.source_link,
+        preassigned=None if body.preassigned is None else _preassigned(body.preassigned),
+        video_kind_id=body.video_kind_id,
+        platform_id=body.platform_id,
+        duration_id=body.duration_id,
+        desired_deadline_at=body.desired_deadline_at,
+        approver_user_id=body.approver_user_id,
+        note=body.note,
+        task_codes=_task_codes(body.task_codes),
+    )
+
+
 async def _detail(services: OrderServices, actor: Any, order_id: uuid.UUID) -> OrderDetailResponse:
     return OrderDetailResponse.from_domain(await services.queries.detail(actor, str(order_id)))
 
@@ -403,22 +423,28 @@ async def resubmit_order(
         request_id=request_id,
         order_id=order_id,
         expected_version=body.version,
-        edit=OrderEdit(
-            title=body.title,
-            order_content=body.order_content,
-            script_source=_script_source(body.script_source) if "script_source" in fields else None,
-            design_link=body.design_link,
-            reference_link=body.reference_link,
-            source_link=body.source_link,
-            preassigned=None if body.preassigned is None else _preassigned(body.preassigned),
-            video_kind_id=body.video_kind_id,
-            platform_id=body.platform_id,
-            duration_id=body.duration_id,
-            desired_deadline_at=body.desired_deadline_at,
-            approver_user_id=body.approver_user_id,
-            note=body.note,
-            task_codes=_task_codes(body.task_codes),
-        ),
+        edit=_order_edit(body, fields),
+    )
+    return await _detail(services, actor, order_id)
+
+
+@router.post("/{order_id}/edit", response_model=OrderDetailResponse, responses=_ACTION_RESPONSES)
+async def edit_order(
+    order_id: uuid.UUID,
+    body: ResubmitOrderRequest,
+    actor: CurrentActorDep,
+    request_id: RequestIdDep,
+    services: ServicesDep,
+) -> OrderDetailResponse:
+    """The orderer fixes an order that has not progressed yet (before the head's
+    approval / before anyone accepted a step), without re-sending it: the order
+    keeps its stage. Same body as resubmit."""
+    await services.commands.edit(
+        actor=actor,
+        request_id=request_id,
+        order_id=order_id,
+        expected_version=body.version,
+        edit=_order_edit(body, body.model_fields_set),
     )
     return await _detail(services, actor, order_id)
 

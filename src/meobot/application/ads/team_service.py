@@ -51,7 +51,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from meobot.application.ads.access import AdsAccess, AdsNotVisibleError
 from meobot.application.ads.accounts_service import ads_people
-from meobot.application.ads.crm_revenue import FORMER_PREFIX
+from meobot.application.ads.crm_revenue import FORMER_PREFIX, crm_book, day_payments
 from meobot.application.ads.regions import RegionSplit, place_region, region_split
 from meobot.application.ads.revenue_service import (
     FLOW_LABELS,
@@ -283,6 +283,27 @@ class History:
     #: ``platform`` = one marketer's Google / TikTok numbers: no revenue.
     revenue_note: str | None = None
     platform: AdsPlatform = AdsPlatform.FACEBOOK
+
+
+@dataclass(frozen=True, slots=True)
+class DayCustomer:
+    """One customer's thực thu on a day (refunds included, may be negative)."""
+
+    customer_code: str | None
+    amount: float
+    payments: int
+
+
+@dataclass(frozen=True, slots=True)
+class DayDetail:
+    """ "Báo cáo ngày": who paid what on one day (0086) - the CRM payments
+    behind the day's revenue, customer by customer, and what was typed by
+    hand; ``customers`` + ``typed`` = ``revenue``."""
+
+    day: date
+    revenue: float | None
+    customers: list[DayCustomer]
+    typed: float
 
 
 def month_period(first: date) -> Period:
@@ -557,6 +578,49 @@ class AdsTeamService:
             platform=platform,
         )
 
+    async def day_detail(
+        self,
+        access: AdsAccess,
+        *,
+        day: date,
+        user_id: uuid.UUID | None = None,
+        connection_id: uuid.UUID | None = None,
+        site: str = "all",
+        platform: AdsPlatform = AdsPlatform.FACEBOOK,
+    ) -> DayDetail:
+        """The customers behind one day's revenue of "Báo cáo ngày", narrowed
+        exactly as :meth:`history` (the team or one marketer - a member always
+        their own; a BM = its region's Marketing revenue)."""
+        access.require_view()
+        person = user_id if access.view_all else access.user_id
+        if platform in MANUAL_PLATFORMS:
+            connection_id = None
+        region = await bm_region(self._session, connection_id)
+        if region is not None:
+            site = BM_REGION_FLOWS[region]
+        site = site if site in SITES else "all"
+        span = Period(start=day, end=day)
+        book = (await self._load(span)).narrow(
+            platform=platform, connection_id=connection_id, person=person, site=site
+        )
+        crm = await crm_book(self._session, day, day)
+        rows = [row for row in book.revenue_rows if row.day == day]
+        from_crm = {row.key for row in rows if crm.covers(day, row.key)}
+        typed = sum(
+            (region_amount(row, site) for row in rows if row.key not in from_crm), Decimal(0)
+        )
+        keep = REGION_FLOWS.get(site, FLOWS)
+        by_code: dict[str | None, list[Decimal]] = {}
+        for line in await day_payments(self._session, day, from_crm):
+            if line.flow in keep:
+                by_code.setdefault(line.customer_code, []).append(line.amount)
+        customers = [
+            DayCustomer(code, float(sum(amounts, Decimal(0))), len(amounts))
+            for code, amounts in by_code.items()
+        ]
+        customers.sort(key=lambda c: (-c.amount, c.customer_code or "~"))
+        return DayDetail(day, book.figures(span).revenue, customers, float(typed))
+
     async def report(
         self,
         access: AdsAccess,
@@ -825,6 +889,8 @@ __all__ = [
     "Alert",
     "Channel",
     "ChannelPerson",
+    "DayCustomer",
+    "DayDetail",
     "DayLine",
     "Figures",
     "History",

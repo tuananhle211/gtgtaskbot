@@ -675,6 +675,80 @@ describe("the create form's Quy trình", () => {
       expect(screen.queryByRole("combobox", { name: /Loại video/ })).not.toBeInTheDocument(),
     );
   });
+
+  it("edits a not-yet-approved order in place, via /edit (not /resubmit)", async () => {
+    const ORDER_ID = "ffffffff-ffff-ffff-ffff-ffffffffffff";
+    const fresh = {
+      order: {
+        id: ORDER_ID,
+        code: "K7Q2M",
+        title: "Video serum",
+        video_type: "D",
+        video_type_label: "Dựng",
+        process: ["DUNG"],
+        video_kind_id: null,
+        order_content: "Key: da căng bóng",
+        script_source: "AI",
+        design_link: "https://drive.example.com/design",
+        reference_link: null,
+        source_link: null,
+        note: null,
+        owner_user_id: "u-owner",
+        owner_name: "Tuấn",
+        stage: "ORDER_PENDING",
+        stage_label: "Chờ duyệt",
+        submitted_at: "2026-10-08T02:00:00Z",
+        order_approved_at: null,
+        returned_reason: null,
+        is_priority: false,
+        urgent: false,
+        product_link: null,
+        completed_at: null,
+        cancelled_reason: null,
+        version: 1,
+        created_at: "2026-10-08T02:00:00Z",
+        updated_at: "2026-10-08T02:00:00Z",
+        desired_deadline_at: "2030-01-01T00:00:00Z",
+        over_deadline_count: 0,
+      },
+      nodes: [],
+      submissions: [],
+      approvals: [],
+      events: [],
+      available_actions: [],
+    };
+    const save = () => screen.getByRole("button", { name: "Lưu thay đổi" });
+    window.history.pushState({}, "", "/orders/new?edit=K7Q2M");
+    try {
+      const stub = stubFetch([
+        { match: "/api/units/me", body: ORDERER },
+        { match: "/api/units/ADS/video-kinds", body: { kinds: [] } },
+        { match: `/api/orders/${ORDER_ID}/edit`, method: "POST", body: fresh },
+        { match: "/api/orders/K7Q2M", body: fresh },
+      ]);
+      renderWithQuery(<NewOrderPage />);
+      // The fresh-edit header, not the "fix per feedback" returned notice.
+      await screen.findByText(/giữ nguyên trạng thái/);
+      expect(screen.queryByText(/Lý do:/)).toBeNull();
+      await userEvent.click(save());
+      await userEvent.click(
+        within(await screen.findByRole("dialog")).getByRole("button", { name: "Lưu thay đổi" }),
+      );
+      await waitFor(() =>
+        expect(
+          calls(stub).some(
+            (call) => call.method === "POST" && call.url.includes(`/orders/${ORDER_ID}/edit`),
+          ),
+        ).toBe(true),
+      );
+      // It never falls back to resubmit for a fresh order.
+      expect(
+        calls(stub).some((call) => call.method === "POST" && call.url.includes("/resubmit")),
+      ).toBe(false);
+    } finally {
+      window.history.pushState({}, "", "/");
+    }
+  });
 });
 
 describe("the AI script check before sending", () => {

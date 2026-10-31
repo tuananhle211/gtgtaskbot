@@ -269,6 +269,11 @@ class TaskRow:
     urgent: bool
     detail_path: str
     version: int
+    #: ORD: which department the order came from - the orderer's department
+    #: name(s) (``ADS``, ``Hành chính nhân sự``…), for the "từ phòng nào" line
+    #: under the order date. ``None`` when the orderer sits in no department
+    #: (and on PR rows).
+    owner_department: str | None = None
     #: When the row entered the step it is at now, for "đã ở bước này N ngày".
     stage_since: datetime | None = None
     #: Returns across the whole row (nodes and gates).

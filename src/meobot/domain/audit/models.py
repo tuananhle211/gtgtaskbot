@@ -559,6 +559,7 @@ class AuditAction(StrEnum):
     UNIT_LIBRARY_UPDATED = "unit.library.updated"
     ORDER_SUBMITTED = "order.submitted"
     ORDER_RESUBMITTED = "order.resubmitted"
+    ORDER_EDITED = "order.edited"
     ORDER_APPROVED = "order.approved"
     ORDER_RETURNED = "order.returned"
     ORDER_NODE_ASSIGNED = "order.node.assigned"

@@ -965,6 +965,18 @@ function TaskTableRow({
             </span>
           ) : null}
         </span>
+        {/* ORD: which department the order came from (the orderer's). */}
+        {row.owner_department ? (
+          <span
+            className="mt-1 flex items-center gap-1 text-[11px] text-[var(--text-muted)]"
+            title={`Order từ phòng ${row.owner_department}`}
+          >
+            Phòng:
+            <span className="rounded bg-[var(--surface-muted)] px-1.5 py-0.5 font-semibold text-[var(--text)]">
+              {row.owner_department}
+            </span>
+          </span>
+        ) : null}
       </td>
       <td className="min-w-[12rem] max-w-[24rem]">
         <Link

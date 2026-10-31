@@ -108,6 +108,10 @@ def is_urgent(
 
 class OrderActionKind(StrEnum):
     RESUBMIT = "RESUBMIT"
+    #: 2026-10-31: the orderer edits an order that has not progressed yet
+    #: (before the head's approval / before anyone accepted a step), without
+    #: sending it anew. Keeps the order's stage.
+    EDIT = "EDIT"
     APPROVE_ORDER = "APPROVE_ORDER"
     RETURN_ORDER = "RETURN_ORDER"
     ASSIGN = "ASSIGN"
@@ -131,6 +135,9 @@ class OrderActionKind(StrEnum):
 #: Which stage each action may be applied from. ``None`` = any non-terminal.
 ACTION_STAGES: dict[OrderActionKind, frozenset[OrderStage] | None] = {
     OrderActionKind.RESUBMIT: frozenset({OrderStage.ORDER_RETURNED}),
+    # Gated by a custom window in ``available_actions`` (the owner, nothing
+    # progressed yet), like CANCEL - not by a fixed stage set.
+    OrderActionKind.EDIT: None,
     OrderActionKind.APPROVE_ORDER: frozenset({OrderStage.ORDER_PENDING}),
     OrderActionKind.RETURN_ORDER: frozenset({OrderStage.ORDER_PENDING}),
     OrderActionKind.ASSIGN: frozenset(
@@ -180,6 +187,7 @@ NOTE_REQUIRED: frozenset[OrderActionKind] = frozenset(
 
 ACTION_LABELS: dict[OrderActionKind, str] = {
     OrderActionKind.RESUBMIT: "Gửi lại order",
+    OrderActionKind.EDIT: "Sửa order",
     OrderActionKind.APPROVE_ORDER: "Duyệt order",
     OrderActionKind.RETURN_ORDER: "Không duyệt",
     OrderActionKind.ASSIGN: "Giao việc",
@@ -388,6 +396,20 @@ def available_actions(
         add(OrderActionKind.RETURN_ORDER)
     if order.stage is OrderStage.ORDER_RETURNED and is_owner:
         add(OrderActionKind.RESUBMIT)
+    # 2026-10-31: the orderer may edit a standard order that has not progressed
+    # yet - the same window they may take it back in: before it is approved
+    # (the head's approval, or the Design Leader's hand-out on a Design-only
+    # order) and before anyone accepted a step (``nobody_took``). A returned
+    # order is edited through RESUBMIT instead; a birthday order has its own
+    # editor; the order keeps its stage.
+    if (
+        is_owner
+        and order.category is OrderCategory.STANDARD
+        and order.stage is not OrderStage.ORDER_RETURNED
+        and not order.approved
+        and nobody_took(nodes)
+    ):
+        add(OrderActionKind.EDIT)
 
     if current is not None and order.stage in NODE_ACTION_STAGES:
         # A legacy link node is managed by the last production node's function.

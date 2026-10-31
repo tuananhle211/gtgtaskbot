@@ -227,6 +227,7 @@ class AdsCrmSyncService:
                 order_id=payment.order_id,
                 is_upsale=payment.is_upsale,
                 source_id=payment.source_id,
+                customer_code=payment.customer_code,
                 synced_at=now,
             )
             for payment in {payment.id: payment for payment in payments}.values()

@@ -664,6 +664,66 @@ class OrderCommandService:
         )
         order = loaded.order
         before = self._snapshot(order)
+        await self._apply_edit(loaded, edit)
+        # Sent again = read again: the script may have changed, or the rules.
+        ai_note = (
+            None
+            if is_design_only(order.video_type)
+            else await self._review_script(loaded.settings, order.title, order.order_content)
+        )
+        order.stage = OrderStage.ORDER_PENDING
+        order.returned_reason = None
+        self._bump(order)
+        await self._session.flush()
+        await self._event(order, OrderEventKind.RESUBMITTED, actor, note=ai_note)
+        await self._audit_order(
+            actor, request_id, AuditAction.ORDER_RESUBMITTED, order, before=before
+        )
+        await self._notify.order_submitted(actor=actor, order=order, unit=loaded.settings)
+        return order
+
+    async def edit(
+        self,
+        *,
+        actor: Actor,
+        request_id: uuid.UUID,
+        order_id: uuid.UUID,
+        expected_version: int,
+        edit: OrderEdit,
+    ) -> Order:
+        """The orderer fixes a standard order that has not progressed yet
+        (before the head's approval, before anyone accepted a step), **without**
+        re-submitting it: the order keeps its stage. A returned order is edited
+        through :meth:`resubmit`; a birthday order through its own editor."""
+        loaded = await self._load(actor, order_id, expected_version)
+        assert_allowed(
+            OrderActionKind.EDIT, loaded.view(), loaded.node_views(), loaded.scope.context
+        )
+        order = loaded.order
+        before = self._snapshot(order)
+        await self._apply_edit(loaded, edit)
+        # The script (or the rules) may have changed; re-read it, as on resubmit.
+        ai_note = (
+            None
+            if is_design_only(order.video_type)
+            else await self._review_script(loaded.settings, order.title, order.order_content)
+        )
+        self._bump(order)
+        await self._session.flush()
+        await self._event(order, OrderEventKind.ORDER_EDITED, actor, note=ai_note)
+        await self._audit_order(actor, request_id, AuditAction.ORDER_EDITED, order, before=before)
+        # Still waiting for the head: tell them the order they will approve
+        # changed. Already in production (a head's own / Design-only order that
+        # nobody has accepted): the people on it keep working, no new notice.
+        if order.stage is OrderStage.ORDER_PENDING:
+            await self._notify.order_submitted(actor=actor, order=order, unit=loaded.settings)
+        return order
+
+    async def _apply_edit(self, loaded: _Loaded, edit: OrderEdit) -> None:
+        """Apply an :class:`OrderEdit`'s set fields to the order in place, shared
+        by :meth:`resubmit` and :meth:`edit`. Validates the fields; never touches
+        the stage, the version, events, audit or notifications."""
+        order = loaded.order
         if edit.title is not None:
             order.title = edit.title.strip()
         if edit.order_content is not None:
@@ -715,22 +775,6 @@ class OrderCommandService:
                 if node_type in (OrderNodeType.BIEN_TAP, OrderNodeType.DUNG):
                     node.task_items = items_to_json(suggestions.get(node_type, ())) or None
             order.suggested_task_items = _suggested_json(suggestions)
-        # Sent again = read again: the script may have changed, or the rules.
-        ai_note = (
-            None
-            if is_design_only(order.video_type)
-            else await self._review_script(loaded.settings, order.title, order.order_content)
-        )
-        order.stage = OrderStage.ORDER_PENDING
-        order.returned_reason = None
-        self._bump(order)
-        await self._session.flush()
-        await self._event(order, OrderEventKind.RESUBMITTED, actor, note=ai_note)
-        await self._audit_order(
-            actor, request_id, AuditAction.ORDER_RESUBMITTED, order, before=before
-        )
-        await self._notify.order_submitted(actor=actor, order=order, unit=loaded.settings)
-        return order
 
     # --- the head's order gate -----------------------------------------------------
 

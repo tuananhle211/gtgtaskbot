@@ -225,7 +225,8 @@ async def test_01_an_order_is_submitted_with_its_code_and_three_nodes(world: Wor
         "DUNG": "CHUA_TOI",
     }
     assert [event["kind"] for event in detail["events"]] == ["SUBMITTED"]
-    assert {action["kind"] for action in detail["available_actions"]} == {"CANCEL"}
+    # The orderer may take back or edit it while nothing has progressed.
+    assert {action["kind"] for action in detail["available_actions"]} == {"CANCEL", "EDIT"}
     assert await inbox(world, ads.head) == [("order_submitted", "Có order mới cần duyệt")]
     # Every order gets its own code.
     second = create(world, ads, video_type="D", design_link="https://example.com/design")
@@ -541,6 +542,41 @@ async def test_07_a_returned_order_is_fixed_and_resubmitted_under_the_same_code(
     assert detail["order"]["returned_reason"] is None
     assert [e["kind"] for e in detail["events"]] == ["SUBMITTED", "ORDER_RETURNED", "RESUBMITTED"]
     assert ("order_submitted", "Có order mới cần duyệt") in await inbox(world, ads.head)
+
+
+async def test_07b_the_orderer_edits_a_fresh_order_without_resending(world: World) -> None:
+    """2026-10-31: while nothing has progressed, the orderer edits the order in
+    place - it keeps its stage, logs ORDER_EDITED, and the approver is told.
+    Once the head approves, editing is no longer offered."""
+    ads = await ads_world(world)
+    detail = create(world, ads, video_type="D", design_link="https://example.com/d")
+    assert detail["order"]["stage"] == "ORDER_PENDING"
+    actions = {a["kind"] for a in detail["available_actions"]}
+    assert "EDIT" in actions
+
+    edited = act(
+        world, ads.orderer, "/edit", detail, title="Kịch bản mới", note="Gấp hơn"
+    )
+    assert edited["order"]["title"] == "Kịch bản mới"
+    assert edited["order"]["note"] == "Gấp hơn"
+    # The stage never moved, and a new event records the edit.
+    assert edited["order"]["stage"] == "ORDER_PENDING"
+    assert [e["kind"] for e in edited["events"]] == ["SUBMITTED", "ORDER_EDITED"]
+    # The head it waits on is told the order changed.
+    assert ("order_submitted", "Có order mới cần duyệt") in await inbox(world, ads.head)
+
+    # Only the orderer may edit it - the head (a teammate) may not.
+    world.act_as(ads.head)
+    refused = world.client.post(
+        f"/api/orders/{edited['order']['id']}/edit",
+        json={"version": edited["order"]["version"], "title": "x"},
+    )
+    assert refused.status_code == 403
+    assert error_reason(refused.json()) == "order_action_forbidden"
+
+    # Once approved, the order has progressed: editing is gone (CANCEL too).
+    approved = act(world, ads.head, "/approve", edited)
+    assert "EDIT" not in {a["kind"] for a in approved["available_actions"]}
 
 
 async def test_08_a_leader_may_only_hand_work_to_their_own_function(world: World) -> None:

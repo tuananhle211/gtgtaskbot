@@ -166,6 +166,15 @@ class TaskActionService:
                 expected_version=version,
                 edit=OrderEdit(),
             )
+        elif kind is OrderActionKind.EDIT:
+            # The real edit carries the form; a bare key just re-saves as is.
+            await commands.edit(
+                actor=actor,
+                request_id=request_id,
+                order_id=order_id,
+                expected_version=version,
+                edit=OrderEdit(),
+            )
         elif kind is OrderActionKind.APPROVE_ORDER:
             await commands.approve_order(
                 actor=actor, request_id=request_id, order_id=order_id, expected_version=version

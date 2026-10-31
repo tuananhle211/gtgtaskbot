@@ -4319,6 +4319,17 @@ export interface AdsHistory {
   platform?: AdsPlatform;
 }
 
+/** One day of "Báo cáo ngày" opened (0086): each customer's thực thu behind
+ * the day's revenue (refunds negative, points left out) + what was typed by
+ * hand; `customers` + `typed` = `revenue`. */
+export interface AdsHistoryDay {
+  day: string;
+  revenue: number | null;
+  /** `customer_code` null = a payment synced before the code was kept. */
+  customers: Array<{ customer_code: string | null; amount: number; payments: number }>;
+  typed: number;
+}
+
 export interface AdsTeamReport {
   /** The month the KPI belongs to (the one the range ends in). */
   month: string;
@@ -5211,6 +5222,10 @@ export interface TaskRow {
   owner_user_id: Uuid;
   owner_name: string;
   created_at: string;
+  /** ORD: which department the order came from (the orderer's department
+   * name(s), e.g. "ADS", "Hành chính nhân sự"), shown under the order date.
+   * Null/absent on PR. */
+  owner_department?: string | null;
   phase: string;
   phase_label: string;
   status: string;
@@ -6198,6 +6213,14 @@ export const api = {
       platform?: AdsPlatform;
     } = {},
   ) => get<AdsHistory>(`/api/ads/history${query(params)}`),
+  /** The customers behind one day's revenue, narrowed like `adsHistory`. */
+  adsHistoryDay: (params: {
+    day: string;
+    user_id?: string;
+    connection_id?: string;
+    site?: string;
+    platform?: AdsPlatform;
+  }) => get<AdsHistoryDay>(`/api/ads/history/day${query(params)}`),
   // 0081: Google / TikTok Ads typed by hand. The one running the account (a
   // Trưởng phòng / the OWNER / an ADMIN: anybody's); else 403 `ads_manual_forbidden`.
   /** 201. 422 `ads_account_exists` / `ads_manual_invalid` / `ads_assignee_invalid`. */

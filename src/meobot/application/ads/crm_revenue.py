@@ -160,6 +160,70 @@ class CrmBook:
         return out
 
 
+def place(
+    account: AdsCrmAccount, branch_id: int | None, coverage: Coverage
+) -> tuple[CrmRegion, CrmRegion]:
+    """(where the customer was served, which team brought them) of a payment:
+    the branch's region (unknown -> the account's, else HCM), and the
+    account's region (none -> HCM) - a hotline is nobody's team, its revenue
+    goes where it was served."""
+    site = coverage.site_of(branch_id) or account.region or CrmRegion.HCM
+    team = site if account.source is RevenueSource.HOTLINE else (account.region or CrmRegion.HCM)
+    return site, team
+
+
+#: (team, served) -> the flow (``revenue_service.FLOWS``).
+FLOW_OF = {
+    (CrmRegion.HCM, CrmRegion.HCM): "hcm_hcm",
+    (CrmRegion.HN, CrmRegion.HN): "hn_hn",
+    (CrmRegion.HN, CrmRegion.HCM): "hn_hcm",
+    (CrmRegion.HCM, CrmRegion.HN): "hcm_hn",
+}
+
+
+@dataclass(frozen=True, slots=True)
+class CrmPaymentLine:
+    """One counted payment of a day (0086, "Báo cáo ngày"'s reconciling)."""
+
+    key: str
+    customer_code: str | None
+    amount: Decimal
+    flow: str
+
+
+async def day_payments(session: AsyncSession, day: date, keys: set[str]) -> list[CrmPaymentLine]:
+    """The counted payments of the day whose CRM account is one of ``keys``'
+    (person / source / former) - the same rows :func:`crm_book` sums."""
+    if not keys:
+        return []
+    coverage, _ = await load_coverage(session)
+    owned = {
+        account.crm_id: account
+        for account in await session.scalars(select(AdsCrmAccount))
+        if account_subject(account) in keys
+    }
+    if not owned or not coverage.covers(day):
+        return []
+    lines: list[CrmPaymentLine] = []
+    for payment in await session.scalars(
+        select(AdsCrmPayment)
+        .where(
+            AdsCrmPayment.payment_date == day,
+            AdsCrmPayment.payment_type.in_(COUNTED_PAYMENT_TYPES),
+            AdsCrmPayment.marketing_id.in_(list(owned)),
+        )
+        .order_by(AdsCrmPayment.id)
+    ):
+        assert payment.marketing_id is not None
+        account = owned[payment.marketing_id]
+        site, team = place(account, payment.branch_id, coverage)
+        key = account_subject(account)
+        assert key is not None
+        flow = FLOW_OF[(team, site)]
+        lines.append(CrmPaymentLine(key, payment.customer_code, Decimal(payment.price), flow))
+    return lines
+
+
 async def crm_book(session: AsyncSession, start: date, end: date) -> CrmBook:
     """The CRM's revenue lines for the days (only those already synced)."""
     coverage, _ = await load_coverage(session)
@@ -197,11 +261,7 @@ async def crm_book(session: AsyncSession, start: date, end: date) -> CrmBook:
         account = owned[marketing_id]
         key = account_subject(account)
         assert key is not None
-        site = coverage.site_of(branch_id) or account.region or CrmRegion.HCM
-        # A hotline is nobody's team: its revenue goes where it was served.
-        team = (
-            site if account.source is RevenueSource.HOTLINE else (account.region or CrmRegion.HCM)
-        )
+        site, team = place(account, branch_id, coverage)
         value = Decimal(total or 0)
         kind = account.hotline_kind.value if account.hotline_kind else None
         line = sums[(day, key, kind)]
@@ -219,12 +279,16 @@ async def crm_book(session: AsyncSession, start: date, end: date) -> CrmBook:
 
 
 __all__ = [
+    "FLOW_OF",
     "FORMER_PREFIX",
     "SETTINGS_KEY",
     "Coverage",
     "CrmBook",
     "CrmLine",
+    "CrmPaymentLine",
     "account_subject",
     "crm_book",
+    "day_payments",
     "load_coverage",
+    "place",
 ]

@@ -990,11 +990,18 @@ def test_no_excel_library_is_imported_anywhere() -> None:
     # 0065: the resources module ("Quản lý tài nguyên") imports and exports its
     # own inventory with openpyxl - a different module, outside PR. The PR
     # surface still writes no workbook, which is what this requirement is about.
+    # 0075 / 0083: the points reports ("Hiệu suất") export their own workbook
+    # and the Phòng Ads reads the "Gắn mã" CRM file - neither is PR reporting.
+    outside_pr = (
+        "application/resources",
+        "application/performance/excel.py",
+        "application/ads/crm_service.py",
+    )
     pattern = re.compile(r"^\s*(?:import|from)\s+(openpyxl|xlsxwriter|xlwt|pandas)\b", re.MULTILINE)
     offenders = [
         f"{path.relative_to(ROOT)}"
         for path in SRC.rglob("*.py")
-        if "application/resources" not in path.as_posix()
+        if not any(part in path.as_posix() for part in outside_pr)
         and pattern.search(path.read_text(encoding="utf-8"))
     ]
     assert offenders == [], offenders
@@ -1199,6 +1206,12 @@ def test_no_module_outside_the_models_package_touches_a_reporting_table() -> Non
         # recompute. Nothing here writes a period, aggregates a report or
         # produces an artifact.
         Path("src/meobot/application/pr_work_maintenance_service.py"),
+        # 0085: +10 points per publication with a link. The flush hook reads a
+        # ``pr_publications`` row's status, link, publisher and date to write
+        # one ``work_points`` line, and deleting a task drops those lines for
+        # the piece's publications. Nothing aggregated, nothing rendered.
+        Path("src/meobot/application/performance/publish_points.py"),
+        Path("src/meobot/application/tasks/delete_service.py"),
     }
     needles = tuple(EXPECTED_TABLES) + tuple(model.__name__ for model in STEP_1B_MODELS)
     # Whole words only. ``PrPublicationStatus`` is a domain enum that merely
@@ -1358,6 +1371,10 @@ def test_no_telegram_surface_mentions_the_reporting_module() -> None:
             # shut month and to name the month a performance figure is
             # recomputed for. Held to ``off_limits`` below like the rest.
             "pr_work_maintenance_service.py",
+            # 0085: publication points (see the entry in
+            # ``test_no_module_outside_the_models_package_touches_a_reporting_table``).
+            "publish_points.py",
+            "delete_service.py",
         },
         # Step 1D: the Telegram tool that registers "this went out", and the
         # wiring and presenter modules it goes through. A publication tool is

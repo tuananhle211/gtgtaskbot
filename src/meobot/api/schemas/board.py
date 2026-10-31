@@ -174,6 +174,10 @@ class TaskRowResponse(BaseModel):
     owner_user_id: uuid.UUID
     owner_name: str
     created_at: datetime
+    #: ORD: which department the order came from (the orderer's department
+    #: name(s), e.g. "ADS", "Hành chính nhân sự"), shown under the order date.
+    #: Null on PR.
+    owner_department: str | None = None
     phase: str
     phase_label: str
     status: str
@@ -228,6 +232,7 @@ class TaskRowResponse(BaseModel):
             owner_user_id=row.owner_user_id,
             owner_name=row.owner_name,
             created_at=row.created_at,
+            owner_department=row.owner_department,
             phase=row.phase.value,
             phase_label=row.phase_label,
             status=row.status,

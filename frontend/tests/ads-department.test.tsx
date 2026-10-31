@@ -524,6 +524,59 @@ describe("Dashboard Ads", () => {
     expect(screen.queryByTestId("report-day")).toBeNull();
     expect(screen.getByTestId("report-month")).toBeInTheDocument();
   });
+
+  it("a day's revenue opens the customer codes that paid it (0086)", async () => {
+    const fetchMock = stubFetch([
+      {
+        match: "/api/ads/history/day",
+        body: {
+          day: "2026-10-25",
+          revenue: 81_000_000,
+          customers: [
+            { customer_code: "KH001", amount: 50_000_000, payments: 2 },
+            { customer_code: "KH002", amount: 28_000_000, payments: 1 },
+            { customer_code: null, amount: 4_000_000, payments: 1 },
+            { customer_code: "KH004", amount: -3_000_000, payments: 1 },
+          ],
+          typed: 2_000_000,
+        },
+      },
+      ...MEMBER,
+      { match: "/api/ads/dashboard", body: DASHBOARD },
+    ]);
+    renderWithQuery(<AdsDashboardPage />);
+    await userEvent.click(
+      await screen.findByRole("button", { name: /Báo cáo ngày/ }),
+    );
+    // Only a day with revenue opens; 26/10 has none.
+    expect(
+      screen.queryByRole("button", { name: "Xem mã khách ngày 26/10" }),
+    ).toBeNull();
+    await userEvent.click(
+      screen.getByRole("button", { name: "Xem mã khách ngày 25/10" }),
+    );
+    const dialog = await screen.findByRole("dialog", {
+      name: "Doanh thu ngày 25/10",
+    });
+    const table = await within(dialog).findByTestId("day-customers");
+    const rows = within(table).getAllByRole("row");
+    expect(rows[1]).toHaveTextContent("KH0012 lần50.000.000 ₫");
+    expect(rows[3]).toHaveTextContent("(chưa có mã)");
+    expect(within(rows[4]).getByText("-3.000.000 ₫")).toHaveClass(
+      "text-[var(--bad)]",
+    );
+    expect(within(table).getByTestId("day-typed")).toHaveTextContent(
+      "Nhập tay (không có mã khách)2.000.000 ₫",
+    );
+    expect(within(table).getByTestId("day-customers-total")).toHaveTextContent(
+      "81.000.000 ₫",
+    );
+    expect(dialog).toHaveTextContent("4 khách · có phần nhập tay");
+    const call = fetchMock.mock.calls
+      .map(([url]) => String(url))
+      .find((url) => url.includes("/api/ads/history/day"));
+    expect(call).toContain("day=2026-10-25");
+  });
 });
 
 const ACCOUNTS = (canManage: boolean) => ({

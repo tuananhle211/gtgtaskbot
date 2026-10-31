@@ -65,6 +65,7 @@ NODE_STATUS_LABELS: dict[OrderNodeStatus, str] = {
 EVENT_LABELS: dict[OrderEventKind, str] = {
     OrderEventKind.SUBMITTED: "Gửi order",
     OrderEventKind.RESUBMITTED: "Gửi lại order",
+    OrderEventKind.ORDER_EDITED: "Sửa order",
     OrderEventKind.ORDER_APPROVED: "Trưởng phòng duyệt order",
     OrderEventKind.ORDER_RETURNED: "Trưởng phòng trả order",
     OrderEventKind.NODE_ACTIVATED: "Tới lượt công đoạn",

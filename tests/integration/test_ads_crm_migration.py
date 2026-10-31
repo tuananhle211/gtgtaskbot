@@ -37,7 +37,7 @@ pytestmark = [
 SETTINGS_KWARGS = {"_env_file": None, "web_cookie_secure": False}
 TABLES = ("'ads_crm_accounts'", "'ads_crm_payments'")
 USER = uuid.uuid4()
-LATER = ("hotline_kind", "former", "one_owner")
+LATER = ("hotline_kind", "former", "one_owner", "customer_code")
 
 
 @pytest_asyncio.fixture(scope="module", loop_scope="module")
@@ -82,7 +82,7 @@ async def test_01_models_and_migration_agree(database: Database) -> None:
             item
             for item in compare_metadata(context, Base.metadata)
             if any(table in repr(item) for table in TABLES)
-            # 0084's columns and check come later.
+            # 0084's / 0086's columns and check come later.
             and not any(word in repr(item) for word in LATER)
         ]
 

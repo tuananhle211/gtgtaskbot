@@ -15,7 +15,7 @@ from meobot.application.ads.dashboard_service import Dashboard, SeriesPoint
 from meobot.application.ads.manual_service import ChangeView
 from meobot.application.ads.regions import RegionFigures, RegionSplit
 from meobot.application.ads.revenue_service import EntryLine
-from meobot.application.ads.team_service import Channel, Figures, History, TeamReport
+from meobot.application.ads.team_service import Channel, DayDetail, Figures, History, TeamReport
 from meobot.db.models.ads import AdsConnection
 from meobot.domain.ads.budget import BUDGET_STATUS_LABELS, BudgetWeek
 from meobot.domain.ads.crm import HOTLINE_KIND_LABELS, REGION_LABELS, CrmRegion, HotlineKind
@@ -796,6 +796,37 @@ class HistoryResponse(BaseModel):
         )
 
 
+class DayCustomerResponse(BaseModel):
+    #: The CRM's customer code (``KH…``); null on a payment synced before 0086.
+    customer_code: str | None
+    amount: float
+    payments: int
+
+
+class DayDetailResponse(BaseModel):
+    """One day of "Báo cáo ngày": the customers behind its revenue (CRM
+    thực thu) + what was typed by hand; together = ``revenue``."""
+
+    day: date
+    revenue: float | None
+    customers: list[DayCustomerResponse]
+    typed: float
+
+    @classmethod
+    def from_detail(cls, detail: DayDetail) -> DayDetailResponse:
+        return cls(
+            day=detail.day,
+            revenue=detail.revenue,
+            customers=[
+                DayCustomerResponse(
+                    customer_code=line.customer_code, amount=line.amount, payments=line.payments
+                )
+                for line in detail.customers
+            ],
+            typed=detail.typed,
+        )
+
+
 class CreateManualAccountRequest(BaseModel):
     #: ``GOOGLE`` or ``TIKTOK``.
     platform: AdsPlatform
@@ -1104,6 +1135,8 @@ __all__ = [
     "AdsSyncResponse",
     "AssignAdsAccountRequest",
     "CreateAdsConnectionRequest",
+    "DayCustomerResponse",
+    "DayDetailResponse",
     "HistoryResponse",
     "UpdateAdsConnectionRequest",
     "brand_options",

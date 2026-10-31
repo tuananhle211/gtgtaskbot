@@ -40,6 +40,7 @@ from meobot.application.board.holders import (
 )
 from meobot.application.orders.node_assignees import assignee_sets, load_open_assignees
 from meobot.application.orders.scope import OrderScope, approval_reaches, boss_of
+from meobot.application.org.seats import load_seats
 from meobot.application.pr_content_query import ContentQuery
 from meobot.application.pr_query_service import PrQueryService
 from meobot.core.config import Settings
@@ -965,6 +966,12 @@ class AdsBoardSource:
         approvers = (
             await ads_approvers(self._session, orders[0].unit_id) if orders else AdsApprovers()
         )
+        # Which department each order came from: the orderer's department name(s).
+        seats = await load_seats(self._session, {order.owner_user_id for order in orders})
+        departments = {
+            user_id: " · ".join(dict.fromkeys(seat.name for seat in rows_of if seat.name))
+            for user_id, rows_of in seats.items()
+        }
         rows = tuple(
             replace(
                 self._row(
@@ -976,6 +983,7 @@ class AdsBoardSource:
                     approvers,
                     assignees,
                 ),
+                owner_department=departments.get(order.owner_user_id) or None,
                 awaiting_me=order.id in awaiting,
                 design=design_view(
                     order, nodes_by_order.get(order.id, []), names, node_links, assignees

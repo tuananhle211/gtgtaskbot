@@ -9,6 +9,7 @@ import {
   type AdsPlatform,
   type AdsSeriesPoint,
 } from "@/lib/api";
+import { Modal, ModalBody } from "@/components/modal";
 import {
   compactMoney,
   count,
@@ -75,6 +76,12 @@ export function AdsReports({
       {data ? (
         <DayReport
           data={data}
+          filters={{
+            user_id: userId || undefined,
+            connection_id: connectionId || undefined,
+            site: site && site !== "all" ? site : undefined,
+            platform: platform === "FACEBOOK" ? undefined : platform,
+          }}
           open={open.day}
           onToggle={() => setOpen((now) => ({ ...now, day: !now.day }))}
         />
@@ -432,15 +439,26 @@ function daysIn(end: string): number {
   return Number(end.slice(8, 10));
 }
 
+/** The filters "Báo cáo ngày" was read with, for a day's customers. */
+type DayFilters = {
+  user_id?: string;
+  connection_id?: string;
+  site?: string;
+  platform?: AdsPlatform;
+};
+
 function DayReport({
   data,
+  filters,
   open,
   onToggle,
 }: {
   data: AdsHistory;
+  filters: DayFilters;
   open: boolean;
   onToggle: () => void;
 }) {
+  const [picked, setPicked] = useState<string | null>(null);
   const days = data.days;
   const total = days.reduce(
     (sum, line) => ({
@@ -648,7 +666,21 @@ function DayReport({
                     </td>
                   ) : null}
                   <td className="text-right tabular-nums">
-                    {figures.revenue == null ? "–" : money(figures.revenue)}
+                    {figures.revenue == null ? (
+                      "–"
+                    ) : figures.revenue ? (
+                      <button
+                        type="button"
+                        onClick={() => setPicked(line.day)}
+                        aria-label={`Xem mã khách ngày ${formatShortDate(line.day)}`}
+                        title="Xem mã khách và số tiền đã thanh toán"
+                        className="rounded px-1 text-[var(--accent)] underline decoration-dotted underline-offset-4 hover:bg-[var(--accent-soft)]"
+                      >
+                        {money(figures.revenue)}
+                      </button>
+                    ) : (
+                      money(figures.revenue)
+                    )}
                   </td>
                   <td className="text-right">
                     <Ratio value={dayRatio(figures)} />
@@ -663,9 +695,154 @@ function DayReport({
         Tiêu đề và dòng lũy kế cố định khi cuộn · “–” = ngày không có số · Ads /
         DT = chi tiêu ÷ doanh thu hoa hồng · khách đến cửa chưa nhập · số
         của {platformLabel(data.platform)}
-        {isManual(data.platform) ? " (nhập tay)" : ""}.
+        {isManual(data.platform) ? " (nhập tay)" : ""} · bấm số doanh thu một
+        ngày để xem mã khách đã thanh toán.
       </p>
+      {picked ? (
+        <DayCustomers
+          day={picked}
+          filters={filters}
+          onClose={() => setPicked(null)}
+        />
+      ) : null}
     </Fold>
+  );
+}
+
+/** A day's revenue, customer by customer (0086): each CRM customer code and
+ * what they paid that day, the typed-by-hand part, and the day's total -
+ * for the marketers to reconcile with the CRM. */
+function DayCustomers({
+  day,
+  filters,
+  onClose,
+}: {
+  day: string;
+  filters: DayFilters;
+  onClose: () => void;
+}) {
+  const detail = useQuery({
+    queryKey: ["ads", "history-day", day, filters],
+    queryFn: () => api.adsHistoryDay({ day, ...filters }),
+    retry: false,
+  });
+  const data = detail.data;
+  const [copied, setCopied] = useState(false);
+  const copy = () => {
+    if (!data) return;
+    const lines = data.customers.map(
+      (line) => `${line.customer_code ?? ""}\t${line.amount}`,
+    );
+    if (data.typed) lines.push(`Nhập tay\t${data.typed}`);
+    void navigator.clipboard?.writeText(lines.join("\n")).then(() => {
+      setCopied(true);
+      window.setTimeout(() => setCopied(false), 1500);
+    });
+  };
+  return (
+    <Modal
+      open
+      onClose={onClose}
+      size="lg"
+      title={`Doanh thu ngày ${formatShortDate(day)}`}
+      description="Mã khách trên CRM và số tiền khách thanh toán trong ngày (thực thu: hoàn tiền là số âm, không tính điểm)."
+    >
+      <ModalBody className="space-y-3">
+        {detail.isPending ? <Loading label="Đang tải danh sách khách…" /> : null}
+        {detail.isError ? (
+          <ErrorBox error={detail.error} onRetry={() => detail.refetch()} />
+        ) : null}
+        {data ? (
+          <>
+            <div className="flex flex-wrap items-center justify-between gap-2 text-sm">
+              <span className="text-[var(--text-muted)]">
+                {count(data.customers.length)} khách
+                {data.typed ? " · có phần nhập tay" : ""}
+              </span>
+              {data.customers.length ? (
+                <button
+                  type="button"
+                  onClick={copy}
+                  className="min-h-9 rounded-lg border border-[var(--border)] bg-[var(--surface)] px-3 text-sm hover:bg-[var(--surface-muted)]"
+                >
+                  {copied ? "Đã sao chép" : "Sao chép danh sách"}
+                </button>
+              ) : null}
+            </div>
+            <div className="max-h-[55vh] overflow-auto rounded-xl border border-[var(--border)]">
+              <table className="table-dense w-full" data-testid="day-customers">
+                <thead className="sticky top-0 bg-[var(--surface)]">
+                  <tr>
+                    <th className="w-10 text-right">#</th>
+                    <th className="text-left">Mã khách</th>
+                    <th className="text-right">Thanh toán</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {data.customers.map((line, index) => (
+                    <tr key={line.customer_code ?? `none-${index}`}>
+                      <td className="text-right tabular-nums text-[var(--text-muted)]">
+                        {index + 1}
+                      </td>
+                      <td className="font-medium tabular-nums">
+                        {line.customer_code ?? (
+                          <span className="text-[var(--text-muted)]">
+                            (chưa có mã)
+                          </span>
+                        )}
+                        {line.payments > 1 ? (
+                          <span className="ml-2 text-xs text-[var(--text-muted)]">
+                            {line.payments} lần
+                          </span>
+                        ) : null}
+                      </td>
+                      <td
+                        className={`text-right tabular-nums ${line.amount < 0 ? "text-[var(--bad)]" : ""}`}
+                      >
+                        {money(line.amount)}
+                      </td>
+                    </tr>
+                  ))}
+                  {data.typed ? (
+                    <tr data-testid="day-typed">
+                      <td />
+                      <td className="text-[var(--text-muted)]">
+                        Nhập tay (không có mã khách)
+                      </td>
+                      <td className="text-right tabular-nums">
+                        {money(data.typed)}
+                      </td>
+                    </tr>
+                  ) : null}
+                  {!data.customers.length && !data.typed ? (
+                    <tr>
+                      <td colSpan={3} className="text-center text-[var(--text-muted)]">
+                        Không có khoản thu nào trong ngày.
+                      </td>
+                    </tr>
+                  ) : null}
+                </tbody>
+                <tfoot className="sticky bottom-0 bg-[var(--surface-muted)]">
+                  <tr className="font-semibold" data-testid="day-customers-total">
+                    <td />
+                    <td>Tổng doanh thu ngày</td>
+                    <td className="text-right tabular-nums">
+                      {money(data.revenue ?? 0)}
+                    </td>
+                  </tr>
+                </tfoot>
+              </table>
+            </div>
+            {data.customers.some((line) => line.customer_code == null) ? (
+              <p className="text-xs text-[var(--text-muted)]">
+                “(chưa có mã)” = khoản thu đồng bộ trước khi hệ thống lưu mã
+                khách; lần đồng bộ CRM tiếp theo sẽ điền.
+              </p>
+            ) : null}
+          </>
+        ) : null}
+      </ModalBody>
+    </Modal>
   );
 }
 

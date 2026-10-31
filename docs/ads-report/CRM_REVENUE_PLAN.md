@@ -56,6 +56,12 @@ Ghép lại ra 4 luồng: **SG** (MKT HCM, làm HCM), **HN** (MKT HN, làm HN), 
 - **Hiệu suất theo miền** = chi phí quảng cáo của các tài khoản thuộc BM miền đó (BM Hà Nội / BM Sài Gòn; hoá đơn, chưa có thì chi tiêu) ÷ Doanh thu Marketing miền đó không VAT.
 - **BM, Pháp nhân, Cơ sở** (thuộc tính tài khoản quảng cáo) chỉ lọc chi phí, hoá đơn, SĐT; doanh thu giữ nguyên.
 
+## Báo cáo ngày: mã khách để đối soát (31/10, migration `0086`)
+
+- Mỗi lần đồng bộ lưu thêm **mã khách** (`customer.account_code`, ví dụ KH000123) của từng khoản thu. Chỉ mã, vẫn không lưu tên hay SĐT. Khoản thu đồng bộ trước đó chưa có mã cho đến lần đồng bộ lại ngày đó.
+- Trong "Báo cáo ngày", bấm số doanh thu của một ngày → cửa sổ liệt kê từng mã khách và số tiền khách đã thanh toán trong ngày (gộp theo mã; hoàn tiền là số âm; không tính điểm), dòng "Nhập tay" nếu ngày đó có số nhập tay, và tổng bằng đúng doanh thu của ngày.
+- Lọc giống bảng: thành viên chỉ thấy khách của mình; chọn BM thì chỉ còn doanh thu Marketing của miền đó.
+
 ## Quyền
 
 - Màn "Tài khoản CRM", sửa mapping, nhập file, bấm đồng bộ: Trưởng phòng ADS, OWNER, ADMIN (`edit_revenue`).

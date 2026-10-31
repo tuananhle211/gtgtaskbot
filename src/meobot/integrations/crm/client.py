@@ -7,7 +7,8 @@ again. Pages hold up to 500 rows.
 Only what the revenue needs is read and kept: the marketing users, the
 branches (name -> region), and each
 payment's id, day, amount, type, marketing id, branch, order id, new/old
-customer and customer source - never a customer's name or phone.
+customer, customer source and customer code (``KH…``, for reconciling) -
+never a customer's name or phone.
 """
 
 from __future__ import annotations
@@ -57,6 +58,7 @@ class CrmPayment:
     order_id: int | None = None
     is_upsale: bool | None = None
     source_id: int | None = None
+    customer_code: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -92,8 +94,8 @@ def parse_payment(raw: dict[str, Any]) -> CrmPayment:
     except InvalidOperation as error:
         raise CrmError(f"Khoản thanh toán {raw.get('id')} có số tiền lạ.") from error
     marketing = raw.get("marketing") if isinstance(raw.get("marketing"), dict) else None
-    customer = raw.get("customer") if isinstance(raw.get("customer"), dict) else {}
-    upsale = customer.get("is_upsale") if customer else None
+    customer: dict[str, Any] = raw["customer"] if isinstance(raw.get("customer"), dict) else {}
+    upsale = customer.get("is_upsale")
     return CrmPayment(
         id=int(raw["id"]),
         day=date.fromisoformat(str(raw["payment_date"])[:10]),
@@ -105,6 +107,7 @@ def parse_payment(raw: dict[str, Any]) -> CrmPayment:
         order_id=_id_of(raw.get("order")),
         is_upsale=bool(upsale) if upsale is not None else None,
         source_id=_id_of(raw.get("customer_source")),
+        customer_code=str(customer.get("account_code") or "").strip()[:40] or None,
     )
 
 

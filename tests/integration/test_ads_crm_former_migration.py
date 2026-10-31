@@ -36,6 +36,8 @@ pytestmark = [
 
 SETTINGS_KWARGS = {"_env_file": None, "web_cookie_secure": False}
 TABLES = ("'ads_crm_accounts'", "'ads_crm_payments'")
+#: 0086's column comes later.
+LATER = ("customer_code",)
 USER = uuid.uuid4()
 
 
@@ -81,6 +83,7 @@ async def test_01_models_and_migration_agree(database: Database) -> None:
             item
             for item in compare_metadata(context, Base.metadata)
             if any(table in repr(item) for table in TABLES)
+            and not any(word in repr(item) for word in LATER)
         ]
 
     async with database.engine.begin() as connection:

@@ -371,6 +371,9 @@ class AdsCrmPayment(Base):
     order_id: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
     is_upsale: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
     source_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    #: The customer's CRM code (``KH…``, 0086) for "Báo cáo ngày"'s reconciling;
+    #: never their name or phone.
+    customer_code: Mapped[str | None] = mapped_column(String(40), nullable=True)
     synced_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=utcnow, server_default=func.now(), nullable=False
     )

@@ -33,6 +33,7 @@ from meobot.api.schemas.ads import (
     CrmImportResponse,
     CrmOverviewResponse,
     CrmSyncRequest,
+    DayDetailResponse,
     EntryLineResponse,
     HistoryResponse,
     KpiMonthResponse,
@@ -818,6 +819,30 @@ async def history(
         platform=platform,
     )
     return HistoryResponse.from_history(data)
+
+
+@router.get("/history/day", response_model=DayDetailResponse)
+async def history_day(
+    actor: CurrentActorDep,
+    session: SessionDep,
+    day: Annotated[date, Query()],
+    user_id: Annotated[uuid.UUID | None, Query()] = None,
+    connection_id: Annotated[uuid.UUID | None, Query()] = None,
+    site: Annotated[str, Query(pattern=REGION_PATTERN)] = "all",
+    platform: Annotated[AdsPlatform, Query()] = AdsPlatform.FACEBOOK,
+) -> DayDetailResponse:
+    """A day of "Báo cáo ngày" opened (0086): each customer's code and what
+    they paid towards the day's revenue, narrowed like ``/history``."""
+    access = await _access(session, actor)
+    detail = await AdsTeamService(session).day_detail(
+        access,
+        day=day,
+        user_id=user_id,
+        connection_id=connection_id,
+        site=site,
+        platform=platform,
+    )
+    return DayDetailResponse.from_detail(detail)
 
 
 __all__ = ["router"]

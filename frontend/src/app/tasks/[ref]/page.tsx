@@ -732,15 +732,22 @@ function ActionPanel({
       <div className="mt-3 flex flex-wrap gap-2">
         {ordered.map((action) => {
           const danger = action.emphasis === "DANGER";
-          if (action.key === "ads:RESUBMIT") {
-            // A returned order is fixed in the order form, then sent again.
+          if (action.key === "ads:RESUBMIT" || action.key === "ads:EDIT") {
+            // Both open the order form: a returned order is fixed and sent
+            // again (RESUBMIT); a fresh, not-yet-progressed one is edited in
+            // place (EDIT). The form picks the right endpoint by the stage.
+            const resubmit = action.key === "ads:RESUBMIT";
             return (
               <Link
                 key={action.key}
                 href={`/orders/new?edit=${encodeURIComponent(task.code)}`}
-                className="inline-flex min-h-11 items-center rounded-lg bg-[var(--accent)] px-4 text-sm font-medium text-[var(--accent-text)]"
+                className={`inline-flex min-h-11 items-center rounded-lg px-4 text-sm font-medium ${
+                  resubmit
+                    ? "bg-[var(--accent)] text-[var(--accent-text)]"
+                    : "border border-[var(--border)] bg-[var(--surface)]"
+                }`}
               >
-                Sửa & gửi lại order
+                {resubmit ? "Sửa & gửi lại order" : "Sửa order"}
               </Link>
             );
           }
