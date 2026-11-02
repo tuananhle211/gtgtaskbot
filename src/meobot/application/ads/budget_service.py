@@ -4,7 +4,11 @@ and the dashboards set it against the week's spend.
 
 * the spend is every platform's (Facebook read from Meta, Google / TikTok
   typed by hand) on the ad accounts the person holds - a budget is the
-  person's money, whatever they run it on; no BM, no site;
+  person's money, whatever they run it on;
+* per BM (0087): a budget is set for BM Hà Nội or BM Sài Gòn (``region``),
+  and set against the spend of the accounts of that cơ sở (a Facebook
+  account's BM site, else a typed-in account's own site); without a BM both
+  are added up against every account;
 * the people are those seated in the ADS department, plus anybody who still
   has a budget that month;
 * who: a Trưởng phòng ADS and the OWNER / an ADMIN write
@@ -26,6 +30,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from meobot.application.ads.access import AdsAccess, AdsNotVisibleError
 from meobot.application.ads.accounts_service import ads_people
+from meobot.application.ads.regions import place_region
 from meobot.application.ads.revenue_service import (
     AdsRevenueForbiddenError,
     AdsRevenueInvalidError,
@@ -36,9 +41,10 @@ from meobot.application.ads.sync_service import vn_today
 from meobot.application.audit_service import AuditService
 from meobot.core.errors import ValidationError
 from meobot.core.time import utcnow
-from meobot.db.models.ads import AdsAccount, AdsBudget, AdsSpendDaily
+from meobot.db.models.ads import AdsAccount, AdsBudget, AdsConnection, AdsSpendDaily
 from meobot.db.models.user import User
 from meobot.domain.ads.budget import WEEKS, BudgetStatus, BudgetWeek, budget_status, budget_weeks
+from meobot.domain.ads.crm import CrmRegion
 from meobot.domain.audit.models import AuditAction, AuditResult
 from meobot.domain.identity.models import Actor
 
@@ -83,6 +89,8 @@ class BudgetLine:
 @dataclass(frozen=True, slots=True)
 class BudgetMonth:
     month: date
+    #: The BM shown (0087); ``None`` = both added up.
+    region: CrmRegion | None
     today: date
     weeks: tuple[BudgetWeek, ...]
     lines: list[BudgetLine]
@@ -129,27 +137,57 @@ class AdsBudgetService:
             people.setdefault(user.id, user)
         return sorted(people.values(), key=lambda user: user.full_name.casefold())
 
-    async def _stored(self, first: date) -> dict[tuple[uuid.UUID, int], AdsBudget]:
-        rows = await self._session.scalars(select(AdsBudget).where(AdsBudget.month == first))
+    async def _rows(self, first: date, region: CrmRegion) -> dict[tuple[uuid.UUID, int], AdsBudget]:
+        rows = await self._session.scalars(
+            select(AdsBudget).where(AdsBudget.month == first, AdsBudget.region == region)
+        )
         return {(row.user_id, row.week): row for row in rows}
 
+    async def _budgets(
+        self, first: date, region: CrmRegion | None
+    ) -> dict[tuple[uuid.UUID, int], float]:
+        """One BM's budgets per (person, week), or both added up."""
+        query = select(AdsBudget).where(AdsBudget.month == first)
+        if region is not None:
+            query = query.where(AdsBudget.region == region)
+        budgets: dict[tuple[uuid.UUID, int], float] = defaultdict(float)
+        for row in await self._session.scalars(query):
+            budgets[(row.user_id, row.week)] += float(row.amount)
+        return budgets
+
     async def _spend(
-        self, weeks: Sequence[BudgetWeek], user_ids: Sequence[uuid.UUID]
+        self,
+        weeks: Sequence[BudgetWeek],
+        user_ids: Sequence[uuid.UUID],
+        region: CrmRegion | None,
     ) -> dict[uuid.UUID, dict[int, float]]:
         spend: dict[uuid.UUID, dict[int, float]] = defaultdict(dict)
         if not user_ids:
             return spend
+        sites = {row.id: row.site for row in await self._session.scalars(select(AdsConnection))}
         rows = await self._session.execute(
-            select(AdsAccount.user_id, AdsSpendDaily.day, func.sum(AdsSpendDaily.spend))
+            select(
+                AdsAccount.user_id,
+                AdsAccount.connection_id,
+                AdsAccount.site,
+                AdsSpendDaily.day,
+                func.sum(AdsSpendDaily.spend),
+            )
             .join(AdsAccount, AdsAccount.account_id == AdsSpendDaily.account_id)
             .where(
                 AdsAccount.user_id.in_(user_ids),
                 AdsSpendDaily.day >= weeks[0].start,
                 AdsSpendDaily.day <= weeks[-1].end,
             )
-            .group_by(AdsAccount.user_id, AdsSpendDaily.day)
+            .group_by(
+                AdsAccount.user_id, AdsAccount.connection_id, AdsAccount.site, AdsSpendDaily.day
+            )
         )
-        for user_id, day, amount in rows:
+        for user_id, connection_id, site, day, amount in rows:
+            if region is not None:
+                place = sites.get(connection_id) if connection_id is not None else None
+                if place_region(place or site) is not region:
+                    continue
             week = next(week for week in weeks if week.start <= day <= week.end)
             spend[user_id][week.index] = spend[user_id].get(week.index, 0.0) + float(amount or 0)
         return spend
@@ -160,6 +198,7 @@ class AdsBudgetService:
         month: date,
         *,
         user_id: uuid.UUID | None = None,
+        region: CrmRegion | None = None,
         today: date | None = None,
     ) -> BudgetMonth:
         access.require_view()
@@ -178,19 +217,15 @@ class AdsBudgetService:
                 if one is None or one.deleted_at is not None:
                     raise AdsNotVisibleError()
                 people = [one]
-        stored = await self._stored(first)
-        spend = await self._spend(weeks, [user.id for user in people])
+        stored = await self._budgets(first, region)
+        spend = await self._spend(weeks, [user.id for user in people], region)
         lines = [
             _line(
                 user.id,
                 user.full_name,
                 user.member_code,
                 weeks,
-                {
-                    week: float(row.amount)
-                    for (owner, week), row in stored.items()
-                    if owner == user.id
-                },
+                {week: amount for (owner, week), amount in stored.items() if owner == user.id},
                 spend.get(user.id, {}),
                 today,
             )
@@ -206,7 +241,7 @@ class AdsBudgetService:
                     if cell.budget is not None:
                         budgets[cell.week.index] = budgets.get(cell.week.index, 0.0) + cell.budget
             total = _line(None, "Cả phòng", None, weeks, budgets, spent, today)
-        return BudgetMonth(first, today, weeks, lines, total)
+        return BudgetMonth(first, region, today, weeks, lines, total)
 
     async def save(
         self,
@@ -215,6 +250,7 @@ class AdsBudgetService:
         access: AdsAccess,
         request_id: uuid.UUID,
         month: date,
+        region: CrmRegion,
         entries: Mapping[str, object],
     ) -> BudgetMonth:
         access.require_view()
@@ -222,7 +258,7 @@ class AdsBudgetService:
             raise AdsRevenueForbiddenError()
         first = month_start(month)
         people = {user.id for user in await self._people(first)}
-        stored = await self._stored(first)
+        stored = await self._rows(first, region)
         now = utcnow()
         for key, raw in entries.items():
             owner_text, _, week_text = key.partition(":")
@@ -247,6 +283,7 @@ class AdsBudgetService:
                         month=first,
                         user_id=owner,
                         week=week,
+                        region=region,
                         amount=amount,
                         updated_by_user_id=actor.user_id,
                         updated_at=now,
@@ -263,10 +300,13 @@ class AdsBudgetService:
             action=AuditAction.ADS_BUDGET_SAVED.value,
             result=AuditResult.SUCCESS,
             entity_type="ads_budget",
-            entity_id=first.isoformat(),
-            after_data={key: str(value) for key, value in entries.items()},
+            entity_id=f"{first.isoformat()}:{region.value}",
+            after_data={
+                "region": region.value,
+                **{key: str(value) for key, value in entries.items()},
+            },
         )
-        return await self.month(access, first)
+        return await self.month(access, first, region=region)
 
 
 __all__ = [

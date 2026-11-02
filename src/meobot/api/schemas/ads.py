@@ -18,7 +18,13 @@ from meobot.application.ads.revenue_service import EntryLine
 from meobot.application.ads.team_service import Channel, DayDetail, Figures, History, TeamReport
 from meobot.db.models.ads import AdsConnection
 from meobot.domain.ads.budget import BUDGET_STATUS_LABELS, BudgetWeek
-from meobot.domain.ads.crm import HOTLINE_KIND_LABELS, REGION_LABELS, CrmRegion, HotlineKind
+from meobot.domain.ads.crm import (
+    BM_LABELS,
+    HOTLINE_KIND_LABELS,
+    REGION_LABELS,
+    CrmRegion,
+    HotlineKind,
+)
 from meobot.domain.ads.models import (
     BRAND_LABELS,
     MANUAL_PLATFORMS,
@@ -502,8 +508,22 @@ class SaveRevenueRequest(BaseModel):
     entries: dict[str, float | str | None]
 
 
+class BmOption(BaseModel):
+    """A BM KPI / budgets are set for (0087): ``HN`` / ``HCM``."""
+
+    value: str
+    label: str
+
+
+def bm_options() -> list[BmOption]:
+    return [BmOption(value=region.value, label=label) for region, label in BM_LABELS.items()]
+
+
 class KpiMonthResponse(BaseModel):
     month: str
+    #: The BM these KPIs are for: ``HN`` (BM Hà Nội) / ``HCM`` (BM Sài Gòn).
+    region: str
+    regions: list[BmOption]
     lines: list[EntryLineResponse]
     can_edit: bool
 
@@ -511,6 +531,7 @@ class KpiMonthResponse(BaseModel):
 class SaveKpiRequest(BaseModel):
     #: ``YYYY-MM``.
     month: str = Field(pattern=r"^\d{4}-\d{2}$")
+    region: CrmRegion
     entries: dict[str, float | str | None]
 
 
@@ -952,6 +973,9 @@ class BudgetLineResponse(BaseModel):
 
 class BudgetMonthResponse(BaseModel):
     month: str
+    #: The BM shown (``HN`` / ``HCM``); ``null`` = both added up.
+    region: str | None
+    regions: list[BmOption]
     today: date
     weeks: list[BudgetWeekResponse]
     lines: list[BudgetLineResponse]
@@ -962,6 +986,8 @@ class BudgetMonthResponse(BaseModel):
     def from_month(cls, data: BudgetMonth, *, can_edit: bool) -> BudgetMonthResponse:
         return cls(
             month=f"{data.month:%Y-%m}",
+            region=data.region.value if data.region else None,
+            regions=bm_options(),
             today=data.today,
             weeks=[BudgetWeekResponse.from_week(week) for week in data.weeks],
             lines=[BudgetLineResponse.from_line(line) for line in data.lines],
@@ -973,6 +999,7 @@ class BudgetMonthResponse(BaseModel):
 class SaveBudgetRequest(BaseModel):
     #: ``YYYY-MM``.
     month: str = Field(pattern=r"^\d{4}-\d{2}$")
+    region: CrmRegion
     #: ``"<user id>:<week 1-4>" -> amount`` (``null`` or "" = clear the cell).
     entries: dict[str, float | str | None] = Field(max_length=2000)
 
@@ -1134,6 +1161,7 @@ __all__ = [
     "AdsSyncRequest",
     "AdsSyncResponse",
     "AssignAdsAccountRequest",
+    "BmOption",
     "CreateAdsConnectionRequest",
     "DayCustomerResponse",
     "DayDetailResponse",

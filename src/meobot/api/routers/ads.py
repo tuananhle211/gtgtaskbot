@@ -50,6 +50,7 @@ from meobot.api.schemas.ads import (
     UpdateAdsConnectionRequest,
     UpdateCrmAccountRequest,
     UpdateManualAccountRequest,
+    bm_options,
     brand_options,
 )
 from meobot.application.ads.access import AdsAccess, ads_access
@@ -83,6 +84,7 @@ from meobot.application.units.directory import UnitDirectoryService
 from meobot.core.errors import ValidationError
 from meobot.core.time import ensure_utc, utcnow
 from meobot.db.models.cron import CronJob
+from meobot.domain.ads.crm import CrmRegion
 from meobot.domain.ads.models import MAX_SYNC_DAYS, AdsBrand, AdsGrouping, AdsPlatform, Period
 from meobot.domain.audit.models import AuditAction, AuditResult
 from meobot.domain.cron.models import RUNNING_STALE_SECONDS, CronTrigger
@@ -574,12 +576,22 @@ async def kpi_month(
     actor: CurrentActorDep,
     session: SessionDep,
     month: Annotated[str | None, Query(max_length=7)] = None,
+    region: Annotated[CrmRegion, Query()] = CrmRegion.HN,
 ) -> KpiMonthResponse:
+    """One BM's KPI for the month (0087): ``HN`` (default) / ``HCM``."""
     access = await _access(session, actor)
     period = _month(month)
-    lines = await _revenue(session).kpis(access, period.start)
+    lines = await _revenue(session).kpis(access, period.start, region)
+    return _kpi_response(period, region, lines, access)
+
+
+def _kpi_response(
+    period: Period, region: CrmRegion, lines: list[EntryLine], access: AdsAccess
+) -> KpiMonthResponse:
     return KpiMonthResponse(
         month=f"{period.start:%Y-%m}",
+        region=region.value,
+        regions=bm_options(),
         lines=[EntryLineResponse.from_line(line) for line in lines],
         can_edit=access.edit_revenue,
     )
@@ -595,13 +607,14 @@ async def save_kpi(
     access = await _access(session, actor)
     period = _month(body.month)
     lines = await _revenue(session).save_kpis(
-        actor=actor, access=access, request_id=request_id, month=period.start, entries=body.entries
+        actor=actor,
+        access=access,
+        request_id=request_id,
+        month=period.start,
+        region=body.region,
+        entries=body.entries,
     )
-    return KpiMonthResponse(
-        month=f"{period.start:%Y-%m}",
-        lines=[EntryLineResponse.from_line(line) for line in lines],
-        can_edit=access.edit_revenue,
-    )
+    return _kpi_response(period, body.region, lines, access)
 
 
 # --- "Tài khoản CRM" (0083): thực thu from the CRM ------------------------------
@@ -733,14 +746,16 @@ async def budget_month(
     session: SessionDep,
     month: Annotated[str | None, Query(max_length=7)] = None,
     user_id: Annotated[uuid.UUID | None, Query()] = None,
+    region: Annotated[CrmRegion | None, Query()] = None,
 ) -> BudgetMonthResponse:
     """ "Ngân sách tuần" (0082): each marketer's four weekly budgets against
     the week's spend (every platform); one person with ``user_id``, a member
-    always their own."""
+    always their own; ``region`` = one BM's budgets against its accounts'
+    spend (0087), none = both added up."""
     access = await _access(session, actor)
     period = _month(month)
     data = await AdsBudgetService(session, AuditService(session)).month(
-        access, period.start, user_id=user_id
+        access, period.start, user_id=user_id, region=region
     )
     return BudgetMonthResponse.from_month(data, can_edit=access.edit_revenue)
 
@@ -755,7 +770,12 @@ async def save_budget(
     access = await _access(session, actor)
     period = _month(body.month)
     data = await AdsBudgetService(session, AuditService(session)).save(
-        actor=actor, access=access, request_id=request_id, month=period.start, entries=body.entries
+        actor=actor,
+        access=access,
+        request_id=request_id,
+        month=period.start,
+        region=body.region,
+        entries=body.entries,
     )
     return BudgetMonthResponse.from_month(data, can_edit=access.edit_revenue)
 

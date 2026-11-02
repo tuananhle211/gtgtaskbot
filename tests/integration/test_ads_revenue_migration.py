@@ -36,6 +36,8 @@ pytestmark = [
 
 SETTINGS_KWARGS = {"_env_file": None, "web_cookie_secure": False}
 TABLES = ("'ads_revenue_daily'", "'ads_revenue_changes'", "'ads_kpis'")
+#: 0087 adds the BM (``region``) to the KPI and its unique key.
+LATER = ("region", "uq_ads_kpis_month_subject_key")
 
 
 @pytest_asyncio.fixture(scope="module", loop_scope="module")
@@ -80,6 +82,7 @@ async def test_01_models_and_migration_agree(database: Database) -> None:
             item
             for item in compare_metadata(context, Base.metadata)
             if any(table in repr(item) for table in TABLES)
+            and not any(word in repr(item) for word in LATER)
         ]
 
     async with database.engine.begin() as connection:

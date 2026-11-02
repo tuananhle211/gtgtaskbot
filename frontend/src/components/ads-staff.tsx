@@ -643,7 +643,11 @@ function Workspace({
         )}
       </section>
 
-      <BudgetBoard month={data.end.slice(0, 7)} userId={userId} />
+      <BudgetBoard
+        month={data.end.slice(0, 7)}
+        userId={userId}
+        region={data.bm_region ?? null}
+      />
 
       <AdsReports
         month={data.end.slice(0, 7)}

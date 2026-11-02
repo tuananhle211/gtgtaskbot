@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import type {
+  AdsBm,
   AdsKpi,
   AdsPlatform,
   AdsRegionFigures,
@@ -70,6 +71,53 @@ export function PlatformSelect({
 }
 
 /** An amount inside a sentence, bold so it stands out from the words. */
+/** 0087: the two BMs KPI and weekly budgets are set for. */
+export const BMS: ReadonlyArray<{ value: AdsBm; label: string }> = [
+  { value: "HN", label: "BM Hà Nội" },
+  { value: "HCM", label: "BM Sài Gòn" },
+];
+
+export function bmLabel(region: AdsBm): string {
+  return BMS.find((bm) => bm.value === region)?.label ?? region;
+}
+
+/** Which BM a KPI / budget screen edits: one tap each. */
+export function BmPicker({
+  value,
+  onChange,
+}: {
+  value: AdsBm;
+  onChange: (region: AdsBm) => void;
+}) {
+  return (
+    <div
+      role="radiogroup"
+      aria-label="BM"
+      className="inline-flex w-fit rounded-lg border border-[var(--border)] bg-[var(--surface)] p-1"
+    >
+      {BMS.map((bm) => {
+        const on = bm.value === value;
+        return (
+          <button
+            key={bm.value}
+            type="button"
+            role="radio"
+            aria-checked={on}
+            onClick={() => onChange(bm.value)}
+            className={`min-h-9 rounded-md px-4 text-sm font-medium ${
+              on
+                ? "bg-[var(--accent-soft)] text-[var(--accent-strong)]"
+                : "text-[var(--text-muted)] hover:bg-[var(--surface-muted)]"
+            }`}
+          >
+            {bm.label}
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
 export function Money({ value }: { value: number | null | undefined }) {
   return <strong className="font-semibold text-[var(--text)]">{money(value)}</strong>;
 }

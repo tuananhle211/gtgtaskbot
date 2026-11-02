@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useQuery } from "@tanstack/react-query";
 import {
   api,
+  type AdsBm,
   type AdsBudgetCell,
   type AdsBudgetLine,
   type AdsBudgetMonth,
@@ -11,7 +12,7 @@ import {
   type AdsBudgetWeek,
 } from "@/lib/api";
 import { formatShortDate } from "@/lib/datetime";
-import { compactMoney, money, percent } from "@/components/ads";
+import { bmLabel, compactMoney, money, percent } from "@/components/ads";
 import { ErrorBox, Loading } from "@/components/states";
 
 /**
@@ -296,6 +297,7 @@ function BudgetCards({ data }: { data: AdsBudgetMonth }) {
 export function BudgetBoard({
   month,
   userId,
+  region = null,
   onPick,
   title = "Ngân sách chạy ads theo tuần",
   editLink = true,
@@ -303,14 +305,16 @@ export function BudgetBoard({
   /** `YYYY-MM`. */
   month: string;
   userId?: string;
+  /** One BM's budgets against its accounts (0087); null = both added up. */
+  region?: AdsBm | null;
   onPick?: (userId: string) => void;
   title?: string;
   /** "Đặt ngân sách tuần" for whoever may edit (not on /ads/budget itself). */
   editLink?: boolean;
 }) {
   const budget = useQuery({
-    queryKey: ["ads", "budget", month, userId ?? ""],
-    queryFn: () => api.adsBudget(month, userId),
+    queryKey: ["ads", "budget", month, userId ?? "", region ?? "all"],
+    queryFn: () => api.adsBudget(month, userId, region),
     retry: false,
   });
   const data = budget.data;
@@ -320,11 +324,12 @@ export function BudgetBoard({
     <section aria-label="Ngân sách tuần" className="space-y-2">
       <div className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1">
         <h2 className="brand-eyebrow">
-          {title} · tháng {Number(monthNumber)}/{year}
+          {title} · {region ? `${bmLabel(region)} · ` : ""}tháng{" "}
+          {Number(monthNumber)}/{year}
         </h2>
         {editLink && data?.can_edit ? (
           <Link
-            href={`/ads/budget?month=${month}`}
+            href={`/ads/budget?month=${month}${region ? `&bm=${region}` : ""}`}
             className="text-sm font-medium text-[var(--accent)] hover:underline"
           >
             Đặt ngân sách tuần
@@ -332,8 +337,9 @@ export function BudgetBoard({
         ) : null}
       </div>
       <p className="text-xs text-[var(--text-muted)]">
-        Chi tiêu = mọi nền tảng (Facebook, Google, TikTok) trên các tài khoản
-        quảng cáo người đó giữ.
+        {region
+          ? `Ngân sách ${bmLabel(region)} so với chi tiêu mọi nền tảng (Facebook, Google, TikTok) trên các tài khoản quảng cáo người đó giữ thuộc cơ sở ${region === "HN" ? "Hà Nội" : "Sài Gòn"}.`
+          : "Ngân sách cả 2 BM cộng lại so với chi tiêu mọi nền tảng (Facebook, Google, TikTok) trên các tài khoản quảng cáo người đó giữ."}
       </p>
       <Legend />
       {budget.isPending ? <Loading label="Đang tải ngân sách…" /> : null}

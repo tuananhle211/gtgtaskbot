@@ -30,6 +30,7 @@ from meobot.application.audit_service import AuditService
 from meobot.core.errors import AuthorizationError, ValidationError
 from meobot.core.time import utcnow
 from meobot.db.models.ads import AdsKpi, AdsRevenueChange, AdsRevenueDaily
+from meobot.domain.ads.crm import CrmRegion
 from meobot.domain.ads.models import REVENUE_SOURCE_LABELS, RevenueSource, subject_key
 from meobot.domain.audit.models import AuditAction, AuditResult
 from meobot.domain.identity.models import Actor
@@ -414,9 +415,10 @@ class AdsRevenueService:
 
     # --- KPIs ---------------------------------------------------------------
 
-    async def kpis(self, access: AdsAccess, month: date) -> list[EntryLine]:
+    async def kpis(self, access: AdsAccess, month: date, region: CrmRegion) -> list[EntryLine]:
+        """One BM's KPI lines (0087): the team's and every marketer's."""
         access.require_view()
-        stored = await self.kpi_amounts(month_start(month))
+        stored = await self.kpi_amounts(month_start(month), region)
         return [
             EntryLine(
                 line.key,
@@ -429,13 +431,15 @@ class AdsRevenueService:
             for line in await self._lines(with_sources=False, with_team=True)
         ]
 
-    async def kpi_amounts(self, month: date) -> dict[str, Decimal]:
-        return {
-            row.subject_key: row.amount
-            for row in await self._session.scalars(
-                select(AdsKpi).where(AdsKpi.month == month_start(month))
-            )
-        }
+    async def kpi_amounts(self, month: date, region: CrmRegion | None = None) -> dict[str, Decimal]:
+        """The month's KPI per line for one BM, or both BMs added up."""
+        query = select(AdsKpi).where(AdsKpi.month == month_start(month))
+        if region is not None:
+            query = query.where(AdsKpi.region == region)
+        amounts: dict[str, Decimal] = {}
+        for row in await self._session.scalars(query):
+            amounts[row.subject_key] = amounts.get(row.subject_key, Decimal(0)) + row.amount
+        return amounts
 
     async def save_kpis(
         self,
@@ -444,6 +448,7 @@ class AdsRevenueService:
         access: AdsAccess,
         request_id: uuid.UUID,
         month: date,
+        region: CrmRegion,
         entries: Mapping[str, object],
     ) -> list[EntryLine]:
         self._require_edit(access)
@@ -451,7 +456,9 @@ class AdsRevenueService:
         lines = {line.key: line for line in await self._lines(with_sources=False, with_team=True)}
         stored = {
             row.subject_key: row
-            for row in await self._session.scalars(select(AdsKpi).where(AdsKpi.month == first))
+            for row in await self._session.scalars(
+                select(AdsKpi).where(AdsKpi.month == first, AdsKpi.region == region)
+            )
         }
         now = utcnow()
         for key, raw in entries.items():
@@ -467,6 +474,7 @@ class AdsRevenueService:
                     AdsKpi(
                         month=first,
                         subject_key=key,
+                        region=region,
                         user_id=lines[key].user_id,
                         amount=amount,
                         updated_by_user_id=actor.user_id,
@@ -484,10 +492,13 @@ class AdsRevenueService:
             action=AuditAction.ADS_KPI_SAVED.value,
             result=AuditResult.SUCCESS,
             entity_type="ads_kpi",
-            entity_id=first.isoformat(),
-            after_data={key: str(value) for key, value in entries.items()},
+            entity_id=f"{first.isoformat()}:{region.value}",
+            after_data={
+                "region": region.value,
+                **{key: str(value) for key, value in entries.items()},
+            },
         )
-        return await self.kpis(access, first)
+        return await self.kpis(access, first, region)
 
 
 __all__ = [

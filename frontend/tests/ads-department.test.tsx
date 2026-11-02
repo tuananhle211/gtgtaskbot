@@ -863,6 +863,11 @@ describe("step 2: revenue, KPI, Tổng team", () => {
         match: "/api/ads/kpi",
         body: {
           month: "2026-10",
+          region: "HN",
+          regions: [
+            { value: "HN", label: "BM Hà Nội" },
+            { value: "HCM", label: "BM Sài Gòn" },
+          ],
           can_edit: false,
           lines: [
             {

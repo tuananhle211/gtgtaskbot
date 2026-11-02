@@ -232,12 +232,18 @@ class AdsKpi(Base, UUIDPrimaryKeyMixin):
 
     __tablename__ = ADS_KPIS
     __table_args__ = (
-        UniqueConstraint("month", "subject_key", name="uq_ads_kpis_month_subject_key"),
+        UniqueConstraint(
+            "month", "subject_key", "region", name="uq_ads_kpis_month_subject_key_region"
+        ),
     )
 
     #: The first day of the month.
     month: Mapped[date] = mapped_column(Date, nullable=False)
     subject_key: Mapped[str] = mapped_column(String(60), nullable=False)
+    #: The BM it is for (0087), by its cơ sở: HN = BM Hà Nội, HCM = BM Sài Gòn.
+    region: Mapped[CrmRegion] = mapped_column(
+        value_enum(CrmRegion, name="ads_kpi_region", length=4), nullable=False
+    )
     user_id: Mapped[uuid.UUID | None] = mapped_column(
         ForeignKey(f"{USERS_TABLE}.id", ondelete=RESTRICT), nullable=True
     )
@@ -279,7 +285,9 @@ class AdsBudget(Base, UUIDPrimaryKeyMixin):
 
     __tablename__ = ADS_BUDGETS
     __table_args__ = (
-        UniqueConstraint("month", "user_id", "week", name="uq_ads_budgets_month_user_id_week"),
+        UniqueConstraint(
+            "month", "user_id", "week", "region", name="uq_ads_budgets_month_user_id_week_region"
+        ),
         CheckConstraint("week BETWEEN 1 AND 4", name="week_range"),
     )
 
@@ -290,6 +298,10 @@ class AdsBudget(Base, UUIDPrimaryKeyMixin):
     )
     #: 1-4: days 1-7, 8-14, 15-21, the 22nd to the month's end.
     week: Mapped[int] = mapped_column(Integer, nullable=False)
+    #: The BM it is for (0087), by its cơ sở: HN = BM Hà Nội, HCM = BM Sài Gòn.
+    region: Mapped[CrmRegion] = mapped_column(
+        value_enum(CrmRegion, name="ads_budget_region", length=4), nullable=False
+    )
     amount: Mapped[Decimal] = mapped_column(Numeric(16, 2), nullable=False)
     updated_by_user_id: Mapped[uuid.UUID | None] = mapped_column(
         ForeignKey(f"{USERS_TABLE}.id", ondelete=RESTRICT), nullable=True

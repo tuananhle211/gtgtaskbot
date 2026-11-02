@@ -4181,8 +4181,14 @@ export interface AdsRevenueDay {
   total: number | null;
 }
 
+/** 0087: KPI and weekly budgets are set per BM, by its cơ sở. */
+export type AdsBm = "HN" | "HCM";
+
 export interface AdsKpiMonth {
   month: string;
+  /** The BM these KPIs are for. */
+  region: AdsBm;
+  regions: Array<{ value: AdsBm; label: string }>;
   lines: AdsEntryLine[];
   can_edit: boolean;
 }
@@ -4226,6 +4232,9 @@ export interface AdsBudgetLine {
 
 export interface AdsBudgetMonth {
   month: string;
+  /** The BM shown; null = both added up. */
+  region: AdsBm | null;
+  regions: Array<{ value: AdsBm; label: string }>;
   today: string;
   weeks: AdsBudgetWeek[];
   lines: AdsBudgetLine[];
@@ -6210,15 +6219,26 @@ export const api = {
   /** `key -> amount`; null or "" clears a line. 422 `ads_revenue_invalid`. */
   saveAdsRevenue: (day: string, entries: Record<string, number | string | null>) =>
     put<AdsRevenueDay>("/api/ads/revenue", { day, entries }),
-  adsKpi: (month?: string) => get<AdsKpiMonth>(`/api/ads/kpi${query({ month })}`),
-  saveAdsKpi: (month: string, entries: Record<string, number | string | null>) =>
-    put<AdsKpiMonth>("/api/ads/kpi", { month, entries }),
-  /** 0082: weekly budgets against the spend (a member: their own line). */
-  adsBudget: (month?: string, userId?: string) =>
-    get<AdsBudgetMonth>(`/api/ads/budget${query({ month, user_id: userId })}`),
+  /** One BM's KPI (0087; default BM Hà Nội). */
+  adsKpi: (month?: string, region?: AdsBm) =>
+    get<AdsKpiMonth>(`/api/ads/kpi${query({ month, region })}`),
+  saveAdsKpi: (
+    month: string,
+    region: AdsBm,
+    entries: Record<string, number | string | null>,
+  ) => put<AdsKpiMonth>("/api/ads/kpi", { month, region, entries }),
+  /** 0082: weekly budgets against the spend (a member: their own line);
+   * `region` = one BM's (0087), none = both added up. */
+  adsBudget: (month?: string, userId?: string, region?: AdsBm | null) =>
+    get<AdsBudgetMonth>(
+      `/api/ads/budget${query({ month, user_id: userId, region: region ?? undefined })}`,
+    ),
   /** `"<user id>:<week>" -> amount`; null or "" clears. 422 `ads_budget_invalid`. */
-  saveAdsBudget: (month: string, entries: Record<string, number | string | null>) =>
-    put<AdsBudgetMonth>("/api/ads/budget", { month, entries }),
+  saveAdsBudget: (
+    month: string,
+    region: AdsBm,
+    entries: Record<string, number | string | null>,
+  ) => put<AdsBudgetMonth>("/api/ads/budget", { month, region, entries }),
   /** Quản lý A (a Trưởng phòng / OWNER / ADMIN; a member 404). */
   adsTeam: (
     params: {

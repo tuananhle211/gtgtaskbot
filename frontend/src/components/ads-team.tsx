@@ -9,6 +9,7 @@ import {
   type AdsTeamReport,
 } from "@/lib/api";
 import {
+  bmLabel,
   compactMoney,
   count,
   type DateRange,
@@ -172,7 +173,11 @@ export function TeamDashboard({
       ) : null}
       {report.data ? <Report data={report.data} onPick={onPick} /> : null}
       {report.data ? (
-        <BudgetBoard month={report.data.month.slice(0, 7)} onPick={onPick} />
+        <BudgetBoard
+          month={report.data.month.slice(0, 7)}
+          region={report.data.bm_region ?? null}
+          onPick={onPick}
+        />
       ) : null}
       {report.data ? (
         <AdsReports
@@ -564,7 +569,10 @@ function KpiProgress({ data }: { data: AdsTeamReport }) {
   const behind = rate !== null && rate < data.month_progress;
   return (
     <div data-testid="team-kpi" className={CARD}>
-      <div className="text-sm text-[var(--text-muted)]">Tiến độ KPI</div>
+      <div className="text-sm text-[var(--text-muted)]">
+        Tiến độ KPI
+        {data.bm_region ? ` · ${bmLabel(data.bm_region)}` : " · cả 2 BM"}
+      </div>
       <div className="mt-1 text-2xl font-semibold tabular-nums">
         {data.team_kpi ? percent(rate) : "Chưa nhập KPI"}
       </div>

@@ -2,10 +2,10 @@
 
 import { useEffect, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { api, type AdsBudgetMonth } from "@/lib/api";
+import { api, type AdsBm, type AdsBudgetMonth } from "@/lib/api";
 import { formatTyped } from "@/components/ads-entry";
 import { BudgetBoard, weekDays } from "@/components/ads-budget";
-import { money } from "@/components/ads";
+import { BmPicker, bmLabel, money } from "@/components/ads";
 import { ConfirmButton } from "@/components/confirm";
 import { PageHeader } from "@/components/pr";
 import { ErrorBox, Loading } from "@/components/states";
@@ -18,40 +18,52 @@ import { ErrorBox, Loading } from "@/components/states";
  */
 export default function AdsBudgetPage() {
   const [month, setMonth] = useState("");
+  const [region, setRegion] = useState<AdsBm>("HN");
   useEffect(() => {
-    const picked = new URLSearchParams(window.location.search).get("month");
+    const params = new URLSearchParams(window.location.search);
+    const picked = params.get("month");
     if (picked && /^\d{4}-\d{2}$/.test(picked)) setMonth(picked);
+    const bm = params.get("bm");
+    if (bm === "HN" || bm === "HCM") setRegion(bm);
   }, []);
   const budget = useQuery({
-    queryKey: ["ads", "budget", month, "edit"],
-    queryFn: () => api.adsBudget(month || undefined),
+    queryKey: ["ads", "budget", month, region, "edit"],
+    queryFn: () => api.adsBudget(month || undefined, undefined, region),
     retry: false,
   });
   return (
     <div className="space-y-5">
       <PageHeader
         title="Ngân sách tuần"
-        subtitle="Ngân sách chạy ads của từng người theo 4 tuần trong tháng: 3 tuần đầu 7 ngày, tuần 4 là các ngày còn lại."
+        subtitle="Ngân sách chạy ads của từng người theo 4 tuần trong tháng, nhập riêng cho từng BM: 3 tuần đầu 7 ngày, tuần 4 là các ngày còn lại."
       />
-      <label className="flex w-fit flex-col gap-1 text-xs font-medium text-[var(--text-muted)]">
-        <span>Tháng</span>
-        <input
-          type="month"
-          aria-label="Tháng"
-          value={month || budget.data?.month || ""}
-          onChange={(event) => setMonth(event.target.value)}
-          className="min-h-11 rounded-lg border border-[var(--border)] bg-[var(--surface)] px-3 text-sm"
-        />
-      </label>
+      <div className="flex flex-wrap items-end gap-3">
+        <label className="flex w-fit flex-col gap-1 text-xs font-medium text-[var(--text-muted)]">
+          <span>Tháng</span>
+          <input
+            type="month"
+            aria-label="Tháng"
+            value={month || budget.data?.month || ""}
+            onChange={(event) => setMonth(event.target.value)}
+            className="min-h-11 rounded-lg border border-[var(--border)] bg-[var(--surface)] px-3 text-sm"
+          />
+        </label>
+        <BmPicker value={region} onChange={setRegion} />
+      </div>
       {budget.isPending ? <Loading label="Đang tải ngân sách…" /> : null}
       {budget.isError ? (
         <ErrorBox error={budget.error} onRetry={() => budget.refetch()} />
       ) : null}
       {budget.data ? (
         <>
-          <Editor key={budget.data.month} data={budget.data} />
+          <Editor
+            key={`${budget.data.month}:${region}`}
+            data={budget.data}
+            region={region}
+          />
           <BudgetBoard
             month={budget.data.month}
+            region={region}
             title="Đối chiếu chi tiêu với ngân sách"
             editLink={false}
           />
@@ -99,16 +111,19 @@ function changesOf(
 const INPUT =
   "min-h-11 w-36 rounded-lg border border-[var(--border)] bg-[var(--surface)] px-3 text-right text-sm tabular-nums text-[var(--text)]";
 
-function Editor({ data }: { data: AdsBudgetMonth }) {
+function Editor({ data, region }: { data: AdsBudgetMonth; region: AdsBm }) {
   const queryClient = useQueryClient();
   const [draft, setDraft] = useState(() => draftOf(data));
   useEffect(() => setDraft(draftOf(data)), [data]);
   const changes = changesOf(data, draft);
   const changed = Object.keys(changes).length;
   const save = useMutation({
-    mutationFn: () => api.saveAdsBudget(data.month, changes),
+    mutationFn: () => api.saveAdsBudget(data.month, region, changes),
     onSuccess: (saved) => {
-      queryClient.setQueryData(["ads", "budget", saved.month, "edit"], saved);
+      queryClient.setQueryData(
+        ["ads", "budget", saved.month, region, "edit"],
+        saved,
+      );
       void queryClient.invalidateQueries({ queryKey: ["ads", "budget"] });
     },
   });
@@ -211,7 +226,7 @@ function Editor({ data }: { data: AdsBudgetMonth }) {
             onOpenChange={(open) => (open ? save.reset() : undefined)}
             onConfirm={() => save.mutate()}
             spec={{
-              title: `Lưu ngân sách tuần tháng ${monthNumber}/${year}?`,
+              title: `Lưu ngân sách tuần ${bmLabel(region)} tháng ${monthNumber}/${year}?`,
               description:
                 "Ngân sách mới áp dụng ngay trên Dashboard Ads; ô để trống là bỏ ngân sách tuần đó.",
               confirmLabel: "Lưu ngân sách",

@@ -557,7 +557,7 @@ class AdsTeamService:
         cursor = first_month
         while cursor <= period.start:
             span = month_period(cursor)
-            amounts = {} if no_kpi else await revenue_service.kpi_amounts(span.start)
+            amounts = {} if no_kpi else await revenue_service.kpi_amounts(span.start, region)
             months.append(
                 MonthLine(
                     span.start,
@@ -751,11 +751,17 @@ class AdsTeamService:
         # The marketers: their accounts' numbers and their own revenue (SG + HN).
         people = {item: _by_person(books[item], period) for item in AdsPlatform}
         by_person = people[platform]
-        kpis = {} if manual else await revenue_service.kpi_amounts(kpi_month.start)
+        # KPI per BM (0087): a BM's KPI against what its region's CRM accounts
+        # brought; no BM = both KPIs against the whole revenue.
+        kpis = {} if manual else await revenue_service.kpi_amounts(kpi_month.start, region)
+
+        def kpi_value(row: RevenueRow) -> Decimal:
+            return row.gross if region is None else region_amount(row, BM_REGION_FLOWS[region])
+
         kpi_revenue: dict[uuid.UUID, float] = defaultdict(float)
         for row in revenue_rows:
             if row.user_id is not None and kpi_span.start <= row.day <= kpi_span.end:
-                kpi_revenue[row.user_id] += float(row.gross)
+                kpi_revenue[row.user_id] += float(kpi_value(row))
         seated = {user.id: user for user in await ads_people(self._session)}
         everybody = dict(seated)
         missing = {user_id for figures in people.values() for user_id in figures} - set(everybody)
@@ -862,9 +868,9 @@ class AdsTeamService:
             marketers_hn=total(row.amount_hn for row in in_month if row.amount_hn),
             team_kpi=float(kpis[TEAM_KEY]) if TEAM_KEY in kpis else None,
             month_progress=progress,
-            # The KPI is the whole department's, both regions, whatever "Miền".
+            # The department's: one BM's region, else both, whatever "Miền".
             kpi_revenue=total(
-                row.gross for row in revenue_rows if kpi_span.start <= row.day <= kpi_span.end
+                kpi_value(row) for row in revenue_rows if kpi_span.start <= row.day <= kpi_span.end
             ),
             sources=sources,
             flows=flows,

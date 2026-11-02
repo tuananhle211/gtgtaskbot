@@ -84,6 +84,8 @@ async def test_01_model_and_migration_agree(database: Database) -> None:
             item
             for item in compare_metadata(context, Base.metadata)
             if "'ads_budgets'" in repr(item)
+            # 0087 adds the BM (``region``) to the budgets and their unique key.
+            and not any(word in repr(item) for word in ("region", "uq_ads_budgets_month"))
         ]
 
     async with database.engine.begin() as connection:

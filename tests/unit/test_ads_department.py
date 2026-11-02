@@ -503,7 +503,11 @@ async def test_11_kpis_and_the_team_dashboard(world: World) -> None:
     world.client.put("/api/ads/revenue", json={"day": D2.isoformat(), "entries": entries})
     saved = world.client.put(
         "/api/ads/kpi",
-        json={"month": "2026-10", "entries": {"team": 30_240_000, f"u:{ngoc.id}": "10.000.000"}},
+        json={
+            "month": "2026-10",
+            "region": "HN",
+            "entries": {"team": 30_240_000, f"u:{ngoc.id}": "10.000.000"},
+        },
     ).json()
     assert {line["key"]: line["amount"] for line in saved["lines"]}["team"] == 30_240_000
 
@@ -599,7 +603,9 @@ async def test_11_kpis_and_the_team_dashboard(world: World) -> None:
     ).json()
     assert own["user_id"] == str(ngoc.id)
     assert own["months"][-1]["figures"]["revenue"] == 11_880_000
-    denied = world.client.put("/api/ads/kpi", json={"month": "2026-10", "entries": {"team": 1}})
+    denied = world.client.put(
+        "/api/ads/kpi", json={"month": "2026-10", "region": "HN", "entries": {"team": 1}}
+    )
     assert denied.status_code == 403
 
 

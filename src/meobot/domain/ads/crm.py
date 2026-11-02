@@ -20,6 +20,8 @@ class CrmRegion(StrEnum):
 
 
 REGION_LABELS: dict[CrmRegion, str] = {CrmRegion.HN: "Hà Nội", CrmRegion.HCM: "HCM"}
+#: The BM of each cơ sở (0087): KPI and weekly budgets are set per BM.
+BM_LABELS: dict[CrmRegion, str] = {CrmRegion.HN: "BM Hà Nội", CrmRegion.HCM: "BM Sài Gòn"}
 
 #: CRM payment types (``/raw-data/filters/order-payments``): 1 Tiền mặt, 2 Thẻ,
 #: 3 Điểm, 4 Chuyển khoản, 5 Trả góp, 6 Nhà xe thu hộ, 7 Hoàn tiền (negative).
@@ -97,6 +99,7 @@ DEFAULT_BRANCH_SITES: dict[int, CrmRegion] = {
 
 
 __all__ = [
+    "BM_LABELS",
     "COUNTED_PAYMENT_TYPES",
     "DEFAULT_BRANCH_SITES",
     "HOTLINE_KIND_LABELS",

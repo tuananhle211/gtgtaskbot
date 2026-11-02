@@ -56,8 +56,15 @@ const cell = (
   status_label: LABELS[status],
 });
 
+const BMS = [
+  { value: "HN" as const, label: "BM Hà Nội" },
+  { value: "HCM" as const, label: "BM Sài Gòn" },
+];
+
 const MONTH: AdsBudgetMonth = {
   month: "2026-10",
+  region: "HN",
+  regions: BMS,
   today: "2026-10-25",
   weeks: WEEKS,
   can_edit: true,
@@ -177,7 +184,51 @@ describe("Ngân sách tuần", () => {
     );
     expect(sent(stub, "PUT", "/api/ads/budget")[0].body).toEqual({
       month: "2026-10",
+      region: "HN",
       entries: { "u-1:4": null, "u-2:1": "7000000" },
+    });
+  });
+
+  it("budgets are typed per BM: BM Sài Gòn reads and saves its own (0087)", async () => {
+    const stub = stubFetch([
+      { match: "/api/ads/budget", method: "PUT", body: { ...MONTH, region: "HCM" } },
+      { match: "/api/ads/budget", method: "GET", body: MONTH },
+    ]);
+    renderWithQuery(<AdsBudgetPage />);
+    await screen.findByLabelText("Ngân sách Mạnh Ngọc tuần 4");
+    // BM Hà Nội first, on the editor and the comparison alike.
+    expect(sent(stub, "GET", "/api/ads/budget")[0].url).toContain("region=HN");
+    expect(
+      screen.getByRole("radio", { name: "BM Hà Nội" }),
+    ).toHaveAttribute("aria-checked", "true");
+    expect(
+      screen.getByRole("heading", { name: /Đối chiếu chi tiêu với ngân sách · BM Hà Nội/ }),
+    ).toBeInTheDocument();
+    await userEvent.click(screen.getByRole("radio", { name: "BM Sài Gòn" }));
+    await waitFor(() =>
+      expect(
+        sent(stub, "GET", "/api/ads/budget").some((call) =>
+          call.url.includes("region=HCM"),
+        ),
+      ).toBe(true),
+    );
+    const anh = await screen.findByLabelText("Ngân sách Hoàng Anh tuần 1");
+    await userEvent.type(anh, "1000000");
+    await userEvent.click(
+      screen.getByRole("button", { name: "Lưu ngân sách (1 ô thay đổi)" }),
+    );
+    const dialog = await screen.findByRole("dialog", {
+      name: "Lưu ngân sách tuần BM Sài Gòn tháng 10/2026?",
+    });
+    await userEvent.click(
+      within(dialog).getByRole("button", { name: "Lưu ngân sách" }),
+    );
+    await waitFor(() =>
+      expect(sent(stub, "PUT", "/api/ads/budget")).toHaveLength(1),
+    );
+    expect(sent(stub, "PUT", "/api/ads/budget")[0].body).toMatchObject({
+      region: "HCM",
+      entries: { "u-2:1": "1000000" },
     });
   });
 });
