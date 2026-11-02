@@ -671,16 +671,46 @@ class OrderCommandService:
             if is_design_only(order.video_type)
             else await self._review_script(loaded.settings, order.title, order.order_content)
         )
-        order.stage = OrderStage.ORDER_PENDING
         order.returned_reason = None
+        resume = self._resume_node(loaded)
+        if resume is None:
+            # Sent back at the order gate: approved anew.
+            order.stage = OrderStage.ORDER_PENDING
         self._bump(order)
         await self._session.flush()
         await self._event(order, OrderEventKind.RESUBMITTED, actor, note=ai_note)
+        if resume is not None:
+            # 2026-11-02: sent back from a step ("Trả order") - the order had
+            # passed its gate, so it goes straight back to that step.
+            await self._activate(loaded, resume, actor, utcnow(), first=False, again=True)
+            await self._session.flush()
         await self._audit_order(
             actor, request_id, AuditAction.ORDER_RESUBMITTED, order, before=before
         )
-        await self._notify.order_submitted(actor=actor, order=order, unit=loaded.settings)
+        if resume is None:
+            await self._notify.order_submitted(actor=actor, order=order, unit=loaded.settings)
         return order
+
+    @staticmethod
+    def _resume_node(loaded: _Loaded) -> OrderNode | None:
+        """Where a returned order picks up again: the first step not finished,
+        when it was sent back from a step (it had passed its gate - approved,
+        or a Design-only order, which has none); ``None`` when the order gate
+        sent it back."""
+        order = loaded.order
+        gateless = order.category is OrderCategory.STANDARD and is_design_only(order.video_type)
+        if order.order_approved_at is None and not gateless:
+            return None
+        node_type: OrderNodeType | None = first_node(order.video_type)
+        while node_type is not None:
+            node = loaded.nodes.get(node_type)
+            if node is not None and node.status not in (
+                OrderNodeStatus.HOAN_THANH,
+                OrderNodeStatus.BO_QUA,
+            ):
+                return node
+            node_type = next_node(order.video_type, node_type)
+        return None
 
     async def edit(
         self,
@@ -762,17 +792,30 @@ class OrderCommandService:
             order.approver_user_id = await self._approver(
                 order.unit_id, edit.approver_user_id, order.owner_user_id
             )
+        # An order sent back from a step (2026-11-02) has steps already done:
+        # their person and codes stay as they were finished.
+        done = {
+            node_type
+            for node_type, node in loaded.nodes.items()
+            if node.status is OrderNodeStatus.HOAN_THANH
+        }
         if edit.preassigned is not None:
             await self._validate_preassigned(order.unit_id, order.video_type, edit.preassigned)
             for node_type, node in loaded.nodes.items():
-                node.preassigned_user_id = edit.preassigned.get(node_type)
+                if node_type not in done:
+                    node.preassigned_user_id = edit.preassigned.get(node_type)
         if edit.task_codes is not None:
             suggestions = await self._suggestions(
                 order.unit_id, loaded.settings, order.video_type, edit.task_codes
             )
-            order.design_items = items_to_json(suggestions.get(OrderNodeType.THIET_KE, ())) or None
+            if OrderNodeType.THIET_KE not in done:
+                order.design_items = (
+                    items_to_json(suggestions.get(OrderNodeType.THIET_KE, ())) or None
+                )
             for node_type, node in loaded.nodes.items():
-                if node_type in (OrderNodeType.BIEN_TAP, OrderNodeType.DUNG):
+                if node_type in (OrderNodeType.BIEN_TAP, OrderNodeType.DUNG) and (
+                    node_type not in done
+                ):
                     node.task_items = items_to_json(suggestions.get(node_type, ())) or None
             order.suggested_task_items = _suggested_json(suggestions)
 
@@ -826,6 +869,54 @@ class OrderCommandService:
         await self._audit_order(actor, request_id, AuditAction.ORDER_RETURNED, order, before=before)
         await self._notify.order_returned(
             actor=actor, order=order, unit=loaded.settings, reason=reason
+        )
+        return order
+
+    async def return_to_orderer(
+        self,
+        *,
+        actor: Actor,
+        request_id: uuid.UUID,
+        order_id: uuid.UUID,
+        node_id: uuid.UUID,
+        expected_version: int,
+        reason: str,
+    ) -> Order:
+        """ "Trả order" (2026-11-02): the Trưởng phòng of the step the order is
+        at sends it back to its orderer to fix. The step stops - nobody is on
+        it any more, its plan is dropped - and the order waits on the orderer
+        ("Trả X sửa"), who resubmits it (back to this step) or cancels it."""
+        loaded = await self._load(actor, order_id, expected_version)
+        node = self._node(loaded, node_id)
+        assert_allowed(
+            OrderActionKind.RETURN_TO_ORDERER,
+            loaded.view(),
+            loaded.node_views(),
+            loaded.scope.context,
+            node_id=node.id,
+        )
+        reason = _require_note(reason)
+        order = loaded.order
+        before = self._snapshot(order)
+        if self._multi_design(loaded, node):
+            await self._assignees.set_people(node, [], actor=actor)
+        node.status = OrderNodeStatus.CHUA_TOI
+        node.assignee_user_id = None
+        node.assigned_at = None
+        node.accepted_at = None
+        node.deadline_at = None
+        node.revision_deadline_at = None
+        node.proposed_design_items = None
+        node.revision_tokens_pending = False
+        node.version += 1
+        order.stage = OrderStage.ORDER_RETURNED
+        order.returned_reason = reason
+        self._bump(order)
+        await self._session.flush()
+        await self._event(order, OrderEventKind.ORDER_RETURNED, actor, node=node, note=reason)
+        await self._audit_order(actor, request_id, AuditAction.ORDER_RETURNED, order, before=before)
+        await self._notify.order_returned(
+            actor=actor, order=order, unit=loaded.settings, reason=reason, node=node
         )
         return order
 
@@ -2126,7 +2217,14 @@ class OrderCommandService:
         raise OrderNotFoundError("Không tìm thấy.", details={"reason": "node_not_found"})
 
     async def _activate(
-        self, loaded: _Loaded, node: OrderNode, actor: Actor, now: datetime, *, first: bool
+        self,
+        loaded: _Loaded,
+        node: OrderNode,
+        actor: Actor,
+        now: datetime,
+        *,
+        first: bool,
+        again: bool = False,
     ) -> None:
         """Bring a node up, assigning it straight away when somebody was chosen.
 
@@ -2156,7 +2254,7 @@ class OrderCommandService:
             await self._assignees.set_people(node, [node.preassigned_user_id], actor=actor)
         await self._event(order, OrderEventKind.NODE_ACTIVATED, actor, node=node, assignee=assignee)
         await self._notify.node_turn(
-            actor=actor, order=order, node=node, unit=loaded.settings, first=first
+            actor=actor, order=order, node=node, unit=loaded.settings, first=first, again=again
         )
 
     async def _send_product_back(

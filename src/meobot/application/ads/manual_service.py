@@ -185,6 +185,8 @@ class AdsManualService:
         card_last4: str | None = None,
     ) -> AdsAccount:
         access.require_view()
+        if not access.in_ads:
+            raise AdsManualForbiddenError()
         if platform not in MANUAL_PLATFORMS:
             raise AdsManualInvalidError(
                 "Tài khoản Facebook Ads được đọc từ BM, không thêm tay.", "platform"

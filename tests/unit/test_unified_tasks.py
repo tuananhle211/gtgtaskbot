@@ -180,7 +180,9 @@ async def test_06_the_ads_page_and_its_wall(world: World) -> None:
     assert body["task"]["phase"] == "REVIEW" and body["task"]["version"] == 1
     assert body["task"]["kind_label"] == f"Biên kịch{SEP}Design{SEP}Dựng"
     assert body["task"]["source"] == {"type": "ORDER", "id": detail["order"]["id"]}
-    assert {"ads:APPROVE_ORDER", "ads:RETURN_ORDER", "ads:CANCEL"} <= set(keys(body))
+    assert {"ads:APPROVE_ORDER", "ads:RETURN_ORDER"} <= set(keys(body))
+    # 2026-11-02: only the orderer cancels.
+    assert "ads:CANCEL" not in set(keys(body))
     groups = {item["key"]: item["group"] for item in body["fields"]}
     assert groups["process"] == "ads" and not any(g == "pr" for g in groups.values())
     # No "Gắn link" step: the three production nodes, then the final review.

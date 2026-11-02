@@ -781,3 +781,60 @@ async def test_14_every_report_filters_by_bm(world: World) -> None:
     world.act_as(anh)
     theirs = world.client.get("/api/ads/dashboard", params=params).json()
     assert [row["name"] for row in theirs["connections"]] == ["BM Hà Nội"]
+
+
+async def test_15_a_ticked_outsider_sees_the_dashboard_read_only(world: World) -> None:
+    """02/11: ``ADS DASHBOARD``, ticked by the OWNER per person (or department):
+    every marketer's numbers, nothing to type or change."""
+    await synced(world)
+    marketer = await person(world, "Mạnh Ngọc", UnitMemberRole.ORDERER)
+    viewer = await person(world, "Giám đốc", None)
+    world.act_as(world.owner)
+    world.client.patch("/api/ads/accounts/111", json={"user_id": str(marketer.id)})
+
+    world.act_as(viewer)
+    assert world.client.get("/api/ads/dashboard").status_code == 404
+    # Nobody but the OWNER ticks it.
+    world.act_as(marketer)
+    refused = world.client.post(
+        f"/api/permissions/people/{viewer.id}/grants",
+        json={"module": "ADS", "permission": "DASHBOARD", "scope": "ALL"},
+    )
+    assert refused.status_code == 403
+    world.act_as(world.owner)
+    made = world.client.post(
+        f"/api/permissions/people/{viewer.id}/grants",
+        json={"module": "ADS", "permission": "DASHBOARD", "scope": "ALL"},
+    )
+    assert made.status_code == 201, made.json()
+
+    world.act_as(viewer)
+    assert world.client.get("/api/units/me").json()["ads"] == {
+        "view": True,
+        "view_all": True,
+        "manage_accounts": False,
+        "manage_connections": False,
+        "edit_revenue": False,
+    }
+    params = {"start": D1.isoformat(), "end": D2.isoformat()}
+    everyone = world.client.get("/api/ads/dashboard", params=params).json()
+    assert {kpi["key"]: kpi["value"] for kpi in everyone["kpis"]}["spend"] == 3_500_000
+    assert everyone["can_add_account"] is False
+    one = world.client.get(
+        "/api/ads/dashboard", params={**params, "user_id": str(marketer.id)}
+    ).json()
+    assert {kpi["key"]: kpi["value"] for kpi in one["kpis"]}["spend"] == 3_000_000
+    assert world.client.get("/api/ads/team", params={"month": "2026-10"}).status_code == 200
+    listing = world.client.get("/api/ads/accounts", params={"month": "2026-10"}).json()
+    assert len(listing["accounts"]) == 3 and listing["can_manage"] is False
+    # Read only: no KPI, no account handed out, no typed-in account of their own.
+    kpi = world.client.put(
+        "/api/ads/kpi", json={"month": "2026-10", "region": "HN", "entries": {"team": 1}}
+    )
+    assert kpi.status_code == 403
+    assert world.client.patch("/api/ads/accounts/222", json={"user_id": None}).status_code == 403
+    typed = world.client.post(
+        "/api/ads/manual/accounts",
+        json={"platform": "GOOGLE", "external_id": "1234567890", "name": "x"},
+    )
+    assert typed.status_code == 403

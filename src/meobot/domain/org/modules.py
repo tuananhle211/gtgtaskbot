@@ -1,8 +1,8 @@
 """The modules whose permissions departments (and personal grants) hold, in one table.
 
 The modules declare their permission vocabulary here - the order flow, the
-PR module, the resources module, the points reports and the report assistant
-on Telegram - and every layer of authorization reads this table alone:
+PR module, the resources module, the points reports, the Phòng Ads dashboard
+and the report assistant on Telegram - and every layer of authorization reads this table alone:
 
 * the **department** layer: ``department_permissions`` (module x permission x
   position -> scope), edited on "Phòng ban";
@@ -29,6 +29,12 @@ from enum import StrEnum
 from types import MappingProxyType
 from typing import Any
 
+from meobot.domain.ads.permissions import (
+    ADS_PERMISSION_LABELS,
+    MODULE_ADS,
+    AdsDepartmentPermission,
+    ads_allowed_scopes,
+)
 from meobot.domain.assistant.reports import (
     ASSISTANT_OWNER_ONLY,
     ASSISTANT_PERMISSION_LABELS,
@@ -219,6 +225,14 @@ MODULES: Mapping[str, ModuleSpec] = MappingProxyType(
             scope_labels=PERFORMANCE_SCOPE_LABELS,
             defaults=default_performance_grants,
             owner_only=PERFORMANCE_OWNER_ONLY,
+        ),
+        MODULE_ADS: ModuleSpec(
+            module=MODULE_ADS,
+            label="Phòng Ads",
+            permissions=AdsDepartmentPermission,
+            labels=ADS_PERMISSION_LABELS,
+            own_meaning=MappingProxyType({}),
+            scopes=ads_allowed_scopes,
         ),
         MODULE_ASSISTANT: ModuleSpec(
             module=MODULE_ASSISTANT,

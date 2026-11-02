@@ -1167,7 +1167,7 @@ async def test_design_only_content_is_not_read_by_the_ai(world: World) -> None:
     assert error_reason(scripted.json()) == "script_review_failed"
 
 
-async def test_design_only_the_design_leader_approves_by_taking_or_cancels(world: World) -> None:
+async def test_design_only_the_design_leader_approves_by_taking_or_returns(world: World) -> None:
     from tests.unit.test_order_commands import inbox
 
     ads, codes = await design_world(world)
@@ -1178,18 +1178,31 @@ async def test_design_only_the_design_leader_approves_by_taking_or_cancels(world
     # The Leader takes it: that is the approval too.
     taken = design_only(world, ads, design_codes=pick(codes, CA=1)).json()
     tk = node(taken, "THIET_KE")["id"]
-    assert "CANCEL" in kinds(ads.lead_tk, taken["order"]["code"])
+    # 2026-11-02: the Leader no longer cancels - they send it back to the orderer.
+    assert "CANCEL" not in kinds(ads.lead_tk, taken["order"]["code"])
+    assert "RETURN_TO_ORDERER" in kinds(ads.lead_tk, taken["order"]["code"])
     # Before that the orderer may still take it back; afterwards not.
     assert "CANCEL" in kinds(ads.orderer, taken["order"]["code"])
     taken = act(world, ads.lead_tk, f"/nodes/{tk}/accept", taken)
     assert taken["order"]["order_approved_at"] is not None
     assert "CANCEL" not in kinds(ads.orderer, taken["order"]["code"])
-    assert "CANCEL" in kinds(ads.lead_tk, taken["order"]["code"])
-    # The Leader turns one down: cancelled, and the orderer is told why.
+    assert "RETURN_TO_ORDERER" in kinds(ads.lead_tk, taken["order"]["code"])
+    # The Leader turns one down: back to the orderer, who is told why...
     refused = design_only(world, ads, title="Không làm", design_codes=pick(codes, CA=1)).json()
-    refused = act(world, ads.lead_tk, "/cancel", refused, note="Trùng order khác")
-    assert refused["order"]["stage"] == "CANCELLED"
-    assert ("order_cancelled", "Order đã bị huỷ") in await inbox(world, ads.orderer)
+    refused_tk = node(refused, "THIET_KE")["id"]
+    refused = act(
+        world, ads.lead_tk, f"/nodes/{refused_tk}/return-order", refused, note="Trùng order khác"
+    )
+    assert refused["order"]["stage"] == "ORDER_RETURNED"
+    assert ("order_returned", "Order cần sửa, gửi lại") in await inbox(world, ads.orderer)
+    # ...and fixed, goes straight back to Design (a Design-only order has no gate).
+    resent = act(world, ads.orderer, "/resubmit", refused, title="Làm lại")
+    assert resent["order"]["stage"] == "THIET_KE"
+    assert node(resent, "THIET_KE")["assignee_user_id"] == str(ads.lead_tk.id)
+    # Or dropped: only the orderer cancels.
+    again = act(world, ads.lead_tk, f"/nodes/{refused_tk}/return-order", resent, note="Vẫn trùng")
+    dropped = act(world, ads.orderer, "/cancel", again, note="Thôi")
+    assert dropped["order"]["stage"] == "CANCELLED"
     # A Design member is no stand-in for the Leader.
     other = design_only(world, ads, title="Khác", design_codes=pick(codes, CA=1)).json()
     world.act_as(ads.designer)

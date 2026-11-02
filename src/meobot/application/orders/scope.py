@@ -114,7 +114,12 @@ class OrderScope:
                     select(OrderNode.id).where(
                         OrderNode.order_id == Order.id,
                         OrderNode.node_type.in_(list(self.lead_node_types)),
-                        OrderNode.status.notin_(NOT_REACHED),
+                        # A step that was reached and sent back to the orderer
+                        # ("Trả order", 2026-11-02) stays its Leaders' to see.
+                        or_(
+                            OrderNode.status.notin_(NOT_REACHED),
+                            OrderNode.activated_at.is_not(None),
+                        ),
                     )
                 )
             )

@@ -438,6 +438,7 @@ class AdsDashboardService:
             regions=region_split(whole, costs, period),
             bm_region=picked,
             can_add_account=manual
+            and access.in_ads
             and (access.manage_accounts or person is None or person == access.user_id),
             sites=sites,
         )

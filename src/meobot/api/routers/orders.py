@@ -482,6 +482,32 @@ async def return_order(
 
 
 @router.post(
+    "/{order_id}/nodes/{node_id}/return-order",
+    response_model=OrderDetailResponse,
+    responses=_ACTION_RESPONSES,
+)
+async def return_to_orderer(
+    order_id: uuid.UUID,
+    node_id: uuid.UUID,
+    body: NoteRequest,
+    actor: CurrentActorDep,
+    request_id: RequestIdDep,
+    services: ServicesDep,
+) -> OrderDetailResponse:
+    """ "Trả order" (2026-11-02): the step's Trưởng phòng sends the order back
+    to its orderer to fix (reason required)."""
+    await services.commands.return_to_orderer(
+        actor=actor,
+        request_id=request_id,
+        order_id=order_id,
+        node_id=node_id,
+        expected_version=body.version,
+        reason=body.note or "",
+    )
+    return await _detail(services, actor, order_id)
+
+
+@router.post(
     "/{order_id}/nodes/{node_id}/assign",
     response_model=OrderDetailResponse,
     responses=_ACTION_RESPONSES,

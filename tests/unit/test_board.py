@@ -472,7 +472,8 @@ async def test_11c_a_cancelled_order_leaves_the_board_unless_asked_for(world: Wo
     "Chờ ... phân công" nor a deadline, so the row cannot look still live."""
     ads = await ads_world(world)
     live = act(world, ads.head, "/approve", create(world, ads, video_type="TD"))
-    doomed = act(world, ads.head, "/approve", create(world, ads, video_type="TD"))
+    # The head's own order (approved as placed): only its orderer cancels it.
+    doomed = create(world, ads, by=ads.head, video_type="TD")
     doomed = act(world, ads.head, "/cancel", doomed, note="Khách đổi ý")
     assert doomed["order"]["stage"] == "CANCELLED"
     code = doomed["order"]["code"]

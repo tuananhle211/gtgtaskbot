@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import uuid
+from dataclasses import replace
 from datetime import UTC, datetime, timedelta
 
 import pytest
@@ -12,6 +13,7 @@ from meobot.domain.orders.labels import PROCESS_SEPARATOR as SEP
 from meobot.domain.orders.models import (
     ACTIVE_NODE_STATUSES,
     NODE_PLAN,
+    OrderCategory,
     OrderNodeStatus,
     OrderNodeType,
     OrderStage,
@@ -183,11 +185,11 @@ def test_06_the_head_decides_the_order_gate_and_the_owner_resubmits() -> None:
     pending = order(OrderStage.ORDER_PENDING)
     nodes = (node(OrderNodeType.BIEN_TAP, OrderNodeStatus.CHUA_TOI),)
     head = ctx(UnitMemberRole.HEAD, HEAD)
+    # 2026-11-02: only the orderer cancels; the head sends it back instead.
     assert kinds(available_actions(pending, nodes, head)) == {
         OrderActionKind.APPROVE_ORDER,
         OrderActionKind.RETURN_ORDER,
         OrderActionKind.SET_PRIORITY,
-        OrderActionKind.CANCEL,
     }
     owner = ctx(UnitMemberRole.ORDERER, OWNER)
     assert kinds(available_actions(pending, nodes, owner)) == {OrderActionKind.CANCEL}
@@ -196,10 +198,7 @@ def test_06_the_head_decides_the_order_gate_and_the_owner_resubmits() -> None:
         OrderActionKind.RESUBMIT,
         OrderActionKind.CANCEL,
     }
-    assert kinds(available_actions(returned, nodes, head)) == {
-        OrderActionKind.SET_PRIORITY,
-        OrderActionKind.CANCEL,
-    }
+    assert kinds(available_actions(returned, nodes, head)) == {OrderActionKind.SET_PRIORITY}
     # The OWNER of MeoChat acts as head without a tag.
     owner_of_everything = OrderActorContext.from_membership(
         UnitMembership(user_id=uuid.uuid4(), entries=(), is_owner=True), UnitSettings()
@@ -214,10 +213,12 @@ def test_07_a_leader_assigns_and_approves_and_the_assignee_accepts_and_submits()
     waiting = (node(OrderNodeType.BIEN_TAP, OrderNodeStatus.CHUA_GIAO),)
     lead = ctx(UnitMemberRole.BIEN_TAP, LEAD_BT, is_lead=True)
     writer = ctx(UnitMemberRole.BIEN_TAP, EDITOR)
-    # The Leader hands it out, or changes its tokens / deadline (0053).
+    # The Leader hands it out, or changes its tokens / deadline (0053), or
+    # sends the order back to its orderer (2026-11-02).
     assert kinds(available_actions(working, waiting, lead)) == {
         OrderActionKind.ASSIGN,
         OrderActionKind.SET_NODE_PLAN,
+        OrderActionKind.RETURN_TO_ORDERER,
     }
     assert kinds(available_actions(working, waiting, writer)) == set()
 
@@ -242,6 +243,7 @@ def test_07_a_leader_assigns_and_approves_and_the_assignee_accepts_and_submits()
     assert kinds(available_actions(working, accepted, lead)) == {
         OrderActionKind.ASSIGN,
         OrderActionKind.SET_NODE_PLAN,
+        OrderActionKind.RETURN_TO_ORDERER,
     }
 
     handed_in = (node(OrderNodeType.BIEN_TAP, OrderNodeStatus.CHO_DUYET, assignee=EDITOR),)
@@ -249,6 +251,7 @@ def test_07_a_leader_assigns_and_approves_and_the_assignee_accepts_and_submits()
         OrderActionKind.APPROVE_NODE,
         OrderActionKind.RETURN_NODE,
         OrderActionKind.SET_NODE_PLAN,
+        OrderActionKind.RETURN_TO_ORDERER,
     }
     assert kinds(available_actions(working, handed_in, writer)) == set()
     # A design lead has nothing to do with a script node.
@@ -294,20 +297,46 @@ def test_09_the_two_last_gates_belong_to_the_script_lead_and_the_head() -> None:
         OrderActionKind.RETURN_VIDEO,
     }
     # The script lead's video review is production's: not the head's (0057).
-    assert kinds(available_actions(video_gate, nodes, head)) == {
-        OrderActionKind.SET_PRIORITY,
-        OrderActionKind.CANCEL,
-    }
+    assert kinds(available_actions(video_gate, nodes, head)) == {OrderActionKind.SET_PRIORITY}
     final_gate = order(OrderStage.FINAL_REVIEW)
     assert kinds(available_actions(final_gate, nodes, head)) == {
         OrderActionKind.APPROVE_FINAL,
         OrderActionKind.RETURN_FINAL,
         OrderActionKind.SET_PRIORITY,
-        OrderActionKind.CANCEL,
     }
     assert kinds(available_actions(final_gate, nodes, lead)) == set()
     for action in available_actions(video_gate, nodes, lead):
         assert action.node_id == link.id
+
+
+def test_09b_only_the_orderer_cancels_and_a_step_lead_returns_the_order() -> None:
+    """2026-11-02: cancelling is the orderer's alone; the Trưởng phòng of the
+    step the order is at sends it back to the orderer ("Trả order")."""
+    working = order(OrderStage.THIET_KE)
+    nodes = (node(OrderNodeType.THIET_KE, OrderNodeStatus.DANG_LAM, assignee=EDITOR),)
+    lead = ctx(UnitMemberRole.THIET_KE, LEAD_BT, is_lead=True)
+    head = ctx(UnitMemberRole.HEAD, HEAD)
+    everything = OrderActorContext.from_membership(
+        UnitMembership(user_id=uuid.uuid4(), entries=(), is_owner=True), UnitSettings()
+    )
+    for person in (lead, head, everything):
+        assert OrderActionKind.CANCEL not in kinds(available_actions(working, nodes, person))
+    returning = assert_allowed(
+        OrderActionKind.RETURN_TO_ORDERER, working, nodes, lead, node_id=nodes[0].id
+    )
+    assert returning.label == "Trả order" and returning.requires_note is True
+    assert OrderActionKind.RETURN_TO_ORDERER in kinds(available_actions(working, nodes, everything))
+    # Not the head (no production), not on a birthday order.
+    assert OrderActionKind.RETURN_TO_ORDERER not in kinds(available_actions(working, nodes, head))
+    birthday = replace(working, category=OrderCategory.BIRTHDAY)
+    assert OrderActionKind.RETURN_TO_ORDERER not in kinds(available_actions(birthday, nodes, lead))
+    # Sent back, the orderer fixes it or cancels it.
+    owner = ctx(UnitMemberRole.ORDERER, OWNER)
+    returned = order(OrderStage.ORDER_RETURNED)
+    assert kinds(available_actions(returned, nodes, owner)) == {
+        OrderActionKind.RESUBMIT,
+        OrderActionKind.CANCEL,
+    }
 
 
 def test_10_nothing_moves_a_finished_order() -> None:

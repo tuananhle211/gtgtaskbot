@@ -196,6 +196,7 @@ ADS_NODE_KINDS: frozenset[OrderActionKind] = frozenset(
         OrderActionKind.APPROVE_NODE,
         OrderActionKind.RETURN_NODE,
         OrderActionKind.SET_WORK_ITEMS,
+        OrderActionKind.RETURN_TO_ORDERER,
     }
 )
 _ADS_PRIMARY: frozenset[OrderActionKind] = frozenset(
@@ -751,8 +752,14 @@ class TaskDetailService:
                 OrderActionKind.RETURN_ORDER,
                 OrderActionKind.CANCEL,
                 OrderActionKind.APPROVE_NODE,
+                OrderActionKind.RETURN_TO_ORDERER,
             ):
                 inputs = ("note",)
+                if kind is OrderActionKind.RETURN_TO_ORDERER:
+                    hint = (
+                        "Order quay về người order để sửa; công đoạn này dừng lại. "
+                        "Người order sửa và gửi lại thì order quay về công đoạn này."
+                    )
             if not settings.effort_enabled:
                 # Effort mode off: no token is asked for or shown anywhere.
                 inputs = tuple(name for name in inputs if name != "tokens")

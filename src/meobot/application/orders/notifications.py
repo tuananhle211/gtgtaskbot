@@ -72,23 +72,46 @@ class OrderNotificationService:
         )
 
     async def order_returned(
-        self, *, actor: Actor, order: Order, unit: UnitSettings, reason: str
+        self,
+        *,
+        actor: Actor,
+        order: Order,
+        unit: UnitSettings,
+        reason: str,
+        node: OrderNode | None = None,
     ) -> None:
+        """Back to the orderer to fix: from the order gate ("Không duyệt"), or
+        from a step (``node``, "Trả order")."""
+        if node is None:
+            body = f"Trưởng phòng chưa duyệt “{order.title}” ({order.code}). Sửa rồi gửi lại."
+        else:
+            body = (
+                f"Trưởng phòng {node_type_label(node.node_type)} trả lại order "
+                f"“{order.title}” ({order.code}). Sửa order rồi gửi lại."
+            )
         await self._tell(
             actor=actor,
             order=order,
             unit=unit,
             event=NotificationEvent.ORDER_RETURNED,
             recipients=[order.owner_user_id],
-            body=f"Trưởng phòng chưa duyệt “{order.title}” ({order.code}). Sửa rồi gửi lại.",
+            body=body,
             note=reason,
             suffix=f"v{order.version}",
         )
 
     async def node_turn(
-        self, *, actor: Actor, order: Order, node: OrderNode, unit: UnitSettings, first: bool
+        self,
+        *,
+        actor: Actor,
+        order: Order,
+        node: OrderNode,
+        unit: UnitSettings,
+        first: bool,
+        again: bool = False,
     ) -> None:
-        """The node came up: its Leaders, and whoever was chosen for it."""
+        """The node came up: its Leaders, and whoever was chosen for it.
+        ``again``: back after the orderer fixed an order sent back from it."""
         function = function_node(node.node_type, order.video_type)
         leads = await self._directory.leads(order.unit_id, function)
         recipients = [row.user.id for row in leads]
@@ -101,8 +124,13 @@ class OrderNotificationService:
             unit=unit,
             event=NotificationEvent.ORDER_APPROVED if first else NotificationEvent.ORDER_NODE_TURN,
             recipients=recipients,
-            body=f"“{order.title}” ({order.code}) đã tới công đoạn {label}.",
-            suffix=f"{node.node_type.value}:{node.revision_count}",
+            body=(
+                f"“{order.title}” ({order.code}) đã được sửa và quay lại công đoạn {label}."
+                if again
+                else f"“{order.title}” ({order.code}) đã tới công đoạn {label}."
+            ),
+            suffix=f"{node.node_type.value}:{node.revision_count}"
+            + (f":again{order.version}" if again else ""),
         )
 
     async def order_cancelled(

@@ -667,6 +667,78 @@ describe("the create form's Quy trình", () => {
     }
   });
 
+  it("names the step that sent the order back and says it goes back there", async () => {
+    // 2026-11-02 "Trả order": the Trưởng phòng Design returned it from the step.
+    const ORDER_ID = "dddddddd-dddd-dddd-dddd-dddddddddddd";
+    const back = {
+      order: {
+        id: ORDER_ID,
+        code: "Q4W8E",
+        title: "Banner sale",
+        video_type: "TD",
+        video_type_label: "Design › Dựng",
+        process: ["THIET_KE", "DUNG"],
+        video_kind_id: null,
+        order_content: "Banner 11.11",
+        script_source: "AI",
+        design_link: null,
+        reference_link: null,
+        source_link: null,
+        note: null,
+        owner_user_id: "u-owner",
+        owner_name: "Tuấn",
+        stage: "ORDER_RETURNED",
+        stage_label: "Trả sửa",
+        submitted_at: "2026-10-08T02:00:00Z",
+        order_approved_at: "2026-10-08T03:00:00Z",
+        returned_reason: "Thiếu ảnh mẫu",
+        is_priority: false,
+        urgent: false,
+        product_link: null,
+        completed_at: null,
+        cancelled_reason: null,
+        version: 6,
+        created_at: "2026-10-08T02:00:00Z",
+        updated_at: "2026-10-08T05:00:00Z",
+        desired_deadline_at: "2030-01-01T00:00:00Z",
+        over_deadline_count: 0,
+      },
+      nodes: [],
+      submissions: [],
+      approvals: [],
+      events: [
+        {
+          id: "e1",
+          kind: "ORDER_RETURNED",
+          kind_label: "Trưởng phòng trả order",
+          node_type: "THIET_KE",
+          actor_name: "Thiết kế A",
+          assignee_name: null,
+          note: "Thiếu ảnh mẫu",
+          created_at: "2026-10-08T05:00:00Z",
+        },
+      ],
+      available_actions: [],
+    };
+    window.history.pushState({}, "", "/orders/new?edit=Q4W8E");
+    try {
+      stubFetch([
+        { match: "/api/units/me", body: ORDERER },
+        { match: "/api/units/ADS/video-kinds", body: { kinds: [] } },
+        { match: "/api/orders/Q4W8E", body: back },
+      ]);
+      renderWithQuery(<NewOrderPage />);
+      await screen.findByText(/Lý do: Thiếu ảnh mẫu/);
+      expect(screen.getByRole("status")).toHaveTextContent(
+        "Trưởng phòng Design (Thiết kế A) trả order Q4W8E để sửa",
+      );
+      expect(screen.getByText(/order quay về công đoạn Design/)).toBeInTheDocument();
+      expect(screen.getByRole("button", { name: "Gửi lại order" })).toBeInTheDocument();
+    } finally {
+      window.history.pushState({}, "", "/");
+    }
+  });
+
   it("never asks for Loại video, even when the unit has kinds", async () => {
     stubCreateForm();
     renderWithQuery(<NewOrderPage />);
@@ -730,6 +802,7 @@ describe("the create form's Quy trình", () => {
       // The fresh-edit header, not the "fix per feedback" returned notice.
       await screen.findByText(/giữ nguyên trạng thái/);
       expect(screen.queryByText(/Lý do:/)).toBeNull();
+      expect(screen.queryByText(/trả order/)).toBeNull();
       await userEvent.click(save());
       await userEvent.click(
         within(await screen.findByRole("dialog")).getByRole("button", { name: "Lưu thay đổi" }),

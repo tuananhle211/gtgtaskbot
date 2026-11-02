@@ -554,9 +554,7 @@ async def test_07b_the_orderer_edits_a_fresh_order_without_resending(world: Worl
     actions = {a["kind"] for a in detail["available_actions"]}
     assert "EDIT" in actions
 
-    edited = act(
-        world, ads.orderer, "/edit", detail, title="Kịch bản mới", note="Gấp hơn"
-    )
+    edited = act(world, ads.orderer, "/edit", detail, title="Kịch bản mới", note="Gấp hơn")
     assert edited["order"]["title"] == "Kịch bản mới"
     assert edited["order"]["note"] == "Gấp hơn"
     # The stage never moved, and a new event records the edit.
@@ -602,11 +600,20 @@ async def test_08_a_leader_may_only_hand_work_to_their_own_function(world: World
 
 async def test_09_priority_is_a_flag_and_cancel_keeps_what_was_counted(world: World) -> None:
     ads = await ads_world(world)
-    detail = create(world, ads, video_type="D", design_link="https://example.com/design")
-    detail = act(world, ads.head, "/priority", detail, is_priority=True)
-    assert detail["order"]["is_priority"] is True and detail["order"]["stage"] == "ORDER_PENDING"
-    assert detail["events"][-1]["kind"] == "PRIORITY_SET"
-    detail = act(world, ads.head, "/approve", detail)
+    pending = create(world, ads, video_type="D", design_link="https://example.com/design")
+    pending = act(world, ads.head, "/priority", pending, is_priority=True)
+    assert pending["order"]["is_priority"] is True
+    assert pending["order"]["stage"] == "ORDER_PENDING"
+    assert pending["events"][-1]["kind"] == "PRIORITY_SET"
+    # 2026-11-02: only the orderer cancels - the head turns it down instead.
+    world.act_as(ads.head)
+    refused = world.client.post(
+        f"/api/orders/{pending['order']['id']}/cancel",
+        json={"version": pending["order"]["version"], "note": "Thôi"},
+    )
+    assert refused.status_code == 403
+    # A head's own order is approved as placed, and theirs to take back.
+    detail = create(world, ads, by=ads.head, video_type="D", design_link="https://example.com/x")
     dung = node(detail, "DUNG")["id"]
     detail = act(
         world, ads.lead_dung, f"/nodes/{dung}/assign", detail, assignee_user_id=str(ads.editor.id)
@@ -633,6 +640,75 @@ async def test_09_priority_is_a_flag_and_cancel_keeps_what_was_counted(world: Wo
         json={"version": third["order"]["version"], "note": "Thôi"},
     )
     assert refused.status_code == 403
+
+
+async def test_09b_a_step_lead_returns_the_order_and_the_orderer_fixes_it(
+    world: World,
+) -> None:
+    """2026-11-02: "Trả order" - the Trưởng phòng of the step the order is at
+    sends it back to the orderer (reason required, the orderer told); fixed and
+    resent, it goes straight back to that step; or the orderer cancels it."""
+    ads = await ads_world(world)
+    detail = create(world, ads, preassigned={"BIEN_TAP": str(ads.writer.id)})
+    order_id = detail["order"]["id"]
+    detail = act(world, ads.head, "/approve", detail)
+    bt = node(detail, "BIEN_TAP")["id"]
+    detail = act(world, ads.writer, f"/nodes/{bt}/accept", detail)
+    detail = act(world, ads.writer, f"/nodes/{bt}/submit", detail, script_text="Kịch bản…")
+    assert detail["order"]["stage"] == "THIET_KE"
+    tk = node(detail, "THIET_KE")["id"]
+    detail = act(
+        world, ads.lead_tk, f"/nodes/{tk}/assign", detail, assignee_user_id=str(ads.designer.id)
+    )
+    detail = act(world, ads.designer, f"/nodes/{tk}/accept", detail)
+
+    # The Design Leader may not cancel it any more, only send it back - with a reason.
+    world.act_as(ads.lead_tk)
+    response = world.client.get(f"/api/orders/{order_id}")
+    kinds = {action["kind"] for action in response.json()["available_actions"]}
+    assert "CANCEL" not in kinds and "RETURN_TO_ORDERER" in kinds
+    no_reason = world.client.post(
+        f"/api/orders/{order_id}/nodes/{tk}/return-order",
+        json={"version": detail["order"]["version"], "note": " "},
+    )
+    assert no_reason.status_code == 422
+    detail = act(world, ads.lead_tk, f"/nodes/{tk}/return-order", detail, note="Thiếu ảnh mẫu")
+    assert detail["order"]["stage"] == "ORDER_RETURNED"
+    assert detail["order"]["returned_reason"] == "Thiếu ảnh mẫu"
+    assert statuses(detail) == {
+        "BIEN_TAP": "HOAN_THANH",
+        "THIET_KE": "CHUA_TOI",
+        "DUNG": "CHUA_TOI",
+    }
+    assert node(detail, "THIET_KE")["assignee_user_id"] is None
+    assert detail["events"][-1]["kind"] == "ORDER_RETURNED"
+    assert detail["events"][-1]["note"] == "Thiếu ảnh mẫu"
+    assert ("order_returned", "Order cần sửa, gửi lại") in await inbox(world, ads.orderer)
+    # The Leader who sent it back still sees it; the designer has nothing to do.
+    world.act_as(ads.lead_tk)
+    assert world.client.get(f"/api/orders/{order_id}").status_code == 200
+    world.act_as(ads.designer)
+    seen = world.client.get(f"/api/orders/{order_id}")
+    assert seen.status_code == 404 or seen.json()["available_actions"] == []
+    world.act_as(ads.orderer)
+    mine = world.client.get(f"/api/orders/{order_id}").json()
+    assert {action["kind"] for action in mine["available_actions"]} == {"RESUBMIT", "CANCEL"}
+
+    # Fixed and sent again: no new approval, straight back to Design's Leader.
+    detail = act(world, ads.orderer, "/resubmit", detail, note="Đã thêm ảnh mẫu")
+    assert detail["order"]["stage"] == "THIET_KE"
+    assert detail["order"]["returned_reason"] is None
+    assert node(detail, "BIEN_TAP")["status"] == "HOAN_THANH"
+    assert node(detail, "THIET_KE")["status"] == "DANG_LAM"
+    assert node(detail, "THIET_KE")["assignee_user_id"] == str(ads.lead_tk.id)
+    assert [e["kind"] for e in detail["events"]][-2:] == ["RESUBMITTED", "NODE_ACTIVATED"]
+    turns = [title for kind, title in await inbox(world, ads.lead_tk) if kind == "order_node_turn"]
+    assert len(turns) == 2
+
+    # Sent back again, the orderer drops it.
+    detail = act(world, ads.lead_tk, f"/nodes/{tk}/return-order", detail, note="Sai sản phẩm")
+    detail = act(world, ads.orderer, "/cancel", detail, note="Không làm nữa")
+    assert detail["order"]["stage"] == "CANCELLED"
 
 
 async def test_10_every_order_write_is_audited(world: World) -> None:

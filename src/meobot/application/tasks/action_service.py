@@ -307,6 +307,15 @@ class TaskActionService:
                 expected_version=version,
                 is_priority=not order.is_priority,
             )
+        elif kind is OrderActionKind.RETURN_TO_ORDERER:
+            await commands.return_to_orderer(
+                actor=actor,
+                request_id=request_id,
+                order_id=order_id,
+                node_id=need_node(),
+                expected_version=version,
+                reason=note or "",
+            )
         elif kind is OrderActionKind.CANCEL:
             await commands.cancel(
                 actor=actor,

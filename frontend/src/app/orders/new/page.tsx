@@ -12,6 +12,7 @@ import {
   type DesignCodePick,
   type OrderInfo,
   type TaskPhase,
+  TASK_PHASE_LABELS,
   type ScriptCheck,
   type ScriptReview,
 } from "@/lib/api";
@@ -94,14 +95,28 @@ export default function NewOrderPage() {
         <ErrorBox error={editing.error} onRetry={() => editing.refetch()} />
       );
     const order = editing.data.order;
+    // Who sent it back: the order gate's head, or (2026-11-02, "Trả order")
+    // the Trưởng phòng of a step - resent, it goes back to that step.
+    const returnedBy =
+      order.stage === "ORDER_RETURNED"
+        ? [...editing.data.events].reverse().find((event) => event.kind === "ORDER_RETURNED")
+        : undefined;
+    const returned = returnedBy
+      ? { by: returnedBy.actor_name, step: returnedBy.node_type }
+      : undefined;
+    const stepLabel = returned?.step
+      ? (TASK_PHASE_LABELS[returned.step as TaskPhase] ?? returned.step)
+      : null;
     return (
       <div className="space-y-4">
         <PageHeader
           title={`Sửa order ${order.code}`}
           subtitle={
-            order.stage === "ORDER_RETURNED"
-              ? "Sửa theo góp ý của Trưởng phòng rồi gửi lại để duyệt"
-              : "Sửa order khi chưa có ai xử lý; order giữ nguyên trạng thái"
+            order.stage !== "ORDER_RETURNED"
+              ? "Sửa order khi chưa có ai xử lý; order giữ nguyên trạng thái"
+              : stepLabel
+                ? `Sửa theo góp ý rồi gửi lại: order quay về công đoạn ${stepLabel}`
+                : "Sửa theo góp ý của Trưởng phòng rồi gửi lại để duyệt"
           }
         />
         <AdsOrderForm
@@ -110,6 +125,7 @@ export default function NewOrderPage() {
           aiReview={unitEntry(me.data, "ADS")?.settings?.script_ai_review === true}
           designCodes={unitEntry(me.data, "ADS")?.settings?.design_codes_enabled !== false}
           editing={order}
+          returned={returned}
         />
       </div>
     );
@@ -226,6 +242,7 @@ function AdsOrderForm({
   aiReview = false,
   designCodes = true,
   editing,
+  returned,
 }: {
   /** A Trưởng phòng ADS's own order needs no approval: no approver to pick. */
   isHead?: boolean;
@@ -238,6 +255,8 @@ function AdsOrderForm({
   designCodes?: boolean;
   /** A returned order being fixed: the form starts from it and resubmits. */
   editing?: OrderInfo;
+  /** Who sent the order back, and from which step (null = the order gate). */
+  returned?: { by: string | null; step: string | null };
 }) {
   const router = useRouter();
   // "Người duyệt order": who approves this person's order, from the server.
@@ -460,20 +479,21 @@ function AdsOrderForm({
       onSubmit={(event) => event.preventDefault()}
     >
       <section className="space-y-4 rounded-xl border border-[var(--border)] bg-[var(--surface)] p-4">
-        {editing ? (
+        {editing && resubmitting ? (
           <div
             role="status"
             className="rounded-lg border border-[var(--warn)] bg-[var(--warn-soft)] p-3 text-sm text-[var(--warn)]"
           >
             <p className="font-medium">
-              Trưởng phòng trả order{" "}
+              {(returned?.step && NODE_HEADS[returned.step]) || "Trưởng phòng"}
+              {returned?.by ? ` (${returned.by})` : ""} trả order{" "}
               <span className="font-mono">{editing.code}</span> để sửa
             </p>
             {editing.returned_reason ? (
               <p className="mt-1">Lý do: {editing.returned_reason}</p>
             ) : null}
           </div>
-        ) : (
+        ) : editing ? null : (
           <p className="text-xs text-[var(--text-muted)]" data-testid="order-code-preview">
             Mã order: 5 ký tự chữ và số, hệ thống tự sinh khi gửi (ví dụ{" "}
             <span className="font-mono">K7Q2M</span>).

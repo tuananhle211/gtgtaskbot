@@ -125,6 +125,11 @@ class OrderActionKind(StrEnum):
     RETURN_FINAL = "RETURN_FINAL"
     SET_PRIORITY = "SET_PRIORITY"
     CANCEL = "CANCEL"
+    #: 2026-11-02: the Trưởng phòng of the step the order is at sends it back
+    #: to the orderer to fix ("Trả order", reason required) - instead of
+    #: cancelling it, which is the orderer's alone. Resubmitted, the order
+    #: comes back to that step.
+    RETURN_TO_ORDERER = "RETURN_TO_ORDERER"
     #: 0053: change a node's tokens / deadline without handing it out again
     #: (also how the Leader enters the revision tokens after a final return).
     SET_NODE_PLAN = "SET_NODE_PLAN"
@@ -163,6 +168,9 @@ ACTION_STAGES: dict[OrderActionKind, frozenset[OrderStage] | None] = {
     OrderActionKind.RETURN_FINAL: frozenset({OrderStage.FINAL_REVIEW}),
     OrderActionKind.SET_PRIORITY: None,
     OrderActionKind.CANCEL: None,
+    OrderActionKind.RETURN_TO_ORDERER: frozenset(
+        {OrderStage.BIEN_TAP, OrderStage.THIET_KE, OrderStage.DUNG}
+    ),
     OrderActionKind.SET_NODE_PLAN: frozenset(
         {OrderStage.BIEN_TAP, OrderStage.THIET_KE, OrderStage.DUNG}
     ),
@@ -182,6 +190,7 @@ NOTE_REQUIRED: frozenset[OrderActionKind] = frozenset(
         OrderActionKind.RETURN_VIDEO,
         OrderActionKind.RETURN_FINAL,
         OrderActionKind.CANCEL,
+        OrderActionKind.RETURN_TO_ORDERER,
     }
 )
 
@@ -201,6 +210,7 @@ ACTION_LABELS: dict[OrderActionKind, str] = {
     OrderActionKind.RETURN_FINAL: "Không duyệt Final",
     OrderActionKind.SET_PRIORITY: "Ưu tiên",
     OrderActionKind.CANCEL: "Huỷ order",
+    OrderActionKind.RETURN_TO_ORDERER: "Trả order",
     OrderActionKind.SET_NODE_PLAN: "Sửa token/deadline",
     OrderActionKind.SET_WORK_ITEMS: "Sửa đầu việc",
 }
@@ -462,6 +472,22 @@ def available_actions(
         ):
             add(OrderActionKind.APPROVE_NODE, current.id)
             add(OrderActionKind.RETURN_NODE, current.id)
+        # 2026-11-02: the step's Trưởng phòng (whoever hands it out) sends the
+        # order back to its orderer to fix - at any point of the step.
+        if (
+            assigns
+            and not is_owner
+            and order.category is OrderCategory.STANDARD
+            and current.node_type is not OrderNodeType.GAN_LINK
+            and current.status
+            in (
+                OrderNodeStatus.CHUA_GIAO,
+                OrderNodeStatus.DANG_LAM,
+                OrderNodeStatus.DANG_SUA,
+                OrderNodeStatus.CHO_DUYET,
+            )
+        ):
+            add(OrderActionKind.RETURN_TO_ORDERER, current.id)
 
     # The gates act on the product: the last production node's hand-in.
     product = find_node(nodes, last_production_node(order.video_type))
@@ -480,30 +506,29 @@ def available_actions(
 
     if may.allows(AdsPermission.PRIORITY):
         add(OrderActionKind.SET_PRIORITY)
-    if (
+    # 2026-11-02: only the orderer cancels an order. Everybody else who used
+    # to - the ORD Trưởng phòng (CANCEL ALL), the Design Leader on a
+    # Design-only order, OWNER / ADMIN - sends it back instead: "Không duyệt"
+    # at the order gate, "Trả order" from a step.
+    if is_owner and (
+        # Holding CANCEL everywhere (a Trưởng phòng ORD, OWNER, ADMIN): their
+        # own order, at any time.
         may.allows(AdsPermission.CANCEL)
-        or (
-            is_owner
-            and may.on_own_order(AdsPermission.CANCEL)
-            and order.stage in (OrderStage.ORDER_PENDING, OrderStage.ORDER_RETURNED)
-        )
+        # Waiting for approval, or sent back to them to fix.
+        or order.stage in (OrderStage.ORDER_PENDING, OrderStage.ORDER_RETURNED)
         # A birthday order is never "pending": whoever placed it may take it
         # back for as long as it is not finished.
-        or (is_owner and order.category is OrderCategory.BIRTHDAY)
+        or order.category is OrderCategory.BIRTHDAY
         # 2026-10-27: a Trưởng phòng's own order needs no approval, so it is
         # never "pending" either: they may take it back until somebody has
         # pressed "Nhận việc" on a step.
-        or (is_owner and may.holds(AdsPermission.ORDER_APPROVE) and nobody_took(nodes))
-        # A Design-only order skips the ORD head: the Design Leader stands in
-        # for them and may turn it down; its orderer may take it back until
-        # the Leader has handed it out (= approved it).
+        or (may.holds(AdsPermission.ORDER_APPROVE) and nobody_took(nodes))
+        # A Design-only order skips the ORD head: its orderer may take it
+        # back until the Design Leader has handed it out (= approved it).
         or (
             order.category is OrderCategory.STANDARD
             and is_design_only(order.video_type)
-            and (
-                OrderNodeType.THIET_KE in may.nodes(AdsPermission.NODE_ASSIGN)
-                or (is_owner and not order.approved)
-            )
+            and not order.approved
         )
     ):
         add(OrderActionKind.CANCEL)
