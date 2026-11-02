@@ -25,8 +25,10 @@ from meobot.application.account.stats_service import (
     MemberStats,
     resolve_month,
 )
+from meobot.application.org.departments import seat_person, sync_stream_tags
+from meobot.db.models.department import Department, DepartmentPermission
 from meobot.db.models.order import Order, OrderEvent, OrderNode, OrderNodePoints
-from meobot.db.models.org_unit import OrgUnit
+from meobot.db.models.org_unit import OrgUnit, OrgUnitMember
 from meobot.db.models.pr import PrApprovalEvent, PrContentItem
 from meobot.db.models.pr_content_version import PrContentVersion
 from meobot.db.models.pr_production import PrProductionSubmission
@@ -40,6 +42,14 @@ from meobot.domain.orders.models import (
     OrderNodeType,
     OrderStage,
     OrderVideoType,
+)
+from meobot.domain.orders.permissions import AdsPermission
+from meobot.domain.org.models import (
+    MODULE_ORDER,
+    DepartmentFunction,
+    Position,
+    Seat,
+    seat_label,
 )
 from meobot.domain.pr.models import (
     PrApprovalDecision,
@@ -497,7 +507,8 @@ async def test_06_member_rows_carry_the_month_asked_for(world: World) -> None:
     writer = rows["Biên tập B"]
     assert writer["user_id"] == str(team.writer.id)
     assert writer["units"] == ["ADS"]
-    assert writer["role_label"] == "Biên tập"
+    # 2026-11-02: the person's place in their department, not the ORD tag.
+    assert writer["role_label"] == "Nhân viên Biên Tập"
     assert writer["has_custom_password"] is False and writer["locked"] is False
     assert writer["last_login_at"] is None
     assert writer["stats"]["nodes_done"] == 2 and writer["stats"]["points"] == 25
@@ -530,6 +541,52 @@ async def test_06_member_rows_carry_the_month_asked_for(world: World) -> None:
 
     bad = world.client.get("/api/account/members", params={"month": "2026-13"})
     assert bad.status_code == 422 and bad.json()["error"]["code"] == "invalid_month"
+
+
+async def test_06b_a_role_reads_the_departments_not_the_order_flow(world: World) -> None:
+    """2026-11-02: a department outside production that may order (its seats
+    carry the ORD tag ORDERER) no longer makes its people "Nhân viên ADS
+    (người order)" - rows and profile pages name the department."""
+    hr = Department(code="HCNS", name="Hành chính nhân sự", sort_order=20)
+    world.session.add(hr)
+    await world.session.flush()
+    for position in Position:
+        world.session.add(
+            DepartmentPermission(
+                department_id=hr.id,
+                position=position,
+                module=MODULE_ORDER,
+                permission=AdsPermission.ORDER_CREATE.value,
+                scope="OWN",
+            )
+        )
+    clerk = await person(world, "Phương Ly")
+    chief = await person(world, "Trưởng HCNS")
+    await seat_person(world.session, hr.id, chief.id, Position.HEAD)
+    await seat_person(world.session, hr.id, clerk.id, Position.MEMBER)
+    await sync_stream_tags(world.session, [chief.id, clerk.id])
+    tags = await world.session.scalars(
+        select(OrgUnitMember.role).where(OrgUnitMember.user_id == clerk.id)
+    )
+    assert list(tags) == [UnitMemberRole.ORDERER]
+
+    world.act_as(world.owner)
+    rows = {row["full_name"]: row for row in _members(world)["members"]}
+    assert rows["Phương Ly"]["role_label"] == "Nhân viên Hành chính nhân sự"
+    assert rows["Trưởng HCNS"]["role_label"] == "Trưởng phòng Hành chính nhân sự"
+    assert rows[world.owner.full_name]["role_label"] == "Chủ sở hữu"
+    page = world.client.get(f"/api/account/members/{clerk.id}/profile").json()
+    assert page["role_label"] == "Nhân viên Hành chính nhân sự"
+
+
+def test_06c_seat_labels() -> None:
+    def seat(name: str, position: Position) -> Seat:
+        return Seat(uuid.uuid4(), "X", name, DepartmentFunction.NONE, position)
+
+    assert seat_label(seat("Tài Chính-Kế Toán", Position.HEAD)) == "Trưởng phòng Tài Chính-Kế Toán"
+    assert seat_label(seat("Phòng Ads", Position.MEMBER)) == "Nhân viên Ads"
+    assert seat_label(seat("Ban Giám đốc", Position.HEAD)) == "Trưởng Ban Giám đốc"
+    assert seat_label(seat("Ban Giám đốc", Position.MEMBER)) == "Thành viên Ban Giám đốc"
 
 
 async def test_07_my_own_card_and_figures(world: World) -> None:

@@ -65,9 +65,8 @@ from meobot.domain.audit.models import AuditAction, AuditResult
 from meobot.domain.identity.labels import role_label
 from meobot.domain.identity.models import Actor, Role
 from meobot.domain.orders.models import ACTIVE_NODE_STATUSES, TERMINAL_STAGES
-from meobot.domain.org.models import Position, Seat
+from meobot.domain.org.models import Position, Seat, seat_label
 from meobot.domain.performance.models import MODULE_PERFORMANCE, PerformancePermission
-from meobot.domain.units.labels import unit_role_label
 from meobot.domain.units.member_code import normalise_member_code
 from meobot.domain.units.models import FUNCTION_ROLES, UnitCode, UnitMemberRole, UnitMembership
 
@@ -141,20 +140,14 @@ async def _visibility(
     return _Visibility(everyone=False, units=frozenset(units), people=people)
 
 
-def member_role_label(user: User, units: Iterable[MemberUnit]) -> str:
+def member_role_label(user: User, seats: Iterable[Seat]) -> str:
     """What a person is, in one phrase: the global role for OWNER/ADMIN, else
-    their Ads position(s) and/or their PR role."""
+    their place in each department ("Trưởng phòng Tài Chính-Kế Toán"), else
+    the global role. Never the order-flow tag: a department that may order
+    made everybody in it "Nhân viên ADS (người order)" (2026-11-02)."""
     if user.role in (Role.OWNER, Role.ADMIN):
         return role_label(user.role)
-    labels: list[str] = []
-    for unit in units:
-        label = (
-            role_label(user.role)
-            if unit.code is UnitCode.PR
-            else unit_role_label(unit.role, unit.is_lead)
-        )
-        if label not in labels:
-            labels.append(label)
+    labels = list(dict.fromkeys(seat_label(seat) for seat in seats))
     return " · ".join(labels) if labels else role_label(user.role)
 
 
@@ -289,7 +282,7 @@ class AccountService:
                 MemberView(
                     user=user,
                     units=units,
-                    role_label=member_role_label(user, units),
+                    role_label=member_role_label(user, seats_by_user.get(user.id, ())),
                     last_login_at=None if private else last_logins.get(user.id),
                     has_custom_password=not private
                     and user.password_hash is not None
@@ -330,7 +323,7 @@ class AccountService:
         return MemberView(
             user=user,
             units=units,
-            role_label=member_role_label(user, units),
+            role_label=member_role_label(user, seats),
             last_login_at=(await self._last_logins([user.id])).get(user.id),
             has_custom_password=user.password_hash is not None and not user.password_temporary,
             password_temporary=bool(user.password_temporary),

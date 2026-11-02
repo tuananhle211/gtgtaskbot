@@ -173,6 +173,20 @@ def normalise_department_code(value: str) -> str:
     return "".join(character for character in value.upper() if character.isalnum())[:12]
 
 
+def seat_label(seat: Seat) -> str:
+    """What a seat makes somebody, by its department's name (2026-11-02):
+    "Trưởng phòng Tài Chính-Kế Toán", "Nhân viên Biên Tập"; a "Phòng X" name
+    drops its "Phòng", a "Ban X" one reads "Trưởng Ban X" / "Thành viên Ban X"."""
+    name = seat.name.strip()
+    if name.casefold().startswith("ban "):
+        head, member = "Trưởng", "Thành viên"
+    else:
+        if name.casefold().startswith("phòng "):
+            name = name[len("phòng ") :].strip()
+        head, member = POSITION_LABELS[Position.HEAD], POSITION_LABELS[Position.MEMBER]
+    return f"{head if seat.position is Position.HEAD else member} {name}"
+
+
 __all__ = [
     "DEFAULT_DEPARTMENTS",
     "DEFAULT_ORDER_GRANTS",
@@ -187,4 +201,5 @@ __all__ = [
     "Position",
     "Seat",
     "normalise_department_code",
+    "seat_label",
 ]

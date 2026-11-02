@@ -7,10 +7,9 @@ import { useQuery } from "@tanstack/react-query";
 import { api } from "@/lib/api";
 import { UnitSwitch, UntaggedState } from "@/components/unit-switch";
 import { effortEnabled } from "@/lib/effort";
-import { formatAgo } from "@/lib/labels";
 import { currentUnit, firstOfMonth, isUntagged, lastOfMonth, unitName, byStreamOrder } from "@/lib/units";
 import { Select } from "@/components/pr";
-import { ErrorBox, Loading, Pill } from "@/components/states";
+import { ErrorBox, Loading } from "@/components/states";
 import { BanStatsPanel } from "@/components/ban-stats";
 import { formatTokens } from "@/lib/deadline";
 import { BoltIcon } from "@/components/token-badge";
@@ -28,13 +27,12 @@ const field =
   "min-h-10 rounded-lg border border-[var(--border)] bg-[var(--surface)] px-3 text-sm text-[var(--text)]";
 
 /**
- * Five tiles, the phase strip, what waits on this person, and who did what -
- * for one unit, one date range.
+ * The tiles and who did what - for one unit, one date range. (The phase
+ * strip and "Chờ tôi xử lý" left on 2026-11-02: the task table has both.)
  *
  * Every figure comes from `/api/board/dashboard`, which reads the same rows
  * `/tasks` lists with the same filters, so a tile and the table it links to
- * always agree. "Chờ tôi xử lý" is the task table's own `awaiting_me` query,
- * eight rows of it. Nothing is computed here.
+ * always agree. Nothing is computed here.
  */
 function Dashboard() {
   const router = useRouter();
@@ -81,11 +79,6 @@ function Dashboard() {
     enabled: me.isSuccess && !untagged && unitCodes.length > 0,
     retry: false,
   });
-  const inbox = useQuery({
-    queryKey: ["board", "tasks", "awaiting", unit],
-    queryFn: () => api.boardTasks({ unit, awaiting_me: true, limit: 8 }),
-    enabled: me.isSuccess && !untagged,
-  });
 
   const setParams = (changes: Record<string, string>) => {
     const next = new URLSearchParams(params.toString());
@@ -119,8 +112,6 @@ function Dashboard() {
   const data = summary.data;
   // "Trễ hạn": ORD deadlines (PR has none). Older APIs send no `overdue`.
   const showOverdue = unit !== "PR" && data?.overdue !== undefined;
-  const phases = data?.by_phase.filter((item) => item.phase !== "CANCELLED") ?? [];
-  const maxPhase = Math.max(1, ...phases.map((item) => item.count));
 
   return (
     <div className="space-y-5">
@@ -234,72 +225,6 @@ function Dashboard() {
             />
           </section>
 
-          <div className="grid gap-4 xl:grid-cols-[minmax(0,3fr)_minmax(0,2fr)]">
-            <section className="panel p-4">
-              <div className="flex items-baseline justify-between gap-3">
-                <h2 className="text-sm font-semibold">Order đang ở từng pha</h2>
-                <span className="text-xs text-[var(--text-muted)]">
-                  {data.total - data.completed} chưa hoàn thành
-                </span>
-              </div>
-              <ul className="mt-4 space-y-3">
-                {phases.map((item) => (
-                  <li key={item.phase}>
-                    <Link
-                      href={tasksHref({ phase: item.phase })}
-                      className="grid grid-cols-[8rem_minmax(0,1fr)_3rem] items-center gap-3 rounded-lg px-1 py-0.5 hover:bg-[var(--surface-muted)]"
-                    >
-                      <span className="text-sm">{item.label}</span>
-                      <span className="h-3 overflow-hidden rounded-full bg-[var(--surface-muted)]">
-                        <span
-                          className="block h-full rounded-full bg-[var(--accent)]"
-                          style={{ width: `${Math.round((item.count / maxPhase) * 100)}%` }}
-                        />
-                      </span>
-                      <span className="text-right text-sm font-semibold tabular-nums">{item.count}</span>
-                    </Link>
-                  </li>
-                ))}
-              </ul>
-            </section>
-
-            <section className="panel p-4">
-              <div className="flex items-baseline justify-between gap-3">
-                <h2 className="text-sm font-semibold">Chờ tôi xử lý</h2>
-                <Link href={tasksHref({ awaiting_me: "true" })} className="text-xs font-medium text-[var(--accent)]">
-                  Xem tất cả
-                </Link>
-              </div>
-              {inbox.isPending ? <Loading label="Đang tải…" /> : null}
-              {inbox.data && inbox.data.items.length === 0 ? (
-                <p className="mt-3 text-sm text-[var(--text-muted)]">Không có gì chờ bạn lúc này.</p>
-              ) : null}
-              {inbox.data && inbox.data.items.length > 0 ? (
-                <ul className="mt-3 divide-y divide-[var(--border)]">
-                  {inbox.data.items.map((row) => (
-                    <li key={`${row.unit}:${row.id}`}>
-                      <Link href={row.detail_path} className="flex items-start justify-between gap-3 py-2 hover:bg-[var(--surface-muted)]">
-                        <span className="min-w-0">
-                          <span className="block truncate text-sm font-medium">{row.title}</span>
-                          <span className="block text-xs text-[var(--text-muted)]">
-                            <span className="font-mono">{row.code}</span> · {row.owner_name}
-                            {row.stage_since ? ` · ${formatAgo(row.stage_since)}` : ""}
-                          </span>
-                        </span>
-                        <span className="flex shrink-0 flex-col items-end gap-1">
-                          <Pill tone={row.phase === "REVIEW" || row.phase === "FINAL_REVIEW" ? "warn" : "neutral"}>
-                            {row.status_label}
-                          </Pill>
-                          {row.urgent ? <Pill tone="critical">Gấp</Pill> : null}
-                        </span>
-                      </Link>
-                    </li>
-                  ))}
-                </ul>
-              ) : null}
-            </section>
-          </div>
-
           {unit !== "PR" && (me.data?.can_view_all || me.data?.units.some((item) => item.code === "ADS")) ? (
             <BanStatsPanel
               dateFrom={dateFrom}
@@ -312,7 +237,7 @@ function Dashboard() {
           <div className="grid gap-4 xl:grid-cols-2">
             <PeopleTable
               title={unit === "PR" ? "Theo người phụ trách" : "Theo người order"}
-              columns={["Lên", "Xong", "Gấp"]}
+              columns={unit === "PR" ? ["Lên task", "Hoàn thành", "Task gấp"] : ["Lên đơn", "Hoàn thành", "Đơn gấp"]}
               rows={data.by_owner}
               href={(id) => tasksHref({ owner: id })}
               showTokens={unit !== "PR" && effortEnabled(me.data)}

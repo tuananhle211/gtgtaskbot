@@ -720,4 +720,41 @@ describe("the dashboard", () => {
       expect(calls.some((call) => call.url.includes("/api/board/dashboard") && call.url.includes("person=u-2"))).toBe(true);
     });
   });
+
+  it("names the orderer table's columns in full and drops the phase strip and the inbox", async () => {
+    const summary = {
+      unit: "ADS",
+      unit_label: "Luồng Order (ORD)",
+      date_from: "2026-10-01",
+      date_to: "2026-10-31",
+      total: 3,
+      completed: 1,
+      pending_review: 1,
+      urgent: 1,
+      progress_percent: 33,
+      by_phase: [{ phase: "ORDER", label: "Order", count: 2 }],
+      by_owner: [{ user_id: "u-1", name: "Phạm Văn Kiên", opened: 3, done: 1, late: 1 }],
+      by_worker: [],
+    };
+    const fetchMock = stubFetch([
+      { match: "/api/units/me", body: OWNER_OF_BOTH },
+      { match: "/api/units/ADS/members", body: { unit: "ADS", unit_label: "Luồng Order (ORD)", members: [], assignable_roles: [] } },
+      { match: "/api/board/dashboard", body: summary },
+      { match: "/api/board/ban-stats", body: { bans: [], members: [], my_ban: null, effort_enabled: false } },
+    ]);
+    SEARCH.value = new URLSearchParams("unit=ADS");
+    renderWithQuery(<DashboardPage />);
+    const table = (await screen.findByRole("heading", { name: "Theo người order" })).closest("section")!;
+    // (+ "Token" while the effort mode is on, as in this fixture)
+    expect(within(table).getAllByRole("columnheader").map((cell) => cell.textContent).slice(0, 4)).toEqual([
+      "Người",
+      "Lên đơn",
+      "Hoàn thành",
+      "Đơn gấp",
+    ]);
+    expect(screen.queryByText("Order đang ở từng pha")).not.toBeInTheDocument();
+    expect(screen.queryByRole("heading", { name: "Chờ tôi xử lý" })).not.toBeInTheDocument();
+    const calls = (fetchMock as unknown as { calls: Array<{ url: string }> }).calls;
+    expect(calls.some((call) => call.url.includes("/api/board/tasks"))).toBe(false);
+  });
 });

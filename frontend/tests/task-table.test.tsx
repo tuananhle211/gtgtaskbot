@@ -662,6 +662,7 @@ describe('the ORD table\'s filters (2026-10-19)', () => {
     expect(SEARCH.value.get("dept")).toBe("d-tk");
     // Hà is in Biên Tập, not Thiết Kế: the person filter is cleared.
     expect(SEARCH.value.get("assignee")).toBeNull();
+    expect(SEARCH.value.get("person")).toBeNull();
     await waitFor(() =>
       expect(optionTexts(screen.getByRole("combobox", { name: "Người làm" }))).toEqual([
         "Tất cả",
@@ -669,7 +670,10 @@ describe('the ORD table\'s filters (2026-10-19)', () => {
       ]),
     );
     await userEvent.selectOptions(screen.getByRole("combobox", { name: "Người làm" }), "u-my");
-    await waitFor(() => expect(listRequests(stub).at(-1)!.get("assignee")).toBe("u-my"));
+    // 2026-11-02: every task tied to the person - placed or worked - so
+    // `person`, not `assignee` (steps only).
+    await waitFor(() => expect(listRequests(stub).at(-1)!.get("person")).toBe("u-my"));
+    expect(listRequests(stub).at(-1)!.get("assignee")).toBeNull();
     // The department alone is never sent: it only narrows the list.
     expect(listRequests(stub).at(-1)!.get("dept")).toBeNull();
     expect(screen.getByRole("button", { name: "Xoá lọc (2)" })).toBeInTheDocument();

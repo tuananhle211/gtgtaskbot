@@ -335,6 +335,13 @@ function TaskBoard() {
     return [...seen.entries()].map(([id, name]) => ({ id, name }));
   })();
   const dept = read("dept");
+  // 2026-11-02: on ORD's general table "Người làm" finds every task tied to
+  // the person - the orders they placed as well as the steps they worked,
+  // finished or not (`person`: owner or any step). The Design ban's own table
+  // and PR keep `assignee` (who works it). An `assignee` on the URL (the
+  // dashboard's "Theo người làm" links) still shows as the pick.
+  const pickKey: "person" | "assignee" = unit === "ADS" && !designView ? "person" : "assignee";
+  const picked = pickKey === "person" ? read("person") || read("assignee") : read("assignee");
   const people = dept
     ? everyone.filter((member) => (member.departments ?? []).some((seat) => seat.department_id === dept))
     : everyone;
@@ -600,13 +607,13 @@ function TaskBoard() {
                     value={dept}
                     onChange={(event) => {
                       const next = event.target.value;
-                      const chosen = people.find((member) => member.user_id === read("assignee"));
+                      const chosen = people.find((member) => member.user_id === picked);
                       // A person outside the new department is no longer on offer.
                       const keep =
                         chosen &&
                         (!next ||
                           (chosen.departments ?? []).some((seat) => seat.department_id === next));
-                      setParams({ dept: next, assignee: keep ? read("assignee") : "" });
+                      setParams({ dept: next, [pickKey]: keep ? picked : "", ...(pickKey === "person" ? { assignee: "" } : {}) });
                     }}
                     className="min-h-10"
                   >
@@ -622,9 +629,13 @@ function TaskBoard() {
               <label className="flex flex-col gap-1 text-xs text-[var(--text-muted)]">
                 {unit === "ADS" ? "Người làm" : "Người dựng"}
                 <Select
-                  value={read("assignee")}
+                  value={picked}
                   onChange={(event) =>
-                    setParams({ assignee: event.target.value })
+                    setParams(
+                      pickKey === "person"
+                        ? { person: event.target.value, assignee: "" }
+                        : { assignee: event.target.value },
+                    )
                   }
                   className="min-h-10"
                 >
