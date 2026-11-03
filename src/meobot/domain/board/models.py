@@ -116,6 +116,12 @@ class TaskCell:
     deadline_at: datetime | None = None
     deadline_status: str | None = None
     tokens: float | None = None
+    #: ORD (2026-11-03): when the order reached the step ("Nhận": the node's
+    #: ``activated_at``, not the worker's "Nhận việc") and when the hand-in that
+    #: stands was made ("Trả": only once it waits for review or is done - a
+    #: step sent back for fixing has not been handed in again).
+    reached_at: datetime | None = None
+    handed_in_at: datetime | None = None
 
 
 #: The Design step's states the Design team filters by, with their labels.

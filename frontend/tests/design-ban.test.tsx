@@ -1389,15 +1389,26 @@ describe("the Design ban's own filters", () => {
     expect(within(status).getByRole("option", { name: "Đang sửa" })).toBeInTheDocument();
   });
 
-  it('lists only the Design ban under "Người làm" and sends assignee', async () => {
+  it('lists every team under "Người làm", the Design ban first, and sends person (2026-11-03)', async () => {
     const stub = filteredTasksPage(ME_AS("THIET_KE", DESIGNER));
     await screen.findByRole("link", { name: "TUAN-BT-261012-01" });
     const people = screen.getByRole("combobox", { name: "Người làm" });
-    // Designers and their Leader; nobody from another ban, nobody who left.
-    await waitFor(() => expect(optionTexts(people)).toEqual(["Tất cả", "Diễm My", "Lan Leader"]));
-    await userEvent.selectOptions(people, "u-lan");
-    expect(SEARCH.value.get("assignee")).toBe("u-lan");
-    await waitFor(() => expect(listRequests(stub).at(-1)!.get("assignee")).toBe("u-lan"));
+    // Designers and their Leader first, then the other teams; nobody who left.
+    await waitFor(() =>
+      expect(optionTexts(people)).toEqual([
+        "Tất cả",
+        "Diễm My",
+        "Lan Leader",
+        "Hà Biên Kịch",
+        "Quỳnh Như",
+        "Tuấn Marketing",
+      ]),
+    );
+    // An orderer works no step: the pick finds every task tied to them.
+    await userEvent.selectOptions(people, "u-tuan");
+    expect(SEARCH.value.get("person")).toBe("u-tuan");
+    await waitFor(() => expect(listRequests(stub).at(-1)!.get("person")).toBe("u-tuan"));
+    expect(listRequests(stub).at(-1)!.get("assignee")).toBeNull();
   });
 
   it("does not send a removed filter left on the URL", async () => {

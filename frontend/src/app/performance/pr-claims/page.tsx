@@ -4,9 +4,8 @@ import Link from "next/link";
 import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { api, ApiError, RETURN_REASONS, type PrClaim } from "@/lib/api";
-import { phaseStyle } from "@/components/design-codes-picker";
 import { formatScore } from "@/components/performance";
-import { Decision } from "@/components/pr-points-panel";
+import { ClaimLines, Decision } from "@/components/pr-points-panel";
 import { PageHeader } from "@/components/pr";
 import { Empty, ErrorBox, Loading, Pill } from "@/components/states";
 import { formatDateTime } from "@/lib/datetime";
@@ -84,9 +83,6 @@ export default function PrClaimsPage() {
 function ClaimCard({ claim }: { claim: PrClaim }) {
   const me = useQuery({ queryKey: ["units", "me"], queryFn: api.unitsMe, retry: false });
   const reviews = Boolean(me.data?.performance?.review_pr);
-  const lines = Object.entries(claim.items).flatMap(([phase, items]) =>
-    items.map((item) => ({ phase, item })),
-  );
   return (
     <li className="panel p-4">
       <div className="flex flex-wrap items-start justify-between gap-3">
@@ -110,20 +106,7 @@ function ClaimCard({ claim }: { claim: PrClaim }) {
           <span className="text-xs text-[var(--text-muted)]">điểm</span>
         </span>
       </div>
-      <ul className="mt-3 flex flex-wrap gap-1.5">
-        {lines.map(({ phase, item }, index) => (
-          <li
-            key={`${item.code_id}-${index}`}
-            className={`rounded-full border px-2 py-0.5 text-xs font-semibold ${phaseStyle(phase).chip}`}
-            title={item.name}
-          >
-            {item.free ? `Việc khác: ${item.note ?? ""}` : item.code}
-            {item.quantity > 1 ? ` × ${item.quantity}` : ""}
-            {item.form && item.form !== "NEW" && !item.free ? ` · ${item.form_label}` : ""}
-            <span className="ml-1 font-normal text-[var(--text-muted)]">({formatScore(item.points ?? 0)})</span>
-          </li>
-        ))}
-      </ul>
+      <ClaimLines items={claim.items} />
       {claim.note ? <p className="mt-2 text-sm text-[var(--text-muted)]">{claim.note}</p> : null}
       {claim.status === "REJECTED" ? (
         <p className="mt-2 text-xs text-[var(--bad)]">

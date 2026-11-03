@@ -20,7 +20,6 @@ import {
   unitTagClass,
 } from "@/lib/units";
 import { ConfirmButton } from "@/components/confirm";
-import { DeadlineBadge } from "@/components/deadline-badge";
 import { formatTokens } from "@/lib/deadline";
 import { Select } from "@/components/pr";
 import { Empty, ErrorBox, Loading, NoticeBox, Pill } from "@/components/states";
@@ -124,8 +123,9 @@ const field =
  * "Duyệt": `RowActions`), which open the task page's dialog in place.
  * The status and the deadline they read are the Design step's own, and so are
  * their filters: no "Pha", "Quy trình", "Loại video" or "Marketing", but the
- * Design step's "Trạng thái" (`design_status`) and a "Người làm" that lists
- * the Design ban only. A removed filter still on the URL (an old link) is not
+ * Design step's "Trạng thái" (`design_status`) and "Phòng ban" + "Người làm"
+ * over the whole stream (2026-11-03: the Trưởng phòng Design looks up other
+ * teams' people too; was the Design ban only). A removed filter still on the URL (an old link) is not
  * sent for them: nothing may hide rows behind a control that is not there.
  *
  * On every variant: a click on a row opens its task, the page size is a
@@ -287,7 +287,7 @@ function TaskBoard() {
   // applied, so it is not counted either.
   const activeFilters = (
     designView
-      ? ["from", "to", "design_status", "assignee", "person", "q"]
+      ? ["from", "to", "design_status", "dept", "assignee", "person", "q"]
       : unit === "ADS"
         ? ["from", "to", "step", "state", "dept", "assignee", "person", "q"]
         : ["from", "to", "phase", "kind", "owner", "assignee", "person", "q"]
@@ -318,10 +318,14 @@ function TaskBoard() {
       : unitName(unit, me.data.units.find((item) => item.code === unit)?.label);
   const first = board.data?.items[0];
   const cellHeads = first?.cells ?? [];
-  // "Người làm" for the Design ban: its own people only.
-  const everyone = designView
-    ? designTeam(members.data?.members)
-    : (members.data?.members.filter((member) => member.active) ?? []);
+  // "Người làm": the whole stream, the Design ban's table included
+  // (2026-11-03: its Trưởng phòng looks up other teams too), Design first there.
+  const active = members.data?.members.filter((member) => member.active) ?? [];
+  const designers = designView ? designTeam(active) : [];
+  const everyone = [
+    ...designers,
+    ...active.filter((member) => !designers.includes(member)),
+  ];
   // 2026-10-19: "Người làm" is picked in two steps - a department, then one
   // of its people. The departments on offer are the ones the listed people
   // sit in (`departments` on every member row); the person list narrows to
@@ -337,10 +341,11 @@ function TaskBoard() {
   const dept = read("dept");
   // 2026-11-02: on ORD's general table "Người làm" finds every task tied to
   // the person - the orders they placed as well as the steps they worked,
-  // finished or not (`person`: owner or any step). The Design ban's own table
-  // and PR keep `assignee` (who works it). An `assignee` on the URL (the
-  // dashboard's "Theo người làm" links) still shows as the pick.
-  const pickKey: "person" | "assignee" = unit === "ADS" && !designView ? "person" : "assignee";
+  // finished or not (`person`: owner or any step) - the Design ban's table
+  // too since 2026-11-03 (an orderer works no step). PR keeps `assignee` (who
+  // works it). An `assignee` on the URL (the dashboard's "Theo người làm"
+  // links) still shows as the pick.
+  const pickKey: "person" | "assignee" = unit === "ADS" ? "person" : "assignee";
   const picked = pickKey === "person" ? read("person") || read("assignee") : read("assignee");
   const people = dept
     ? everyone.filter((member) => (member.departments ?? []).some((seat) => seat.department_id === dept))
@@ -859,18 +864,23 @@ function Cell({
             {withoutNames(cell.status_label, cell.person_name)}
           </StatusBadge>
         )}
-        {!dense && (tokens != null || cell.deadline_at) ? (
-          <span className="flex flex-wrap items-center gap-1 text-[11px] text-[var(--text-muted)]">
-            <TokenBadge value={tokens} size="sm" />
-            <DeadlineBadge at={cell.deadline_at} status={cell.deadline_status} short />
+        {/* 2026-11-03: no deadline nor "N ngày trước" on a step any more -
+            when the order reached it ("Nhận", amber) and when it was handed in
+            ("Trả", green). The Deadline column still has the deadline. */}
+        {cell.reached_at ? (
+          <span data-testid="cell-reached" title={formatDateTime(cell.reached_at)}>
+            <span className="st st-amber st-nowrap">Nhận: {formatShortDateTime(cell.reached_at)}</span>
           </span>
         ) : null}
-        {!dense && (cell.since || cell.revisions > 0) ? (
-          <span className="text-[11px] text-[var(--text-muted)]">
-            {cell.since ? formatAgo(cell.since) : ""}
-            {cell.revisions > 0
-              ? `${cell.since ? " · " : ""}sửa ${cell.revisions}`
-              : ""}
+        {cell.handed_in_at ? (
+          <span data-testid="cell-handed-in" title={formatDateTime(cell.handed_in_at)}>
+            <span className="st st-green st-nowrap">Trả: {formatShortDateTime(cell.handed_in_at)}</span>
+          </span>
+        ) : null}
+        {!dense && (tokens != null || cell.revisions > 0) ? (
+          <span className="flex flex-wrap items-center gap-1 text-[11px] text-[var(--text-muted)]">
+            <TokenBadge value={tokens} size="sm" />
+            {cell.revisions > 0 ? `sửa ${cell.revisions}` : null}
           </span>
         ) : null}
       </div>

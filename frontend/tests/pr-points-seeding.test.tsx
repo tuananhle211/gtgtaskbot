@@ -110,6 +110,11 @@ describe("Điểm hiệu suất (PR) on a PR piece", () => {
     renderWithQuery(<PrPointsPanel contentId="pc-1" />);
     const production = await screen.findByRole("article", { name: "Điểm Sản xuất" });
     expect(within(production).getByText("Chờ duyệt")).toBeInTheDocument();
+    // Each code says what it is (2026-11-03), not a bare "D3".
+    const codes = within(production).getByRole("list", { name: "Mã task đã chọn" });
+    expect(codes).toHaveTextContent("D3");
+    expect(codes).toHaveTextContent("Video");
+    expect(codes).toHaveTextContent("240đ");
     const refuse = within(production).getByRole("button", { name: "Không duyệt" });
     expect(refuse).toBeDisabled();
     await userEvent.selectOptions(within(production).getByRole("combobox", { name: /Lý do không duyệt/ }), "WRONG_CODES");

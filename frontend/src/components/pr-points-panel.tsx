@@ -139,11 +139,53 @@ function StageCard({ contentId, stage, mayReview }: { contentId: string; stage: 
   );
 }
 
+/** What a code line says it is: the catalogue name, else its examples. */
+export function codeDescription(item: DesignCodeItem): string {
+  if (item.free) return item.note?.trim() || "Việc khác";
+  return item.name?.trim() || item.examples?.trim() || "";
+}
+
+/**
+ * A claim's codes, one line each (2026-11-03): the code pill, what the code
+ * is, quantity / form, and its points - the reviewer reads what is asked for,
+ * not a bare "N2".
+ */
+export function ClaimLines({ items }: { items: Record<string, DesignCodeItem[]> }) {
+  const lines = Object.entries(items).flatMap(([phase, list]) =>
+    list.map((item) => ({ phase, item })),
+  );
+  return (
+    <ul className="mt-2 space-y-1.5" aria-label="Mã task đã chọn">
+      {lines.map(({ phase, item }, index) => {
+        const extra = [
+          item.quantity > 1 ? `× ${item.quantity}${item.unit_label ? ` ${item.unit_label}` : ""}` : "",
+          item.form && item.form !== "NEW" && !item.free ? (item.form_label ?? "") : "",
+        ].filter(Boolean);
+        return (
+          <li key={`${item.code_id}-${index}`} className="flex items-start gap-2 text-sm">
+            <span
+              className={`shrink-0 rounded-full border px-2 py-0.5 text-xs font-semibold ${phaseStyle(phase).chip}`}
+            >
+              {item.free ? "Việc khác" : item.code}
+            </span>
+            <span className="min-w-0 flex-1">
+              <span className="block">{codeDescription(item) || "—"}</span>
+              {extra.length > 0 ? (
+                <span className="block text-xs text-[var(--text-muted)]">{extra.join(" · ")}</span>
+              ) : null}
+            </span>
+            <span className="shrink-0 text-xs font-semibold tabular-nums">
+              {formatScore(item.points ?? 0)}đ
+            </span>
+          </li>
+        );
+      })}
+    </ul>
+  );
+}
+
 function ClaimRow({ claim, contentId, mayReview }: { claim: PrClaim; contentId: string; mayReview: boolean }) {
   const status = STATUS[claim.status];
-  const lines = Object.entries(claim.items).flatMap(([phase, items]) =>
-    items.map((item) => ({ phase, item })),
-  );
   return (
     <li className="rounded-lg border border-[var(--border)] p-3 text-sm">
       <div className="flex flex-wrap items-center justify-between gap-2">
@@ -153,19 +195,7 @@ function ClaimRow({ claim, contentId, mayReview }: { claim: PrClaim; contentId: 
           <Pill tone={status.tone}>{status.label}</Pill>
         </span>
       </div>
-      <ul className="mt-2 flex flex-wrap gap-1.5">
-        {lines.map(({ phase, item }, index) => (
-          <li
-            key={`${item.code_id}-${index}`}
-            className={`rounded-full border px-2 py-0.5 text-xs font-semibold ${phaseStyle(phase).chip}`}
-            title={item.name}
-          >
-            {item.free ? `Việc khác: ${item.note ?? ""}` : item.code}
-            {item.quantity > 1 ? ` × ${item.quantity}` : ""}
-            {item.form && item.form !== "NEW" && !item.free ? ` · ${item.form_label}` : ""}
-          </li>
-        ))}
-      </ul>
+      <ClaimLines items={claim.items} />
       {claim.note ? <p className="mt-2 text-xs text-[var(--text-muted)]">{claim.note}</p> : null}
       {claim.status === "REJECTED" ? (
         <p className="mt-2 text-xs text-[var(--bad)]">

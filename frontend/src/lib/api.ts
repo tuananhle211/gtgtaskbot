@@ -5233,6 +5233,10 @@ export interface TaskCell {
   deadline_status?: DeadlineStatus | string | null;
   /** ORD: token estimate + revision tokens. */
   tokens?: number | null;
+  /** ORD (2026-11-03): when the order reached the step ("Nhận"). */
+  reached_at?: string | null;
+  /** ORD: the hand-in that stands ("Trả"; null while being fixed). */
+  handed_in_at?: string | null;
 }
 
 export interface TaskExtra {

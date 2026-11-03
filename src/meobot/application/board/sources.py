@@ -1153,6 +1153,9 @@ class AdsBoardSource:
                 person_user_id = None
             is_current = node.status in ACTIVE_NODE_STATUSES
             since = node.approved_at or node.submitted_at or node.assigned_at or node.activated_at
+            handed_in_at = node.submitted_at or node.approved_at
+            if node.status not in (OrderNodeStatus.CHO_DUYET, OrderNodeStatus.HOAN_THANH):
+                handed_in_at = None
             deadline_at = _node_deadline(node)
             deadline_status = _node_deadline_status(node, now)
             # A cancelled order has no live work: every step that was not
@@ -1182,6 +1185,8 @@ class AdsBoardSource:
                     deadline_at=deadline_at,
                     deadline_status=deadline_status,
                     tokens=_node_tokens(node) if self._unit.effort_enabled else None,
+                    reached_at=None if node.activated_at is None else ensure_utc(node.activated_at),
+                    handed_in_at=None if handed_in_at is None else ensure_utc(handed_in_at),
                 )
             )
         final = self._final_cell(order, by_type, names, approvers)

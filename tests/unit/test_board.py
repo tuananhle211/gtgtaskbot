@@ -301,6 +301,10 @@ async def test_09_every_row_names_one_member_or_says_cho_giao(world: World) -> N
     cells = {cell["key"]: cell for cell in assigned["cells"]}
     assert cells["DUNG"]["status"] == "DA_GIAO"
     assert cells["DUNG"]["status_label"] == f"Đã giao {ads.editor.full_name}"
+    # 2026-11-03: "Nhận" = when the order reached the step (approval), not
+    # the worker's "Nhận việc"; "Trả" not yet.
+    reached = cells["DUNG"]["reached_at"]
+    assert reached is not None and cells["DUNG"]["handed_in_at"] is None
     world.act_as(ads.editor)
     assert quick["order"]["code"] in {
         item["code"] for item in tasks(world, unit="ADS", awaiting_me="true")["items"]
@@ -313,6 +317,7 @@ async def test_09_every_row_names_one_member_or_says_cho_giao(world: World) -> N
     assert working["status_label"] == "Dựng · Đang làm" and working["state"] == "DANG_LAM"
     cells = {cell["key"]: cell for cell in working["cells"]}
     assert cells["DUNG"]["status"] == "DANG_LAM" and cells["DUNG"]["status_label"] == "Đang làm"
+    assert cells["DUNG"]["reached_at"] == reached and cells["DUNG"]["handed_in_at"] is None
 
     # Handed in: waiting for the named Dựng Leader, who now holds it.
     quick = act(world, ads.editor, f"/nodes/{dung}/submit", quick, link="https://example.com/cut")
@@ -323,6 +328,7 @@ async def test_09_every_row_names_one_member_or_says_cho_giao(world: World) -> N
     cells = {cell["key"]: cell for cell in review["cells"]}
     assert cells["DUNG"]["status_label"] == f"Chờ {ads.lead_dung.full_name} duyệt"
     assert cells["DUNG"]["status"] == "CHO_DUYET"
+    assert cells["DUNG"]["reached_at"] == reached and cells["DUNG"]["handed_in_at"] is not None
 
     # Its head gone after it was placed, a pending order is "Chờ giao", not
     # "Trưởng phòng". (Placing one with no head to approve it is refused:

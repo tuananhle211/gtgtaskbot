@@ -40,6 +40,9 @@ class TaskCellResponse(BaseModel):
     deadline_at: datetime | None = None
     deadline_status: str | None = None
     tokens: float | None = None
+    #: ORD (2026-11-03): "Nhận" / "Trả" on the step's cell.
+    reached_at: datetime | None = None
+    handed_in_at: datetime | None = None
 
 
 class ExtraResponse(BaseModel):
@@ -252,6 +255,8 @@ class TaskRowResponse(BaseModel):
                     deadline_at=cell.deadline_at,
                     deadline_status=cell.deadline_status,
                     tokens=cell.tokens,
+                    reached_at=cell.reached_at,
+                    handed_in_at=cell.handed_in_at,
                 )
                 for cell in row.cells
             ],

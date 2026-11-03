@@ -392,6 +392,52 @@ describe('the hand-in date in "Thiết kế"', () => {
   });
 });
 
+describe('a step\'s cell: "Nhận" and "Trả" (2026-11-03)', () => {
+  it("draws when the order reached the step and when it was handed in, never its deadline nor its age", async () => {
+    tasksPage(ME_AS("ORDERER"), [
+      row({
+        n: 1,
+        cells: [
+          {
+            ...ROW.cells[0],
+            status: "HOAN_THANH",
+            status_label: "Hoàn thành",
+            is_current: false,
+            since: "2026-10-12T03:30:00Z",
+            deadline_at: "2026-10-20T10:00:00Z",
+            deadline_status: "MET",
+            reached_at: "2026-11-01T08:30:00Z",
+            handed_in_at: "2026-11-03T01:30:00Z",
+          },
+          {
+            ...ROW.cells[0],
+            key: "DUNG",
+            label: "Dựng",
+            person_name: "Quỳnh Như",
+            reached_at: "2026-11-02T02:00:00Z",
+            handed_in_at: null,
+          },
+        ],
+      }),
+    ]);
+    await screen.findByRole("link", { name: "TUAN-BT-261012-01" });
+    const [taken, takenToo] = screen.getAllByTestId("cell-reached");
+    expect(taken).toHaveTextContent(/^Nhận: 01\/11 15:30$/);
+    expect(taken.querySelector(".st")).toHaveClass("st-amber", "st-nowrap");
+    expect(takenToo).toHaveTextContent(/^Nhận: 02\/11 09:00$/);
+    const [handed] = screen.getAllByTestId("cell-handed-in");
+    expect(handed).toHaveTextContent(/^Trả: 03\/11 08:30$/);
+    expect(handed.querySelector(".st")).toHaveClass("st-green", "st-nowrap");
+    // Only the finished step was handed in.
+    expect(screen.getAllByTestId("cell-handed-in")).toHaveLength(1);
+    // The step's own deadline and "N ngày trước" are gone (the row's
+    // Deadline column keeps the order's).
+    const cell = taken.closest("td")!;
+    expect(cell).not.toHaveTextContent(/Hạn/);
+    expect(cell).not.toHaveTextContent(/trước/);
+  });
+});
+
 // --- 2. The inline actions ---------------------------------------------------------
 
 describe("the step's actions on a row", () => {
