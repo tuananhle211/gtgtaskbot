@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
 import uuid
 from datetime import UTC, date, datetime, timedelta
@@ -32,6 +33,7 @@ from meobot.domain.ads.models import (
 from meobot.domain.identity.models import Role
 from meobot.domain.units.models import UnitCode, UnitMemberRole
 from meobot.integrations.meta_ads.client import (
+    PARALLEL,
     AdAccountInfo,
     BillingCharge,
     DailyInsight,
@@ -838,3 +840,83 @@ async def test_15_a_ticked_outsider_sees_the_dashboard_read_only(world: World) -
         json={"platform": "GOOGLE", "external_id": "1234567890", "name": "x"},
     )
     assert typed.status_code == 403
+
+
+async def test_16_batches_and_pages_go_three_at_a_time() -> None:
+    """03/11: on the 3rd the charges run re-reads a month for ~300 accounts and
+    one batch at a time outran the task's limit. Batches and further pages are
+    now asked ``PARALLEL`` at once - never more - and a batch Meta refuses
+    outright still fails the BM, once the others in flight have finished."""
+    flying = 0
+    most = 0
+    done: list[int] = []
+
+    def charge(account: str, paged: bool) -> dict[str, Any]:
+        body: dict[str, Any] = {
+            "data": [
+                {
+                    "event_time": "2026-10-20T03:00:00+0000",
+                    "event_type": "ad_account_billing_charge",
+                    "extra_data": json.dumps({"new_value": 10, "transaction_id": f"t-{account}"}),
+                }
+            ]
+        }
+        if paged:
+            body["paging"] = {
+                "next": f"https://graph.facebook.com/v26.0/act_{account}/activities"
+                f"?access_token={TOKEN}&after=c"
+            }
+        return {"code": 200, "body": json.dumps(body)}
+
+    def handler(refuse: str | None) -> Any:
+        async def answer(request: httpx.Request) -> httpx.Response:
+            nonlocal flying, most
+            flying += 1
+            most = max(most, flying)
+            try:
+                await asyncio.sleep(0.01)
+                if request.method == "GET":
+                    account = request.url.path.split("/")[2].removeprefix("act_")
+                    event = json.loads(charge(account + "b", False)["body"])["data"][0]
+                    return httpx.Response(200, json={"data": [event]})
+                form = dict(item.split("=", 1) for item in request.content.decode().split("&"))
+                batch = json.loads(httpx.QueryParams(f"b={form['batch']}")["b"])
+                accounts = [i["relative_url"].split("/")[0].removeprefix("act_") for i in batch]
+                if refuse in accounts:
+                    return httpx.Response(
+                        400, json={"error": {"code": 190, "message": "Token hết hạn"}}
+                    )
+                done.append(len(accounts))
+                return httpx.Response(200, json=[charge(a, a.endswith("0")) for a in accounts])
+            finally:
+                flying -= 1
+
+        return answer
+
+    accounts = [str(2000 + index) for index in range(60)]
+    client = GraphMetaAdsClient(
+        http=httpx.AsyncClient(transport=httpx.MockTransport(handler(None))), pause=0
+    )
+    pulled = await client.billing_charges(TOKEN, accounts, D1, D2)
+    await client.aclose()
+    assert pulled.errors == {}
+    # 60 one-page charges + a second page for every account ending in 0.
+    assert len(pulled.rows) == 60 + 6
+    assert most == PARALLEL
+
+    flying, most, done = 0, 0, []
+    client = GraphMetaAdsClient(
+        http=httpx.AsyncClient(transport=httpx.MockTransport(handler("2015"))),
+        pause=0,
+        retries=0,
+    )
+    try:
+        await client.billing_charges(TOKEN, accounts, D1, D2)
+    except MetaAdsError:
+        pass
+    else:  # pragma: no cover - the refusal must surface
+        raise AssertionError("a refused batch must fail the BM")
+    finally:
+        await client.aclose()
+    # The five other batches were answered; nothing is left in flight.
+    assert sorted(done) == [10] * 5 and flying == 0

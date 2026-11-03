@@ -75,6 +75,14 @@ class SyncReport:
             problems.append(f"{len(self.failed_accounts)} TK lỗi (ví dụ: {sample})")
         return head + (". " + "; ".join(problems) if problems else ".")
 
+    def add(self, other: SyncReport) -> None:
+        """Fold one BM's report into the run's (each BM is saved on its own)."""
+        self.connections += other.connections
+        self.accounts += other.accounts
+        self.rows += other.rows
+        self.failed_connections.update(other.failed_connections)
+        self.failed_accounts.update(other.failed_accounts)
+
     def as_task_result(self) -> dict[str, Any]:
         return {
             "status": self.status,
@@ -102,6 +110,10 @@ class AdsSyncService:
         self._settings = settings
         self._client = client
         self._secret_box = secret_box or (lambda: build_secret_box(settings))
+
+    async def connection_ids(self) -> list[uuid.UUID]:
+        """The active BMs, in the order a run reads them."""
+        return [row.id for row in await self._connections(None)]
 
     async def _connections(self, connection_id: uuid.UUID | None) -> list[AdsConnection]:
         query = select(AdsConnection).where(AdsConnection.active.is_(True))

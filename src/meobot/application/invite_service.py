@@ -22,10 +22,12 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from meobot.application.audit_service import AuditService
 from meobot.application.org import departments
+from meobot.application.org.seats import load_seats
 from meobot.application.units.directory import UnitDirectoryService
 from meobot.core.errors import AuthorizationError, ConflictError, NotFoundError, ValidationError
 from meobot.core.logging import get_logger
 from meobot.core.time import ensure_utc, utcnow
+from meobot.db.models.department import Department
 from meobot.db.models.invite import InviteCode
 from meobot.db.models.org_unit import OrgUnit, OrgUnitMember
 from meobot.db.models.user import User
@@ -42,8 +44,15 @@ from meobot.domain.identity.invites import (
 )
 from meobot.domain.identity.labels import role_label
 from meobot.domain.identity.models import Actor, Role
+from meobot.domain.org.models import (
+    PRODUCTION_FUNCTIONS,
+    DepartmentFunction,
+    Position,
+    Seat,
+    seat_label,
+)
 from meobot.domain.units.labels import unit_label, unit_role_label
-from meobot.domain.units.models import FUNCTION_ROLES, UnitCode, UnitMemberRole
+from meobot.domain.units.models import FUNCTION_ROLES, UnitCode, UnitMemberRole, unit_seed_id
 
 logger = get_logger(__name__)
 
@@ -77,6 +86,34 @@ class StreamPlacement:
         if manager_name:
             parts.append(f"Trưởng quản lý: {manager_name}")
         return " · ".join(parts)
+
+
+@dataclass(frozen=True, slots=True)
+class DepartmentPlacement:
+    """Where a Trưởng phòng's invitee lands (0088): a member's seat in the
+    department they head, reporting to them."""
+
+    department_id: uuid.UUID
+    name: str
+    manager_user_id: uuid.UUID | None
+
+    def describe(self, manager_name: str | None) -> str:
+        """``"Nhân viên Tài Chính-Kế Toán · Trưởng quản lý: Hằng"``."""
+        seat = Seat(self.department_id, "", self.name, DepartmentFunction.NONE, Position.MEMBER)
+        parts = [seat_label(seat)]
+        if manager_name:
+            parts.append(f"Trưởng quản lý: {manager_name}")
+        return " · ".join(parts)
+
+
+class InviteDepartmentError(ValidationError):
+    code = "invite_department_invalid"
+
+    def __init__(self) -> None:
+        super().__init__(
+            "Chỉ mời được vào phòng bạn đang làm trưởng phòng.",
+            details={"reason": self.code, "field": "department_id"},
+        )
 
 
 class InviteForbiddenError(AuthorizationError):
@@ -129,10 +166,38 @@ class InviteService:
                     return StreamPlacement(entry.unit_id, UnitCode.PR, UnitMemberRole.MEMBER, None)
         return None
 
+    async def department_for(
+        self, actor: Actor, department_id: uuid.UUID | None = None
+    ) -> DepartmentPlacement | None:
+        """The department a Trưởng phòng's invitee joins (0088): the one asked
+        for among those they head, else their first headed department - a
+        production one first, as the 0051 order put a ban's Leader first. The
+        OWNER and an ADMIN place nobody, as before (unless they head one)."""
+        if actor.user_id is None:
+            return None
+        seats = (await load_seats(self._session, [actor.user_id])).get(actor.user_id, ())
+        heads = [seat for seat in seats if seat.position is Position.HEAD]
+        if department_id is not None:
+            chosen = next((seat for seat in heads if seat.department_id == department_id), None)
+            if chosen is None:
+                raise InviteDepartmentError()
+        else:
+            chosen = next(
+                (seat for seat in heads if seat.function in PRODUCTION_FUNCTIONS),
+                heads[0] if heads else None,
+            )
+        if chosen is None:
+            return None
+        return DepartmentPlacement(chosen.department_id, chosen.name, actor.user_id)
+
     async def may_invite(self, actor: Actor) -> bool:
-        """A team lead or above, or a Trưởng phòng / Leader of a ban in ORD
-        (whatever their system role)."""
-        return may_create_invites(actor.role) or await self.placement_for(actor) is not None
+        """A team lead or above, a Trưởng phòng / Leader of a ban in ORD, or
+        (0088) the head of any department - whatever their system role."""
+        return (
+            may_create_invites(actor.role)
+            or await self.department_for(actor) is not None
+            or await self.placement_for(actor) is not None
+        )
 
     async def create(
         self,
@@ -144,6 +209,7 @@ class InviteService:
         note: str | None = None,
         expires_in_days: int = DEFAULT_EXPIRY_DAYS,
         max_uses: int = 1,
+        department_id: uuid.UUID | None = None,
     ) -> tuple[InviteCode, str]:
         """Create an invite and return ``(row, plaintext_code)``.
 
@@ -156,9 +222,12 @@ class InviteService:
         """
         if not await self.may_invite(actor):
             raise InviteForbiddenError()
-        placement = await self.placement_for(actor)
-        # A ban's Leader may be a plain employee: they invite their staff.
-        staff_invite = placement is not None and role is Role.EMPLOYEE
+        # 0088: a department head's code seats its redeemer in their
+        # department; the 0051 stream placement only when they head none.
+        department = await self.department_for(actor, department_id)
+        placement = None if department is not None else await self.placement_for(actor)
+        # A head may be a plain employee: they invite their staff.
+        staff_invite = (placement is not None or department is not None) and role is Role.EMPLOYEE
         if not (can_invite_role(actor.role, role) or staff_invite):
             raise AuthorizationError(
                 f"Vai trò {role_label(actor.role)} không thể tạo mã mời cho {role_label(role)}.",
@@ -184,7 +253,14 @@ class InviteService:
             active=True,
             unit_id=None if placement is None else placement.unit_id,
             unit_role=None if placement is None else placement.role,
-            manager_user_id=None if placement is None else placement.manager_user_id,
+            manager_user_id=(
+                department.manager_user_id
+                if department is not None
+                else None
+                if placement is None
+                else placement.manager_user_id
+            ),
+            department_id=None if department is None else department.department_id,
         )
         self._session.add(invite)
         await self._session.flush()
@@ -205,12 +281,11 @@ class InviteService:
                 "scope": scope,
                 "max_uses": max_uses,
                 "expires_at": invite.expires_at.isoformat() if invite.expires_at else None,
+                "department_id": None if department is None else str(department.department_id),
                 "unit": None if placement is None else placement.unit_code.value,
                 "unit_role": None if placement is None else placement.role.value,
                 "manager_user_id": (
-                    None
-                    if placement is None or placement.manager_user_id is None
-                    else str(placement.manager_user_id)
+                    None if invite.manager_user_id is None else str(invite.manager_user_id)
                 ),
             },
         )
@@ -354,6 +429,9 @@ class InviteService:
                 "scope": invite.scope,
                 "use_count": invite.use_count,
                 "unit_member_id": None if tag is None else str(tag.id),
+                "department_id": (
+                    None if invite.department_id is None else str(invite.department_id)
+                ),
             },
         )
         await self._audit.record_action(
@@ -388,7 +466,15 @@ class InviteService:
 
     async def joins_label(self, invite: InviteCode) -> str | None:
         """Where the redeemer of ``invite`` will land, in words; None = untagged."""
-        placement = await self.placement_of(invite)
+        placement: StreamPlacement | DepartmentPlacement | None = None
+        if invite.department_id is not None:
+            department = await self._session.get(Department, invite.department_id)
+            if department is not None:
+                placement = DepartmentPlacement(
+                    department.id, department.name, invite.manager_user_id
+                )
+        if placement is None:
+            placement = await self.placement_of(invite)
         if placement is None:
             return None
         manager = (
@@ -401,6 +487,10 @@ class InviteService:
     async def _place(self, invite: InviteCode, user: User) -> OrgUnitMember | None:
         """Tag the redeemer where the invite says. The Leader link is kept only
         if it still fits (the inviter may have stopped leading since)."""
+        if invite.department_id is not None:
+            await self._seat(invite, user)
+            ads = await self._session.get(OrgUnit, unit_seed_id(UnitCode.ADS))
+            return None if ads is None else await self._directory.member(ads.id, user.id)
         if invite.unit_id is None or invite.unit_role is None:
             return None
         unit = await self._session.get(OrgUnit, invite.unit_id)
@@ -415,6 +505,23 @@ class InviteService:
                     self._session, unit.code, user.id, invite.manager_user_id, invite.unit_role
                 )
         return await self._directory.member(invite.unit_id, user.id)
+
+    async def _seat(self, invite: InviteCode, user: User) -> None:
+        """0088: a member's seat in the invite's department, reporting to the
+        inviter while they still head it; the stream tags follow the seat."""
+        department = await self._session.get(Department, invite.department_id)
+        if department is None or not department.active:
+            return
+        manager = invite.manager_user_id
+        if manager is not None:
+            try:
+                await departments.check_manager(self._session, department.id, user.id, manager)
+            except departments.DepartmentValidationError:
+                manager = None
+        await departments.seat_person(
+            self._session, department.id, user.id, Position.MEMBER, manager_user_id=manager
+        )
+        await departments.sync_stream_tags(self._session, [user.id])
 
     async def _audit_rejection(
         self,

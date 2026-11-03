@@ -11,6 +11,12 @@
 All take an explicit ``since`` / ``until`` (``YYYY-MM-DD``) for "Kéo lại
 khoảng ngày", and return ``{"status": ..., "message": ...}`` so the job monitor
 retries a half-failed run and reports it to the OWNER if it keeps failing.
+
+Each BM is read and saved in its own transaction (03/11: on the 3rd the
+charges run re-reads a whole month for ~300 accounts, Meta answered slowly and
+the soft time limit dropped BOTH BMs' work), and the Meta runs get a longer
+limit than the default 9 minutes - still under the monitor's 15-minute
+``RUNNING_STALE_SECONDS``.
 """
 
 from __future__ import annotations
@@ -24,6 +30,7 @@ from celery import shared_task
 from meobot.application.ads.crm_service import AdsCrmSyncService, CrmSyncReport, crm_window
 from meobot.application.ads.sync_service import (
     AdsSyncService,
+    SyncReport,
     charge_window,
     spend_window,
     vn_today,
@@ -35,6 +42,11 @@ from meobot.tasks.runtime import TaskContext, run_async
 
 logger = get_logger(__name__)
 
+#: The Meta pulls' own limits (seconds): above Celery's default 540 / 600,
+#: below the job monitor's ``RUNNING_STALE_SECONDS`` (900).
+META_SOFT_TIME_LIMIT = 780
+META_TIME_LIMIT = 840
+
 
 def _days(since: str | None, until: str | None, default: tuple[date, date]) -> tuple[date, date]:
     if since and until:
@@ -42,7 +54,9 @@ def _days(since: str | None, until: str | None, default: tuple[date, date]) -> t
     return default
 
 
-@shared_task(name="ads.sync_spend")
+@shared_task(
+    name="ads.sync_spend", soft_time_limit=META_SOFT_TIME_LIMIT, time_limit=META_TIME_LIMIT
+)
 def sync_spend(
     since: str | None = None, until: str | None = None, connection_id: str | None = None
 ) -> dict[str, Any]:
@@ -50,7 +64,9 @@ def sync_spend(
     return run_async(lambda context: _sync(context, "spend", start, end, connection_id))
 
 
-@shared_task(name="ads.sync_charges")
+@shared_task(
+    name="ads.sync_charges", soft_time_limit=META_SOFT_TIME_LIMIT, time_limit=META_TIME_LIMIT
+)
 def sync_charges(
     since: str | None = None, until: str | None = None, connection_id: str | None = None
 ) -> dict[str, Any]:
@@ -62,14 +78,25 @@ async def _sync(
     context: TaskContext, kind: str, since: date, until: date, connection_id: str | None
 ) -> dict[str, Any]:
     client = GraphMetaAdsClient()
-    target = uuid.UUID(connection_id) if connection_id else None
+    report = SyncReport(kind=kind, since=since, until=until)
     try:
-        async with context.database.transaction() as session:
-            service = AdsSyncService(session, context.settings, client=client)
-            if kind == "spend":
-                report = await service.sync_spend(since, until, connection_id=target)
-            else:
-                report = await service.sync_charges(since, until, connection_id=target)
+        if connection_id:
+            targets = [uuid.UUID(connection_id)]
+        else:
+            async with context.database.transaction() as session:
+                targets = await AdsSyncService(
+                    session, context.settings, client=client
+                ).connection_ids()
+        for target in targets:
+            # One transaction per BM: a BM read in full is kept even if a
+            # later one runs out of time.
+            async with context.database.transaction() as session:
+                service = AdsSyncService(session, context.settings, client=client)
+                if kind == "spend":
+                    part = await service.sync_spend(since, until, connection_id=target)
+                else:
+                    part = await service.sync_charges(since, until, connection_id=target)
+            report.add(part)
     finally:
         await client.aclose()
     result = report.as_task_result()

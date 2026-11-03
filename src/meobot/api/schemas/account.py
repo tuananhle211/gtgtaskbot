@@ -14,7 +14,7 @@ from meobot.application.account.account_service import MemberView
 from meobot.application.account.stats_service import MemberStats
 from meobot.db.models.user import User
 from meobot.domain.identity.labels import RoleInput, role_label
-from meobot.domain.org.models import POSITION_LABELS, Seat
+from meobot.domain.org.models import POSITION_LABELS, Position, Seat
 from meobot.domain.resources.models import EMPLOYMENT_STATUS_LABELS, EmploymentStatus
 from meobot.domain.units.labels import (
     function_tag,
@@ -230,6 +230,9 @@ class AccountMeResponse(BaseModel):
     stats: MemberStatsResponse
     #: Additive (0047): ``/api/account/avatar/<id>?v=<n>``, null without a picture.
     avatar_url: str | None = None
+    #: Additive (0088): heads a department - invites people into it, whatever
+    #: the system role ("Mời thành viên").
+    heads_department: bool = False
 
     @classmethod
     def build(
@@ -263,6 +266,7 @@ class AccountMeResponse(BaseModel):
             password_changed_at=user.password_changed_at,
             stats=MemberStatsResponse.from_domain(stats),
             avatar_url=avatar_url,
+            heads_department=any(seat.position is Position.HEAD for seat in membership.seats),
         )
 
 

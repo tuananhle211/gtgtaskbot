@@ -17,9 +17,12 @@ export const INVITER_ROLES = new Set(["TEAM_LEAD", "ADMIN", "OWNER"]);
 export function mayInvite(me: {
   role: string;
   units: Array<{ code: string; role?: string; is_lead?: boolean }>;
+  /** 0088: heads a department - invites into it, whatever the system role. */
+  heads_department?: boolean;
 }): boolean {
   return (
     INVITER_ROLES.has(me.role) ||
+    Boolean(me.heads_department) ||
     me.units.some((unit) => unit.code === "ADS" && (unit.role === "HEAD" || unit.is_lead))
   );
 }

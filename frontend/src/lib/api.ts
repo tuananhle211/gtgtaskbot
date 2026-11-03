@@ -5903,6 +5903,8 @@ export interface AccountMe {
   password_changed_at: string | null;
   /** The profile picture's URL, or null for initials. Optional: older APIs omit it. */
   avatar_url?: string | null;
+  /** 0088: heads a department, so may invite people into it. Optional: older APIs omit it. */
+  heads_department?: boolean;
   /** The current month. */
   stats: MemberStats;
 }

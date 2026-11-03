@@ -1,4 +1,8 @@
-"""Invites carry where the invitee lands (0051).
+"""Invites carry where the invitee lands (0051, 0088).
+
+0088: the head of any department - Tài chính-Kế toán as much as Dựng - may
+invite, whatever their system role, and the redeemer is seated in that
+department as a member reporting to them; the stream tags follow the seat.
 
 A stream lead's code tags its redeemer at once: a Leader of Biên kịch /
 Design / Dựng brings staff of that ban reporting to them, a Trưởng phòng ADS
@@ -15,9 +19,17 @@ import pytest
 
 from meobot.application.audit_service import AuditService
 from meobot.application.invite_service import InviteService
+from meobot.application.org.departments import (
+    ensure_default_departments,
+    seat_person,
+    sync_stream_tags,
+)
+from meobot.application.org.seats import load_seats
 from meobot.application.units.directory import UnitDirectoryService
+from meobot.db.models.department import Department
 from meobot.db.models.user import User
 from meobot.domain.identity.models import Role
+from meobot.domain.org.models import Position
 from tests.unit.pr_world import World
 from tests.unit.test_order_commands import ads_world, person
 from tests.unit.test_streams import _code
@@ -50,8 +62,9 @@ async def test_01_a_bans_leader_brings_staff_of_that_ban(world: World) -> None:
     world.act_as(ads.lead_dung)
     created = world.client.post("/api/invites", json={})
     assert created.status_code == 201, created.json()
+    # 0088: the head's own department, which makes them ORD's Dựng staff.
     assert created.json()["joins_label"] == (
-        f"Luồng Order (ORD) · Dựng · Trưởng quản lý: {ads.lead_dung.full_name}"
+        f"Nhân viên Dựng · Trưởng quản lý: {ads.lead_dung.full_name}"
     )
     # Only employees: a Leader does not mint team leads.
     assert world.client.post("/api/invites", json={"role": "TEAM_LEAD"}).status_code == 403
@@ -76,7 +89,9 @@ async def test_03_a_pr_team_lead_brings_a_pr_member(world: World) -> None:
     world.act_as(world.lead)
     created = world.client.post("/api/invites", json={})
     assert created.status_code == 201
-    assert created.json()["joins_label"] == "Luồng PR · Thành viên"
+    assert created.json()["joins_label"] == (
+        f"Nhân viên PR Thương Hiệu · Trưởng quản lý: {world.lead.full_name}"
+    )
     user = await redeem(world, created.json()["code"], 77003)
     assert await placed(world, user) == ("PR", "MEMBER", None)
 
@@ -111,3 +126,39 @@ async def test_06_a_leader_who_stopped_leading_is_not_attached(world: World) -> 
     assert demoted.status_code == 200
     user = await redeem(world, code, 77006)
     assert await placed(world, user) == ("ADS", "DUNG", None)
+
+
+async def test_07_any_department_head_brings_a_member_of_their_department(
+    world: World,
+) -> None:
+    """2026-11-02: the head of Tài chính-Kế toán (system role Nhân viên) used
+    to be refused, and a code from them seated nobody."""
+    await ensure_default_departments(world.session)
+    finance = Department(code="TCKT", name="Tài chính-Kế toán", sort_order=30)
+    sales = Department(code="SALE", name="Sale", sort_order=31)
+    world.session.add_all([finance, sales])
+    await world.session.flush()
+    chief = await person(world, "Ms Hằng")
+    assert chief.role is Role.EMPLOYEE
+    await seat_person(world.session, finance.id, chief.id, Position.HEAD)
+    await sync_stream_tags(world.session, [chief.id])
+
+    world.act_as(chief)
+    assert world.client.get("/api/account/me").json()["heads_department"] is True
+    created = world.client.post("/api/invites", json={})
+    assert created.status_code == 201, created.json()
+    assert created.json()["joins_label"] == "Nhân viên Tài chính-Kế toán · Trưởng quản lý: Ms Hằng"
+    # Only a department they head, and only employees.
+    other = world.client.post("/api/invites", json={"department_id": str(sales.id)})
+    assert other.status_code == 422 and _code(other.json()) == "invite_department_invalid"
+    assert world.client.post("/api/invites", json={"role": "TEAM_LEAD"}).status_code == 403
+
+    user = await redeem(world, created.json()["code"], 77007)
+    seats = (await load_seats(world.session, [user.id]))[user.id]
+    assert [(seat.department_id, seat.position, seat.manager_user_id) for seat in seats] == [
+        (finance.id, Position.MEMBER, chief.id)
+    ]
+    # A plain member of the department is not the head: no invites.
+    world.act_as(user)
+    assert world.client.get("/api/account/me").json()["heads_department"] is False
+    assert world.client.post("/api/invites", json={}).status_code == 403

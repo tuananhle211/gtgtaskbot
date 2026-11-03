@@ -82,6 +82,9 @@ class CreateInviteRequest(BaseModel):
     note: str | None = Field(default=None, max_length=500)
     expires_in_days: int = Field(default=DEFAULT_EXPIRY_DAYS, ge=1, le=MAX_EXPIRY_DAYS)
     max_uses: int = Field(default=1, ge=1, le=MAX_USES)
+    #: Additive (0088): which headed department the newcomer joins; none =
+    #: the inviter's first (422 ``invite_department_invalid`` for another).
+    department_id: uuid.UUID | None = None
 
 
 class InviteListResponse(BaseModel):

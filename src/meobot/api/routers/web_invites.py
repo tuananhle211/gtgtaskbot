@@ -5,8 +5,9 @@ Telegram ``/create_invite`` command and the internal ``/api/v1/invites``
 surface, behind the signed-in session. Only a system team lead
 ("Trưởng nhóm"), a Trưởng phòng / Leader of a ban in ORD, an ADMIN or the
 OWNER may invite; anybody else is refused with a 403 ``invite_forbidden``.
-A stream lead's invite tags its redeemer into the lead's stream, reporting to
-them (``joins_label`` says where); an ADMIN/OWNER invite tags nobody. Which
+A department head's invite (0088) seats its redeemer in that department,
+reporting to them (``joins_label`` says where); an older stream lead's code
+tagged into the stream; an ADMIN/OWNER invite places nobody. Which
 role an invite may carry is the service's rule (``can_invite_role``: strictly
 below the creator's own; a ban's Leader invites employees).
 
@@ -91,6 +92,7 @@ async def create_invite(
         note=payload.note,
         expires_in_days=payload.expires_in_days,
         max_uses=payload.max_uses,
+        department_id=payload.department_id,
     )
     return CreatedInviteResponse.from_created(invite, code, await service.joins_label(invite))
 

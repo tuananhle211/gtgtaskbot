@@ -13,6 +13,9 @@ Per-account calls go through the Graph batch endpoint (50 at a time, 10 for
 the heavier ``/activities``). One account failing never fails the others: it
 comes back in ``errors``. An account Meta answers "try again" for (the batch
 timed out - code 960 -, call limits) is asked again in a smaller batch.
+A few batches (and an account's further pages) are in flight at once
+(``PARALLEL``): one by one, a month of charges for ~300 accounts outran the
+task's time limit on 03/11.
 """
 
 from __future__ import annotations
@@ -41,6 +44,8 @@ TIMEOUT_SECONDS = 60.0
 #: 960 = a batch request aborted because the whole batch timed out.
 TRANSIENT_CODES = frozenset({1, 2, 4, 17, 32, 613, 960, 80000, 80004})
 NO_ANSWER = "Meta không trả lời tài khoản này."
+#: Batches (or ``next`` pages) asked at the same time.
+PARALLEL = 3
 
 
 class MetaAdsError(Exception):
@@ -251,11 +256,25 @@ class GraphMetaAdsClient:
         ``retries`` more rounds."""
         answers: dict[str, tuple[dict[str, Any] | None, str | None]] = {}
         pending = list(account_ids)
+        gate = asyncio.Semaphore(PARALLEL)
+
+        async def ask(chunk: list[str]) -> list[_Answer]:
+            async with gate:
+                return await self._batch(token, [url_of(account) for account in chunk])
+
         for round_ in range(self._retries + 1):
             again: list[str] = []
-            for start in range(0, len(pending), size):
-                chunk = pending[start : start + size]
-                results = await self._batch(token, [url_of(account) for account in chunk])
+            chunks = [pending[start : start + size] for start in range(0, len(pending), size)]
+            replies = await asyncio.gather(
+                *(ask(chunk) for chunk in chunks), return_exceptions=True
+            )
+            # A batch Meta refused outright fails the BM, as one at a time did -
+            # but only once every batch in flight has finished.
+            for reply in replies:
+                if isinstance(reply, BaseException):
+                    raise reply
+            for chunk, results in zip(chunks, replies, strict=True):
+                assert not isinstance(results, BaseException)
                 for index, account in enumerate(chunk):
                     body, error, transient = (
                         results[index] if index < len(results) else (None, NO_ANSWER, True)
@@ -345,19 +364,35 @@ class GraphMetaAdsClient:
             ),
             ACTIVITY_BATCH_SIZE,
         )
+        gate = asyncio.Semaphore(PARALLEL)
+
+        async def more(next_url: str) -> list[dict[str, Any]] | MetaAdsError:
+            async with gate:
+                try:
+                    return await self._pages(next_url)
+                except MetaAdsError as failure:
+                    return failure
+
+        paged = {
+            account: str((body.get("paging") or {}).get("next"))
+            for account, (body, error) in answers.items()
+            if error is None and body is not None and (body.get("paging") or {}).get("next")
+        }
+        rest = dict(
+            zip(paged, await asyncio.gather(*(more(url) for url in paged.values())), strict=True)
+        )
         for account, (body, error) in answers.items():
             if error is not None or body is None:
                 pulled.errors[account] = error or "Không đọc được."
                 continue
             events = list(body.get("data") or [])
-            next_url = (body.get("paging") or {}).get("next")
-            if next_url:
-                try:
-                    events.extend(await self._pages(str(next_url)))
-                except MetaAdsError as failure:
+            if account in rest:
+                extra_pages = rest[account]
+                if isinstance(extra_pages, MetaAdsError):
                     # Half an account's charges would undercount it: none at all.
-                    pulled.errors[account] = failure.message
+                    pulled.errors[account] = extra_pages.message
                     continue
+                events.extend(extra_pages)
             seen: set[str] = set()
             for event in events:
                 if event.get("event_type") != "ad_account_billing_charge":

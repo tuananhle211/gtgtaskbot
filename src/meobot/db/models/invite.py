@@ -62,3 +62,9 @@ class InviteCode(Base, UUIDPrimaryKeyMixin, TimestampMixin):
     manager_user_id: Mapped[uuid.UUID | None] = mapped_column(
         ForeignKey("users.id", ondelete="SET NULL"), nullable=True
     )
+    #: 0088: a Trưởng phòng's code seats its redeemer in this department as a
+    #: member reporting to ``manager_user_id`` (the inviter). Wins over
+    #: ``unit_id``, which old codes still carry.
+    department_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("departments.id", ondelete="RESTRICT"), nullable=True
+    )

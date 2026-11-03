@@ -54,6 +54,7 @@ async def create_invite(
         note=payload.note,
         expires_in_days=payload.expires_in_days,
         max_uses=payload.max_uses,
+        department_id=payload.department_id,
     )
     return CreatedInviteResponse.from_created(invite, code)
 
