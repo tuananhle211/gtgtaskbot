@@ -326,8 +326,15 @@ def test_09b_only_the_orderer_cancels_and_a_step_lead_returns_the_order() -> Non
     everything = OrderActorContext.from_membership(
         UnitMembership(user_id=uuid.uuid4(), entries=(), is_owner=True), UnitSettings()
     )
-    for person in (lead, head, everything):
+    for person in (lead, head):
         assert OrderActionKind.CANCEL not in kinds(available_actions(working, nodes, person))
+    # 2026-11-03: the OWNER and an ADMIN cancel any unfinished order.
+    admin = OrderActorContext.from_membership(
+        UnitMembership(user_id=uuid.uuid4(), entries=(), is_admin=True), UnitSettings()
+    )
+    for person in (everything, admin):
+        assert OrderActionKind.CANCEL in kinds(available_actions(working, nodes, person))
+        assert available_actions(order(OrderStage.COMPLETED), nodes, person) == ()
     returning = assert_allowed(
         OrderActionKind.RETURN_TO_ORDERER, working, nodes, lead, node_id=nodes[0].id
     )

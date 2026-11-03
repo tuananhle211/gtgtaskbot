@@ -584,3 +584,36 @@ async def test_10_a_writer_who_took_the_step_edits_their_own_codes(world: World)
     assert handed.json()["task"]["state"] == "CHO_DUYET"
     step = next(item for item in handed.json()["task_codes"] if item["phase"] == "BIEN_TAP")
     assert step["proposed_points"] == 150
+
+
+async def test_11_owner_or_admin_cancels_any_order_and_done_steps_keep_points(
+    world: World,
+) -> None:
+    """2026-11-03: the OWNER and an ADMIN may cancel somebody else's order at
+    any step ("Huỷ order"); what was already done still counts."""
+    from meobot.domain.identity.models import Role
+
+    ads, _ = await coded_world(world)
+    admin = await person(world, "Quản trị", Role.ADMIN)
+    for canceller in (admin, world.owner):
+        code, detail = await at_dung(world, ads)
+        writer_points = await points_of(world, detail["order"]["id"])
+        assert writer_points == {str(ads.writer.id): 120}
+        # The Dựng Trưởng phòng sends it back, never cancels it.
+        kinds = {item["key"].split(":")[1] for item in task(world, ads.lead_dung, code)["actions"]}
+        assert "CANCEL" not in kinds and "RETURN_TO_ORDERER" in kinds
+        cancel = action(task(world, canceller, code), "ads:CANCEL")
+        assert cancel["label"] == "Huỷ order"
+        done = do(world, canceller, code, "ads:CANCEL", note="Khách dừng chiến dịch")
+        assert done.status_code == 200, done.json()
+        page = done.json()
+        assert page["task"]["stage"] == "CANCELLED" and page["actions"] == []
+        # The script step's points stay the writer's; the open Dựng step is
+        # no longer "dự kiến".
+        assert await points_of(world, detail["order"]["id"]) == writer_points
+
+    world.act_as(ads.writer)
+    figures = world.client.get("/api/performance/people/me").json()["figures"]
+    assert figures["points"] == 240 and figures["steps_done"] == 2
+    world.act_as(ads.editor)
+    assert world.client.get("/api/performance/people/me").json()["figures"]["pending_count"] == 0

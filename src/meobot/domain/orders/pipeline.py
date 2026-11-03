@@ -264,6 +264,8 @@ class OrderActorContext:
     #: What this person may manage, from the unit's permission matrix. Every
     #: decision below reads this, never the role directly.
     permissions: AdsPermissions = field(default_factory=AdsPermissions)
+    #: The system OWNER or an ADMIN (2026-11-03: they may cancel any order).
+    is_system_admin: bool = False
 
     @classmethod
     def from_membership(
@@ -317,6 +319,7 @@ class OrderActorContext:
             lead_node_types=frozenset(leads),
             member_node_types=frozenset(members),
             permissions=permissions,
+            is_system_admin=membership.is_owner or membership.is_admin,
         )
 
 
@@ -515,27 +518,31 @@ def available_actions(
         add(OrderActionKind.SET_PRIORITY)
     # 2026-11-02: only the orderer cancels an order. Everybody else who used
     # to - the ORD Trưởng phòng (CANCEL ALL), the Design Leader on a
-    # Design-only order, OWNER / ADMIN - sends it back instead: "Không duyệt"
-    # at the order gate, "Trả order" from a step.
-    if is_owner and (
-        # Holding CANCEL everywhere (a Trưởng phòng ORD, OWNER, ADMIN): their
-        # own order, at any time.
-        may.allows(AdsPermission.CANCEL)
-        # Waiting for approval, or sent back to them to fix.
-        or order.stage in (OrderStage.ORDER_PENDING, OrderStage.ORDER_RETURNED)
-        # A birthday order is never "pending": whoever placed it may take it
-        # back for as long as it is not finished.
-        or order.category is OrderCategory.BIRTHDAY
-        # 2026-10-27: a Trưởng phòng's own order needs no approval, so it is
-        # never "pending" either: they may take it back until somebody has
-        # pressed "Nhận việc" on a step.
-        or (may.holds(AdsPermission.ORDER_APPROVE) and nobody_took(nodes))
-        # A Design-only order skips the ORD head: its orderer may take it
-        # back until the Design Leader has handed it out (= approved it).
-        or (
-            order.category is OrderCategory.STANDARD
-            and is_design_only(order.video_type)
-            and not order.approved
+    # Design-only order - sends it back instead: "Không duyệt" at the order
+    # gate, "Trả order" from a step. 2026-11-03: the OWNER and an ADMIN cancel
+    # any unfinished order; the points of steps already done stay earned.
+    if ctx.is_system_admin or (
+        is_owner
+        and (
+            # Holding CANCEL everywhere (a Trưởng phòng ORD, OWNER, ADMIN): their
+            # own order, at any time.
+            may.allows(AdsPermission.CANCEL)
+            # Waiting for approval, or sent back to them to fix.
+            or order.stage in (OrderStage.ORDER_PENDING, OrderStage.ORDER_RETURNED)
+            # A birthday order is never "pending": whoever placed it may take it
+            # back for as long as it is not finished.
+            or order.category is OrderCategory.BIRTHDAY
+            # 2026-10-27: a Trưởng phòng's own order needs no approval, so it is
+            # never "pending" either: they may take it back until somebody has
+            # pressed "Nhận việc" on a step.
+            or (may.holds(AdsPermission.ORDER_APPROVE) and nobody_took(nodes))
+            # A Design-only order skips the ORD head: its orderer may take it
+            # back until the Design Leader has handed it out (= approved it).
+            or (
+                order.category is OrderCategory.STANDARD
+                and is_design_only(order.video_type)
+                and not order.approved
+            )
         )
     ):
         add(OrderActionKind.CANCEL)
