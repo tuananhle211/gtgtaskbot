@@ -5,10 +5,10 @@ and ``work_points`` (everything else, 0085). A ``work_points`` row is written
 by the flow that earns it and is keyed by ``source_key`` so it can be
 rewritten, never doubled:
 
-* ``PR_CONTENT`` - a PR piece's task codes, typed by whoever did the work once
-  the phase is done and approved by a Trưởng phòng PR ("Nội dung" = the
-  Biên kịch codes N…, "Sản xuất" = the Design T… and/or Dựng D… codes - the
-  same catalogue as ORD);
+* ``PR_CONTENT`` - a PR piece's task codes, typed by whoever did the work
+  ("Nội dung" = the Biên kịch codes N…, "Sản xuất" = the Design T… and/or
+  Dựng D… codes - the same catalogue as ORD); no approval since 2026-11-03,
+  the points count once the piece is done (``PR_DONE_STAGES``);
 * ``PR_PUBLISH`` - +10 for whoever records a publication with a link;
 * ``SEEDING_PHONES`` - 200 per phone number a seeding member handed in and a
   Trưởng phòng PR approved (one row per person per day);
@@ -24,6 +24,7 @@ import uuid
 from enum import StrEnum
 
 from meobot.domain.orders.design_codes import DesignItem
+from meobot.domain.pr.models import PrWorkflowStage
 
 
 class WorkPointSource(StrEnum):
@@ -62,6 +63,33 @@ STAGE_PHASES: dict[str, tuple[str, ...]] = {
     STAGE_PRODUCTION: ("THIET_KE", "DUNG"),
 }
 STAGE_LABELS: dict[str, str] = {STAGE_CONTENT: "Nội dung", STAGE_PRODUCTION: "Sản xuất"}
+
+#: 2026-11-03, no approval of PR codes any more. Everybody types their own
+#: codes until the piece is sent to internal review; a Trưởng phòng PR (or the
+#: OWNER / an ADMIN) still edits anybody's during the internal review; once the
+#: piece is done ("Hoàn thành" on the board) the codes are frozen and their
+#: points count, dated that moment.
+PR_MEMBER_EDIT_STAGES = frozenset(
+    {
+        PrWorkflowStage.IDEA,
+        PrWorkflowStage.BRIEFING,
+        PrWorkflowStage.SCRIPTING,
+        PrWorkflowStage.AI_REVIEW,
+        PrWorkflowStage.TEAM_LEAD_REVIEW,
+        PrWorkflowStage.HEAD_REVIEW,
+        PrWorkflowStage.APPROVED,
+        PrWorkflowStage.PRODUCTION,
+    }
+)
+PR_HEAD_EDIT_STAGES = PR_MEMBER_EDIT_STAGES | {PrWorkflowStage.INTERNAL_REVIEW}
+PR_DONE_STAGES = frozenset(
+    {
+        PrWorkflowStage.READY_TO_PUBLISH,
+        PrWorkflowStage.PUBLISHED,
+        PrWorkflowStage.MEASURED,
+        PrWorkflowStage.ARCHIVED,
+    }
+)
 #: How a PR line's phase reads on the reports.
 PR_PHASE_LABELS: dict[str, str] = {
     "BIEN_TAP": "Nội dung (PR)",
@@ -126,6 +154,9 @@ __all__ = [
     "PHASE_SEEDING",
     "PHONE_CODE_ID",
     "PHONE_POINTS",
+    "PR_DONE_STAGES",
+    "PR_HEAD_EDIT_STAGES",
+    "PR_MEMBER_EDIT_STAGES",
     "PR_PHASE_LABELS",
     "PUBLISH_CODE_ID",
     "PUBLISH_POINTS",

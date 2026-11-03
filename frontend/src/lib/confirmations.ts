@@ -264,24 +264,35 @@ export function pointCoefficientConfirmation({
 export function prClaimConfirmation({
   stage,
   points,
-  standsAtOnce,
+  person,
 }: {
   stage: string;
   points: string;
-  /** A Trưởng phòng's own codes need nobody's approval. */
-  standsAtOnce: boolean;
+  /** A Trưởng phòng PR editing somebody else's codes: their name. */
+  person?: string;
 }): ConfirmSpec {
   return {
-    title: `Gửi mã task ${stage.toLowerCase()} (${points} điểm)?`,
-    description: standsAtOnce
-      ? "Bạn là Trưởng phòng: điểm được tính ngay."
-      : "Trưởng phòng PR sẽ duyệt; điểm chỉ được tính sau khi duyệt.",
-    confirmLabel: "Gửi",
+    title: person
+      ? `Lưu mã task ${stage.toLowerCase()} của ${person} (${points} điểm)?`
+      : `Lưu mã task ${stage.toLowerCase()} (${points} điểm)?`,
+    description:
+      "Không cần duyệt: điểm được cộng vào hiệu suất khi task hoàn thành. Sau khi gửi duyệt nội bộ, chỉ Trưởng phòng PR sửa được mã.",
+    confirmLabel: "Lưu",
     variant: "primary",
   };
 }
 
-/** A Trưởng phòng's decision on PR codes, seeding numbers or "việc khác". */
+/** A Trưởng phòng PR takes somebody's codes off a PR piece. */
+export function prClaimRemoveConfirmation({ person, stage }: { person: string; stage: string }): ConfirmSpec {
+  return {
+    title: `Xoá mã task ${stage.toLowerCase()} của ${person}?`,
+    description: "Người này sẽ không được cộng điểm phần này khi task hoàn thành.",
+    confirmLabel: "Xoá",
+    variant: "destructive",
+  };
+}
+
+/** A Trưởng phòng's decision on seeding numbers or "việc khác". */
 export function pointsDecisionConfirmation({
   approve,
   what,

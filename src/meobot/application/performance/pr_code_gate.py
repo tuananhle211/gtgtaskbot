@@ -9,8 +9,8 @@ piece may not move on while the phase it leaves has none:
 * handing production in (PRODUCTION -> INTERNAL_REVIEW) needs the "Sản xuất"
   codes (Design and / or Dựng).
 
-"Codes" = somebody's claim on that stage, waiting or approved - a refused one
-does not count. Asked by ``PrWorkflowService.apply``, the one path every client
+"Codes" = somebody's claim on that stage (since 2026-11-03 nobody approves
+them, so any claim counts). Asked by ``PrWorkflowService.apply``, the one path every client
 (web, Telegram, bulk) takes, and by the task page to grey the button out. An
 undo is never asked. Switch: the PR unit's ``pr_task_codes_required`` (default
 on); a database without a PR unit asks nothing.
@@ -39,8 +39,6 @@ _REVIEWS = frozenset(
         PrWorkflowStage.APPROVED,
     }
 )
-#: Claims that count: waiting for the Trưởng phòng, or approved.
-_LIVE = ("PENDING", "APPROVED")
 
 MESSAGES: dict[str, str] = {
     STAGE_CONTENT: (
@@ -74,9 +72,7 @@ async def codes_required(session: AsyncSession) -> bool:
 
 async def stages_with_codes(session: AsyncSession, content_id: uuid.UUID) -> frozenset[str]:
     found = await session.scalars(
-        select(PrPointClaim.stage)
-        .where(PrPointClaim.content_id == content_id, PrPointClaim.status.in_(_LIVE))
-        .distinct()
+        select(PrPointClaim.stage).where(PrPointClaim.content_id == content_id).distinct()
     )
     return frozenset(found.all())
 

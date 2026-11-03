@@ -650,6 +650,23 @@ class TaskDetailService:
                     multi_assign = True
                 if node.status is OrderNodeStatus.CHUA_GIAO:
                     emphasis = "PRIMARY"
+            elif (
+                kind is OrderActionKind.SET_WORK_ITEMS
+                and node is not None
+                and node.node_type in (OrderNodeType.BIEN_TAP, OrderNodeType.DUNG)
+            ):
+                # 0089: a Biên kịch / Dựng worker edits their own task codes.
+                if not tasks_on:
+                    continue
+                label = f"Sửa mã task · {node_type_label(node.node_type)}"
+                inputs = ("task_codes",)
+                required = ("task_codes",)
+                task_phase = node.node_type.value
+                task_codes = code_views(node.working_task_items or node.task_items)
+                hint = (
+                    "Mã task bạn đang làm (dùng để tính điểm). Lúc nộp bài: trùng đề xuất thì "
+                    "đi luôn, khác thì chờ Trưởng phòng duyệt."
+                )
             elif kind is OrderActionKind.SET_WORK_ITEMS and node is not None:
                 inputs = ("design_codes",)
                 required = ("design_codes",)
@@ -713,7 +730,8 @@ class TaskDetailService:
                     # 0074: the step's own code - the suggestion to start from.
                     inputs = (*inputs, "task_codes")
                     task_phase = node.node_type.value
-                    task_codes = code_views(node.task_items)
+                    # 0089: the worker's own list, when they edited it.
+                    task_codes = code_views(node.working_task_items or node.task_items)
                     if not task_codes:
                         required = (*required, "task_codes")
             elif (
@@ -1151,7 +1169,13 @@ def task_codes_views(
                     )
                 )
         elif node.assignee_user_id is not None:
-            own = proposed if proposed is not None else current
+            # 0089: while working, the worker's own draft list.
+            working = (
+                items_from_json(node.working_task_items)
+                if node.working_task_items and node.status is not OrderNodeStatus.HOAN_THANH
+                else None
+            )
+            own = proposed if proposed is not None else (working or current)
             people = [
                 TaskCodesPersonView(
                     user_id=node.assignee_user_id,

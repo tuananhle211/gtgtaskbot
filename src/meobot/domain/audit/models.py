@@ -474,6 +474,7 @@ class AuditAction(StrEnum):
     #: PR task codes (0085): a claim sent, approved, refused.
     PR_POINTS_CLAIMED = "pr.points.claimed"
     PR_POINTS_DECIDED = "pr.points.decided"
+    PR_POINTS_REMOVED = "pr.points.removed"
     #: Seeding (0085): members, the team KPI, phones, other work.
     SEEDING_MEMBER_CHANGED = "seeding.member.changed"
     SEEDING_TARGET_SET = "seeding.target.set"

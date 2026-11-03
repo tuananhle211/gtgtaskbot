@@ -177,6 +177,9 @@ class OrderEventKind(StrEnum):
     DESIGN_CODES_PROPOSED = "DESIGN_CODES_PROPOSED"
     #: 0058: a birthday order's details were edited.
     BIRTHDAY_EDITED = "BIRTHDAY_EDITED"
+    #: 0089: a Biên kịch / Dựng worker edited their own task codes while
+    #: working ("Sửa mã task"); the note says what changed.
+    TASK_CODES_EDITED = "TASK_CODES_EDITED"
 
 
 class OrderReturnReason(StrEnum):

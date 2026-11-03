@@ -1,5 +1,5 @@
 """PR task codes ("điểm PR", 0085): who did a PR piece's work types its codes,
-a Trưởng phòng PR approves, the points count.
+the points count once the piece is done.
 
 * **Order / Nội dung** (stage ``CONTENT``): the Biên kịch codes (N…), typed by
   the piece's owner;
@@ -12,11 +12,15 @@ closes them), and the piece may not leave a phase without its codes
 (:mod:`meobot.application.performance.pr_code_gate`).
 
 The codes, forms and their rules are ORD's own catalogue (``unit_design_codes``
-of the ADS unit), so a point means the same everywhere. A Trưởng phòng PR (or
-the OWNER / an ADMIN) approves - the points then go to ``work_points`` dated
-the approval - or refuses with one of the three reasons; a refused claim is
-edited and sent again. A Trưởng phòng's own claim stands at once. The PR
-workflow is only read, never moved.
+of the ADS unit), so a point means the same everywhere.
+
+**No approval (2026-11-03).** Everybody types their own codes until the piece
+is sent to internal review (``PR_MEMBER_EDIT_STAGES``); then only a Trưởng
+phòng PR (or the OWNER / an ADMIN) edits or removes anybody's, until the piece
+is done (``PR_HEAD_EDIT_STAGES``) - they review, they do not approve. When the
+piece is done every claim goes to ``work_points``, dated that moment
+(:mod:`meobot.application.performance.pr_points_settle`): ``PENDING`` = not
+counted yet, ``APPROVED`` = counted. The PR workflow is only read here.
 """
 
 from __future__ import annotations
@@ -30,14 +34,14 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from meobot.application.audit_service import AuditService
 from meobot.application.orders.design_code_service import DesignCodeService
-from meobot.application.performance.review_notifications import ReviewNotifier
-from meobot.application.performance.work_ledger import put_points
+from meobot.application.performance.pr_points_settle import take_back
 from meobot.application.units.directory import UnitDirectoryService
 from meobot.core.time import utcnow
 from meobot.db.models.org_unit import UnitDesignCode
 from meobot.db.models.pr import PrContentItem
 from meobot.db.models.user import User
 from meobot.db.models.work_points import PrPointClaim
+from meobot.domain.access.models import UserStatus
 from meobot.domain.audit.models import AuditAction, AuditResult
 from meobot.domain.identity.models import Actor
 from meobot.domain.orders.design_codes import (
@@ -47,32 +51,39 @@ from meobot.domain.orders.design_codes import (
     items_to_json,
     total_points,
 )
-from meobot.domain.orders.models import OrderNodeType, OrderReturnReason
+from meobot.domain.orders.models import OrderNodeType
 from meobot.domain.orders.task_codes import TaskFormSpec, form_specs
 from meobot.domain.org.models import DepartmentFunction, Position
 from meobot.domain.performance.errors import (
-    PrClaimDecidedError,
     PrPointsForbiddenError,
     PrPointsInvalidError,
     PrPointsNotFoundError,
 )
 from meobot.domain.performance.work_points import (
+    PR_DONE_STAGES,
+    PR_HEAD_EDIT_STAGES,
+    PR_MEMBER_EDIT_STAGES,
     STAGE_CONTENT,
     STAGE_LABELS,
     STAGE_PHASES,
     STAGE_PRODUCTION,
-    WorkPointSource,
 )
 from meobot.domain.pr.models import PrWorkflowStage
 from meobot.domain.units.models import UnitCode, UnitMembership
 
+#: Not counted yet (the piece is not done).
 PENDING = "PENDING"
+#: Counted: the piece is done, the points are in ``work_points``.
 APPROVED = "APPROVED"
+#: Before 2026-11-03 only (a refusal); read as not counted.
 REJECTED = "REJECTED"
-
-#: 2026-10-31: codes may be typed at any stage but this one.
-CLOSED = frozenset({PrWorkflowStage.CANCELLED})
 NOTE_MAX = 1000
+
+LOCKED_FOR_MEMBERS = (
+    "Đã gửi duyệt nội bộ: chỉ Trưởng phòng PR sửa được mã task đến khi task hoàn thành."
+)
+DONE_MESSAGE = "Task đã hoàn thành: mã task đã khoá và điểm đã cộng vào hiệu suất."
+CANCELLED_MESSAGE = "Bài đã huỷ, không nhập mã được nữa."
 
 
 def in_pr(membership: UnitMembership) -> bool:
@@ -102,13 +113,15 @@ class StageView:
     stage: str
     label: str
     phases: tuple[str, ...]
-    #: The work is done: codes may be typed.
+    #: Somebody may still change the codes (not done, not cancelled).
     open: bool
-    #: Why not, when it is not.
+    #: Why the viewer may not, when they may not.
     waiting: str | None
-    #: The viewer may type their codes here.
+    #: The viewer may type their own codes here.
     may_claim: bool
     claims: tuple[ClaimView, ...] = ()
+    #: A Trưởng phòng PR: may edit / remove anybody's codes here.
+    may_edit_others: bool = False
 
 
 @dataclass(frozen=True, slots=True)
@@ -118,6 +131,8 @@ class ContentPoints:
     title: str
     stages: tuple[StageView, ...]
     may_review: bool
+    #: The piece is done: its codes are counted.
+    done: bool = False
 
 
 @dataclass(frozen=True, slots=True)
@@ -127,17 +142,10 @@ class Catalogue:
 
 
 class PrPointService:
-    def __init__(
-        self,
-        session: AsyncSession,
-        audit: AuditService,
-        *,
-        notifier: ReviewNotifier | None = None,
-    ) -> None:
+    def __init__(self, session: AsyncSession, audit: AuditService) -> None:
         self._session = session
         self._audit = audit
         self._directory = UnitDirectoryService(session)
-        self._notifier = notifier
 
     # --- reading -----------------------------------------------------------------
 
@@ -183,16 +191,21 @@ class PrPointService:
             title=content.title,
             stages=stages,
             may_review=reviews_pr(membership),
+            done=content.workflow_stage in PR_DONE_STAGES,
         )
 
     async def queue(self, membership: UnitMembership, *, status: str | None) -> list[ClaimView]:
-        """The claims a reviewer decides on (everybody's), or one's own."""
+        """A Trưởng phòng PR: everybody's claims; anybody else: their own.
+        ``status`` PENDING = not counted yet (old refusals too), APPROVED =
+        counted."""
         if not in_pr(membership):
             raise PrPointsForbiddenError("Chỉ thành viên PR xem được điểm PR.")
         statement = select(PrPointClaim).order_by(PrPointClaim.submitted_at.desc()).limit(300)
         if not reviews_pr(membership):
             statement = statement.where(PrPointClaim.user_id == membership.user_id)
-        if status:
+        if status == PENDING:
+            statement = statement.where(PrPointClaim.status != APPROVED)
+        elif status:
             statement = statement.where(PrPointClaim.status == status)
         return await self._views((await self._session.scalars(statement)).all(), contents=True)
 
@@ -208,14 +221,28 @@ class PrPointService:
         stage: str,
         picks: Mapping[str, Sequence[DesignPick]],
         note: str | None = None,
+        user_id: uuid.UUID | None = None,
     ) -> ClaimView:
+        """One's own codes for one stage, or - ``user_id`` - a Trưởng phòng PR
+        editing somebody's. Saved as typed; nobody approves (2026-11-03)."""
         if stage not in STAGE_PHASES:
             raise PrPointsInvalidError("Không có pha này.", reason="pr_points_stage_invalid")
+        if actor.user_id is None:
+            raise PrPointsForbiddenError()
         content = await self._content(content_id)
         view = self._stage(stage, content, membership, [])
-        if not view.open:
-            raise PrPointsInvalidError(view.waiting or "Chưa tới lúc.", reason="pr_points_not_open")
-        if not view.may_claim or actor.user_id is None:
+        target = user_id or actor.user_id
+        if target == actor.user_id:
+            allowed = view.may_claim
+        else:
+            allowed = view.may_edit_others
+            if allowed and not await self._active(target):
+                raise PrPointsInvalidError("Không tìm thấy người này.", reason="pr_points_person")
+        if not allowed:
+            if not view.open:
+                raise PrPointsInvalidError(view.waiting or "Đã khoá.", reason="pr_points_not_open")
+            if view.waiting:
+                raise PrPointsInvalidError(view.waiting, reason="pr_points_locked")
             raise PrPointsForbiddenError()
         unknown = set(picks) - set(STAGE_PHASES[stage])
         if unknown:
@@ -230,11 +257,9 @@ class PrPointService:
             select(PrPointClaim).where(
                 PrPointClaim.content_id == content.id,
                 PrPointClaim.stage == stage,
-                PrPointClaim.user_id == actor.user_id,
+                PrPointClaim.user_id == target,
             )
         )
-        if existing is not None and existing.status == APPROVED:
-            raise PrClaimDecidedError()
         kept = _claim_items(existing) if existing is not None else {}
         items: dict[str, tuple[DesignItem, ...]] = {}
         for phase in STAGE_PHASES[stage]:
@@ -255,13 +280,16 @@ class PrPointService:
         text = (note or "").strip() or None
         if text is not None and len(text) > NOTE_MAX:
             raise PrPointsInvalidError(f"Ghi chú tối đa {NOTE_MAX} ký tự.")
-        now = utcnow()
-        claim = existing or PrPointClaim(content_id=content.id, stage=stage, user_id=actor.user_id)
+        claim = existing or PrPointClaim(content_id=content.id, stage=stage, user_id=target)
+        if existing is not None and existing.status == APPROVED:
+            # Not reachable once the piece is done (frozen) - kept safe anyway.
+            await take_back(self._session, existing)
         claim.items = {phase: items_to_json(found) for phase, found in items.items()}
         claim.points = sum(total_points(found) for found in items.values())
         claim.note = text
         claim.status = PENDING
-        claim.submitted_at = now
+        if existing is None or target == actor.user_id:
+            claim.submitted_at = utcnow()
         claim.decided_by_user_id = None
         claim.decided_at = None
         claim.return_reason = None
@@ -276,91 +304,55 @@ class PrPointService:
             result=AuditResult.SUCCESS,
             entity_type="pr_point_claim",
             entity_id=str(claim.id),
-            after_data={"content": content.code, "stage": stage, "points": claim.points},
+            after_data={
+                "content": content.code,
+                "stage": stage,
+                "points": claim.points,
+                "user_id": str(target),
+                "by_head": target != actor.user_id,
+            },
         )
-        if reviews_pr(membership):
-            # A Trưởng phòng's own codes stand at once.
-            await self._approve(claim, content, actor)
-        elif self._notifier is not None:
-            await self._notifier.pr_claim_waiting(
-                actor=actor,
-                claim_id=claim.id,
-                content_code=content.code,
-                content_title=content.title,
-                stage_label=STAGE_LABELS[stage],
-                points=claim.points,
-                sent=now.isoformat(),
-            )
         return (await self._views([claim]))[0]
 
-    async def decide(
+    async def remove(
         self,
         *,
         actor: Actor,
         membership: UnitMembership,
         request_id: uuid.UUID,
         claim_id: uuid.UUID,
-        approve: bool,
-        reason: str | None = None,
-        note: str | None = None,
-    ) -> ClaimView:
-        if not reviews_pr(membership):
-            raise PrPointsForbiddenError("Chỉ Trưởng phòng PR duyệt điểm PR.")
+    ) -> None:
+        """A Trưởng phòng PR takes somebody's codes off a piece (until it is
+        done)."""
         claim = await self._session.get(PrPointClaim, claim_id)
         if claim is None:
             raise PrPointsNotFoundError()
-        if claim.status != PENDING:
-            raise PrClaimDecidedError()
         content = await self._content(claim.content_id)
-        if approve:
-            await self._approve(claim, content, actor)
-        else:
-            try:
-                OrderReturnReason(reason or "")
-            except ValueError as error:
-                raise PrPointsInvalidError(
-                    "Chọn lý do không duyệt.", reason="return_reason_required"
-                ) from error
-            claim.status = REJECTED
-            claim.return_reason = reason
-            claim.decision_note = (note or "").strip() or None
-            claim.decided_by_user_id = actor.user_id
-            claim.decided_at = utcnow()
-            await self._session.flush()
+        view = self._stage(claim.stage, content, membership, [])
+        if not view.may_edit_others:
+            if not view.open:
+                raise PrPointsInvalidError(view.waiting or "Đã khoá.", reason="pr_points_not_open")
+            raise PrPointsForbiddenError("Chỉ Trưởng phòng PR xoá được mã task của người khác.")
+        before = {
+            "content": content.code,
+            "stage": claim.stage,
+            "points": claim.points,
+            "user_id": str(claim.user_id),
+        }
+        await take_back(self._session, claim)
+        await self._session.delete(claim)
+        await self._session.flush()
         await self._audit.record_action(
             request_id=request_id,
             actor=actor,
-            action=AuditAction.PR_POINTS_DECIDED.value,
+            action=AuditAction.PR_POINTS_REMOVED.value,
             result=AuditResult.SUCCESS,
             entity_type="pr_point_claim",
-            entity_id=str(claim.id),
-            after_data={"status": claim.status, "reason": claim.return_reason},
+            entity_id=str(claim_id),
+            before_data=before,
         )
-        return (await self._views([claim]))[0]
 
     # --- helpers -----------------------------------------------------------------
-
-    async def _approve(self, claim: PrPointClaim, content: PrContentItem, actor: Actor) -> None:
-        now = utcnow()
-        claim.status = APPROVED
-        claim.decided_by_user_id = actor.user_id
-        claim.decided_at = now
-        for phase, items in _claim_items(claim).items():
-            if not items:
-                continue
-            await put_points(
-                self._session,
-                source=WorkPointSource.PR_CONTENT.value,
-                source_key=f"pr_claim:{claim.id}:{phase}",
-                user_id=claim.user_id,
-                phase=phase,
-                items=items,
-                earned_at=now,
-                ref_code=content.code,
-                ref_title=content.title,
-                ref_link=f"/tasks/{content.code}",
-            )
-        await self._session.flush()
 
     def _stage(
         self,
@@ -369,23 +361,39 @@ class PrPointService:
         membership: UnitMembership,
         claims: list[ClaimView],
     ) -> StageView:
-        is_open = content.workflow_stage not in CLOSED
-        waiting = None if is_open else "Bài đã huỷ, không nhập mã được nữa."
+        where = content.workflow_stage
+        head = reviews_pr(membership)
         user_id = membership.user_id
         if stage == STAGE_CONTENT:
-            mine = user_id is not None and user_id in {content.owner_user_id}
+            mine = user_id is not None and user_id == content.owner_user_id
         else:
             # The producer, or anybody in PR who worked on it.
             mine = user_id is not None and in_pr(membership)
+        is_open = where in PR_HEAD_EDIT_STAGES
+        member_open = where in PR_MEMBER_EDIT_STAGES
+        may_claim = bool(mine) and (member_open or (head and is_open))
+        if where is PrWorkflowStage.CANCELLED:
+            waiting: str | None = CANCELLED_MESSAGE
+        elif where in PR_DONE_STAGES:
+            waiting = DONE_MESSAGE
+        elif not member_open and not head:
+            waiting = LOCKED_FOR_MEMBERS
+        else:
+            waiting = None
         return StageView(
             stage=stage,
             label=STAGE_LABELS[stage],
             phases=STAGE_PHASES[stage],
             open=is_open,
             waiting=waiting,
-            may_claim=bool(mine) and is_open,
+            may_claim=may_claim,
             claims=tuple(claims),
+            may_edit_others=head and is_open,
         )
+
+    async def _active(self, user_id: uuid.UUID) -> bool:
+        user = await self._session.get(User, user_id)
+        return user is not None and user.deleted_at is None and user.status == UserStatus.ACTIVE
 
     async def _content(self, content_id: uuid.UUID) -> PrContentItem:
         content = await self._session.get(PrContentItem, content_id)

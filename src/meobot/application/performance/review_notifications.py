@@ -1,7 +1,7 @@
 """Telling the Trưởng phòng PR there is something to approve (2026-10-31).
 
-* a PR piece's task codes sent for approval (``pr_point_claims``) ->
-  "Có mã task PR chờ bạn duyệt";
+* (until 2026-11-03 also a PR piece's task codes - those need no approval
+  any more);
 * phone numbers or "việc khác" handed in on "Báo cáo công việc/Seeding" ->
   "Có báo cáo công việc chờ bạn duyệt".
 
@@ -57,34 +57,6 @@ class ReviewNotifier:
             key=f"seeding:{key}",
             target_kind="seeding",
             target_id=None,
-        )
-
-    async def pr_claim_waiting(
-        self,
-        *,
-        actor: Actor,
-        claim_id: uuid.UUID,
-        content_code: str,
-        content_title: str,
-        stage_label: str,
-        points: int,
-        sent: str,
-    ) -> None:
-        """``sent`` tells one sending of the claim from the next (a claim is
-        sent again after a refusal)."""
-        await self._tell(
-            actor=actor,
-            event=NotificationEvent.PR_POINTS_REVIEW_REQUESTED,
-            title=content_title,
-            code=content_code,
-            body=(
-                f"{await self._name(actor.user_id)} gửi mã task {stage_label} "
-                f"({points} điểm), đang chờ bạn duyệt."
-            ),
-            path="/performance/pr-claims",
-            key=f"pr_claim:{claim_id}:{sent}",
-            target_kind="pr_claim",
-            target_id=claim_id,
         )
 
     # --- who ------------------------------------------------------------------

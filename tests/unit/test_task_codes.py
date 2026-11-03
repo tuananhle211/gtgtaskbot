@@ -518,3 +518,69 @@ async def test_09b_a_birthday_order_placed_before_t1_still_scores_it(world: Worl
     done = await _birthday_done(world, ads, made.json()["code"])
     assert done["task"]["stage"] == "COMPLETED"
     assert (await points_of(world, str(order.id))) == {str(ads.designer.id): 90}
+
+
+async def test_10_a_writer_who_took_the_step_edits_their_own_codes(world: World) -> None:
+    """2026-11-03 (0089): once a Biên kịch worker has taken the step, "Sửa mã
+    task" keeps their codes up to date; the hand-in starts from that list and
+    is still compared with the suggestion."""
+    ads, codes = await coded_world(world)
+    detail = create(
+        world,
+        ads,
+        video_type="BD",
+        preassigned={"BIEN_TAP": str(ads.writer.id), "DUNG": str(ads.editor.id)},
+    )
+    code = detail["order"]["code"]
+    detail = act(world, ads.head, "/approve", detail)
+    keys = [item["key"] for item in task(world, ads.writer, code)["actions"]]
+    # Not before "Nhận việc".
+    assert not any(key.startswith("ads:SET_WORK_ITEMS:") for key in keys), keys
+    bt = node(detail, "BIEN_TAP")["id"]
+    act(world, ads.writer, f"/nodes/{bt}/accept", detail)
+
+    edit = action(task(world, ads.writer, code), "ads:SET_WORK_ITEMS:")
+    assert edit["label"] == "Sửa mã task · Biên tập"
+    assert edit["inputs"] == ["task_codes"] and edit["required_inputs"] == ["task_codes"]
+    assert edit["task_phase"] == "BIEN_TAP" and edit["task_codes"][0]["code"] == "N3"
+    # Nobody else edits the writer's codes.
+    others = [item["key"] for item in task(world, ads.lead_bt, code)["actions"]]
+    assert not any(key.startswith("ads:SET_WORK_ITEMS:") for key in others), others
+
+    empty = do(world, ads.writer, code, "ads:SET_WORK_ITEMS:", task_codes=[])
+    assert empty.status_code == 422 and error_reason(empty.json()) == "task_codes_required"
+    edited = do(
+        world,
+        ads.writer,
+        code,
+        "ads:SET_WORK_ITEMS:",
+        task_codes=[{"code_id": codes["N3"]}, {"code_id": codes["N1"], "quantity": 2}],
+    )
+    assert edited.status_code == 200, edited.json()
+    page = edited.json()
+    assert page["task"]["stage"] == "BIEN_TAP"  # a draft: nothing moved
+    step = next(item for item in page["task_codes"] if item["phase"] == "BIEN_TAP")
+    # The suggestion stays; the writer's line is their own list.
+    assert [item["code"] for item in step["current"]] == ["N3"]
+    (writer,) = step["people"]
+    assert [(item["code"], item["quantity"]) for item in writer["codes"]] == [("N3", 1), ("N1", 2)]
+    assert writer["points"] == 150
+    edits = [entry for entry in page["timeline"] if entry["label"].startswith("Sửa mã task")]
+    assert edits and "N1" in (edits[0]["note"] or ""), page["timeline"]
+
+    # The hand-in dialog starts from that list; handed in, it differs from
+    # the suggestion, so it waits for the Trưởng phòng as before.
+    submit = action(task(world, ads.writer, code), "ads:SUBMIT_WORK:")
+    assert [item["code"] for item in submit["task_codes"]] == ["N3", "N1"]
+    handed = do(
+        world,
+        ads.writer,
+        code,
+        "ads:SUBMIT_WORK:",
+        link="https://e/script",
+        task_codes=[{"code_id": codes["N3"]}, {"code_id": codes["N1"], "quantity": 2}],
+    )
+    assert handed.status_code == 200, handed.json()
+    assert handed.json()["task"]["state"] == "CHO_DUYET"
+    step = next(item for item in handed.json()["task_codes"] if item["phase"] == "BIEN_TAP")
+    assert step["proposed_points"] == 150

@@ -35,7 +35,8 @@ class PrClaimResponse(BaseModel):
     items: dict[str, list[DesignCodeItemResponse]]
     points: int
     note: str | None
-    #: PENDING / APPROVED / REJECTED.
+    #: PENDING = not counted yet (REJECTED: an old refusal, same), APPROVED =
+    #: counted (the piece is done; ``decided_at`` = when).
     status: str
     submitted_at: datetime
     decided_by: str | None
@@ -77,6 +78,8 @@ class PrStageResponse(BaseModel):
     open: bool
     waiting: str | None
     may_claim: bool
+    #: A Trưởng phòng PR: may edit / remove anybody's codes (until done).
+    may_edit_others: bool = False
     claims: list[PrClaimResponse]
 
     @classmethod
@@ -88,6 +91,7 @@ class PrStageResponse(BaseModel):
             open=view.open,
             waiting=view.waiting,
             may_claim=view.may_claim,
+            may_edit_others=view.may_edit_others,
             claims=[PrClaimResponse.from_domain(claim) for claim in view.claims],
         )
 
@@ -98,6 +102,8 @@ class PrContentPointsResponse(BaseModel):
     title: str
     stages: list[PrStageResponse]
     may_review: bool
+    #: The piece is done: codes frozen, points counted.
+    done: bool = False
 
     @classmethod
     def from_domain(cls, view: ContentPoints) -> PrContentPointsResponse:
@@ -107,6 +113,7 @@ class PrContentPointsResponse(BaseModel):
             title=view.title,
             stages=[PrStageResponse.from_domain(stage) for stage in view.stages],
             may_review=view.may_review,
+            done=view.done,
         )
 
 
@@ -116,10 +123,5 @@ class PrClaimRequest(BaseModel):
     #: ``{"BIEN_TAP": [...]}`` / ``{"THIET_KE": [...], "DUNG": [...]}``.
     task_codes: dict[str, list[DesignPickRequest]]
     note: str | None = Field(default=None, max_length=1000)
-
-
-class PrDecisionRequest(BaseModel):
-    approve: bool
-    #: CHANGED_REQUEST / WRONG_CODES / WORKER_FAULT, required to refuse.
-    return_reason: str | None = Field(default=None, max_length=20)
-    note: str | None = Field(default=None, max_length=1000)
+    #: A Trưởng phòng PR editing somebody else's codes; none = one's own.
+    user_id: uuid.UUID | None = None

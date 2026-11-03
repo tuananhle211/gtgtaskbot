@@ -215,7 +215,12 @@ class TaskActionService:
                 order_id=order_id,
                 node_id=need_node(),
                 expected_version=version,
-                design_picks=command.design_picks or (),
+                # Design sends ``design_codes``; Biên kịch / Dựng (0089) ``task_codes``.
+                design_picks=(
+                    command.task_picks
+                    if command.task_picks is not None
+                    else command.design_picks or ()
+                ),
             )
         elif kind is OrderActionKind.ACCEPT:
             await commands.accept(

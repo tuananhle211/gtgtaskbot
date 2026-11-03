@@ -3,6 +3,8 @@
  * on a PR piece, "Báo cáo công việc/Seeding", and the menu entries that
  * follow `/api/units/me`. 2026-10-31: the picker is open from the start, the
  * KPI page is the group's, everybody in PR hands in, a refusal says why.
+ * 2026-11-03: PR codes need no approval - members edit theirs until internal
+ * review, a Trưởng phòng PR edits / removes anybody's until the piece is done.
  */
 import { describe, expect, it, vi } from "vitest";
 import { screen, waitFor, within } from "@testing-library/react";
@@ -69,15 +71,64 @@ describe("Điểm hiệu suất (PR) on a PR piece", () => {
       expect(within(content).getByRole("combobox", { name: "Mã task công việc Biên kịch" })).toBeInTheDocument(),
     );
     await userEvent.selectOptions(within(content).getByRole("combobox", { name: "Mã task công việc Biên kịch" }), "c-n3");
-    await userEvent.click(within(content).getByRole("button", { name: "Gửi Trưởng phòng duyệt" }));
-    expect(screen.getByText("Gửi mã task nội dung (120 điểm)?")).toBeInTheDocument();
+    await userEvent.click(within(content).getByRole("button", { name: "Lưu mã task" }));
+    expect(screen.getByText("Lưu mã task nội dung (120 điểm)?")).toBeInTheDocument();
     await accept();
     await waitFor(() => expect(calls(stub).some((call) => call.method === "POST")).toBe(true));
     const post = calls(stub).find((call) => call.method === "POST");
-    expect(post?.body).toEqual({ stage: "CONTENT", task_codes: { BIEN_TAP: [{ code_id: "c-n3", quantity: 1 }] }, note: null });
+    expect(post?.body).toEqual({
+      stage: "CONTENT",
+      task_codes: { BIEN_TAP: [{ code_id: "c-n3", quantity: 1 }] },
+      note: null,
+      user_id: null,
+    });
   });
 
-  it("lets a Trưởng phòng PR refuse with a reason", async () => {
+  it("locks a member's codes once the piece is in internal review", async () => {
+    const mine = {
+      id: "cl-1",
+      content_id: "pc-1",
+      stage: "CONTENT",
+      stage_label: "Nội dung",
+      user_id: "u-writer",
+      name: "Biên tập PR",
+      items: { BIEN_TAP: [{ code_id: "c-n3", code: "N3", name: "Kịch bản đến 3 phút", quantity: 1, points: 120 }] },
+      points: 120,
+      note: null,
+      status: "PENDING",
+      submitted_at: "2026-10-30T03:00:00Z",
+      decided_by: null,
+      decided_at: null,
+      return_reason: null,
+      decision_note: null,
+    };
+    stubFetch([
+      {
+        match: "/api/performance/pr/contents/pc-1",
+        body: {
+          ...POINTS,
+          stages: [
+            {
+              ...POINTS.stages[0],
+              may_claim: false,
+              waiting: "Đã gửi duyệt nội bộ: chỉ Trưởng phòng PR sửa được mã task đến khi task hoàn thành.",
+              claims: [mine],
+            },
+            POINTS.stages[1],
+          ],
+        },
+      },
+      { match: "/api/account/me", body: ME },
+    ]);
+    renderWithQuery(<PrPointsPanel contentId="pc-1" />);
+    const content = await screen.findByRole("article", { name: "Điểm Nội dung" });
+    expect(within(content).getByTestId("pr-points-locked")).toHaveTextContent("chỉ Trưởng phòng PR");
+    expect(within(content).getByText("Cộng khi hoàn thành")).toBeInTheDocument();
+    expect(within(content).queryByRole("button", { name: "Sửa mã task" })).not.toBeInTheDocument();
+    expect(within(content).queryByRole("button", { name: "Duyệt" })).not.toBeInTheDocument();
+  });
+
+  it("lets a Trưởng phòng PR edit or remove somebody's codes - no approval", async () => {
     const pending = {
       id: "cl-9",
       content_id: "pc-1",
@@ -95,36 +146,47 @@ describe("Điểm hiệu suất (PR) on a PR piece", () => {
       return_reason: null,
       decision_note: null,
     };
+    const D3 = { id: "c-d3", phase: "DUNG", code: "D3", name: "Video", points: 240, active: true, sort_order: 1 };
     const stub = stubFetch([
-      { match: "/api/performance/pr/claims/cl-9/decide", method: "POST", body: { ...pending, status: "REJECTED" } },
+      { match: "/api/performance/pr/claims/cl-9", method: "DELETE", status: 204, body: null },
+      { match: "/api/performance/pr/contents/pc-1/claims", method: "POST", body: pending },
       {
         match: "/api/performance/pr/contents/pc-1",
         body: {
           ...POINTS,
           may_review: true,
-          stages: [POINTS.stages[0], { ...POINTS.stages[1], open: true, waiting: null, claims: [pending] }],
+          stages: [
+            POINTS.stages[0],
+            { ...POINTS.stages[1], open: true, waiting: null, may_edit_others: true, claims: [pending] },
+          ],
         },
       },
+      { match: "/api/performance/pr/catalog", body: { phases: { BIEN_TAP: [], THIET_KE: [], DUNG: [D3] }, forms: [] } },
       { match: "/api/account/me", body: { ...ME, user_id: "u-lead" } },
     ]);
     renderWithQuery(<PrPointsPanel contentId="pc-1" />);
     const production = await screen.findByRole("article", { name: "Điểm Sản xuất" });
-    expect(within(production).getByText("Chờ duyệt")).toBeInTheDocument();
+    expect(within(production).getByText("Cộng khi hoàn thành")).toBeInTheDocument();
+    expect(within(production).queryByRole("button", { name: "Duyệt" })).not.toBeInTheDocument();
     // Each code says what it is (2026-11-03), not a bare "D3".
     const codes = within(production).getByRole("list", { name: "Mã task đã chọn" });
     expect(codes).toHaveTextContent("D3");
     expect(codes).toHaveTextContent("Video");
     expect(codes).toHaveTextContent("240đ");
-    const refuse = within(production).getByRole("button", { name: "Không duyệt" });
-    expect(refuse).toBeDisabled();
-    await userEvent.selectOptions(within(production).getByRole("combobox", { name: /Lý do không duyệt/ }), "WRONG_CODES");
-    await userEvent.click(within(production).getByRole("button", { name: "Không duyệt" }));
+    // Remove.
+    await userEvent.click(within(production).getByRole("button", { name: "Xoá" }));
+    expect(screen.getByText("Xoá mã task sản xuất của Dựng PR?")).toBeInTheDocument();
+    await accept();
+    await waitFor(() => expect(calls(stub).some((call) => call.method === "DELETE")).toBe(true));
+    // Edit somebody's: sent with their id.
+    await userEvent.click(within(production).getByRole("button", { name: "Sửa mã task" }));
+    await userEvent.click(within(production).getByRole("button", { name: "Lưu mã task" }));
+    expect(screen.getByText(/Lưu mã task sản xuất của Dựng PR/)).toBeInTheDocument();
     await accept();
     await waitFor(() => expect(calls(stub).some((call) => call.method === "POST")).toBe(true));
-    expect(calls(stub).find((call) => call.method === "POST")?.body).toEqual({
-      approve: false,
-      return_reason: "WRONG_CODES",
-      note: null,
+    expect(calls(stub).find((call) => call.method === "POST")?.body).toMatchObject({
+      stage: "PRODUCTION",
+      user_id: "u-maker",
     });
   });
 });
@@ -249,7 +311,7 @@ describe("Báo cáo công việc/Seeding for everybody in PR (2026-10-31)", () =
 });
 
 describe("the menu", () => {
-  it('adds "Seeding" under Phòng PR for the group and "Duyệt điểm PR" for a Trưởng phòng PR', async () => {
+  it('adds "Seeding" under Phòng PR for the group and "Điểm PR" for a Trưởng phòng PR', async () => {
     stubFetch([
       { match: "/api/auth/session", body: { ...SESSION, role: "EMPLOYEE" } },
       {
@@ -273,7 +335,7 @@ describe("the menu", () => {
     // What waits for the Trưởng phòng, on the menu.
     expect(within(pr).getByRole("link", { name: /Báo cáo công việc\/Seeding/ })).toHaveTextContent("4");
     const performance = screen.getByRole("group", { name: "Hiệu suất" });
-    expect(within(performance).getByRole("link", { name: /Duyệt điểm PR/ })).toHaveAttribute(
+    expect(within(performance).getByRole("link", { name: /Điểm PR/ })).toHaveAttribute(
       "href",
       "/performance/pr-claims",
     );

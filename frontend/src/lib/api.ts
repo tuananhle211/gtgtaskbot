@@ -4726,6 +4726,8 @@ export interface PrClaim {
   items: Record<string, DesignCodeItem[]>;
   points: number;
   note: string | null;
+  /** 2026-11-03, no approval: PENDING = not counted yet (REJECTED = an old
+   * refusal, same), APPROVED = counted (the piece is done, `decided_at`). */
   status: "PENDING" | "APPROVED" | "REJECTED";
   submitted_at: string;
   decided_by: string | null;
@@ -4738,10 +4740,14 @@ export interface PrStage {
   stage: string;
   label: string;
   phases: TaskPhase[];
-  /** The work is done: codes may be typed. */
+  /** Somebody may still change the codes (not done, not cancelled). */
   open: boolean;
+  /** Why the viewer may not, when they may not. */
   waiting: string | null;
+  /** The viewer may type their own codes. */
   may_claim: boolean;
+  /** A Trưởng phòng PR: may edit / remove anybody's codes (until done). */
+  may_edit_others?: boolean;
   claims: PrClaim[];
 }
 
@@ -4751,6 +4757,8 @@ export interface PrContentPoints {
   title: string;
   stages: PrStage[];
   may_review: boolean;
+  /** The piece is done: codes frozen, points counted. */
+  done?: boolean;
 }
 
 export interface PrCatalog {
@@ -7854,14 +7862,20 @@ export const api = {
   /** PR task codes (0085). */
   prPointsCatalog: () => get<PrCatalog>("/api/performance/pr/catalog"),
   prContentPoints: (contentId: Uuid) => get<PrContentPoints>(`/api/performance/pr/contents/${contentId}`),
-  /** 422 `pr_points_not_open` / `pr_points_codes_required`, 403 `pr_points_forbidden`, 409 `pr_claim_decided`. */
+  /** One's own codes, or (`user_id`) a Trưởng phòng PR editing somebody's. 422
+   * `pr_points_not_open` / `pr_points_locked` / `pr_points_codes_required`, 403 `pr_points_forbidden`. */
   submitPrClaim: (
     contentId: Uuid,
-    body: { stage: string; task_codes: Record<string, DesignCodePick[]>; note?: string | null },
+    body: {
+      stage: string;
+      task_codes: Record<string, DesignCodePick[]>;
+      note?: string | null;
+      user_id?: Uuid | null;
+    },
   ) => post<PrClaim>(`/api/performance/pr/contents/${contentId}/claims`, body),
   prClaims: (status?: string) => get<PrClaim[]>(`/api/performance/pr/claims${query({ status })}`),
-  decidePrClaim: (id: Uuid, body: { approve: boolean; return_reason?: string | null; note?: string | null }) =>
-    post<PrClaim>(`/api/performance/pr/claims/${id}/decide`, body),
+  /** A Trưởng phòng PR takes somebody's codes off a piece (until it is done). */
+  removePrClaim: (id: Uuid) => del<void>(`/api/performance/pr/claims/${id}`),
   /** What the caller may do on "Báo cáo công việc/Seeding", and what waits. */
   seedingAccess: () => get<SeedingAccess>("/api/seeding/access"),
   /** The PR seeding group's KPI (0085): 403 `seeding_forbidden` outside the group. */

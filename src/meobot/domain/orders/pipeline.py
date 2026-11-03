@@ -174,7 +174,11 @@ ACTION_STAGES: dict[OrderActionKind, frozenset[OrderStage] | None] = {
     OrderActionKind.SET_NODE_PLAN: frozenset(
         {OrderStage.BIEN_TAP, OrderStage.THIET_KE, OrderStage.DUNG}
     ),
-    OrderActionKind.SET_WORK_ITEMS: frozenset({OrderStage.THIET_KE}),
+    # 0069 Design (several people, each their own list); 0089 Biên kịch / Dựng
+    # (the worker's own task codes while working).
+    OrderActionKind.SET_WORK_ITEMS: frozenset(
+        {OrderStage.BIEN_TAP, OrderStage.THIET_KE, OrderStage.DUNG}
+    ),
 }
 
 #: The stages in which the active node's own actions apply.
@@ -461,8 +465,11 @@ def available_actions(
         if working and not accepted:
             add(OrderActionKind.ACCEPT, current.id)
         if working and accepted:
-            if multi:
-                # A Design assignee edits their own list before handing in.
+            if multi or current.node_type in (OrderNodeType.BIEN_TAP, OrderNodeType.DUNG):
+                # A Design assignee edits their own list before handing in;
+                # so does a Biên kịch / Dựng worker (0089: "Sửa mã task" -
+                # only while the order carries task codes, the command and
+                # the task page check that).
                 add(OrderActionKind.SET_WORK_ITEMS, current.id)
             add(OrderActionKind.SUBMIT_WORK, current.id)
         if (

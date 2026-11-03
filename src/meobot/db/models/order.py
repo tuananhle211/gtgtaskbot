@@ -306,6 +306,12 @@ class OrderNode(Base, UUIDPrimaryKeyMixin, TimestampMixin):
     #: the order, the actual one once handed in and agreed. Design keeps its
     #: list on the order (``orders.design_items``) and per person.
     task_items: Mapped[list[dict[str, Any]] | None] = mapped_column(JSONColumn, nullable=True)
+    #: 0089, Biên kịch / Dựng: the worker's own list while they work ("Sửa mã
+    #: task" after "Nhận việc") - a draft that fills the hand-in dialog; the
+    #: hand-in is still compared with ``task_items``.
+    working_task_items: Mapped[list[dict[str, Any]] | None] = mapped_column(
+        JSONColumn, nullable=True
+    )
     #: 0074: sends back by reason - the worker's mistake ("Làm lỗi") or not
     #: ("Do thay đổi yêu cầu"); "Mã công việc chưa hợp lý" counts in neither.
     returns_fault: Mapped[int] = mapped_column(

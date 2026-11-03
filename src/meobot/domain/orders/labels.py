@@ -87,6 +87,7 @@ EVENT_LABELS: dict[OrderEventKind, str] = {
     OrderEventKind.DESIGN_CODES_SET: "Chốt mã task công việc",
     OrderEventKind.DESIGN_CODES_PROPOSED: "Nộp khác mã task đề xuất",
     OrderEventKind.BIRTHDAY_EDITED: "Sửa thông tin order sinh nhật",
+    OrderEventKind.TASK_CODES_EDITED: "Sửa mã task công việc",
 }
 
 

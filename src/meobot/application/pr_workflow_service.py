@@ -50,6 +50,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from meobot.application.audit_service import AuditService
 from meobot.application.performance.pr_code_gate import require_codes
+from meobot.application.performance.pr_points_settle import settle_claims
 from meobot.application.pr_ai_review_run_service import PrAiReviewRunService
 from meobot.application.pr_capability_service import PrCapabilityService
 from meobot.application.pr_content_work_projector import request_content_work_projection
@@ -63,6 +64,7 @@ from meobot.db.models.pr_production import PrProductionSubmission
 from meobot.db.models.pr_transition import PrContentTransitionEvent
 from meobot.domain.audit.models import AuditAction
 from meobot.domain.identity.models import Actor
+from meobot.domain.performance.work_points import PR_DONE_STAGES
 from meobot.domain.pr.errors import PrNotFoundError, PrWorkflowTransitionError
 from meobot.domain.pr.models import PrWorkflowStage
 from meobot.domain.pr.policy import PrCapability
@@ -317,6 +319,10 @@ class PrContentWorkflowService:
             # the whole reason the member delete rule can rely on it.
             content.production_started_at = utcnow()
         await self._session.flush()
+        if (before in PR_DONE_STAGES) != (target in PR_DONE_STAGES):
+            # 2026-11-03: the piece's task codes count once it is done (and are
+            # taken back should it leave "done" again).
+            await settle_claims(self._session, content)
 
         after: dict[str, object] = {
             "workflow_stage": target.value,

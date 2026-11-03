@@ -907,6 +907,7 @@ class OrderCommandService:
         node.deadline_at = None
         node.revision_deadline_at = None
         node.proposed_design_items = None
+        node.working_task_items = None
         node.revision_tokens_pending = False
         node.version += 1
         order.stage = OrderStage.ORDER_RETURNED
@@ -989,6 +990,8 @@ class OrderCommandService:
             node.assignee_user_id = wanted[0]
             if changed:
                 node.accepted_at = None
+                # 0089: the previous worker's draft codes are not the new one's.
+                node.working_task_items = None
         node.assigned_at = utcnow()
         if node.status is OrderNodeStatus.CHUA_GIAO:
             node.status = OrderNodeStatus.DANG_LAM
@@ -1375,6 +1378,8 @@ class OrderCommandService:
             node_id=node.id,
         )
         assert actor.user_id is not None
+        if not self._multi_design(loaded, node):
+            return await self._set_own_task_codes(loaded, node, actor, request_id, design_picks)
         before = self._snapshot(loaded.order)
         keep = items_from_json(loaded.order.design_items)
         items = await self._design.resolve(
@@ -1392,6 +1397,57 @@ class OrderCommandService:
             actor, request_id, AuditAction.ORDER_NODE_ASSIGNED, loaded.order, before=before
         )
         return loaded.order
+
+    async def _set_own_task_codes(
+        self,
+        loaded: _Loaded,
+        node: OrderNode,
+        actor: Actor,
+        request_id: uuid.UUID,
+        picks: Sequence[DesignPick],
+    ) -> Order:
+        """0089: a Biên kịch / Dựng worker who took the step keeps their own
+        task codes up to date while they work. A draft on the node
+        (``working_task_items``): it fills the hand-in dialog, and the hand-in
+        is still compared with the suggestion as before."""
+        order = loaded.order
+        if (
+            not loaded.settings.design_codes_enabled
+            or order.category is not OrderCategory.STANDARD
+            or node.node_type not in (OrderNodeType.BIEN_TAP, OrderNodeType.DUNG)
+        ):
+            raise OrderValidationError(
+                "Công đoạn này không có mã task công việc.",
+                details={"reason": "task_codes_off", "field": "task_codes"},
+            )
+        if not picks:
+            raise _task_codes_required(node.node_type)
+        before = self._snapshot(order)
+        previous = items_from_json(node.working_task_items or node.task_items)
+        items = await self._design.resolve(
+            order.unit_id,
+            picks,
+            keep=items_from_json(node.task_items),
+            phase=node.node_type,
+            forms=self._forms(loaded),
+        )
+        node.working_task_items = items_to_json(items)
+        node.version += 1
+        self._bump(order)
+        await self._session.flush()
+        await self._event(
+            order,
+            OrderEventKind.TASK_CODES_EDITED,
+            actor,
+            node=node,
+            note=(
+                f"Sửa mã task {phase_label(node.node_type)}:\n{describe_change(previous, items)}"
+            ),
+        )
+        await self._audit_order(
+            actor, request_id, AuditAction.ORDER_NODE_ASSIGNED, order, before=before
+        )
+        return order
 
     async def approve_node(
         self,

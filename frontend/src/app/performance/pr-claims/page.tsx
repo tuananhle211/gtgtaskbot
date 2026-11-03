@@ -3,25 +3,24 @@
 import Link from "next/link";
 import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { api, ApiError, RETURN_REASONS, type PrClaim } from "@/lib/api";
+import { api, ApiError, type PrClaim } from "@/lib/api";
 import { formatScore } from "@/components/performance";
-import { ClaimLines, Decision } from "@/components/pr-points-panel";
+import { ClaimLines } from "@/components/pr-points-panel";
 import { PageHeader } from "@/components/pr";
 import { Empty, ErrorBox, Loading, Pill } from "@/components/states";
 import { formatDateTime } from "@/lib/datetime";
 
 /**
- * "Hiệu suất › Duyệt điểm PR" (0085): the PR task codes waiting for a
- * Trưởng phòng PR (or the OWNER / an ADMIN), newest first, each decided on
- * the spot - approve, or refuse with one of the three reasons. Tabs for what
- * was already decided. Everybody else sees their own claims.
+ * "Hiệu suất › Điểm PR" (0085; no approval since 2026-11-03): the PR task
+ * codes for a Trưởng phòng PR (or the OWNER / an ADMIN) to review, newest
+ * first - "Chưa cộng" while the piece is not done, "Đã cộng" once it is.
+ * Editing happens on the task page (link). Everybody else sees their own.
  */
-type Tab = "PENDING" | "APPROVED" | "REJECTED";
+type Tab = "PENDING" | "APPROVED";
 
 const TABS: Array<{ key: Tab; label: string }> = [
-  { key: "PENDING", label: "Chờ duyệt" },
-  { key: "APPROVED", label: "Đã duyệt" },
-  { key: "REJECTED", label: "Không duyệt" },
+  { key: "PENDING", label: "Chưa cộng (task chưa xong)" },
+  { key: "APPROVED", label: "Đã cộng" },
 ];
 
 export default function PrClaimsPage() {
@@ -34,8 +33,8 @@ export default function PrClaimsPage() {
   return (
     <div className="space-y-4">
       <PageHeader
-        title="Duyệt điểm PR"
-        subtitle="Mã task nhân viên PR tự nhập cho phần Nội dung / Sản xuất của từng bài. Duyệt xong điểm mới được tính."
+        title="Điểm PR"
+        subtitle="Mã task nhân viên PR tự nhập cho phần Nội dung / Sản xuất của từng bài. Không cần duyệt: điểm được cộng khi task hoàn thành. Trưởng phòng PR sửa mã trên trang task đến khi task hoàn thành."
       />
       <div role="tablist" aria-label="Trạng thái" className="flex gap-1">
         {TABS.map((item) => (
@@ -67,7 +66,7 @@ export default function PrClaimsPage() {
         )
       ) : claims.data.length === 0 ? (
         <div className="panel p-4">
-          <Empty message={tab === "PENDING" ? "Không có mã nào chờ duyệt." : "Chưa có gì ở đây."} />
+          <Empty message={tab === "PENDING" ? "Không có mã nào đang chờ task hoàn thành." : "Chưa có gì ở đây."} />
         </div>
       ) : (
         <ul className="space-y-3" aria-label="Phiếu điểm PR">
@@ -81,8 +80,6 @@ export default function PrClaimsPage() {
 }
 
 function ClaimCard({ claim }: { claim: PrClaim }) {
-  const me = useQuery({ queryKey: ["units", "me"], queryFn: api.unitsMe, retry: false });
-  const reviews = Boolean(me.data?.performance?.review_pr);
   return (
     <li className="panel p-4">
       <div className="flex flex-wrap items-start justify-between gap-3">
@@ -99,7 +96,7 @@ function ClaimCard({ claim }: { claim: PrClaim }) {
               {claim.content_title}
             </p>
           ) : null}
-          <p className="text-xs text-[var(--text-muted)]">Gửi {formatDateTime(claim.submitted_at)}</p>
+          <p className="text-xs text-[var(--text-muted)]">Nhập {formatDateTime(claim.submitted_at)}</p>
         </div>
         <span className="text-right">
           <span className="block text-xl font-semibold tabular-nums">{formatScore(claim.points)}</span>
@@ -108,21 +105,15 @@ function ClaimCard({ claim }: { claim: PrClaim }) {
       </div>
       <ClaimLines items={claim.items} />
       {claim.note ? <p className="mt-2 text-sm text-[var(--text-muted)]">{claim.note}</p> : null}
-      {claim.status === "REJECTED" ? (
-        <p className="mt-2 text-xs text-[var(--bad)]">
-          <Pill tone="bad">Không duyệt</Pill>{" "}
-          {RETURN_REASONS.find((item) => item.value === claim.return_reason)?.label}
-          {claim.decision_note ? ` - ${claim.decision_note}` : ""}
-        </p>
-      ) : null}
       {claim.status === "APPROVED" ? (
         <p className="mt-2 text-xs text-[var(--text-muted)]">
-          <Pill tone="good">Đã duyệt</Pill> {claim.decided_by}
+          <Pill tone="good">Đã cộng điểm</Pill> {claim.decided_at ? formatDateTime(claim.decided_at) : ""}
         </p>
-      ) : null}
-      {claim.status === "PENDING" && reviews ? (
-        <Decision claim={claim} contentId={claim.content_id} />
-      ) : null}
+      ) : (
+        <p className="mt-2 text-xs text-[var(--text-muted)]">
+          <Pill>Cộng khi hoàn thành</Pill>
+        </p>
+      )}
     </li>
   );
 }

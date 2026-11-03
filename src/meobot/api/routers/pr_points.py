@@ -1,20 +1,20 @@
-""" "Điểm PR" (0085): task codes for a PR piece's Nội dung / Sản xuất, and the
-Trưởng phòng PR's decisions. Under ``/api/performance/pr`` - not a PR route:
-the PR workflow is only read (see :mod:`meobot.application.performance.pr_points`)."""
+""" "Điểm PR" (0085): task codes for a PR piece's Nội dung / Sản xuất (no
+approval since 2026-11-03: the points count once the piece is done). Under
+``/api/performance/pr`` - not a PR route: the PR workflow is only read
+(see :mod:`meobot.application.performance.pr_points`)."""
 
 from __future__ import annotations
 
 import uuid
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, Query, Response, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from meobot.api.deps import (
     CurrentActorDep,
     RequestIdDep,
     UnitMembershipDep,
-    get_app_settings,
     get_session,
 )
 from meobot.api.schemas.pr_points import (
@@ -22,26 +22,21 @@ from meobot.api.schemas.pr_points import (
     PrClaimRequest,
     PrClaimResponse,
     PrContentPointsResponse,
-    PrDecisionRequest,
 )
 from meobot.api.schemas.units import DesignCodeResponse, TaskFormResponse
 from meobot.application.audit_service import AuditService
 from meobot.application.performance.pr_points import PrPointService, in_pr
-from meobot.application.performance.review_notifications import ReviewNotifier
 from meobot.application.units.directory import UnitDirectoryService
-from meobot.core.config import Settings
 from meobot.domain.performance.errors import PrPointsForbiddenError
 from meobot.domain.units.models import UnitCode
 
 router = APIRouter(prefix="/api/performance/pr", tags=["performance"])
 
 SessionDep = Annotated[AsyncSession, Depends(get_session)]
-SettingsDep = Annotated[Settings, Depends(get_app_settings)]
 
 
-def _service(session: AsyncSession, settings: Settings | None = None) -> PrPointService:
-    notifier = ReviewNotifier(session, settings) if settings is not None else None
-    return PrPointService(session, AuditService(session), notifier=notifier)
+def _service(session: AsyncSession) -> PrPointService:
+    return PrPointService(session, AuditService(session))
 
 
 @router.get("/catalog", response_model=PrCatalogResponse)
@@ -76,13 +71,13 @@ async def submit_claim(
     membership: UnitMembershipDep,
     actor: CurrentActorDep,
     request_id: RequestIdDep,
-    app_settings: SettingsDep,
 ) -> PrClaimResponse:
-    """One's own codes for one stage (sent again after a refusal). 422
-    ``pr_points_not_open`` / ``pr_points_codes_required`` / the catalogue's
-    ``design_code_invalid`` …, 403 ``pr_points_forbidden``, 409 ``pr_claim_decided``.
-    The Trưởng phòng PR is told (2026-10-31)."""
-    view = await _service(session, app_settings).submit(
+    """One's own codes for one stage, or (``user_id``) a Trưởng phòng PR
+    editing somebody's. 422 ``pr_points_not_open`` (done / cancelled) /
+    ``pr_points_locked`` (sent to internal review: members no longer edit) /
+    ``pr_points_codes_required`` / the catalogue's ``design_code_invalid`` …,
+    403 ``pr_points_forbidden``."""
+    view = await _service(session).submit(
         actor=actor,
         membership=membership,
         request_id=request_id,
@@ -92,6 +87,7 @@ async def submit_claim(
             phase: [pick.to_pick() for pick in picks] for phase, picks in body.task_codes.items()
         },
         note=body.note,
+        user_id=body.user_id,
     )
     return PrClaimResponse.from_domain(view)
 
@@ -107,25 +103,20 @@ async def claims(
     return [PrClaimResponse.from_domain(view) for view in views]
 
 
-@router.post("/claims/{claim_id}/decide", response_model=PrClaimResponse)
-async def decide_claim(
+@router.delete("/claims/{claim_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def remove_claim(
     claim_id: uuid.UUID,
-    body: PrDecisionRequest,
     session: SessionDep,
     membership: UnitMembershipDep,
     actor: CurrentActorDep,
     request_id: RequestIdDep,
-) -> PrClaimResponse:
-    view = await _service(session).decide(
-        actor=actor,
-        membership=membership,
-        request_id=request_id,
-        claim_id=claim_id,
-        approve=body.approve,
-        reason=body.return_reason,
-        note=body.note,
+) -> Response:
+    """A Trưởng phòng PR takes somebody's codes off a piece, until it is done.
+    403 ``pr_points_forbidden``, 422 ``pr_points_not_open``."""
+    await _service(session).remove(
+        actor=actor, membership=membership, request_id=request_id, claim_id=claim_id
     )
-    return PrClaimResponse.from_domain(view)
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
 __all__ = ["router"]

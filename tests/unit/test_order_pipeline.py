@@ -230,12 +230,19 @@ def test_07_a_leader_assigns_and_approves_and_the_assignee_accepts_and_submits()
     accepted = (
         node(OrderNodeType.BIEN_TAP, OrderNodeStatus.DANG_LAM, assignee=EDITOR, accepted=True),
     )
-    assert kinds(available_actions(working, accepted, writer)) == {OrderActionKind.SUBMIT_WORK}
+    # 0089: and, once taken, edits their own task codes ("Sửa mã task").
+    assert kinds(available_actions(working, accepted, writer)) == {
+        OrderActionKind.SUBMIT_WORK,
+        OrderActionKind.SET_WORK_ITEMS,
+    }
     # Sent back for a fix: the same person works on, no new acceptance...
     fixing = (
         node(OrderNodeType.BIEN_TAP, OrderNodeStatus.DANG_SUA, assignee=EDITOR, accepted=True),
     )
-    assert kinds(available_actions(working, fixing, writer)) == {OrderActionKind.SUBMIT_WORK}
+    assert kinds(available_actions(working, fixing, writer)) == {
+        OrderActionKind.SUBMIT_WORK,
+        OrderActionKind.SET_WORK_ITEMS,
+    }
     # ...unless the fix was handed to somebody new, who accepts first.
     handed_over = (node(OrderNodeType.BIEN_TAP, OrderNodeStatus.DANG_SUA, assignee=EDITOR),)
     assert kinds(available_actions(working, handed_over, writer)) == {OrderActionKind.ACCEPT}

@@ -2,9 +2,10 @@
 
 * a PR piece's **Nội dung** codes are its owner's to type, its **Sản xuất**
   codes anybody in PR who worked on it - both open from the start (2026-10-31)
-  and required before the piece leaves the phase; a Trưởng phòng PR approves
-  (or refuses with a reason), the points then show on the reports like an ORD
-  step's;
+  and required before the piece leaves the phase; nobody approves them
+  (2026-11-03): members edit theirs until internal review, a Trưởng phòng PR
+  anybody's until the piece is done, and the points count once it is done,
+  shown on the reports like an ORD step's;
 * every publication with a link is worth 10 to whoever published it;
 * the seeding group: a Trưởng phòng PR adds people, sets the team KPI, members
   hand numbers in (never twice in the system), approved numbers are worth
@@ -61,7 +62,23 @@ async def at_stage(world: World, content: Any, stage: PrWorkflowStage) -> None:
     await world.session.flush()
 
 
-async def test_01_content_codes_are_open_from_the_start_and_count_once_approved(
+async def finish(world: World, content: Any) -> None:
+    """Internal review passes: the piece is done ("Hoàn thành")."""
+    from meobot.application.pr_services import build_pr_services
+    from meobot.domain.pr.workflow import PrTransitionTrigger
+
+    await at_stage(world, content, PrWorkflowStage.INTERNAL_REVIEW)
+    services = build_pr_services(world.session, world.settings)
+    await services.workflow.apply(
+        actor=world.actor(world.owner),
+        request_id=uuid.uuid4(),
+        content=content,
+        target=PrWorkflowStage.READY_TO_PUBLISH,
+        trigger=PrTransitionTrigger.HUMAN_APPROVAL,
+    )
+
+
+async def test_01_content_codes_are_open_from_the_start_and_count_once_done(
     world: World,
 ) -> None:
     _, writer, maker, content = await pr_world(world)
@@ -107,24 +124,25 @@ async def test_01_content_codes_are_open_from_the_start_and_count_once_approved(
         task_codes={"BIEN_TAP": [{"code_id": codes["N3"]}]},
     )
     assert other.status_code == 403
-    # Not counted before the Trưởng phòng decides.
+    # Not counted while the piece is not done; nobody approves.
     assert call(world, writer, "GET", "/api/performance/people/me").json()["figures"]["points"] == 0
-    # A member may not decide; the Trưởng phòng PR approves.
-    path = f"/api/performance/pr/claims/{claim['id']}/decide"
-    assert call(world, maker, "POST", path, approve=True).status_code == 403
     queue = call(world, world.lead, "GET", "/api/performance/pr/claims?status=PENDING").json()
     assert [item["id"] for item in queue] == [claim["id"]]
-    approved = call(world, world.lead, "POST", path, approve=True)
-    assert approved.status_code == 200 and approved.json()["status"] == "APPROVED"
-
-    me = call(world, writer, "GET", "/api/performance/people/me").json()
-    assert me["figures"]["points"] == 150 and me["figures"]["steps_done"] == 1
-    line = me["lines"][0]
-    assert line["source"] == "PR_CONTENT" and line["phase_label"] == "Nội dung (PR)"
-    assert line["link"] == f"/tasks/{content.code}" and line["order_id"] is None
-    assert {row["code"]: row["quantity"] for row in me["codes"]} == {"N3": 1, "N1": 2}
-    # Approved = final.
-    again = call(
+    # The writer edits theirs until internal review.
+    edited = call(
+        world,
+        writer,
+        "POST",
+        f"{base}/claims",
+        stage="CONTENT",
+        task_codes={
+            "BIEN_TAP": [{"code_id": codes["N3"]}, {"code_id": codes["N1"], "quantity": 2}]
+        },
+        note="sửa",
+    )
+    assert edited.status_code == 200 and edited.json()["id"] == claim["id"]
+    await at_stage(world, content, PrWorkflowStage.INTERNAL_REVIEW)
+    locked = call(
         world,
         writer,
         "POST",
@@ -132,14 +150,71 @@ async def test_01_content_codes_are_open_from_the_start_and_count_once_approved(
         stage="CONTENT",
         task_codes={"BIEN_TAP": [{"code_id": codes["N3"]}]},
     )
-    assert again.status_code == 409
+    assert locked.status_code == 422 and locked.json()["details"]["reason"] == "pr_points_locked"
+    page = call(world, writer, "GET", base).json()
+    content_stage = next(stage for stage in page["stages"] if stage["stage"] == "CONTENT")
+    assert content_stage["may_claim"] is False and "Trưởng phòng" in content_stage["waiting"]
+    assert content_stage["may_edit_others"] is False
+    # The Trưởng phòng PR still edits it (a member may not edit somebody's).
+    assert (
+        call(
+            world,
+            maker,
+            "POST",
+            f"{base}/claims",
+            stage="CONTENT",
+            user_id=str(writer.id),
+            task_codes={"BIEN_TAP": [{"code_id": codes["N3"]}]},
+        ).status_code
+        == 422
+    )
+    lead_page = call(world, world.lead, "GET", base).json()
+    assert all(stage["may_edit_others"] for stage in lead_page["stages"])
+    fixed = call(
+        world,
+        world.lead,
+        "POST",
+        f"{base}/claims",
+        stage="CONTENT",
+        user_id=str(writer.id),
+        task_codes={
+            "BIEN_TAP": [{"code_id": codes["N3"]}, {"code_id": codes["N1"], "quantity": 2}]
+        },
+    )
+    assert fixed.status_code == 200, fixed.json()
+    assert fixed.json()["user_id"] == str(writer.id) and fixed.json()["status"] == "PENDING"
+
+    # Done: the points count, dated now, and the codes are frozen.
+    await finish(world, content)
+    me = call(world, writer, "GET", "/api/performance/people/me").json()
+    assert me["figures"]["points"] == 150 and me["figures"]["steps_done"] == 1
+    line = me["lines"][0]
+    assert line["source"] == "PR_CONTENT" and line["phase_label"] == "Nội dung (PR)"
+    assert line["link"] == f"/tasks/{content.code}" and line["order_id"] is None
+    assert {row["code"]: row["quantity"] for row in me["codes"]} == {"N3": 1, "N1": 2}
+    page = call(world, writer, "GET", base).json()
+    assert page["done"] is True
+    assert page["stages"][0]["claims"][0]["status"] == "APPROVED"
+    frozen = call(
+        world,
+        world.lead,
+        "POST",
+        f"{base}/claims",
+        stage="CONTENT",
+        user_id=str(writer.id),
+        task_codes={"BIEN_TAP": [{"code_id": codes["N3"]}]},
+    )
+    assert frozen.status_code == 422 and frozen.json()["details"]["reason"] == "pr_points_not_open"
+    # No decision route any more.
+    gone = call(world, world.lead, "POST", f"/api/performance/pr/claims/{claim['id']}/decide")
+    assert gone.status_code in (404, 405)
 
 
 async def test_02_production_is_each_maker_s_own_part(world: World) -> None:
     _, writer, maker, content = await pr_world(world)
     codes = codes_of(world)
     base = f"/api/performance/pr/contents/{content.id}"
-    await at_stage(world, content, PrWorkflowStage.READY_TO_PUBLISH)
+    await at_stage(world, content, PrWorkflowStage.PRODUCTION)
     dung = call(
         world,
         maker,
@@ -170,30 +245,11 @@ async def test_02_production_is_each_maker_s_own_part(world: World) -> None:
     empty = call(world, maker, "POST", f"{base}/claims", stage="PRODUCTION", task_codes={})
     assert empty.status_code == 422
 
-    # Refused with a reason, edited, sent again, approved.
-    path = f"/api/performance/pr/claims/{design['id']}/decide"
-    no_reason = call(world, world.lead, "POST", path, approve=False)
-    assert no_reason.status_code == 422
-    refused = call(world, world.lead, "POST", path, approve=False, return_reason="WRONG_CODES")
-    assert refused.json()["status"] == "REJECTED"
-    resent = call(
-        world,
-        writer,
-        "POST",
-        f"{base}/claims",
-        stage="PRODUCTION",
-        task_codes={"THIET_KE": [{"code_id": codes["T1"]}]},
-    ).json()
-    assert resent["id"] == design["id"] and resent["status"] == "PENDING"
-    call(world, world.lead, "POST", path, approve=True)
-    call(world, world.lead, "POST", f"/api/performance/pr/claims/{dung['id']}/decide", approve=True)
-    page = call(world, writer, "GET", base).json()
-    production = next(stage for stage in page["stages"] if stage["stage"] == "PRODUCTION")
-    assert sorted(claim["status"] for claim in production["claims"]) == ["APPROVED", "APPROVED"]
-    me = call(world, maker, "GET", "/api/performance/people/me").json()
-    assert me["by_phase"] == {"DUNG": 240}
-
-    # A Trưởng phòng's own codes stand at once.
+    # A member takes nobody's codes off; the Trưởng phòng PR does.
+    path = f"/api/performance/pr/claims/{design['id']}"
+    assert call(world, maker, "DELETE", path).status_code == 403
+    assert call(world, world.lead, "DELETE", path).status_code == 204
+    # A Trưởng phòng's own codes wait for the piece like everybody's.
     own = call(
         world,
         world.lead,
@@ -202,7 +258,20 @@ async def test_02_production_is_each_maker_s_own_part(world: World) -> None:
         stage="PRODUCTION",
         task_codes={"DUNG": [{"code_id": codes["D4"]}]},
     ).json()
-    assert own["status"] == "APPROVED"
+    assert own["status"] == "PENDING"
+    await finish(world, content)
+    page = call(world, writer, "GET", base).json()
+    production = next(stage for stage in page["stages"] if stage["stage"] == "PRODUCTION")
+    assert sorted(claim["status"] for claim in production["claims"]) == ["APPROVED", "APPROVED"]
+    assert call(world, maker, "GET", "/api/performance/people/me").json()["by_phase"] == {
+        "DUNG": 240
+    }
+    assert call(world, writer, "GET", "/api/performance/people/me").json()["by_phase"] == {}
+    # Once done nobody removes codes either.
+    assert (
+        call(world, world.lead, "DELETE", f"/api/performance/pr/claims/{dung['id']}").status_code
+        == 422
+    )
 
 
 async def test_03_a_publication_with_a_link_is_worth_ten(world: World) -> None:
@@ -368,9 +437,8 @@ async def test_05_deleting_a_task_takes_its_points_with_it(world: World) -> None
         stage="CONTENT",
         task_codes={"BIEN_TAP": [{"code_id": codes["N3"]}]},
     ).json()
-    call(
-        world, world.lead, "POST", f"/api/performance/pr/claims/{claim['id']}/decide", approve=True
-    )
+    assert claim["status"] == "PENDING"
+    await finish(world, content)
     assert (await world.session.scalars(select(WorkPoint.id))).all()
     # The OWNER deletes the PR piece: its claims and points go too.
     gone = call(world, world.owner, "DELETE", f"/api/tasks/{content.code}")
@@ -391,7 +459,7 @@ async def test_06_a_piece_may_not_leave_a_phase_without_its_codes(world: World) 
     """2026-10-31: with the PR unit's switch on, sending the script for review
     needs the Order (Nội dung) codes and handing production in the Sản xuất
     codes - refused on every path (422 ``pr_task_codes_required``) and greyed
-    out on the task page. Waiting codes are enough; refused ones are not."""
+    out on the task page. Any claim is enough; one the head removes is not."""
     from meobot.application.pr_services import build_pr_services
     from meobot.db.models.org_unit import OrgUnit
     from meobot.domain.performance.errors import PrTaskCodesRequiredError
@@ -434,7 +502,7 @@ async def test_06_a_piece_may_not_leave_a_phase_without_its_codes(world: World) 
             target=PrWorkflowStage.TEAM_LEAD_REVIEW,
         )
 
-    # The owner's codes, still waiting for the Trưởng phòng, open the way.
+    # The owner's codes open the way.
     claim = call(
         world,
         writer,
@@ -446,15 +514,8 @@ async def test_06_a_piece_may_not_leave_a_phase_without_its_codes(world: World) 
     assert claim["status"] == "PENDING"
     page = call(world, world.owner, "GET", f"/api/tasks/{code}").json()
     assert all(a.get("blocked") is None for a in page["actions"])
-    # ... until they are refused.
-    call(
-        world,
-        world.lead,
-        "POST",
-        f"/api/performance/pr/claims/{claim['id']}/decide",
-        approve=False,
-        return_reason="WRONG_CODES",
-    )
+    # ... until the Trưởng phòng takes them off.
+    call(world, world.lead, "DELETE", f"/api/performance/pr/claims/{claim['id']}")
     page = call(world, world.owner, "GET", f"/api/tasks/{code}").json()
     assert any(a.get("blocked") for a in page["actions"])
 
@@ -523,7 +584,7 @@ async def test_07_everybody_in_pr_hands_in_and_the_head_is_told(world: World) ->
     accounts = call(world, world.owner, "GET", "/api/account/members").json()["members"]
     assert {row["user_id"]: row["seeding"] for row in accounts}[str(maker.id)] is True
 
-    # PR task codes sent for approval tell the Trưởng phòng too.
+    # PR task codes need no approval (2026-11-03): nobody is told.
     codes = codes_of(world)
     content = await world.content()
     content.owner_user_id = writer.id
@@ -536,4 +597,6 @@ async def test_07_everybody_in_pr_hands_in_and_the_head_is_told(world: World) ->
         stage="CONTENT",
         task_codes={"BIEN_TAP": [{"code_id": codes["N3"]}]},
     )
-    assert "pr_points_review_requested" in [event for event, _ in await inbox(world, world.lead)]
+    assert "pr_points_review_requested" not in [
+        event for event, _ in await inbox(world, world.lead)
+    ]

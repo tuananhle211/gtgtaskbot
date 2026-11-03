@@ -199,7 +199,7 @@ function performanceBranch(me: UnitsMe | undefined): NavGroup {
         ? [{ href: "/performance/company", label: "Toàn công ty", icon: "report" as NavIcon }]
         : []),
       ...(me?.performance?.review_pr
-        ? [{ href: "/performance/pr-claims", label: "Duyệt điểm PR", icon: "task" as NavIcon }]
+        ? [{ href: "/performance/pr-claims", label: "Điểm PR", icon: "task" as NavIcon }]
         : []),
       ...(me?.performance?.manage_coefficients
         ? [{ href: "/performance/coefficients", label: "Hệ số & định mức", icon: "settings" as NavIcon }]
