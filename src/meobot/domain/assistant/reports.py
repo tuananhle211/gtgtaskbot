@@ -26,7 +26,7 @@ from __future__ import annotations
 
 import re
 from collections.abc import Mapping
-from datetime import date
+from datetime import date, timedelta
 from enum import StrEnum
 from types import MappingProxyType
 
@@ -124,12 +124,25 @@ _TOPICS: tuple[tuple[ReportTool, tuple[str, ...], tuple[str, ...]], ...] = (
             "ads/dt",
             "ads / dt",
             "lap hoa don",
+            "so dien thoai",
+            "chi phi / sdt",
+            "chi phi tren",
+            "=sdt",
         ),
         ("chi tieu", "quang cao", "=ads", "=crm"),
     ),
     (
         ReportTool.PERFORMANCE,
-        ("diem hieu suat", "dinh muc", "he so diem"),
+        (
+            "diem hieu suat",
+            "dinh muc",
+            "he so diem",
+            "diem phong",
+            "diem cua",
+            "diem cao",
+            "diem thap",
+            "diem thang",
+        ),
         ("=diem", "hieu suat"),
     ),
     (
@@ -137,11 +150,15 @@ _TOPICS: tuple[tuple[ReportTool, tuple[str, ...], tuple[str, ...]], ...] = (
         ("tai nguyen", "de xuat mua"),
         ("=tkqc", "=via"),
     ),
-    (ReportTool.PR, ("bai da dang",), ("bai dang", "dang bai", "seeding", "=pr")),
+    (
+        ReportTool.PR,
+        ("bai da dang", "bao nhieu bai", "so bai dang"),
+        ("bai dang", "dang bai", "seeding", "=pr"),
+    ),
     (
         ReportTool.ORDERS,
         ("tre han", "qua han", "cho phan cong"),
-        ("order", "task", "cho duyet", "dang lam", "dang sua", "video"),
+        ("order", "task", "cho duyet", "dang lam", "dang sua", "bi tra lai", "video"),
     ),
 )
 
@@ -163,6 +180,10 @@ _REPORT_WORDS: tuple[str, ...] = (
     "bao cao",
     "dat chua",
     "ra sao",
+    "liet ke",
+    "danh sach",
+    "nhieu nhat",
+    "cao nhat",
 )
 
 _TOKEN = re.compile(r"[a-z0-9]+")
@@ -172,6 +193,13 @@ def _matches(phrases: tuple[str, ...], folded: str, words: set[str]) -> bool:
     return any(
         phrase[1:] in words if phrase.startswith("=") else phrase in folded for phrase in phrases
     )
+
+
+def mentions(phrases: tuple[str, ...], message: str) -> bool:
+    """Whether ``message`` holds one of ``phrases`` (accent-folded; ``=word`` a
+    whole word) - the matching the reports' topics use, for other word lists."""
+    folded = fold(message)
+    return _matches(phrases, folded, set(_TOKEN.findall(folded)))
 
 
 def report_topic(message: str) -> ReportTool | None:
@@ -195,6 +223,17 @@ def asks_for_figures(message: str) -> bool:
     return any(word in folded for word in _FIGURE_WORDS)
 
 
+#: "so với tháng trước" compares - it does not name the period read.
+_COMPARED = re.compile(
+    r"\bso (?:voi|sanh voi)\s+(?:thang truoc|thang \d{1,2}|hom qua|hom kia|tuan truoc|ky truoc)\b"
+)
+
+
+def _period_words(message: str) -> str:
+    """The message folded, without the period it is compared with."""
+    return _COMPARED.sub(" ", fold(message))
+
+
 _ISO_MONTH = re.compile(r"\b(20\d{2})-(\d{1,2})\b")
 _MONTH_YEAR = re.compile(r"\b(?:thang\s*)?(\d{1,2})\s*[/-]\s*(20\d{2})\b")
 _MONTH = re.compile(r"\bthang\s*(\d{1,2})\b")
@@ -205,7 +244,7 @@ def month_in(message: str, today: date) -> str | None:
     reports then take this month). "tháng này", "tháng trước", "tháng 9",
     "tháng 9/2026", "09/2026", "2026-09". A bare month after this one is last
     year's: in October, "tháng 12" is December just gone."""
-    folded = fold(message)
+    folded = _period_words(message)
     if "thang truoc" in folded:
         year, month = (today.year, today.month - 1) if today.month > 1 else (today.year - 1, 12)
         return f"{year:04d}-{month:02d}"
@@ -226,6 +265,116 @@ def month_in(message: str, today: date) -> str | None:
             year = today.year if month <= today.month else today.year - 1
             return f"{year:04d}-{month:02d}"
     return None
+
+
+_RELATIVE_DAYS = (("hom kia", 2), ("hom qua", 1), ("hom nay", 0), ("bua nay", 0))
+_ISO_DAY = re.compile(r"\b(20\d{2})-(\d{1,2})-(\d{1,2})\b")
+_DAY_MONTH = re.compile(r"\b(\d{1,2})\s*/\s*(\d{1,2})(?:\s*/\s*(\d{2}|20\d{2}))?\b")
+_DAY = re.compile(r"\bngay\s*(\d{1,2})\b")
+
+
+def day_in(message: str, today: date) -> date | None:
+    """The one day a question names; ``None`` = none (the reports then read a
+    month). "hôm nay", "hôm qua", "hôm kia", "3/11", "03/11/2026",
+    "2026-11-03", "ngày 3" (this month). A day without a year that is still
+    to come is last year's; a day still to come is never read."""
+    folded = _period_words(message)
+    for phrase, back in _RELATIVE_DAYS:
+        if phrase in folded:
+            return today - timedelta(days=back)
+    found_iso = _ISO_DAY.search(folded)
+    if found_iso is not None:
+        year, month, day = (int(part) for part in found_iso.groups())
+        return _past_day(year, month, day, today)
+    found = _DAY_MONTH.search(folded)
+    if found is not None:
+        day, month = int(found.group(1)), int(found.group(2))
+        if found.group(3) is None:
+            picked = _past_day(today.year, month, day, today)
+            return picked or _past_day(today.year - 1, month, day, today)
+        year = int(found.group(3))
+        return _past_day(year if year > 99 else 2000 + year, month, day, today)
+    found = _DAY.search(folded)
+    if found is not None:
+        return _past_day(today.year, today.month, int(found.group(1)), today)
+    return None
+
+
+_LAST_DAYS = re.compile(r"\b(\d{1,2})\s*ngay\s*(?:qua|gan day|gan nhat|vua roi|vua qua)\b")
+_FROM_TO = re.compile(
+    r"\btu\s*(?:ngay\s*)?(\d{1,2}\s*/\s*\d{1,2}(?:\s*/\s*\d{2,4})?)"
+    r"\s*(?:den|toi|-)\s*(?:ngay\s*)?(\d{1,2}\s*/\s*\d{1,2}(?:\s*/\s*\d{2,4})?|hom nay)\b"
+)
+
+#: The longest span a question may name: a report over more is a month's.
+MAX_SPAN_DAYS = 62
+
+
+def span_in(message: str, today: date) -> tuple[date, date] | None:
+    """Several days a question names, first and last: "tuần này" (Monday to
+    today), "tuần trước" (last Monday to Sunday), "tuần qua" / "7 ngày qua"
+    (the last 7 / N days, today included), "từ 1/11 đến 3/11". ``None`` = no
+    span (a single day or a month is read instead); never a day to come."""
+    folded = _period_words(message)
+    monday = today - timedelta(days=today.weekday())
+    if "tuan nay" in folded:
+        return monday, today
+    if "tuan truoc" in folded:
+        return monday - timedelta(days=7), monday - timedelta(days=1)
+    if "tuan qua" in folded:
+        return today - timedelta(days=6), today
+    found = _LAST_DAYS.search(folded)
+    if found is not None and 1 < int(found.group(1)) <= MAX_SPAN_DAYS:
+        return today - timedelta(days=int(found.group(1)) - 1), today
+    found = _FROM_TO.search(folded)
+    if found is not None:
+        start, end = day_in(found.group(1), today), day_in(found.group(2), today)
+        if start is not None and end is not None and 0 <= (end - start).days < MAX_SPAN_DAYS:
+            return start, end
+    return None
+
+
+def _past_day(year: int, month: int, day: int, today: date) -> date | None:
+    try:
+        picked = date(year, month, day)
+    except ValueError:
+        return None
+    return picked if picked <= today else None
+
+
+#: Words of the order states, for "liệt kê order bị trả lại": the longest
+#: first, so "đã giao, chưa nhận" is not read as "đang làm".
+_STATE_WORDS: tuple[tuple[str, str], ...] = (
+    ("cho phan cong", "CHO_PHAN_CONG"),
+    ("chua nhan", "DA_GIAO"),
+    ("bi tra lai", "ORDER_RETURNED"),
+    ("tra lai", "ORDER_RETURNED"),
+    ("cho duyet", "CHO_DUYET"),
+    ("dang lam", "DANG_LAM"),
+    ("dang sua", "DANG_SUA"),
+    ("hoan thanh", "HOAN_THANH"),
+    ("da huy", "DA_HUY"),
+    ("bi huy", "DA_HUY"),
+    ("da giao", "DA_GIAO"),
+)
+_LIST_WORDS: tuple[str, ...] = (
+    "liet ke",
+    "danh sach",
+    "order nao",
+    "task nao",
+    "nhung order",
+    "nhung task",
+    "cu the",
+)
+
+
+def listed_state(message: str) -> str | None:
+    """The order state a question wants listed ("liệt kê order bị trả lại",
+    "order nào đang chờ duyệt"); ``None`` when it only counts."""
+    folded = fold(message)
+    if not any(word in folded for word in _LIST_WORDS):
+        return None
+    return next((state for words, state in _STATE_WORDS if words in folded), None)
 
 
 def area_question() -> str:
@@ -252,6 +401,10 @@ __all__ = [
     "area_question",
     "asks_for_figures",
     "assistant_allowed_scopes",
+    "day_in",
+    "listed_state",
+    "mentions",
     "month_in",
     "report_topic",
+    "span_in",
 ]

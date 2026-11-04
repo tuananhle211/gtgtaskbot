@@ -141,7 +141,19 @@ class AssistantReportService:
             COMPANY_ADS, month=date(month.year, month.month, 1)
         )
 
-    async def ads_revenue(self, month_value: str | None = None) -> Report:
+    def today(self) -> date:
+        return utcnow().astimezone(self._settings.timezone).date()
+
+    async def ads_revenue(
+        self,
+        month_value: str | None = None,
+        day_value: str | None = None,
+        day_to_value: str | None = None,
+    ) -> Report:
+        if day_value:
+            start = date.fromisoformat(day_value)
+            end = date.fromisoformat(day_to_value) if day_to_value else start
+            return await self.ads_revenue_day(start, max(start, end))
         month = self.month(month_value)
         team = await self._team(month)
         now, before = team.current, team.before
@@ -230,6 +242,75 @@ class AssistantReportService:
             notes=(
                 "Doanh thu = thực thu từ CRM (gồm VAT), như ô Doanh thu tổng trên Dashboard Ads.",
             ),
+        )
+
+    async def ads_revenue_day(self, day: date, until: date | None = None) -> Report:
+        """One day's revenue, or a few days' ("tuần này", "7 ngày qua"), short:
+        the question "doanh thu hôm nay" wants a handful of lines, not the
+        month's dashboard. Compared with as many days just before."""
+        start, day = day, until or day
+        team = await AdsTeamService(self._session).report(
+            COMPANY_ADS, month=day.replace(day=1), start=start, end=day
+        )
+        now, before = team.current, team.before
+        today = self.today()
+        if start == day:
+            named = f"{_day_name(day, today)} {day:%d/%m/%Y}"
+            previous = "hôm qua" if day == today else "ngày trước"
+        else:
+            named = f"{start:%d/%m} - {day:%d/%m/%Y} ({(day - start).days + 1} ngày)"
+            previous = f"{(day - start).days + 1} ngày trước đó"
+        regions = team.regions
+        lines = [
+            f"- Doanh thu tổng (thực thu): {money(now.revenue)}"
+            f" ({previous}: {money(before.revenue)})",
+            f"- Doanh thu Marketing: HN {money(regions.hn.marketing)}"
+            f" · SG {money(regions.hcm.marketing)}",
+            f"- Chi phí Ads (Facebook): {money(now.spend)}"
+            f" · Ads / Doanh thu: {percent(now.ads_ratio)}",
+            f"- SĐT: {count(now.phones)}",
+            f"- Luỹ kế tháng {day.month:02d}/{day.year} đến {day:%d/%m}:"
+            f" {money(team.kpi_revenue)}"
+            + (f" · KPI {percent(team.team_kpi_rate)}" if team.team_kpi else ""),
+        ]
+        ranked = sorted(
+            (line for line in team.marketers if line.current.revenue),
+            key=lambda line: -(line.current.revenue or 0.0),
+        )[:3]
+        if ranked:
+            lines.append(
+                "- Cao nhất: "
+                + " · ".join(f"{line.name} {money(line.current.revenue)}" for line in ranked)
+            )
+        notes = (
+            ("Doanh thu CRM đồng bộ mỗi giờ (07:10-23:10), số hôm nay còn tăng.",)
+            if day == today
+            else ()
+        )
+        return Report(
+            title=f"Doanh thu Ads · {named}",
+            lines=tuple(lines),
+            data={
+                "day": day.isoformat(),
+                "from": start.isoformat(),
+                "month": f"{day.year:04d}-{day.month:02d}",
+                "current": _figures(now),
+                "previous": _figures(before),
+                "regions": {"hn": _region(regions.hn), "hcm": _region(regions.hcm)},
+                "month_to_date": team.kpi_revenue,
+                "team_kpi": team.team_kpi,
+                "team_kpi_rate": team.team_kpi_rate,
+                "top_marketers": [
+                    {
+                        "user_id": str(line.user_id),
+                        "name": line.name,
+                        "revenue": line.current.revenue,
+                    }
+                    for line in ranked
+                ],
+            },
+            link="/ads",
+            notes=notes,
         )
 
     # --- Ads: KPI and the weekly budgets -------------------------------------------
@@ -772,6 +853,11 @@ def _region(region: Any) -> dict[str, Any]:
         "spend": region.spend,
         "ads_ratio": region.ads_ratio,
     }
+
+
+def _day_name(day: date, today: date) -> str:
+    """ "hôm nay" / "hôm qua" / "ngày" before a date in a title."""
+    return {today: "hôm nay", today - timedelta(days=1): "hôm qua"}.get(day, "ngày")
 
 
 def _kpi_line(team: TeamReport) -> str:

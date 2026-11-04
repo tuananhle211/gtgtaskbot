@@ -21,13 +21,14 @@ from __future__ import annotations
 import uuid
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
-from datetime import date
+from datetime import date, timedelta
 from typing import Any
 
 import pytest
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from meobot.application.actor_profile_service import ActorProfileService
+from meobot.application.ads.sync_service import vn_today
 from meobot.application.assistant.reports import REPORT_OPENER
 from meobot.application.conversation_service import ASSISTANT_UNKNOWN_REPLY, ConversationService
 from meobot.application.org.bot_access import with_unified_access
@@ -38,16 +39,18 @@ from meobot.domain.assistant.reports import (
     ReportTool,
     area_question,
     asks_for_figures,
+    day_in,
     month_in,
     report_topic,
 )
 from meobot.domain.board.models import TASK_STATES
+from meobot.domain.conversations.references import RecentReference
 from meobot.domain.identity.models import Actor, Role
 from meobot.domain.org.modules import MODULES
 from meobot.domain.permissions.matrix import Permission
 from meobot.domain.policy.engine import PolicyEngine
 from meobot.domain.policy.models import ActionPlan, DecisionCode, RiskLevel
-from meobot.integrations.llm.base import PlanningRequest
+from meobot.integrations.llm.base import MessageRoute, PlanningRequest, RouteMode
 from meobot.integrations.llm.fake import FakeLLMProvider
 from meobot.tools.base import ToolContext, ToolRegistry
 from meobot.tools.registry import build_default_registry
@@ -398,3 +401,75 @@ async def test_09_the_assistant_says_em_to_sep(world: World) -> None:
         actor=member, plan=unknown, request_id=uuid.uuid4()
     )
     assert answered.text == ASSISTANT_UNKNOWN_REPLY
+
+
+# --- one day -------------------------------------------------------------------------
+
+
+class _CompanyPlanner(FakeLLMProvider):
+    """A model that reaches for the company summary whatever is asked."""
+
+    async def plan_tool_action(self, request: PlanningRequest) -> ActionPlan:
+        return ActionPlan(
+            intent="report_company",
+            risk_level=RiskLevel.LOW,
+            requires_confirmation=False,
+            tool_name=ReportTool.COMPANY.value,
+            arguments={},
+        )
+
+
+async def test_10_a_day_s_revenue_is_short_and_a_follow_up_keeps_the_report(
+    world: World,
+) -> None:
+    today = vn_today()
+    assert day_in("Doanh thu hôm nay là bao nhiêu", today) == today
+    assert day_in("hôm qua", today) == today - timedelta(days=1)
+    assert day_in("doanh thu 21/10/2026", today) == D2
+    assert day_in("tháng 9/2026", today) is None
+    _, ngoc, _ = await staffed(world)
+    entries = {f"u:{ngoc.id}": 5_400_000, f"u:{ngoc.id}:hn": 1_080_000}
+    world.client.put("/api/ads/revenue", json={"day": D2.isoformat(), "entries": entries})
+    world.act_as(world.owner)
+    team = world.client.get(
+        "/api/ads/team", params={"start": D2.isoformat(), "end": D2.isoformat()}
+    ).json()
+    result = await run(
+        world, world.actor(world.owner), ReportTool.ADS_REVENUE.value, day="21/10/2026"
+    )
+    assert result.data["day"] == D2.isoformat()
+    assert result.data["current"]["revenue"] == team["current"]["revenue"] == 6_480_000
+    assert "**Doanh thu Ads · ngày 21/10/2026**" in result.message
+    assert "ngày trước: chưa có dữ liệu" in result.message
+    assert f"Cao nhất: {ngoc.full_name} 6.480.000 đ" in result.message
+    assert len(result.message.splitlines()) <= 10
+    # A day to come is refused, never guessed.
+    with pytest.raises(Exception, match="Tham số không hợp lệ"):
+        await run(world, world.actor(world.owner), ReportTool.ADS_REVENUE.value, day="31/12/2030")
+
+    member = await granted(world, world.member)
+    # "Doanh thu hôm nay": the revenue report of today, even when the model
+    # reaches for the company summary.
+    reply = await conversation(world, _CompanyPlanner()).handle_message(
+        actor=member, message="Doanh thu hôm nay là bao nhiêu", request_id=uuid.uuid4()
+    )
+    assert reply.plan is not None and reply.plan.tool_name == ReportTool.ADS_REVENUE.value
+    assert reply.data["day"] == today.isoformat()
+    assert "hôm nay" in reply.text.splitlines()[1]
+    # A follow-up naming only the period asks the same report again.
+    service = conversation(world)
+    last = (RecentReference(entity_type="report", entity_id=ReportTool.ADS_REVENUE.value),)
+    for message in ("Hôm nay thôi", "Lấy tôi số liệu hôm qua thôi", "còn tháng 9?"):
+        route, _ = service._report_route(member, message, MessageRoute.chat(), None, last)
+        assert route.possible_tool_name == ReportTool.ADS_REVENUE.value, message
+    # ...but not a long request that merely mentions a day, nor with no report before.
+    route, _ = service._report_route(
+        member,
+        "viết giúp em caption cho bài đăng fanpage hôm nay nhé",
+        MessageRoute.chat(),
+        None,
+        last,
+    )
+    assert route.mode is RouteMode.CHAT
+    route, _ = service._report_route(member, "Hôm nay thôi", MessageRoute.chat(), None, ())
+    assert route.mode is RouteMode.CHAT

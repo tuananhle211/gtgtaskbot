@@ -33,7 +33,8 @@ import { formatDate, formatDateTime } from "@/lib/datetime";
  * - **Việc khác** (anybody seated in PR): other work with its points, counted
  *   once approved;
  * - **Duyệt (N)** (the Trưởng phòng PR): decide what waits - a refusal says
- *   why; **Thành viên Seeding**: who is in the group (the Trưởng phòng
+ *   why; filter "Người gửi" (2026-11-03) narrows both lists to one person;
+ *   **Thành viên Seeding**: who is in the group (the Trưởng phòng
  *   edits it, the group reads it).
  *
  * `?tab=review` (the Trưởng phòng's notification) opens "Duyệt".
@@ -539,52 +540,97 @@ function ReviewTab() {
       api.decideSeedingOthers({ ids: [...otherSelection.selected], approve, note: note ?? null }),
     onSuccess: after,
   });
-  const phoneRows = phones.data ?? [];
-  const otherRows = others.data ?? [];
+  // "Người gửi" (2026-11-03): narrow both lists to one person's hand-ins.
+  const [sender, setSender] = useState("");
+  const senders = useMemo(() => {
+    const byId = new Map<string, { name: string; count: number }>();
+    for (const row of [...(phones.data ?? []), ...(others.data ?? [])]) {
+      const seen = byId.get(row.user_id);
+      if (seen) seen.count += 1;
+      else byId.set(row.user_id, { name: row.name, count: 1 });
+    }
+    return [...byId.entries()]
+      .map(([id, value]) => ({ id, ...value }))
+      .sort((a, b) => a.name.localeCompare(b.name, "vi"));
+  }, [phones.data, others.data]);
+  const pick = senders.some((item) => item.id === sender) ? sender : "";
+  const bySender = <T extends { user_id: string }>(rows: T[]) =>
+    pick ? rows.filter((row) => row.user_id === pick) : rows;
+  const phoneRows = bySender(phones.data ?? []);
+  const otherRows = bySender(others.data ?? []);
   const phoneCount = phoneSelection.selected.size;
   const otherCount = otherSelection.selected.size;
   return (
-    <div className="grid gap-4 lg:grid-cols-2">
-      <section className="panel overflow-hidden" aria-label="SĐT chờ duyệt">
-        <header className="flex flex-wrap items-center justify-between gap-2 border-b border-[var(--border)] px-4 py-3">
-          <h2 className="text-base font-semibold">SĐT chờ duyệt · {phoneRows.length}</h2>
-          <button
-            type="button"
-            className="text-xs text-[var(--accent)] hover:underline"
-            onClick={() => phoneSelection.setSelected(new Set(phoneRows.map((row) => row.id)))}
+    <div className="space-y-4">
+      <div className="panel flex flex-wrap items-end gap-3 p-4">
+        <label className="block text-sm font-medium">
+          Người gửi
+          <Select
+            value={pick}
+            onChange={(event) => {
+              setSender(event.target.value);
+              // Never decide rows the filter hides.
+              phoneSelection.setSelected(new Set());
+              otherSelection.setSelected(new Set());
+            }}
+            className="mt-1 block w-64"
           >
-            Chọn tất cả
+            <option value="">Tất cả người gửi</option>
+            {senders.map((item) => (
+              <option key={item.id} value={item.id}>
+                {item.name} ({item.count})
+              </option>
+            ))}
+          </Select>
+        </label>
+        {pick ? (
+          <button type="button" className="min-h-11 text-sm text-[var(--accent)] hover:underline" onClick={() => setSender("")}>
+            Bỏ lọc
           </button>
-        </header>
-        <PhoneList rows={phoneRows} loading={phones.isPending} selected={phoneSelection.selected} onToggle={phoneSelection.toggle} />
-        <DecisionBar
-          count={phoneCount}
-          what={`${phoneCount} số điện thoại`}
-          pending={decidePhones.isPending}
-          error={decidePhones.error}
-          onDecide={(approve, note) => decidePhones.mutate({ approve, note })}
-        />
-      </section>
-      <section className="panel overflow-hidden" aria-label="Việc khác chờ duyệt">
-        <header className="flex flex-wrap items-center justify-between gap-2 border-b border-[var(--border)] px-4 py-3">
-          <h2 className="text-base font-semibold">Việc khác chờ duyệt · {otherRows.length}</h2>
-          <button
-            type="button"
-            className="text-xs text-[var(--accent)] hover:underline"
-            onClick={() => otherSelection.setSelected(new Set(otherRows.map((row) => row.id)))}
-          >
-            Chọn tất cả
-          </button>
-        </header>
-        <OtherList rows={otherRows} loading={others.isPending} selected={otherSelection.selected} onToggle={otherSelection.toggle} />
-        <DecisionBar
-          count={otherCount}
-          what={`${otherCount} việc khác`}
-          pending={decideOthers.isPending}
-          error={decideOthers.error}
-          onDecide={(approve, note) => decideOthers.mutate({ approve, note })}
-        />
-      </section>
+        ) : null}
+      </div>
+      <div className="grid gap-4 lg:grid-cols-2">
+        <section className="panel overflow-hidden" aria-label="SĐT chờ duyệt">
+          <header className="flex flex-wrap items-center justify-between gap-2 border-b border-[var(--border)] px-4 py-3">
+            <h2 className="text-base font-semibold">SĐT chờ duyệt · {phoneRows.length}</h2>
+            <button
+              type="button"
+              className="text-xs text-[var(--accent)] hover:underline"
+              onClick={() => phoneSelection.setSelected(new Set(phoneRows.map((row) => row.id)))}
+            >
+              Chọn tất cả
+            </button>
+          </header>
+          <PhoneList rows={phoneRows} loading={phones.isPending} selected={phoneSelection.selected} onToggle={phoneSelection.toggle} />
+          <DecisionBar
+            count={phoneCount}
+            what={`${phoneCount} số điện thoại`}
+            pending={decidePhones.isPending}
+            error={decidePhones.error}
+            onDecide={(approve, note) => decidePhones.mutate({ approve, note })}
+          />
+        </section>
+        <section className="panel overflow-hidden" aria-label="Việc khác chờ duyệt">
+          <header className="flex flex-wrap items-center justify-between gap-2 border-b border-[var(--border)] px-4 py-3">
+            <h2 className="text-base font-semibold">Việc khác chờ duyệt · {otherRows.length}</h2>
+            <button
+              type="button"
+              className="text-xs text-[var(--accent)] hover:underline"
+              onClick={() => otherSelection.setSelected(new Set(otherRows.map((row) => row.id)))}
+            >
+              Chọn tất cả
+            </button>
+          </header>
+          <OtherList rows={otherRows} loading={others.isPending} selected={otherSelection.selected} onToggle={otherSelection.toggle} />
+          <DecisionBar
+            count={otherCount}
+            what={`${otherCount} việc khác`}
+            pending={decideOthers.isPending}
+            error={decideOthers.error}
+            onDecide={(approve, note) => decideOthers.mutate({ approve, note })}
+          />
+        </section>
+      </div>
     </div>
   );
 }

@@ -211,6 +211,18 @@ quyền theo vai trò, trừ quyền chỉ OWNER cấp ("Trợ lý AI", "Hệ s�
 trang của Quản trị viên các ô này tích / bỏ tích được (`by_role`), nên OWNER
 bật hoặc tắt Trợ lý AI cho từng Quản trị viên. Mặc định chỉ OWNER hỏi được AI.
 
+**Hỏi theo ngày (03/11):** "doanh thu hôm nay / hôm qua / 3/11" → bản ngắn
+một ngày (doanh thu so với hôm trước, Marketing HN/SG, chi phí + Ads/DT, SĐT,
+luỹ kế tháng + KPI, top 3). Câu nêu một mảng không bao giờ ra bản tổng hợp; câu
+nối tiếp chỉ nói ngày/tháng ("hôm nay thôi") hỏi lại đúng báo cáo vừa xem.
+
+**Skill + danh sách câu hỏi của các sếp (04/11):** `BOSS_QUESTIONS.md` (cùng thư
+mục) là danh sách gửi các sếp; `domain/assistant/skill.py` là kiến thức của bot: 28
+định nghĩa (đối chiếu code) trả lời nguyên văn cho câu "… là gì / tính thế nào", kèm
+link web và cách hỏi số; hướng dẫn chọn báo cáo nằm trong prompt của người có quyền.
+Thêm khoảng ngày cho doanh thu (tuần này, 7 ngày qua, từ … đến …) và liệt kê order
+theo trạng thái. Test `tests/unit/test_assistant_questions.py` chạy đúng danh sách đó.
+
 **Văn phong "em – sếp" (31/10):** với người có quyền Trợ lý AI (kể cả OWNER),
 bot xưng **"em"** và gọi người dùng là **"sếp"**:
 - Hồ sơ hội thoại (`ActorProfileService._compose`) đặt `preferred_address` =

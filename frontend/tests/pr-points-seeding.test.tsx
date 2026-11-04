@@ -310,6 +310,60 @@ describe("Báo cáo công việc/Seeding for everybody in PR (2026-10-31)", () =
   });
 });
 
+describe("Duyệt: lọc theo người gửi (2026-11-03)", () => {
+  it("narrows both lists to one sender and decides only their rows", async () => {
+    const phone = (id: string, number: string, user: string, name: string) => ({
+      id,
+      phone: number,
+      user_id: user,
+      name,
+      submitted_at: "2026-11-03T03:00:00Z",
+      status: "PENDING",
+      decided_by: null,
+      decided_at: null,
+      decision_note: null,
+    });
+    const stub = stubFetch([
+      { match: "/api/seeding/phones/decide", method: "POST", body: { decided: 1 } },
+      {
+        match: "/api/seeding/phones",
+        body: [phone("ph-1", "0911000001", "u-an", "An"), phone("ph-2", "0911000002", "u-binh", "Bình")],
+      },
+      {
+        match: "/api/seeding/other",
+        body: [{ ...phone("ot-1", "", "u-binh", "Bình"), description: "Viết bài group", points: 50 }],
+      },
+      { match: "/api/seeding/overview", body: { ...OVERVIEW, access: { member: false, manage: true } } },
+      { match: "/api/seeding/members", body: [] },
+      { match: "/api/seeding/candidates", body: [] },
+      {
+        match: "/api/seeding/access",
+        body: { member: false, manage: true, submit: true, sees_kpi: true, awaiting: 3, awaiting_phones: 2, awaiting_other: 1 },
+      },
+    ]);
+    renderWithQuery(<SeedingPage />);
+    await userEvent.click(await screen.findByRole("tab", { name: "Duyệt (3)" }));
+    const phones = await screen.findByRole("region", { name: "SĐT chờ duyệt" });
+    await within(phones).findByRole("checkbox", { name: "Chọn 0911000001" });
+    const filter = screen.getByRole("combobox", { name: "Người gửi" });
+    expect(within(filter).getAllByRole("option").map((option) => option.textContent)).toEqual([
+      "Tất cả người gửi",
+      "An (1)",
+      "Bình (2)",
+    ]);
+    await userEvent.selectOptions(filter, "u-binh");
+    expect(within(phones).queryByRole("checkbox", { name: "Chọn 0911000001" })).not.toBeInTheDocument();
+    expect(within(phones).getByRole("heading")).toHaveTextContent("SĐT chờ duyệt · 1");
+    const others = screen.getByRole("region", { name: "Việc khác chờ duyệt" });
+    expect(within(others).getByText("Viết bài group")).toBeInTheDocument();
+    await userEvent.click(within(phones).getByRole("button", { name: "Chọn tất cả" }));
+    await userEvent.click(within(phones).getByRole("button", { name: "Duyệt 1" }));
+    await accept();
+    await waitFor(() => expect(calls(stub).some((call) => call.method === "POST")).toBe(true));
+    expect(calls(stub).find((call) => call.method === "POST")?.body).toEqual({ ids: ["ph-2"], approve: true, note: null });
+  });
+});
+
 describe("the menu", () => {
   it('adds "Seeding" under Phòng PR for the group and "Điểm PR" for a Trưởng phòng PR', async () => {
     stubFetch([

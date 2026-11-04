@@ -47,6 +47,7 @@ from enum import StrEnum
 from meobot.application.capability_service import CapabilityReport, CapabilityService
 from meobot.core.config import Settings
 from meobot.domain.assistant.profile import AssistantProfile
+from meobot.domain.assistant.skill import skill_block
 from meobot.domain.assistant.work_context import MeoBotAssistantContext
 from meobot.domain.conversations.patterns import (
     asks_about_actor,
@@ -70,14 +71,19 @@ from meobot.integrations.llm.prompts import capability_brief
 #: over, and what fell off the end was ``[RESPONSE RULES]`` - the instructions,
 #: cut to make room for the data. See :meth:`PromptContext.render`, which now
 #: makes that specific outcome impossible rather than merely unlikely.
-MAX_CONTEXT_CHARS = 20000
+#:
+#: Raised to 23000 on 2026-11-04 for the report assistant's skill block: the
+#: protected sections alone (domain block ~14.7k, rules, skill) left nothing of
+#: the middle, ``[CURRENT USER]`` included. Stays under the 24000 the LLM
+#: requests accept (``integrations/llm/base.py`` ``prompt_context``).
+MAX_CONTEXT_CHARS = 23000
 
 #: Sections that are **instructions** and are never dropped to fit the budget.
 #: Everything else in the prompt is context *for* these; trimming them to make
 #: room for more data is exactly backwards, and it is what the old tail-slice
 #: did silently whenever a prompt ran long.
 _PROTECTED_SECTIONS: frozenset[str] = frozenset(
-    {"assistant_identity", "domain_context", "response_rules"}
+    {"assistant_identity", "domain_context", "assistant_skill", "response_rules"}
 )
 
 #: Marks where the middle was cut, so a long turn does not look like a complete
@@ -157,6 +163,9 @@ SECTION_ORDER: tuple[tuple[str, str], ...] = (
     # records that use it, or "sản phẩm phái sinh" in a title is interpreted
     # before the block that says what it means.
     ("[CANONICAL DOMAIN CONTEXT]", "domain_context"),
+    # 2026-11-04, the report assistant's skill (holders of "Trợ lý AI" only):
+    # which report answers what, and the system's words for this question.
+    ("[ASSISTANT SKILL]", "assistant_skill"),
     ("[WORKSPACE]", "workspace"),
     ("[CURRENT USER]", "current_user"),
     ("[PERMISSIONS]", "permissions"),
@@ -183,6 +192,8 @@ class PromptContext:
     assistant_identity: str = ""
     #: Step 1F.2.3h. The canonical, versioned MeoBot vocabulary and rules.
     domain_context: str = ""
+    #: 2026-11-04. The report assistant's skill, for its holders only.
+    assistant_skill: str = ""
     workspace: str = ""
     current_user: str = ""
     permissions: str = ""
@@ -318,6 +329,11 @@ class PromptContextService:
         return PromptContext(
             assistant_identity=turn.assistant.render_identity_block(),
             domain_context=turn.meobot.domain_block if turn.meobot else "",
+            assistant_skill=(
+                skill_block(turn.message)
+                if actor_has_permission(turn.actor, Permission.ASSISTANT_REPORT)
+                else ""
+            ),
             workspace=self._workspace(turn.assistant),
             current_user=self._current_user(turn, include_private=private_ok),
             current_object=turn.meobot.render_current_object() if turn.meobot else "",

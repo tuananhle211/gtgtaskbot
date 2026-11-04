@@ -17,9 +17,9 @@ from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
+from meobot.application.ads.sync_service import vn_today
 from meobot.application.assistant.reports import AssistantReportService, Report
-from meobot.core.time import utcnow
-from meobot.domain.assistant.reports import ReportTool, month_in
+from meobot.domain.assistant.reports import ReportTool, day_in, month_in
 from meobot.domain.board.models import TASK_STATES
 from meobot.domain.permissions.matrix import Permission
 from meobot.domain.policy.models import RiskLevel
@@ -34,7 +34,7 @@ def _month(value: str | None) -> str | None:
     never guessed."""
     if value is None or not value.strip():
         return None
-    found = month_in(value, utcnow().date())
+    found = month_in(value, vn_today())
     if found is None:
         raise ValueError('tháng phải có dạng "YYYY-MM"')
     return found
@@ -49,6 +49,39 @@ class MonthArguments(BaseModel):
     @classmethod
     def _valid_month(cls, value: str | None) -> str | None:
         return _month(value)
+
+
+def _day(value: str | None) -> str | None:
+    """``YYYY-MM-DD`` from "hôm nay", "hôm qua", "3/11", "2026-11-03"; blank =
+    no day (the month is read). A day to come or unreadable is refused."""
+    if value is None or not value.strip():
+        return None
+    found = day_in(value, vn_today())
+    if found is None:
+        raise ValueError('ngày phải có dạng "YYYY-MM-DD" và không ở tương lai')
+    return found.isoformat()
+
+
+class RevenueArguments(MonthArguments):
+    day: str | None = Field(
+        default=None,
+        max_length=20,
+        description=(
+            'Một ngày "YYYY-MM-DD" (hoặc "hôm nay", "hôm qua") khi người hỏi nói tới '
+            "một ngày, hoặc ngày đầu của một khoảng; khi đó bỏ trống month. Bỏ trống = "
+            "cả tháng."
+        ),
+    )
+    day_to: str | None = Field(
+        default=None,
+        max_length=20,
+        description='Ngày cuối "YYYY-MM-DD" khi hỏi một khoảng (tuần này, 7 ngày qua).',
+    )
+
+    @field_validator("day", "day_to")
+    @classmethod
+    def _valid_day(cls, value: str | None) -> str | None:
+        return _day(value)
 
 
 class KpiArguments(MonthArguments):
@@ -127,17 +160,21 @@ def build_report_tools() -> list[ToolDefinition]:
         _tool(
             ReportTool.COMPANY,
             "Báo cáo tổng hợp toàn công ty trong một câu trả lời: doanh thu Ads, order, "
-            "điểm hiệu suất, PR, tài nguyên. Dùng khi hỏi tình hình chung / tổng hợp A-Z.",
+            "điểm hiệu suất, PR, tài nguyên. CHỈ dùng khi hỏi tình hình chung / tổng hợp "
+            "A-Z, không dùng khi câu hỏi nêu một mảng (doanh thu, order, điểm...).",
             MonthArguments,
             lambda service, context, args: service.company(context.actor, args.month),
         ),
         _tool(
             ReportTool.ADS_REVENUE,
-            "Báo cáo doanh thu Phòng Ads theo tháng: doanh thu tổng (thực thu CRM), DT hoa "
-            "hồng, chi phí Ads, Ads / Doanh thu, SĐT, KPI team, doanh thu Marketing / Cơ sở "
-            "HN-SG, hiệu suất theo cơ sở, chi tiêu từng nền tảng, marketer doanh thu cao nhất.",
-            MonthArguments,
-            lambda service, context, args: service.ads_revenue(args.month),
+            "Báo cáo doanh thu Phòng Ads theo MỘT NGÀY (hôm nay, hôm qua, 3/11 - "
+            "điền day), một khoảng ngày (tuần này, 7 ngày qua - điền day + day_to) "
+            "hoặc theo tháng: doanh thu tổng (thực thu CRM), DT hoa hồng, chi phí "
+            "Ads, Ads / Doanh thu, SĐT, KPI team, doanh thu Marketing / Cơ sở "
+            "HN-SG, marketer cao nhất. Câu hỏi về doanh thu dùng tool này, không "
+            "dùng report.company.",
+            RevenueArguments,
+            lambda service, context, args: service.ads_revenue(args.month, args.day, args.day_to),
         ),
         _tool(
             ReportTool.ADS_KPI_BUDGET,

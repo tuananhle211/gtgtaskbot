@@ -40,7 +40,9 @@ The guarantees that make the chat branch safe are unchanged:
 from __future__ import annotations
 
 import uuid
+from collections.abc import Mapping
 from dataclasses import dataclass, field
+from datetime import date
 from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field
@@ -71,11 +73,16 @@ from meobot.domain.access.models import GuestPrincipal
 from meobot.domain.assistant.profile import AssistantProfile
 from meobot.domain.assistant.reports import (
     REPORT_TOOLS,
+    ReportTool,
     area_question,
     asks_for_figures,
+    day_in,
+    listed_state,
     month_in,
     report_topic,
+    span_in,
 )
+from meobot.domain.assistant.skill import asks_to_explain, explain, term_for
 from meobot.domain.assistant.work_context import MeoBotAssistantContext
 from meobot.domain.audit.models import AuditAction, AuditResult
 from meobot.domain.conversations.decision import ConversationDecision, ConversationMode
@@ -311,7 +318,9 @@ class ConversationService:
                 meobot=meobot,
             )
         )
-        route, canned_kind = await self._route(actor, message, prompt_context)
+        route, canned_kind = await self._route(
+            actor, message, prompt_context, references=state.references
+        )
 
         logger.info(
             "conversation_routed",
@@ -483,6 +492,8 @@ class ConversationService:
         actor: Actor,
         message: str,
         prompt_context: PromptContext,
+        *,
+        references: tuple[RecentReference, ...] = (),
     ) -> tuple[MessageRoute, str | None]:
         """Decide what kind of message this is, chat-first.
 
@@ -523,33 +534,81 @@ class ConversationService:
                 MessageRoute.chat(confidence=1.0, label="chat_disabled"),
                 "chat_disabled",
             )
-        return self._report_route(actor, message, route, canned)
+        return self._report_route(actor, message, route, canned, references)
 
     def _report_route(
-        self, actor: Actor, message: str, route: MessageRoute, canned: str | None
+        self,
+        actor: Actor,
+        message: str,
+        route: MessageRoute,
+        canned: str | None,
+        references: tuple[RecentReference, ...] = (),
     ) -> tuple[MessageRoute, str | None]:
         """The report assistant ("Trợ lý AI", 2026-10-31), for whoever holds it.
 
         A question naming a report goes to that report's tool even when the
-        model said chat, could not route at all, or named no tool - a figure
-        is only ever read, never written by a model. A question that asks for
-        figures but names no report is asked back (``report_area``), never
-        handed to chat generation. A tool the model did pick stands.
+        model said chat, could not route at all, named no tool, or reached for
+        the company summary ("doanh thu hôm nay" is the revenue report, not
+        everything) - a figure is only ever read, never written by a model. A
+        short follow-up naming only a day or a month ("hôm nay thôi") asks the
+        report the thread just read again. A question that asks for figures
+        but names no report is asked back (``report_area``), never handed to
+        chat generation. Any other tool the model picked stands.
         """
         if not actor_has_permission(actor, Permission.ASSISTANT_REPORT):
             return route, canned
         if canned in {"capabilities", "identity", "actor"}:
             return route, canned
-        if route.mode is RouteMode.TOOL and route.possible_tool_name in self._registry:
+        picked = route.possible_tool_name if route.mode is RouteMode.TOOL else None
+        if asks_to_explain(message) and (picked not in self._registry or picked in REPORT_TOOLS):
+            # "Ads / Doanh thu tính thế nào?" asks how, not how much: the
+            # skill's term answers it, else the chat with the skill in its
+            # prompt - never a report.
+            if term_for(message) is not None:
+                return MessageRoute.chat(confidence=0.8, label="report:term"), "report_term"
+            if route.mode is RouteMode.TOOL and canned != "chat_disabled":
+                return MessageRoute.chat(confidence=0.6, label="report:explain"), None
             return route, canned
         topic = report_topic(message)
+        if picked in self._registry and not (
+            picked == ReportTool.COMPANY.value
+            and topic is not None
+            and topic is not ReportTool.COMPANY
+        ):
+            return route, canned
         if topic is not None and topic.value in self._registry:
             return MessageRoute.tool(
                 tool_name=topic.value, confidence=0.7, label="report:topic"
             ), None
+        last = self._last_report(references)
+        if last is not None and self._names_a_period(message):
+            return MessageRoute.tool(tool_name=last, confidence=0.7, label="report:again"), None
         if route.mode is RouteMode.CHAT and asks_for_figures(message):
             return MessageRoute.chat(confidence=0.7, label="report:area"), "report_area"
         return route, canned
+
+    def _last_report(self, references: tuple[RecentReference, ...]) -> str | None:
+        """The report this thread read last, if any."""
+        for reference in reversed(references):
+            if reference.entity_type == "report" and reference.entity_id in REPORT_TOOLS:
+                return reference.entity_id if reference.entity_id in self._registry else None
+        return None
+
+    def _names_a_period(self, message: str) -> bool:
+        """A follow-up that only moves the period: "hôm nay thôi", "còn tháng
+        9?", "lấy số liệu hôm qua". Short, or asking for figures - so "viết
+        caption cho bài hôm nay" is not taken for one."""
+        today = self._today()
+        if (
+            day_in(message, today) is None
+            and month_in(message, today) is None
+            and span_in(message, today) is None
+        ):
+            return False
+        return asks_for_figures(message) or len(message.split()) <= 6
+
+    def _today(self) -> date:
+        return utcnow().astimezone(self._settings.timezone).date()
 
     # --- Branches ---------------------------------------------------------
     async def _handle_chat(
@@ -581,6 +640,13 @@ class ConversationService:
             # Figures without a report: ask which one. The chat branch has no
             # numbers to give, so it is never asked to produce any.
             return await self._reply(area_question(), ConversationMode.CLARIFY, message, target)
+        if canned_kind == "report_term":
+            # "Doanh thu thực thu là gì?": the skill's own answer, word for
+            # word - what a word means here is not a model's to guess.
+            term = term_for(message)
+            if term is not None:
+                answer = explain(term, self._settings.web_base_url)
+                return await self._reply(answer, ConversationMode.CHAT, message, target)
 
         text = await self._chat_text(
             message=message,
@@ -747,9 +813,7 @@ class ConversationService:
         if plan.tool_name in REPORT_TOOLS:
             # A report only reads; a model calling it risky must not make it
             # wait on /confirm (the tool's own LOW still meets the engine).
-            plan = plan.model_copy(
-                update={"risk_level": RiskLevel.LOW, "requires_confirmation": False}
-            )
+            plan = self._grounded_report(plan, message, route)
         if plan.is_unknown:
             # Routing said "operation" but planning could not name one. Ask -
             # a guessed plan is exactly what must not reach the policy engine.
@@ -788,11 +852,7 @@ class ConversationService:
             or not actor_has_permission(actor, Permission.ASSISTANT_REPORT)
         ):
             return None
-        tool = self._registry.get(tool_name)
-        arguments: dict[str, Any] = {}
-        month = month_in(message, utcnow().astimezone(self._settings.timezone).date())
-        if month is not None and "month" in tool.arguments_model.model_fields:
-            arguments["month"] = month
+        arguments = self._report_period(tool_name, message)
         return ActionPlan(
             intent=tool_name.replace(".", "_"),
             risk_level=RiskLevel.LOW,
@@ -801,6 +861,63 @@ class ConversationService:
             arguments=arguments,
             reasoning="report_topic_fallback",
             confidence=0.6,
+        )
+
+    def _report_period(self, tool_name: str, message: str) -> dict[str, Any]:
+        """What the message names, as the report tool's arguments: the span
+        (``day`` + ``day_to``), else the day, else the month - and the order
+        state a "liệt kê order bị trả lại" asks to list."""
+        fields = self._registry.get(tool_name).arguments_model.model_fields
+        today = self._today()
+        state = listed_state(message) if "state" in fields else None
+        if state is not None:
+            return {"state": state, **self._report_period_only(fields, message, today)}
+        return self._report_period_only(fields, message, today)
+
+    @staticmethod
+    def _report_period_only(fields: Mapping[str, Any], message: str, today: date) -> dict[str, Any]:
+        span = span_in(message, today)
+        if span is not None and "day_to" in fields:
+            return {"day": span[0].isoformat(), "day_to": span[1].isoformat()}
+        day = day_in(message, today) if span is None else span[1]
+        if day is not None and "day" in fields:
+            return {"day": day.isoformat()}
+        month = month_in(message, today) or (
+            f"{day.year:04d}-{day.month:02d}" if day is not None else None
+        )
+        return {"month": month} if month is not None and "month" in fields else {}
+
+    def _grounded_report(self, plan: ActionPlan, message: str, route: MessageRoute) -> ActionPlan:
+        """A report plan held to the words of the question: the company summary
+        never stands in for the report the question names, and the day or month
+        the message names is the one read, whatever the model filled in."""
+        assert plan.tool_name is not None
+        tool_name = plan.tool_name
+        if (
+            tool_name == ReportTool.COMPANY.value
+            and route.possible_tool_name in REPORT_TOOLS
+            and route.possible_tool_name != tool_name
+        ):
+            tool_name = route.possible_tool_name
+            arguments: dict[str, Any] = {}
+        else:
+            arguments = dict(plan.arguments)
+        period = self._report_period(tool_name, message)
+        if "day" in period:
+            arguments.pop("month", None)
+            arguments.pop("day_to", None)
+        elif "month" in period:
+            arguments.pop("day", None)
+            arguments.pop("day_to", None)
+        arguments.update(period)
+        return plan.model_copy(
+            update={
+                "tool_name": tool_name,
+                "intent": tool_name.replace(".", "_"),
+                "arguments": arguments,
+                "risk_level": RiskLevel.LOW,
+                "requires_confirmation": False,
+            }
         )
 
     async def _reply(
