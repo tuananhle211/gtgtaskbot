@@ -533,6 +533,7 @@ class AuditAction(StrEnum):
     # text), who may chat with an agent changed.
     AGENT_CONVERSATION_CREATED = "agent.conversation.created"
     AGENT_MESSAGE_SENT = "agent.message.sent"
+    AGENT_CONVERSATION_DELETED = "agent.conversation.deleted"
     AGENT_ACCESS_UPDATED = "agent.access.updated"
 
     # Resources ("Quản lý tài nguyên", 0065).

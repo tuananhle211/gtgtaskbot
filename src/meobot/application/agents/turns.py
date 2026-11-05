@@ -26,7 +26,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from meobot.application.agents.service import PreparedTurn, finish_answer
 from meobot.core.time import utcnow
-from meobot.db.models.agent_chat import AgentMessage
+from meobot.db.models.agent_chat import AgentAttachment, AgentMessage
 from meobot.domain.agents.models import ANSWER_TIMEOUT_SECONDS, MessageStatus
 from meobot.integrations.hermes.relay import AgentRelay, RelayDelta, RelayError, RelayTool
 
@@ -39,7 +39,28 @@ TransactionFactory = Callable[[], AbstractAsyncContextManager[AsyncSession]]
 KEEPALIVE_SECONDS = 15.0
 
 
-def message_payload(row: AgentMessage) -> dict[str, Any]:
+def attachment_url(attachment_id: object) -> str:
+    return f"/api/agents/attachments/{attachment_id}"
+
+
+def attachment_payload(row: AgentAttachment) -> dict[str, Any]:
+    """One attached file as the API sends it (never its bytes nor its words)."""
+    return {
+        "id": str(row.id),
+        "name": row.name,
+        "kind": row.kind.value,
+        "content_type": row.content_type,
+        "size_bytes": row.size_bytes,
+        "pages": row.pages,
+        "truncated": row.truncated,
+        "note": row.note,
+        "url": attachment_url(row.id),
+    }
+
+
+def message_payload(
+    row: AgentMessage, attachments: list[AgentAttachment] | None = None
+) -> dict[str, Any]:
     """One message as the API sends it (also inside the stream's last event)."""
     return {
         "id": str(row.id),
@@ -51,6 +72,7 @@ def message_payload(row: AgentMessage) -> dict[str, Any]:
         "duration_ms": row.duration_ms,
         "created_at": row.created_at.isoformat() if row.created_at else None,
         "finished_at": row.finished_at.isoformat() if row.finished_at else None,
+        "attachments": [attachment_payload(item) for item in attachments or []],
     }
 
 
@@ -180,6 +202,7 @@ class TurnRegistry:
                     session_id=prepared.session_id,
                     session_key=prepared.session_key,
                     idempotency_key=str(prepared.user_message.id),
+                    images=prepared.images,
                 ):
                     if isinstance(event, RelayDelta):
                         turn.text.append(event.text)
@@ -233,6 +256,7 @@ class TurnRegistry:
                 "duration_ms": None,
                 "created_at": None,
                 "finished_at": None,
+                "attachments": [],
             }
         turn.close()
         self._turns.pop(turn.answer_id, None)
@@ -243,5 +267,7 @@ __all__ = [
     "RunningTurn",
     "TransactionFactory",
     "TurnRegistry",
+    "attachment_payload",
+    "attachment_url",
     "message_payload",
 ]

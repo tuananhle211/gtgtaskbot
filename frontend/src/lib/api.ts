@@ -8000,8 +8000,11 @@ export const api = {
   renameAgentConversation: (conversationId: Uuid, title: string) =>
     patch<AgentConversation>(`/api/agents/conversations/${conversationId}`, { title }),
   /** 204. "Lưu trữ": out of the list, kept. */
-  archiveAgentConversation: (conversationId: Uuid) =>
+  /** "Xoá": for good - its messages, its files and its transcript on the agents' side. */
+  deleteAgentConversation: (conversationId: Uuid) =>
     del<void>(`/api/agents/conversations/${conversationId}`),
+  /** Take a file back out of the composer (422 once it went with a question). */
+  removeAgentAttachment: (attachmentId: Uuid) => del<void>(`/api/agents/attachments/${attachmentId}`),
   /** (OWNER) every agent with who may chat with it. 403 `agents_forbidden`. */
   agentsAdmin: () => get<{ agents: AgentAdmin[]; configured: boolean }>("/api/agents/admin"),
   updateAgentAccess: (
@@ -8031,6 +8034,10 @@ export interface AgentList {
   configured: boolean;
   manage: boolean;
   max_message_chars: number;
+  /** Files on one question (0092). Optional: an older API sends none. */
+  max_attachments?: number;
+  max_file_bytes?: number;
+  max_image_bytes?: number;
 }
 
 export interface AgentConversation {
@@ -8045,6 +8052,23 @@ export interface AgentConversation {
 
 export type AgentMessageStatus = "STREAMING" | "DONE" | "FAILED" | "CANCELLED";
 
+/**
+ * A file sent with a question (0092): a picture the agent sees, a document or
+ * a skill whose words APM read out. `url` opens it (its owner only).
+ */
+export interface AgentAttachment {
+  id: Uuid;
+  name: string;
+  kind: "IMAGE" | "DOCUMENT" | "SKILL";
+  content_type: string;
+  size_bytes: number;
+  pages: number | null;
+  truncated: boolean;
+  /** "12 trang", "Skill: soat-hop-dong", "Dài quá, agent chỉ nhận phần đầu." */
+  note: string | null;
+  url: string;
+}
+
 export interface AgentMessage {
   id: Uuid;
   role: "USER" | "ASSISTANT";
@@ -8055,6 +8079,7 @@ export interface AgentMessage {
   duration_ms: number | null;
   created_at: string | null;
   finished_at: string | null;
+  attachments?: AgentAttachment[];
 }
 
 export interface AgentMessageList {

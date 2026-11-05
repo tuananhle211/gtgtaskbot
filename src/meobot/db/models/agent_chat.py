@@ -18,6 +18,7 @@ from sqlalchemy import (
     ForeignKey,
     Index,
     Integer,
+    LargeBinary,
     String,
     Text,
     text,
@@ -27,11 +28,12 @@ from sqlalchemy.orm import Mapped, mapped_column
 from meobot.core.time import utcnow
 from meobot.db.base import Base, JSONColumn, TimestampMixin, UUIDPrimaryKeyMixin, value_enum
 from meobot.db.models.pr import RESTRICT, USERS_TABLE
-from meobot.domain.agents.models import AgentGroup, MessageRole, MessageStatus
+from meobot.domain.agents.models import AgentGroup, AttachmentKind, MessageRole, MessageStatus
 
 AGENT_PROFILES = "agent_profiles"
 AGENT_CONVERSATIONS = "agent_conversations"
 AGENT_MESSAGES = "agent_messages"
+AGENT_ATTACHMENTS = "agent_attachments"
 CASCADE = "CASCADE"
 
 
@@ -123,10 +125,58 @@ class AgentMessage(Base, UUIDPrimaryKeyMixin):
     finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
 
+class AgentAttachment(Base, UUIDPrimaryKeyMixin):
+    """A file attached to a question (0092): a picture, a document, a skill.
+
+    Uploaded first (``message_id`` NULL = not sent yet), tied to the question
+    when it is sent. The bytes stay so the person can open it again; the words
+    read out of it (``content``) are what the agent got. Deleting the
+    conversation deletes its files.
+    """
+
+    __tablename__ = AGENT_ATTACHMENTS
+    __table_args__ = (
+        CheckConstraint("size_bytes > 0", name="size_positive"),
+        Index("ix_agent_attachments_conversation_message", "conversation_id", "message_id"),
+        Index("ix_agent_attachments_user_created", "user_id", "created_at"),
+    )
+
+    conversation_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey(f"{AGENT_CONVERSATIONS}.id", ondelete=CASCADE), nullable=False
+    )
+    #: The question it went with; NULL while it waits in the composer.
+    message_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey(f"{AGENT_MESSAGES}.id", ondelete=CASCADE), nullable=True
+    )
+    user_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey(f"{USERS_TABLE}.id", ondelete=RESTRICT), nullable=False
+    )
+    name: Mapped[str] = mapped_column(String(200), nullable=False)
+    content_type: Mapped[str] = mapped_column(String(120), nullable=False)
+    kind: Mapped[AttachmentKind] = mapped_column(
+        value_enum(AttachmentKind, name="agent_attachment_kind", length=12), nullable=False
+    )
+    size_bytes: Mapped[int] = mapped_column(Integer, nullable=False)
+    #: Loaded only when needed (sending, downloading): never for a list.
+    data: Mapped[bytes] = mapped_column(LargeBinary, nullable=False, deferred=True)
+    #: The words sent to the agent (None for a picture).
+    content: Mapped[str | None] = mapped_column(Text, nullable=True, deferred=True)
+    pages: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    truncated: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False, server_default=text("false")
+    )
+    note: Mapped[str | None] = mapped_column(String(300), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, default=utcnow
+    )
+
+
 __all__ = [
+    "AGENT_ATTACHMENTS",
     "AGENT_CONVERSATIONS",
     "AGENT_MESSAGES",
     "AGENT_PROFILES",
+    "AgentAttachment",
     "AgentConversation",
     "AgentMessage",
     "AgentProfile",

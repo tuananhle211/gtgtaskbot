@@ -19,7 +19,12 @@ from meobot.db.models.ads import (
     AdsRevenueDaily,
     AdsSpendDaily,
 )
-from meobot.db.models.agent_chat import AgentConversation, AgentMessage, AgentProfile
+from meobot.db.models.agent_chat import (
+    AgentAttachment,
+    AgentConversation,
+    AgentMessage,
+    AgentProfile,
+)
 from meobot.db.models.ai_connection import AiConnection, AiRoute
 from meobot.db.models.audit_log import AuditLog
 from meobot.db.models.confirmation_request import ConfirmationRequestRow
@@ -206,6 +211,7 @@ __all__ = [
     "AdsRevenueChange",
     "AdsRevenueDaily",
     "AdsSpendDaily",
+    "AgentAttachment",
     "AgentConversation",
     "AgentMessage",
     "AgentProfile",

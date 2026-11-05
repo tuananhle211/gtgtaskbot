@@ -1531,13 +1531,14 @@ export const ACTION_INVENTORY: readonly ActionInventoryEntry[] = [
   { action: "Bật / tắt agent, đổi phòng ban được chat với agent", policy: "dialog" },
 ];
 
-/** "Lưu trữ" a conversation with an agent: out of the list, kept. */
-export function archiveAgentConversationConfirmation(title: string): ConfirmSpec {
+/** "Xoá" a conversation with an agent: gone for good, here and on the agents' side. */
+export function deleteAgentConversationConfirmation(title: string): ConfirmSpec {
   return {
-    title: `Lưu trữ cuộc trò chuyện “${title}”?`,
+    title: `Xoá cuộc trò chuyện “${title}”?`,
     description:
-      "Cuộc trò chuyện rời khỏi danh sách của bạn; nội dung vẫn được giữ trên hệ thống. Câu trả lời đang chạy (nếu có) sẽ dừng.",
-    confirmLabel: "Lưu trữ",
+      "Xoá hẳn mọi tin nhắn và tệp đính kèm của cuộc trò chuyện này, cả bản agent lưu bên máy chủ agent. Không khôi phục được. Câu trả lời đang chạy (nếu có) sẽ dừng.",
+    confirmLabel: "Xoá cuộc trò chuyện",
+    variant: "destructive",
   };
 }
 

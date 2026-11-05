@@ -9,15 +9,22 @@ Sending a message answers with a Server-Sent Events stream: ``start`` (the
 question as saved), ``delta`` (a piece of the answer), ``tool`` (the agent
 started a tool), ``done`` (the answer as saved, whatever its status), and
 ``: keepalive`` comment lines while the agent thinks.
+
+Files (0092) are uploaded one by one first - the raw bytes as the body of
+``POST /conversations/{id}/attachments?name=`` - and sent with the question by
+id (``attachment_ids``). Deleting a conversation deletes it for good, its
+files, and its transcript on the Hermes side.
 """
 
 from __future__ import annotations
 
+import logging
 import uuid
 from collections.abc import AsyncIterator, Callable
 from contextlib import AbstractAsyncContextManager
 from datetime import datetime
 from typing import Annotated
+from urllib.parse import quote
 
 from fastapi import APIRouter, Depends, Query, Request, Response, status
 from fastapi.responses import StreamingResponse
@@ -35,6 +42,7 @@ from meobot.api.schemas.agents import (
     AgentAdminResponse,
     AgentListResponse,
     AgentResponse,
+    AttachmentResponse,
     ConversationListResponse,
     ConversationResponse,
     MessageListResponse,
@@ -50,8 +58,15 @@ from meobot.application.agents.service import AgentChatService
 from meobot.application.agents.turns import TransactionFactory, TurnRegistry, message_payload
 from meobot.application.audit_service import AuditService
 from meobot.db.session import Database
-from meobot.domain.agents.errors import AgentBusyError, AgentsNotConfiguredError
+from meobot.domain.agents.errors import (
+    AgentBusyError,
+    AgentFileInvalidError,
+    AgentsNotConfiguredError,
+)
+from meobot.domain.agents.models import MAX_FILE_BYTES, AttachmentKind
 from meobot.integrations.hermes.relay import AgentRelay, HttpAgentRelay
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/agents", tags=["agents"])
 
@@ -186,10 +201,15 @@ async def list_messages(
     rows = await service.messages(access, conversation_id, before=before, limit=PAGE + 1)
     has_more = len(rows) > PAGE
     rows = rows[-PAGE:]
+    files = await service.attachments_for([row.id for row in rows])
     messages = []
     for row in rows:
         running = turns.get(row.id)
-        messages.append(MessageResponse.from_row(row, partial=running.partial if running else None))
+        messages.append(
+            MessageResponse.from_row(
+                row, partial=running.partial if running else None, attachments=files.get(row.id)
+            )
+        )
     return MessageListResponse(
         conversation=ConversationResponse.from_row(
             conversation, agent.slug, running=turns.running_for(conversation.id) is not None
@@ -227,6 +247,7 @@ async def send_message(
             asker=actor.full_name,
             seats=membership.seats,
             request_id=request_id,
+            attachment_ids=body.attachment_ids,
         )
         # The answer task saves on its own transaction: the question and the
         # empty answer must be committed before it starts.
@@ -236,7 +257,7 @@ async def send_message(
         raise
     turn = turns.start(prepared, relay, transactions)
     start = {
-        "user_message": message_payload(prepared.user_message),
+        "user_message": message_payload(prepared.user_message, prepared.attachments),
         "answer_id": str(prepared.answer_id),
     }
 
@@ -279,14 +300,84 @@ async def rename_conversation(
 
 
 @router.delete("/conversations/{conversation_id}", status_code=status.HTTP_204_NO_CONTENT)
-async def archive_conversation(
-    conversation_id: uuid.UUID, session: SessionDep, membership: UnitMembershipDep, turns: TurnsDep
+async def delete_conversation(
+    conversation_id: uuid.UUID,
+    session: SessionDep,
+    membership: UnitMembershipDep,
+    turns: TurnsDep,
+    relay: RelayDep,
+    request_id: RequestIdDep,
 ) -> Response:
-    """ "Lưu trữ": out of the list, kept. A running answer is stopped first."""
+    """ "Xoá": the conversation, its messages and files, for good - and its
+    transcript on the Hermes side. A running answer is stopped first."""
     service, access = _context(session, membership)
     await service.conversation(access, conversation_id)
     await turns.stop(conversation_id)
-    await service.archive(access, conversation_id)
+    slug, hermes_id = await service.delete_conversation(
+        access, conversation_id, request_id=request_id
+    )
+    if relay.configured and not await relay.delete_session(slug, hermes_id):
+        # APM's copy is gone either way; the agents' VPS keeps an orphan transcript.
+        logger.warning("hermes transcript not deleted", extra={"agent": slug})
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+
+@router.post(
+    "/conversations/{conversation_id}/attachments",
+    response_model=AttachmentResponse,
+    status_code=status.HTTP_201_CREATED,
+)
+async def upload_attachment(
+    conversation_id: uuid.UUID,
+    request: Request,
+    session: SessionDep,
+    membership: UnitMembershipDep,
+    name: str = Query(min_length=1, max_length=400),
+) -> AttachmentResponse:
+    """A file for the next question: the raw bytes are the body."""
+    service, access = _context(session, membership)
+    await service.conversation(access, conversation_id)  # 404 before reading anything
+    limit = MAX_FILE_BYTES
+    declared = request.headers.get("content-length")
+    if declared and declared.isdigit() and int(declared) > limit:
+        raise AgentFileInvalidError(f"Tệp lớn quá {limit // (1024 * 1024)} MB.")
+    data = bytearray()
+    async for chunk in request.stream():
+        data.extend(chunk)
+        if len(data) > limit:
+            raise AgentFileInvalidError(f"Tệp lớn quá {limit // (1024 * 1024)} MB.")
+    row = await service.upload(access, conversation_id, name=name, data=bytes(data))
+    return AttachmentResponse.from_row(row)
+
+
+@router.get("/attachments/{attachment_id}")
+async def open_attachment(
+    attachment_id: uuid.UUID, session: SessionDep, membership: UnitMembershipDep
+) -> Response:
+    """The file itself, for its owner: a picture shows, anything else downloads."""
+    service, access = _context(session, membership)
+    row = await service.attachment(access, attachment_id, with_data=True)
+    inline = row.kind == AttachmentKind.IMAGE
+    disposition = "inline" if inline else "attachment"
+    return Response(
+        content=row.data,
+        media_type=row.content_type if inline else "application/octet-stream",
+        headers={
+            "Content-Disposition": f"{disposition}; filename*=UTF-8''{quote(row.name)}",
+            "Cache-Control": "private, max-age=86400",
+            "X-Content-Type-Options": "nosniff",
+            "Content-Security-Policy": "default-src 'none'; sandbox",
+        },
+    )
+
+
+@router.delete("/attachments/{attachment_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def remove_attachment(
+    attachment_id: uuid.UUID, session: SessionDep, membership: UnitMembershipDep
+) -> Response:
+    """Take a file back out of the composer (not one already sent)."""
+    service, access = _context(session, membership)
+    await service.remove_attachment(access, attachment_id)
     return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 

@@ -52,6 +52,24 @@ class AgentMessageInvalidError(ValidationError):
         super().__init__(message, details={"reason": self.code})
 
 
+class AgentFileInvalidError(ValidationError):
+    """An attachment APM cannot take or read (0092): the message says why."""
+
+    code = "agent_file_invalid"
+
+    def __init__(self, message: str) -> None:
+        super().__init__(message, details={"reason": self.code})
+
+
+class AttachmentNotFoundError(NotFoundError):
+    """No such attachment - or one in somebody else's conversation."""
+
+    code = "attachment_not_found"
+
+    def __init__(self) -> None:
+        super().__init__("Không tìm thấy tệp.", details={"reason": self.code})
+
+
 class AgentAccessInvalidError(ValidationError):
     code = "agent_access_invalid"
 
@@ -84,10 +102,12 @@ class AgentsNotConfiguredError(MeoBotError):
 __all__ = [
     "AgentAccessInvalidError",
     "AgentBusyError",
+    "AgentFileInvalidError",
     "AgentMessageInvalidError",
     "AgentNotFoundError",
     "AgentRateLimitedError",
     "AgentsForbiddenError",
     "AgentsNotConfiguredError",
+    "AttachmentNotFoundError",
     "ConversationNotFoundError",
 ]

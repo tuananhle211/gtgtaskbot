@@ -14,7 +14,8 @@ The stream is read here into :class:`RelayDelta` (a piece of the answer) and
 from __future__ import annotations
 
 import json
-from collections.abc import AsyncIterator, Iterable
+import re
+from collections.abc import AsyncIterator, Iterable, Sequence
 from dataclasses import dataclass
 from typing import Any, Protocol
 
@@ -50,6 +51,10 @@ class RelayTool:
 RelayEvent = RelayDelta | RelayTool
 
 
+#: What a Hermes transcript id may look like (``apm-<uuid>``) before it goes in a URL.
+_SESSION_ID = re.compile(r"^[A-Za-z0-9_.:-]{1,80}$")
+
+
 class AgentRelay(Protocol):
     @property
     def configured(self) -> bool: ...
@@ -62,7 +67,20 @@ class AgentRelay(Protocol):
         session_id: str,
         session_key: str,
         idempotency_key: str,
+        images: Sequence[str] = (),
     ) -> AsyncIterator[RelayEvent]: ...
+
+    async def delete_session(self, slug: str, session_id: str) -> bool: ...
+
+
+def chat_content(text: str, images: Sequence[str]) -> str | list[dict[str, Any]]:
+    """The question as Hermes takes it: plain text, or text + ``image_url`` parts."""
+    if not images:
+        return text
+    return [
+        {"type": "text", "text": text},
+        *({"type": "image_url", "image_url": {"url": url}} for url in images),
+    ]
 
 
 def parse_sse(lines: Iterable[str]) -> list[RelayEvent]:
@@ -164,13 +182,14 @@ class HttpAgentRelay:
         session_id: str,
         session_key: str,
         idempotency_key: str,
+        images: Sequence[str] = (),
     ) -> AsyncIterator[RelayEvent]:
         if not self.configured:
             raise RelayError("agents_not_configured")
         body = {
             "model": slug,
             "stream": True,
-            "messages": [{"role": "user", "content": text}],
+            "messages": [{"role": "user", "content": chat_content(text, images)}],
         }
         headers = {
             "Authorization": f"Bearer {self._token}",
@@ -193,6 +212,8 @@ class HttpAgentRelay:
                     raise RelayError("agent_relay_refused")
                 if response.status_code == 404:
                     raise RelayError("agent_not_on_relay")
+                if response.status_code == 413:
+                    raise RelayError("agent_request_too_large")
                 if response.status_code >= 400:
                     raise RelayError("agent_error", f"HTTP {response.status_code}")
                 parser = SseParser()
@@ -208,6 +229,25 @@ class HttpAgentRelay:
         finally:
             if self._client is None:
                 await client.aclose()
+
+    async def delete_session(self, slug: str, session_id: str) -> bool:
+        """Delete the Hermes transcript of a conversation; True = gone (or never there)."""
+        if not self.configured or not _SESSION_ID.match(session_id):
+            return False
+        timeout = httpx.Timeout(20.0, connect=CONNECT_TIMEOUT_SECONDS)
+        client = self._client or httpx.AsyncClient(timeout=timeout)
+        try:
+            response = await client.delete(
+                f"{self._base_url}/agents/{slug}/sessions/{session_id}",
+                headers={"Authorization": f"Bearer {self._token}"},
+                timeout=timeout,
+            )
+        except httpx.HTTPError:
+            return False
+        finally:
+            if self._client is None:
+                await client.aclose()
+        return response.status_code in (200, 204, 404)
 
 
 class FakeAgentRelay:
@@ -227,7 +267,8 @@ class FakeAgentRelay:
         )
         self.fail = fail
         self._configured = configured
-        self.calls: list[dict[str, str]] = []
+        self.calls: list[dict[str, Any]] = []
+        self.deleted: list[tuple[str, str]] = []
 
     @property
     def configured(self) -> bool:
@@ -241,6 +282,7 @@ class FakeAgentRelay:
         session_id: str,
         session_key: str,
         idempotency_key: str,
+        images: Sequence[str] = (),
     ) -> AsyncIterator[RelayEvent]:
         self.calls.append(
             {
@@ -249,6 +291,7 @@ class FakeAgentRelay:
                 "session_id": session_id,
                 "session_key": session_key,
                 "idempotency_key": idempotency_key,
+                "images": list(images),
             }
         )
         if not self._configured:
@@ -258,6 +301,10 @@ class FakeAgentRelay:
             yield event
         if self.fail:
             raise RelayError(self.fail)
+
+    async def delete_session(self, slug: str, session_id: str) -> bool:
+        self.deleted.append((slug, session_id))
+        return self._configured
 
 
 __all__ = [
@@ -269,5 +316,6 @@ __all__ = [
     "RelayEvent",
     "RelayTool",
     "SseParser",
+    "chat_content",
     "parse_sse",
 ]

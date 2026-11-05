@@ -10,8 +10,21 @@ from typing import Any
 from pydantic import BaseModel, Field
 
 from meobot.application.agents.service import AgentSummary
-from meobot.db.models.agent_chat import AgentConversation, AgentMessage, AgentProfile
-from meobot.domain.agents.models import AGENT_GROUP_LABELS, MAX_MESSAGE_CHARS, AgentGroup
+from meobot.application.agents.turns import attachment_url
+from meobot.db.models.agent_chat import (
+    AgentAttachment,
+    AgentConversation,
+    AgentMessage,
+    AgentProfile,
+)
+from meobot.domain.agents.models import (
+    AGENT_GROUP_LABELS,
+    MAX_ATTACHMENTS,
+    MAX_FILE_BYTES,
+    MAX_IMAGE_BYTES,
+    MAX_MESSAGE_CHARS,
+    AgentGroup,
+)
 
 
 class AgentGroupResponse(BaseModel):
@@ -54,6 +67,9 @@ class AgentListResponse(BaseModel):
     configured: bool
     manage: bool = False
     max_message_chars: int = MAX_MESSAGE_CHARS
+    max_attachments: int = MAX_ATTACHMENTS
+    max_file_bytes: int = MAX_FILE_BYTES
+    max_image_bytes: int = MAX_IMAGE_BYTES
 
 
 class ConversationResponse(BaseModel):
@@ -83,6 +99,34 @@ class ConversationListResponse(BaseModel):
     conversations: list[ConversationResponse]
 
 
+class AttachmentResponse(BaseModel):
+    """A file attached to a question. ``url`` opens it (the owner only)."""
+
+    id: uuid.UUID
+    name: str
+    kind: str
+    content_type: str
+    size_bytes: int
+    pages: int | None = None
+    truncated: bool = False
+    note: str | None = None
+    url: str
+
+    @classmethod
+    def from_row(cls, row: AgentAttachment) -> AttachmentResponse:
+        return cls(
+            id=row.id,
+            name=row.name,
+            kind=row.kind.value,
+            content_type=row.content_type,
+            size_bytes=row.size_bytes,
+            pages=row.pages,
+            truncated=row.truncated,
+            note=row.note,
+            url=attachment_url(row.id),
+        )
+
+
 class MessageResponse(BaseModel):
     id: uuid.UUID
     role: str
@@ -93,9 +137,16 @@ class MessageResponse(BaseModel):
     duration_ms: int | None = None
     created_at: datetime | None = None
     finished_at: datetime | None = None
+    attachments: list[AttachmentResponse] = Field(default_factory=list)
 
     @classmethod
-    def from_row(cls, row: AgentMessage, *, partial: str | None = None) -> MessageResponse:
+    def from_row(
+        cls,
+        row: AgentMessage,
+        *,
+        partial: str | None = None,
+        attachments: list[AgentAttachment] | None = None,
+    ) -> MessageResponse:
         return cls(
             id=row.id,
             role=row.role.value,
@@ -106,6 +157,7 @@ class MessageResponse(BaseModel):
             duration_ms=row.duration_ms,
             created_at=row.created_at,
             finished_at=row.finished_at,
+            attachments=[AttachmentResponse.from_row(item) for item in attachments or []],
         )
 
 
@@ -117,7 +169,9 @@ class MessageListResponse(BaseModel):
 
 class SendMessageRequest(BaseModel):
     # The service gives the friendly error for length; this only stops a huge body.
-    text: str = Field(max_length=MAX_MESSAGE_CHARS * 2)
+    text: str = Field(default="", max_length=MAX_MESSAGE_CHARS * 2)
+    #: Files uploaded before (``POST .../attachments``), in the order shown.
+    attachment_ids: list[uuid.UUID] = Field(default_factory=list, max_length=20)
 
 
 class RenameConversationRequest(BaseModel):
@@ -176,6 +230,7 @@ __all__ = [
     "AgentAdminResponse",
     "AgentListResponse",
     "AgentResponse",
+    "AttachmentResponse",
     "ConversationListResponse",
     "ConversationResponse",
     "MessageListResponse",

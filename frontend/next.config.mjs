@@ -33,6 +33,10 @@ const nextConfig = {
     // bản" (and sending an order, which may ask the AI) can take longer on a
     // slow model; the API's own budget is 85 s, Cloudflare's 100 s.
     proxyTimeout: 120_000,
+    // The middleware (CSP) sees every /api request and buffers its body, cut at
+    // 10 MB by default. Đội agent uploads a file up to 20 MB (0092): above
+    // that the API answers in words, below it nothing is cut.
+    middlewareClientMaxBodySize: "25mb",
   },
   // No `output: "export"`. A static export cannot proxy, and without the proxy
   // the cookie story above falls apart.

@@ -64,19 +64,56 @@ function sse(events: Array<[string, unknown]>): string {
 
 type Call = { url: string; method: string; body: unknown };
 
-function backend(options: { configured?: boolean } = {}) {
+const SENT_FILES = [
+  {
+    id: "f1",
+    name: "banner.png",
+    kind: "IMAGE",
+    content_type: "image/png",
+    size_bytes: 2048,
+    pages: null,
+    truncated: false,
+    note: null,
+    url: "/api/agents/attachments/f1",
+  },
+  {
+    id: "f2",
+    name: "hop-dong.pdf",
+    kind: "DOCUMENT",
+    content_type: "application/pdf",
+    size_bytes: 120_000,
+    pages: 3,
+    truncated: false,
+    note: "3 trang",
+    url: "/api/agents/attachments/f2",
+  },
+];
+
+function backend(options: { configured?: boolean; saved?: unknown[] } = {}) {
   const calls: Call[] = [];
-  let saved: unknown[] = [];
+  let saved: unknown[] = options.saved ?? [];
   const json = (body: unknown, status = 200) =>
     new Response(JSON.stringify(body), { status, headers: { "Content-Type": "application/json" } });
   const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
     const url = String(input);
     const method = init?.method ?? "GET";
-    calls.push({ url, method, body: init?.body ? JSON.parse(String(init.body)) : undefined });
+    const raw = init?.body;
+    calls.push({ url, method, body: typeof raw === "string" ? JSON.parse(raw) : raw });
     if (url.endsWith("/api/agents") && method === "GET") {
       return json({ ...AGENTS, configured: options.configured ?? true });
     }
     if (url.includes("/api/agents/phapche/conversations")) return json({ conversations: [CONVERSATION] });
+    if (url.includes("/api/agents/conversations/c1/attachments") && method === "POST") {
+      const name = new URL(url, "http://x").searchParams.get("name");
+      if (name === "clip.mp4") {
+        return json(
+          { error: { code: "validation_error", message: "Agent chưa xem được video / nghe được âm thanh.", details: { reason: "agent_file_invalid" } } },
+          422,
+        );
+      }
+      return json({ ...SENT_FILES[1], id: "f9", name }, 201);
+    }
+    if (url.endsWith("/api/agents/conversations/c1") && method === "DELETE") return new Response(null, { status: 204 });
     if (url.includes("/api/agents/conversations/c1/messages") && method === "GET") {
       return json({ conversation: CONVERSATION, messages: saved, has_more: false });
     }
@@ -151,7 +188,7 @@ describe("Đội agent: the chat", () => {
     expect(within(agents).getByText("Ban Giám đốc")).toBeInTheDocument();
     await user.click(within(agents).getByRole("button", { name: /Pháp chế/ }));
     expect(NAV.current()).toBe("a=phapche");
-    await user.click(await screen.findByRole("button", { name: /Soát câu quảng cáo/ }));
+    await user.click(await screen.findByRole("button", { name: /^Soát câu quảng cáo/ }));
     expect(NAV.current()).toBe("a=phapche&c=c1");
 
     expect(await screen.findByText("Không gửi thông tin cá nhân, ảnh, hồ sơ của khách hàng.")).toBeInTheDocument();
@@ -174,6 +211,66 @@ describe("Đội agent: the chat", () => {
     expect(await screen.findByText(/Chưa kết nối tới máy chủ agent nên chưa gửi tin được/)).toBeInTheDocument();
     expect(await screen.findByLabelText("Tin nhắn cho Pháp chế")).toBeDisabled();
     expect(screen.getByRole("button", { name: "Gửi" })).toBeDisabled();
+  });
+});
+
+describe("Đội agent: files and deleting", () => {
+  it("attaches a document, refuses a video, sends the file with the question", async () => {
+    const calls = backend();
+    // The picker narrows the dialog only; the server is the one who refuses.
+    const user = userEvent.setup({ applyAccept: false });
+    NAV.arriveAt("/agents?a=phapche&c=c1");
+    renderWithQuery(<AgentsWorkspace />);
+    const input = (await screen.findByTestId("agent-file-input")) as HTMLInputElement;
+    await user.upload(input, [
+      new File(["%PDF-1.4"], "hop-dong.pdf", { type: "application/pdf" }),
+      new File(["x"], "clip.mp4", { type: "video/mp4" }),
+    ]);
+    const chips = await screen.findByRole("list", { name: "Tệp đính kèm" });
+    await waitFor(() => expect(within(chips).getByText(/Agent chưa xem được video/)).toBeInTheDocument());
+    expect(within(chips).getByText(/3 trang/)).toBeInTheDocument();
+    // The refused one is taken out; the other goes with the question.
+    await user.click(within(chips).getByRole("button", { name: "Bỏ tệp clip.mp4" }));
+    await user.type(screen.getByLabelText("Tin nhắn cho Pháp chế"), "Soát hợp đồng này{Enter}");
+    await waitFor(() =>
+      expect(calls.find((call) => call.method === "POST" && call.url.includes("/messages"))?.body).toEqual({
+        text: "Soát hợp đồng này",
+        attachment_ids: ["f9"],
+      }),
+    );
+    const upload = calls.find((call) => call.url.includes("/attachments?name=hop-dong.pdf"));
+    expect(upload?.method).toBe("POST");
+    await waitFor(() => expect(screen.queryByRole("list", { name: "Tệp đính kèm" })).toBeNull());
+  });
+
+  it("draws what was sent: the picture, and the document to download", async () => {
+    backend({ saved: [{ ...QUESTION, attachments: SENT_FILES }, ANSWER] });
+    NAV.arriveAt("/agents?a=phapche&c=c1");
+    renderWithQuery(<AgentsWorkspace />);
+    const log = await screen.findByRole("log", { name: "Tin nhắn" });
+    const picture = await within(log).findByRole("img", { name: "banner.png" });
+    expect(picture).toHaveAttribute("src", "/api/agents/attachments/f1");
+    const download = within(log).getByRole("link", { name: /hop-dong\.pdf/ });
+    expect(download).toHaveAttribute("href", "/api/agents/attachments/f2");
+    expect(download).toHaveAttribute("download", "hop-dong.pdf");
+    expect(within(download).getByText(/3 trang · 117 KB/)).toBeInTheDocument();
+  });
+
+  it("deletes a conversation for good, after asking", async () => {
+    const calls = backend();
+    const user = userEvent.setup();
+    NAV.arriveAt("/agents?a=phapche&c=c1");
+    renderWithQuery(<AgentsWorkspace />);
+    await user.click(await screen.findByRole("button", { name: "Xoá cuộc trò chuyện Soát câu quảng cáo" }));
+    const dialog = await screen.findByRole("dialog");
+    expect(dialog).toHaveTextContent("Không khôi phục được");
+    await user.click(within(dialog).getByRole("button", { name: "Xoá cuộc trò chuyện" }));
+    await waitFor(() =>
+      expect(calls.some((call) => call.method === "DELETE" && call.url.endsWith("/api/agents/conversations/c1"))).toBe(
+        true,
+      ),
+    );
+    await waitFor(() => expect(NAV.current()).toBe("a=phapche"));
   });
 });
 

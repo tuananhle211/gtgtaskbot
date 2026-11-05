@@ -59,6 +59,19 @@ class MessageStatus(StrEnum):
     CANCELLED = "CANCELLED"
 
 
+class AttachmentKind(StrEnum):
+    """What a person attached to a question (0092)."""
+
+    #: Sent to the agent as a picture (it sees it).
+    IMAGE = "IMAGE"
+    #: PDF / Word / Excel / PowerPoint / text: APM reads the words out and
+    #: sends them with the question (Hermes takes no files).
+    DOCUMENT = "DOCUMENT"
+    #: A skill (``SKILL.md``, or a ``.zip`` holding one): the agent uses it in
+    #: this conversation; keeping it is the usual proposal Emma approves.
+    SKILL = "SKILL"
+
+
 class AgentGroup(StrEnum):
     BOARD = "BOARD"
     MARKETING = "MARKETING"
@@ -82,6 +95,23 @@ RATE_LIMIT = 20
 RATE_WINDOW_SECONDS = 300
 #: An answer longer than this is cut (status FAILED, reason timeout).
 ANSWER_TIMEOUT_SECONDS = 300
+#: Attachments (0092). A picture at most this big (the model's own limit is 5 MB).
+MAX_IMAGE_BYTES = 5 * 1024 * 1024
+#: Any other file at most this big.
+MAX_FILE_BYTES = 20 * 1024 * 1024
+#: At most this many files on one question.
+MAX_ATTACHMENTS = 6
+#: The pictures of one question together (Hermes takes a 10 MB request, base64 grows 4/3).
+MAX_IMAGE_BYTES_PER_MESSAGE = 6 * 1024 * 1024
+#: The words read out of one file; longer is cut (``truncated``).
+MAX_FILE_TEXT_CHARS = 80_000
+#: The words of every file of one question together.
+MAX_ATTACHED_TEXT_CHARS = 200_000
+#: At most this many uploads per person in :data:`RATE_WINDOW_SECONDS`.
+UPLOAD_RATE_LIMIT = 40
+#: An upload never sent is dropped after this long.
+UNSENT_UPLOAD_HOURS = 24
+
 #: A conversation title: the first words of the first question.
 TITLE_CHARS = 60
 #: A STREAMING answer older than this is stale (the API restarted mid-answer).
@@ -266,14 +296,23 @@ __all__ = [
     "AGENT_PERMISSION_LABELS",
     "ANSWER_TIMEOUT_SECONDS",
     "DEFAULT_AGENTS",
+    "MAX_ATTACHED_TEXT_CHARS",
+    "MAX_ATTACHMENTS",
+    "MAX_FILE_BYTES",
+    "MAX_FILE_TEXT_CHARS",
+    "MAX_IMAGE_BYTES",
+    "MAX_IMAGE_BYTES_PER_MESSAGE",
     "MAX_MESSAGE_CHARS",
     "MODULE_AGENTS",
     "RATE_LIMIT",
     "RATE_WINDOW_SECONDS",
     "STALE_STREAM_SECONDS",
+    "UNSENT_UPLOAD_HOURS",
+    "UPLOAD_RATE_LIMIT",
     "AgentGroup",
     "AgentPermission",
     "AgentSeed",
+    "AttachmentKind",
     "MessageRole",
     "MessageStatus",
     "agent_allowed_scopes",

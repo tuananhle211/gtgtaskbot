@@ -212,8 +212,8 @@ async def test_04_a_conversation_is_its_owners_alone(world: World) -> None:
     assert world.client.get("/api/agents/phapche/conversations").json()["conversations"] == []
 
 
-async def test_05_rename_and_archive(world: World) -> None:
-    setup(world)
+async def test_05_rename_and_delete(world: World) -> None:
+    relay = setup(world)
     await seeded(world)
     world.act_as(world.member)
     conversation = open_conversation(world)
@@ -223,8 +223,27 @@ async def test_05_rename_and_archive(world: World) -> None:
     assert renamed.status_code == 200 and renamed.json()["title"] == "Hợp đồng KOL"
     listed = world.client.get("/api/agents/phapche/conversations").json()["conversations"]
     assert [item["title"] for item in listed] == ["Hợp đồng KOL"]
+    world.client.post(f"/api/agents/conversations/{conversation}/messages", json={"text": "Hỏi"})
+    # Somebody else cannot delete it (404), its owner deletes it for good.
+    world.act_as(world.owner)
+    assert world.client.delete(f"/api/agents/conversations/{conversation}").status_code == 404
+    world.act_as(world.member)
     assert world.client.delete(f"/api/agents/conversations/{conversation}").status_code == 204
     assert world.client.get("/api/agents/phapche/conversations").json()["conversations"] == []
+    assert await world.session.get(AgentConversation, uuid.UUID(conversation)) is None
+    left = (
+        await world.session.scalars(
+            select(AgentMessage).where(AgentMessage.conversation_id == uuid.UUID(conversation))
+        )
+    ).all()
+    assert left == []
+    # ... and its transcript on the Hermes side; the audit keeps that it happened.
+    assert relay.deleted == [("phapche", f"apm-{conversation}")]
+    log = await world.session.scalar(
+        select(AuditLog).where(AuditLog.action == "agent.conversation.deleted")
+    )
+    assert log is not None and log.after_data == {"agent": "phapche", "messages": 2}
+    assert world.client.get(f"/api/agents/conversations/{conversation}/messages").status_code == 404
 
 
 # --- sending ------------------------------------------------------------------------------
@@ -456,3 +475,266 @@ async def test_12_seeded_departments_follow_the_codes(world: World) -> None:
     assert cfo.allowed_department_ids == [codes["BGD"]]
     phapche = await world.session.scalar(select(AgentProfile).where(AgentProfile.slug == "phapche"))
     assert phapche is not None and phapche.everyone and phapche.allowed_department_ids == []
+
+
+# --- attachments (0092) ---------------------------------------------------------------
+
+
+def _png() -> bytes:
+    import struct
+    import zlib
+
+    def chunk(kind: bytes, data: bytes) -> bytes:
+        crc = zlib.crc32(kind + data) & 0xFFFFFFFF
+        return struct.pack(">I", len(data)) + kind + data + struct.pack(">I", crc)
+
+    raw = b"".join(b"\x00" + b"\xff\x00\x00" * 4 for _ in range(4))
+    header = struct.pack(">IIBBBBB", 4, 4, 8, 2, 0, 0, 0)
+    return (
+        b"\x89PNG\r\n\x1a\n"
+        + chunk(b"IHDR", header)
+        + chunk(b"IDAT", zlib.compress(raw))
+        + chunk(b"IEND", b"")
+    )
+
+
+def _pdf(words: str | None) -> bytes:
+    """A one-page PDF saying ``words`` (None = a page with no text, like a scan)."""
+    stream = f"BT /F1 12 Tf 72 720 Td ({words}) Tj ET".encode() if words else b""
+    objects = [
+        b"<< /Type /Catalog /Pages 2 0 R >>",
+        b"<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
+        b"<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Contents 4 0 R"
+        b" /Resources << /Font << /F1 5 0 R >> >> >>",
+        b"<< /Length %d >>\nstream\n" % len(stream) + stream + b"\nendstream",
+        b"<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>",
+    ]
+    out = bytearray(b"%PDF-1.4\n")
+    offsets = []
+    for number, body in enumerate(objects, start=1):
+        offsets.append(len(out))
+        out += b"%d 0 obj\n" % number + body + b"\nendobj\n"
+    xref = len(out)
+    out += b"xref\n0 %d\n0000000000 65535 f \n" % (len(objects) + 1)
+    for offset in offsets:
+        out += b"%010d 00000 n \n" % offset
+    out += b"trailer\n<< /Size %d /Root 1 0 R >>\nstartxref\n%d\n%%%%EOF\n" % (
+        len(objects) + 1,
+        xref,
+    )
+    return bytes(out)
+
+
+def _zip(files: dict[str, str]) -> bytes:
+    import io
+    import zipfile
+
+    buffer = io.BytesIO()
+    with zipfile.ZipFile(buffer, "w") as archive:
+        for name, body in files.items():
+            archive.writestr(name, body)
+    return buffer.getvalue()
+
+
+def _docx(*paragraphs: str) -> bytes:
+    ns = 'xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"'
+    body = "".join(f"<w:p><w:r><w:t>{text}</w:t></w:r></w:p>" for text in paragraphs)
+    table = (
+        "<w:tbl><w:tr><w:tc><w:p><w:r><w:t>Gói</w:t></w:r></w:p></w:tc>"
+        "<w:tc><w:p><w:r><w:t>Giá</w:t></w:r></w:p></w:tc></w:tr></w:tbl>"
+    )
+    document = f"<w:document {ns}><w:body>{body}{table}</w:body></w:document>"
+    return _zip({"word/document.xml": document})
+
+
+def _xlsx() -> bytes:
+    import io
+
+    from openpyxl import Workbook
+
+    book = Workbook()
+    sheet = book.active
+    assert sheet is not None
+    sheet.title = "Ngân sách"
+    sheet.append(["Kênh", "Tiền"])
+    sheet.append(["Facebook", 1200000])
+    buffer = io.BytesIO()
+    book.save(buffer)
+    return buffer.getvalue()
+
+
+def _pptx() -> bytes:
+    ns = 'xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main"'
+    slide = f"<p:sld {ns} xmlns:p='x'><a:p><a:r><a:t>Chiến dịch tháng 11</a:t></a:r></a:p></p:sld>"
+    return _zip({"ppt/slides/slide1.xml": slide})
+
+
+SKILL_MD = "---\nname: soat-hop-dong\ndescription: Soát hợp đồng KOL\n---\n\n# Các bước\n1. Đọc"
+
+
+async def test_13_reading_every_kind_of_file() -> None:
+    from meobot.application.agents.files import read_upload
+    from meobot.domain.agents.errors import AgentFileInvalidError
+    from meobot.domain.agents.models import AttachmentKind
+
+    image = read_upload("anh.jpg", _png())  # the bytes decide, not the name
+    assert (image.kind, image.content_type, image.text) == (AttachmentKind.IMAGE, "image/png", None)
+    pdf = read_upload("hop-dong.pdf", _pdf("Hop dong KOL 2026"))
+    assert pdf.kind == AttachmentKind.DOCUMENT and pdf.pages == 1
+    assert "Hop dong KOL 2026" in (pdf.text or "") and pdf.note == "1 trang"
+    word = read_upload("brief.docx", _docx("Mục tiêu: 200 lead", "Ngân sách 50 triệu"))
+    assert "Mục tiêu: 200 lead" in (word.text or "") and "Gói | Giá" in (word.text or "")
+    sheet = read_upload("ngan-sach.xlsx", _xlsx())
+    assert "--- Sheet: Ngân sách ---" in (sheet.text or "")
+    assert "Facebook\t1200000" in (sheet.text or "")
+    slides = read_upload("deck.pptx", _pptx())
+    assert "Chiến dịch tháng 11" in (slides.text or "") and slides.note == "1 slide"
+    text = read_upload("ghi-chu.txt", "Ghi chú họp".encode("utf-16"))
+    assert text.text == "Ghi chú họp"
+    skill = read_upload("SKILL.md", SKILL_MD.encode())
+    assert skill.kind == AttachmentKind.SKILL and skill.note == "Skill: soat-hop-dong"
+    packed = read_upload(
+        "soat.zip",
+        _zip(
+            {
+                "soat-hop-dong/SKILL.md": SKILL_MD,
+                "soat-hop-dong/references/mau.md": "Mẫu điều khoản",
+                "soat-hop-dong/logo.png": "x",
+                "__MACOSX/soat-hop-dong/._SKILL.md": "rác",
+            }
+        ),
+    )
+    assert packed.kind == AttachmentKind.SKILL and packed.note == "Skill: soat-hop-dong · 2 tệp"
+    assert "--- references/mau.md ---\nMẫu điều khoản" in (packed.text or "")
+    assert "rác" not in (packed.text or "")
+    # Refused, each with what to do instead.
+    for name, data, says in [
+        ("clip.mp4", b"\x00\x00\x00 ftypisom", "video"),
+        ("scan.pdf", _pdf(None), "bản scan"),
+        ("cu.doc", b"\xd0\xcf\x11\xe0", ".docx"),
+        ("tai-lieu.zip", _zip({"a.txt": "x"}), "SKILL.md"),
+        ("logo.svg", b"<svg/>", "PNG"),
+        ("hong.docx", b"PK not a zip", "tệp hỏng"),
+        ("bom.docx", _zip({"word/document.xml": '<!DOCTYPE x [<!ENTITY a "a">]><x/>'}), "hỏng"),
+        ("trong.txt", b"", "trống"),
+    ]:
+        with pytest.raises(AgentFileInvalidError) as refused:
+            read_upload(name, data)
+        assert says in str(refused.value), (name, str(refused.value))
+
+
+def upload(world: World, conversation: str, name: str, data: bytes) -> Any:
+    return world.client.post(
+        f"/api/agents/conversations/{conversation}/attachments",
+        params={"name": name},
+        content=data,
+        headers={"Content-Type": "application/octet-stream"},
+    )
+
+
+async def test_14_files_go_with_the_question(world: World) -> None:
+    relay = setup(world)
+    await seeded(world)
+    world.act_as(world.member)
+    conversation = open_conversation(world)
+    picture = upload(world, conversation, "banner.png", _png())
+    assert picture.status_code == 201, picture.json()
+    assert picture.json()["kind"] == "IMAGE"
+    contract = upload(world, conversation, "../../hop-dong.pdf", _pdf("Dieu 5 cam ket"))
+    assert contract.status_code == 201, contract.json()
+    assert contract.json()["name"] == "hop-dong.pdf" and contract.json()["note"] == "1 trang"
+    skill = upload(world, conversation, "SKILL.md", SKILL_MD.encode())
+    assert skill.json()["kind"] == "SKILL"
+    refused = upload(world, conversation, "clip.mov", b"\x00\x00\x00 ftypqt")
+    assert refused.status_code == 422 and error_reason(refused.json()) == "agent_file_invalid"
+    # A file taken back out of the composer is gone.
+    extra = upload(world, conversation, "nhap.txt", b"bo di")
+    assert world.client.delete(f"/api/agents/attachments/{extra.json()['id']}").status_code == 204
+    ids = [picture.json()["id"], contract.json()["id"], skill.json()["id"]]
+    sent = world.client.post(
+        f"/api/agents/conversations/{conversation}/messages",
+        json={"text": "Soát giúp em", "attachment_ids": ids},
+    )
+    assert sent.status_code == 200, sent.text
+    start = events(sent.text)[0][1]["user_message"]
+    assert [item["name"] for item in start["attachments"]] == [
+        "banner.png",
+        "hop-dong.pdf",
+        "SKILL.md",
+    ]
+    # The agent got the picture as a picture, the PDF's words and the skill in the text.
+    call = relay.calls[0]
+    assert len(call["images"]) == 1 and call["images"][0].startswith("data:image/png;base64,")
+    assert "[Ảnh đính kèm: banner.png]" in call["text"]
+    assert "[Tệp đính kèm: hop-dong.pdf - 1 trang]" in call["text"]
+    assert "Dieu 5 cam ket" in call["text"]
+    assert "[Skill đính kèm: SKILL.md - Skill: soat-hop-dong]" in call["text"]
+    assert "Emma duyệt" in call["text"]
+    # The conversation reads them back; a sent file stays (cannot be taken back).
+    listed = world.client.get(f"/api/agents/conversations/{conversation}/messages").json()
+    assert [len(m["attachments"]) for m in listed["messages"]] == [3, 0]
+    assert world.client.delete(f"/api/agents/attachments/{ids[0]}").status_code == 422
+    # Opening a file: a picture shows, a document downloads; somebody else gets a 404.
+    shown = world.client.get(f"/api/agents/attachments/{ids[0]}")
+    assert shown.status_code == 200 and shown.content == _png()
+    assert shown.headers["content-type"] == "image/png"
+    assert shown.headers["content-disposition"].startswith("inline")
+    assert "sandbox" in shown.headers["content-security-policy"]
+    pdf = world.client.get(f"/api/agents/attachments/{ids[1]}")
+    assert pdf.headers["content-type"] == "application/octet-stream"
+    assert pdf.headers["content-disposition"].startswith("attachment")
+    world.act_as(world.owner)
+    assert world.client.get(f"/api/agents/attachments/{ids[0]}").status_code == 404
+    assert upload(world, conversation, "x.txt", b"x").status_code == 404
+    # An id already sent cannot go with another question.
+    world.act_as(world.member)
+    again = world.client.post(
+        f"/api/agents/conversations/{conversation}/messages",
+        json={"text": "Lại", "attachment_ids": [ids[1]]},
+    )
+    assert again.status_code == 422 and error_reason(again.json()) == "agent_file_invalid"
+    # Deleting the conversation deletes its files.
+    from meobot.db.models.agent_chat import AgentAttachment
+
+    assert world.client.delete(f"/api/agents/conversations/{conversation}").status_code == 204
+    assert (await world.session.scalars(select(AgentAttachment))).all() == []
+
+
+async def test_15_files_only_and_the_limits(world: World) -> None:
+    relay = setup(world, FakeAgentRelay([list(ANSWER)] * 3))
+    await seeded(world)
+    world.act_as(world.member)
+    conversation = open_conversation(world)
+    only = upload(world, conversation, "brief.docx", _docx("Brief banner Tết"))
+    sent = world.client.post(
+        f"/api/agents/conversations/{conversation}/messages",
+        json={"text": "", "attachment_ids": [only.json()["id"]]},
+    )
+    assert sent.status_code == 200, sent.text
+    assert "(Người hỏi gửi tệp đính kèm, không kèm lời nhắn.)" in relay.calls[0]["text"]
+    assert relay.calls[0]["images"] == []
+    row = await world.session.get(AgentConversation, uuid.UUID(conversation))
+    assert row is not None and row.title == "brief.docx"
+    # At most six files wait for one question.
+    for index in range(6):
+        assert upload(world, conversation, f"{index}.txt", b"x").status_code == 201
+    seventh = upload(world, conversation, "7.txt", b"x")
+    assert seventh.status_code == 422 and "tối đa 6" in seventh.json()["error"]["message"]
+    # Too big is refused before anything is read.
+    huge = upload(world, conversation, "lon.pdf", b"%PDF-" + b"0" * (20 * 1024 * 1024))
+    assert huge.status_code == 422 and "20 MB" in huge.json()["error"]["message"]
+    # Nothing and no file: still "empty".
+    empty = world.client.post(
+        f"/api/agents/conversations/{conversation}/messages", json={"text": "  "}
+    )
+    assert empty.status_code == 422 and error_reason(empty.json()) == "agent_message_invalid"
+
+
+async def test_16_the_relay_sends_pictures_as_parts() -> None:
+    from meobot.integrations.hermes.relay import chat_content
+
+    assert chat_content("Hỏi", []) == "Hỏi"
+    assert chat_content("Hỏi", ["data:image/png;base64,AA=="]) == [
+        {"type": "text", "text": "Hỏi"},
+        {"type": "image_url", "image_url": {"url": "data:image/png;base64,AA=="}},
+    ]

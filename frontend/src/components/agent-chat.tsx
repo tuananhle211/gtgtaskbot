@@ -6,13 +6,22 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   api,
   ApiError,
+  type AgentAttachment,
   type AgentInfo,
   type AgentList,
   type AgentMessage,
   type Uuid,
 } from "@/lib/api";
-import { answerError, sendAgentMessage, type AgentStreamEvent } from "@/lib/agents";
-import { archiveAgentConversationConfirmation } from "@/lib/confirmations";
+import {
+  ATTACH_ACCEPT,
+  answerError,
+  fileSize,
+  sendAgentMessage,
+  shrinkImage,
+  uploadAgentAttachment,
+  type AgentStreamEvent,
+} from "@/lib/agents";
+import { deleteAgentConversationConfirmation } from "@/lib/confirmations";
 import { formatShortDateTime } from "@/lib/datetime";
 import { AgentMarkdown } from "@/components/agent-markdown";
 import { ConfirmButton } from "@/components/confirm";
@@ -28,6 +37,19 @@ import { ErrorBox, Loading, NoticeBox } from "@/components/states";
  */
 
 const DATA_RULE = "Không gửi thông tin cá nhân, ảnh, hồ sơ của khách hàng.";
+const ATTACH_HINT = "Ảnh, PDF, Word, Excel, PowerPoint, tệp chữ, skill (SKILL.md hoặc .zip)";
+
+/** A file in the composer: uploading, ready (sent by id with the question) or refused. */
+type Pending = {
+  key: string;
+  name: string;
+  size: number;
+  /** An object URL drawing a picture before it is sent. */
+  preview: string | null;
+  status: "uploading" | "ready" | "failed";
+  attachment?: AgentAttachment;
+  error?: string;
+};
 
 type Live = {
   question: AgentMessage | null;
@@ -101,6 +123,9 @@ export function AgentsWorkspace() {
                 selected={conversationId}
                 onBack={() => go({ a: null, c: null })}
                 onPick={(id) => go({ c: id })}
+                onDeleted={(id) => {
+                  if (id === conversationId) go({ c: null });
+                }}
               />
             ) : (
               <div className="panel hidden h-full items-center justify-center p-4 text-sm text-[var(--text-muted)] lg:flex">
@@ -116,6 +141,7 @@ export function AgentsWorkspace() {
                 conversationId={conversationId}
                 configured={data.configured}
                 maxChars={data.max_message_chars}
+                maxFiles={data.max_attachments ?? 6}
                 onBack={() => go({ c: null })}
                 onGone={() => go({ c: null })}
               />
@@ -218,13 +244,23 @@ function Conversations({
   selected,
   onBack,
   onPick,
+  onDeleted,
 }: {
   agent: AgentInfo;
   selected: string | null;
   onBack: () => void;
   onPick: (id: Uuid) => void;
+  onDeleted: (id: Uuid) => void;
 }) {
   const queryClient = useQueryClient();
+  const remove = useMutation({
+    mutationFn: (id: Uuid) => api.deleteAgentConversation(id),
+    onSuccess: (_, id) => {
+      queryClient.invalidateQueries({ queryKey: ["agents", "conversations", agent.slug] });
+      queryClient.removeQueries({ queryKey: ["agents", "messages", id] });
+      onDeleted(id);
+    },
+  });
   const conversations = useQuery({
     queryKey: ["agents", "conversations", agent.slug],
     queryFn: () => api.agentConversations(agent.slug),
@@ -280,20 +316,34 @@ function Conversations({
           {conversations.data?.conversations.map((item) => {
             const active = item.id === selected;
             return (
-              <li key={item.id}>
+              <li
+                key={item.id}
+                className={`group flex items-stretch rounded-lg transition-colors ${
+                  active ? "bg-[var(--accent-soft)] text-[var(--accent-strong)]" : "hover:bg-[var(--surface-muted)]"
+                }`}
+              >
                 <button
                   type="button"
                   onClick={() => onPick(item.id)}
                   aria-current={active ? "true" : undefined}
-                  className={`flex min-h-11 w-full flex-col justify-center rounded-lg px-2.5 py-1.5 text-left transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-[var(--accent)] ${
-                    active ? "bg-[var(--accent-soft)] text-[var(--accent-strong)]" : "hover:bg-[var(--surface-muted)]"
-                  }`}
+                  className="flex min-h-11 min-w-0 flex-1 flex-col justify-center rounded-lg px-2.5 py-1.5 text-left focus-visible:outline focus-visible:outline-2 focus-visible:outline-[var(--accent)]"
                 >
                   <span className={`block truncate text-sm ${active ? "font-semibold" : ""}`}>{item.title}</span>
                   <span className="block text-xs text-[var(--text-muted)]">
                     {item.running ? "Đang trả lời…" : formatShortDateTime(item.last_message_at ?? item.created_at)}
                   </span>
                 </button>
+                <ConfirmButton
+                  spec={deleteAgentConversationConfirmation(item.title)}
+                  onConfirm={() => remove.mutate(item.id)}
+                  pending={remove.isPending && remove.variables === item.id}
+                  error={remove.variables === item.id ? remove.error : undefined}
+                  tone="secondary"
+                  ariaLabel={`Xoá cuộc trò chuyện ${item.title}`}
+                  className="!min-h-11 !min-w-10 shrink-0 !border-0 !bg-transparent !px-2 text-[var(--text-muted)] opacity-70 hover:!text-[var(--bad)] group-hover:opacity-100"
+                >
+                  <TrashIcon />
+                </ConfirmButton>
               </li>
             );
           })}
@@ -308,6 +358,7 @@ function Chat({
   conversationId,
   configured,
   maxChars,
+  maxFiles,
   onBack,
   onGone,
 }: {
@@ -315,6 +366,7 @@ function Chat({
   conversationId: Uuid;
   configured: boolean;
   maxChars: number;
+  maxFiles: number;
   onBack: () => void;
   onGone: () => void;
 }) {
@@ -326,8 +378,16 @@ function Chat({
   const [renaming, setRenaming] = useState<string | null>(null);
   const [older, setOlder] = useState<AgentMessage[]>([]);
   const [olderMore, setOlderMore] = useState<boolean | null>(null);
+  const [pending, setPending] = useState<Pending[]>([]);
+  const [dragging, setDragging] = useState(false);
   const abort = useRef<AbortController | null>(null);
   const bottom = useRef<HTMLDivElement | null>(null);
+  const picker = useRef<HTMLInputElement | null>(null);
+  const previews = useRef<Set<string>>(new Set());
+  useEffect(() => {
+    const urls = previews.current;
+    return () => urls.forEach((url) => URL.revokeObjectURL(url));
+  }, []);
 
   const messages = useQuery({
     queryKey: key,
@@ -352,8 +412,8 @@ function Chat({
       refresh();
     },
   });
-  const archive = useMutation({
-    mutationFn: () => api.archiveAgentConversation(conversationId),
+  const remove = useMutation({
+    mutationFn: () => api.deleteAgentConversation(conversationId),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["agents", "conversations", agent.slug] });
       onGone();
@@ -371,15 +431,61 @@ function Chat({
   const running = sending || Boolean(messages.data?.conversation.running);
   const text = draft.trim();
   const tooLong = draft.length > maxChars;
+  const ready = pending.filter((item) => item.status === "ready");
+  const uploading = pending.some((item) => item.status === "uploading");
+  const canSend = (Boolean(text) || ready.length > 0) && !tooLong && !uploading && configured;
+
+  const drop = (key: string) => {
+    setPending((current) => {
+      const gone = current.find((item) => item.key === key);
+      if (gone?.preview) {
+        URL.revokeObjectURL(gone.preview);
+        previews.current.delete(gone.preview);
+      }
+      if (gone?.attachment) void api.removeAgentAttachment(gone.attachment.id).catch(() => undefined);
+      return current.filter((item) => item.key !== key);
+    });
+  };
+
+  const addFiles = (files: File[]) => {
+    if (!configured || files.length === 0) return;
+    const room = Math.max(0, maxFiles - pending.filter((item) => item.status !== "failed").length);
+    if (files.length > room) {
+      setFailure(new Error(`Mỗi tin nhắn gửi tối đa ${maxFiles} tệp.`));
+    }
+    files.slice(0, room).forEach((file, index) => {
+      const key = `${Date.now()}-${index}-${file.name}`;
+      const preview = file.type.startsWith("image/") ? URL.createObjectURL(file) : null;
+      if (preview) previews.current.add(preview);
+      setPending((current) => [...current, { key, name: file.name, size: file.size, preview, status: "uploading" }]);
+      void (async () => {
+        try {
+          const { blob, name } = await shrinkImage(file);
+          const attachment = await uploadAgentAttachment(conversationId, blob, name);
+          setPending((current) =>
+            current.map((item) => (item.key === key ? { ...item, status: "ready", attachment, size: blob.size } : item)),
+          );
+        } catch (error) {
+          const message = error instanceof Error ? error.message : "Không tải được tệp lên.";
+          setPending((current) =>
+            current.map((item) => (item.key === key ? { ...item, status: "failed", error: message } : item)),
+          );
+        }
+      })();
+    });
+  };
 
   const send = async () => {
-    if (!text || tooLong || running || !configured) return;
+    if (!canSend || running) return;
     setFailure(null);
     setLive({ question: null, text: "", tools: [] });
     const controller = new AbortController();
     abort.current = controller;
     const asked = draft;
+    const sentFiles = pending;
+    const attachmentIds = ready.map((item) => item.attachment!.id);
     setDraft("");
+    setPending([]);
     try {
       await sendAgentMessage(
         conversationId,
@@ -394,11 +500,22 @@ function Chat({
           });
         },
         controller.signal,
+        attachmentIds,
       );
+      sentFiles.forEach((item) => {
+        if (item.preview) {
+          URL.revokeObjectURL(item.preview);
+          previews.current.delete(item.preview);
+        }
+      });
     } catch (error) {
       if (!(error instanceof DOMException && error.name === "AbortError")) {
         setFailure(error);
-        if (error instanceof ApiError && error.status !== 409) setDraft(asked);
+        // Refused before it was recorded: the words and the files come back to the composer.
+        if (error instanceof ApiError) {
+          setDraft(asked);
+          setPending(sentFiles);
+        }
       }
     } finally {
       abort.current = null;
@@ -440,7 +557,31 @@ function Chat({
   }
 
   return (
-    <section aria-label={conversation?.title ?? "Cuộc trò chuyện"} className="panel flex min-h-0 flex-1 flex-col overflow-hidden">
+    <section
+      aria-label={conversation?.title ?? "Cuộc trò chuyện"}
+      className="panel relative flex min-h-0 flex-1 flex-col overflow-hidden"
+      onDragOver={(event) => {
+        if (!configured || !Array.from(event.dataTransfer.types).includes("Files")) return;
+        event.preventDefault();
+        setDragging(true);
+      }}
+      onDragLeave={(event) => {
+        if (event.currentTarget.contains(event.relatedTarget as Node | null)) return;
+        setDragging(false);
+      }}
+      onDrop={(event) => {
+        if (!configured) return;
+        event.preventDefault();
+        setDragging(false);
+        addFiles(Array.from(event.dataTransfer.files));
+      }}
+    >
+      {dragging ? (
+        <div className="pointer-events-none absolute inset-2 z-10 flex flex-col items-center justify-center gap-1 rounded-xl border-2 border-dashed border-[var(--accent)] bg-[var(--accent-soft)] p-4 text-center text-sm text-[var(--accent-strong)]">
+          <p className="font-semibold">Thả tệp vào đây để gửi {agent.name}</p>
+          <p className="text-xs">{ATTACH_HINT}</p>
+        </div>
+      ) : null}
       <header className="flex items-center gap-2 border-b border-[var(--border)] p-2">
         <button
           type="button"
@@ -488,14 +629,14 @@ function Chat({
               Đổi tên
             </button>
             <ConfirmButton
-              spec={archiveAgentConversationConfirmation(conversation?.title ?? "")}
-              onConfirm={() => archive.mutate()}
-              pending={archive.isPending}
-              error={archive.error}
+              spec={deleteAgentConversationConfirmation(conversation?.title ?? "")}
+              onConfirm={() => remove.mutate()}
+              pending={remove.isPending}
+              error={remove.error}
               tone="secondary"
-              className="min-h-11 rounded-lg px-2.5 text-xs"
+              className="min-h-11 rounded-lg px-2.5 text-xs hover:!text-[var(--bad)]"
             >
-              Lưu trữ
+              Xoá
             </ConfirmButton>
           </>
         )}
@@ -545,7 +686,38 @@ function Chat({
             <NoticeBox error={failure} onDismiss={() => setFailure(null)} />
           </div>
         ) : null}
+        {pending.length > 0 ? (
+          <ul aria-label="Tệp đính kèm" className="mb-2 flex flex-wrap gap-2">
+            {pending.map((item) => (
+              <PendingChip key={item.key} item={item} onRemove={() => drop(item.key)} />
+            ))}
+          </ul>
+        ) : null}
+        <input
+          ref={picker}
+          type="file"
+          multiple
+          accept={ATTACH_ACCEPT}
+          className="hidden"
+          aria-hidden
+          tabIndex={-1}
+          data-testid="agent-file-input"
+          onChange={(event) => {
+            addFiles(Array.from(event.target.files ?? []));
+            event.target.value = "";
+          }}
+        />
         <div className="flex items-end gap-2">
+          <button
+            type="button"
+            onClick={() => picker.current?.click()}
+            disabled={!configured}
+            aria-label="Đính kèm tệp"
+            title={`Đính kèm: ${ATTACH_HINT}`}
+            className="inline-flex min-h-11 min-w-11 shrink-0 items-center justify-center rounded-lg border border-[var(--border)] bg-[var(--surface)] text-[var(--text-muted)] hover:bg-[var(--surface-muted)] hover:text-[var(--text)] disabled:opacity-50"
+          >
+            <PaperclipIcon />
+          </button>
           <label className="sr-only" htmlFor="agent-draft">
             Tin nhắn cho {agent.name}
           </label>
@@ -559,6 +731,13 @@ function Chat({
                 void send();
               }
             }}
+            onPaste={(event) => {
+              const files = Array.from(event.clipboardData?.files ?? []);
+              if (files.length > 0) {
+                event.preventDefault();
+                addFiles(files);
+              }
+            }}
             rows={Math.min(6, Math.max(1, draft.split("\n").length))}
             placeholder={configured ? `Nhắn ${agent.name}…` : "Chưa kết nối máy chủ agent"}
             disabled={!configured}
@@ -569,8 +748,8 @@ function Chat({
               Dừng
             </SecondaryButton>
           ) : (
-            <PrimaryButton type="submit" disabled={!text || tooLong || !configured}>
-              Gửi
+            <PrimaryButton type="submit" disabled={!canSend}>
+              {uploading ? "Đang tải…" : "Gửi"}
             </PrimaryButton>
           )}
         </div>
@@ -590,10 +769,12 @@ function Chat({
 
 function Bubble({ message, agent }: { message: AgentMessage; agent: AgentInfo }) {
   if (message.role === "USER") {
+    const files = message.attachments ?? [];
     return (
       <div className="flex justify-end">
-        <div className="max-w-[85%] rounded-2xl rounded-br-md bg-[var(--accent-soft)] px-3.5 py-2 text-sm text-[var(--accent-strong)] shadow-none">
-          <p className="whitespace-pre-wrap break-words">{message.content}</p>
+        <div className="max-w-[85%] min-w-0 rounded-2xl rounded-br-md bg-[var(--accent-soft)] px-3.5 py-2 text-sm text-[var(--accent-strong)] shadow-none">
+          {files.length > 0 ? <SentFiles files={files} /> : null}
+          {message.content ? <p className="whitespace-pre-wrap break-words">{message.content}</p> : null}
           <p className="mt-1 text-right text-[11px] opacity-70">{formatShortDateTime(message.created_at)}</p>
         </div>
       </div>
@@ -637,5 +818,131 @@ function LiveAnswer({ live, agent }: { live: Live; agent: AgentInfo }) {
         </p>
       </div>
     </div>
+  );
+}
+
+function SentFiles({ files }: { files: AgentAttachment[] }) {
+  const pictures = files.filter((file) => file.kind === "IMAGE");
+  const documents = files.filter((file) => file.kind !== "IMAGE");
+  return (
+    <div className="mb-1.5 space-y-1.5">
+      {pictures.length > 0 ? (
+        <div className={`grid gap-1.5 ${pictures.length > 1 ? "grid-cols-2" : "grid-cols-1"}`}>
+          {pictures.map((file) => (
+            <a
+              key={file.id}
+              href={file.url}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="block overflow-hidden rounded-lg border border-[var(--border)] bg-[var(--surface)]"
+              title={`Mở ảnh ${file.name}`}
+            >
+              {/* eslint-disable-next-line @next/next/no-img-element -- a private API image, not optimisable */}
+              <img src={file.url} alt={file.name} loading="lazy" className="max-h-56 w-full object-contain" />
+            </a>
+          ))}
+        </div>
+      ) : null}
+      {documents.map((file) => (
+        <a
+          key={file.id}
+          href={file.url}
+          download={file.name}
+          className="flex min-h-11 items-center gap-2.5 rounded-lg border border-[var(--border)] bg-[var(--surface)] px-2.5 py-1.5 text-[var(--text)] hover:bg-[var(--surface-muted)]"
+          title={`Tải ${file.name}`}
+        >
+          <FileBadge kind={file.kind} name={file.name} />
+          <span className="min-w-0 flex-1">
+            <span className="block truncate text-sm font-medium">{file.name}</span>
+            <span className="block truncate text-xs text-[var(--text-muted)]">
+              {[file.note, fileSize(file.size_bytes)].filter(Boolean).join(" · ")}
+            </span>
+          </span>
+        </a>
+      ))}
+    </div>
+  );
+}
+
+function PendingChip({ item, onRemove }: { item: Pending; onRemove: () => void }) {
+  const failed = item.status === "failed";
+  const detail =
+    item.status === "uploading"
+      ? "Đang tải lên…"
+      : failed
+        ? item.error
+        : [item.attachment?.note, fileSize(item.size)].filter(Boolean).join(" · ");
+  return (
+    <li
+      className={`flex min-h-11 max-w-full items-center gap-2 rounded-lg border px-2 py-1 sm:max-w-[18rem] ${
+        failed ? "border-[var(--bad)]/40 bg-[var(--bad-soft)]" : "border-[var(--border)] bg-[var(--surface-muted)]"
+      }`}
+    >
+      {item.preview ? (
+        // eslint-disable-next-line @next/next/no-img-element -- a local preview (blob:)
+        <img src={item.preview} alt="" className="h-9 w-9 shrink-0 rounded-md object-cover" />
+      ) : (
+        <FileBadge kind={item.attachment?.kind ?? "DOCUMENT"} name={item.name} />
+      )}
+      <span className="min-w-0 flex-1">
+        <span className="block truncate text-xs font-medium text-[var(--text)]">{item.name}</span>
+        <span className={`block truncate text-[11px] ${failed ? "text-[var(--bad)]" : "text-[var(--text-muted)]"}`}>
+          {detail}
+        </span>
+      </span>
+      <button
+        type="button"
+        onClick={onRemove}
+        aria-label={`Bỏ tệp ${item.name}`}
+        className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-[var(--text-muted)] hover:bg-[var(--surface)] hover:text-[var(--text)]"
+      >
+        ×
+      </button>
+    </li>
+  );
+}
+
+/** A small square naming the file's type: PDF, DOC, XLS, PPT, SKILL, TXT. */
+function FileBadge({ kind, name }: { kind: AgentAttachment["kind"]; name: string }) {
+  const extension = name.split(".").pop()?.toLowerCase() ?? "";
+  const label =
+    kind === "SKILL"
+      ? "SKILL"
+      : extension === "pdf"
+        ? "PDF"
+        : extension.startsWith("doc")
+          ? "DOC"
+          : extension.startsWith("xls")
+            ? "XLS"
+            : extension.startsWith("ppt")
+              ? "PPT"
+              : "TXT";
+  const tone =
+    kind === "SKILL"
+      ? "bg-[var(--magenta-soft)] text-[var(--magenta)]"
+      : "bg-[var(--accent-soft)] text-[var(--accent-strong)]";
+  return (
+    <span
+      aria-hidden
+      className={`inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-md text-[9px] font-bold tracking-wide ${tone}`}
+    >
+      {label}
+    </span>
+  );
+}
+
+function PaperclipIcon() {
+  return (
+    <svg aria-hidden viewBox="0 0 24 24" className="h-5 w-5" fill="none" stroke="currentColor" strokeWidth={1.8} strokeLinecap="round" strokeLinejoin="round">
+      <path d="m21 11.5-8.6 8.6a5.5 5.5 0 0 1-7.8-7.8l8.6-8.6a3.7 3.7 0 0 1 5.2 5.2l-8.6 8.6a1.8 1.8 0 0 1-2.6-2.6l7.9-7.9" />
+    </svg>
+  );
+}
+
+function TrashIcon() {
+  return (
+    <svg aria-hidden viewBox="0 0 24 24" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth={1.8} strokeLinecap="round" strokeLinejoin="round">
+      <path d="M4 7h16M9 7V4.5h6V7M6.5 7l1 12.5h9l1-12.5M10 11v5M14 11v5" />
+    </svg>
   );
 }

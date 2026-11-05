@@ -7,32 +7,49 @@ how it ended, each on whatever session it is handed.
 
 from __future__ import annotations
 
+import asyncio
+import base64
 import uuid
 from collections.abc import Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 
-from sqlalchemy import func, select
+from sqlalchemy import delete, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import undefer
 
 from meobot.application.agents.access import AgentAccess
+from meobot.application.agents.files import clean_name, read_upload
 from meobot.application.audit_service import AuditService
 from meobot.core.time import utcnow
-from meobot.db.models.agent_chat import AgentConversation, AgentMessage, AgentProfile
+from meobot.db.models.agent_chat import (
+    AgentAttachment,
+    AgentConversation,
+    AgentMessage,
+    AgentProfile,
+)
 from meobot.db.models.department import Department
 from meobot.db.models.user import User
 from meobot.domain.agents.errors import (
     AgentAccessInvalidError,
+    AgentFileInvalidError,
     AgentMessageInvalidError,
     AgentNotFoundError,
     AgentRateLimitedError,
+    AttachmentNotFoundError,
     ConversationNotFoundError,
 )
 from meobot.domain.agents.models import (
     DEFAULT_AGENTS,
+    MAX_ATTACHED_TEXT_CHARS,
+    MAX_ATTACHMENTS,
+    MAX_IMAGE_BYTES_PER_MESSAGE,
     MAX_MESSAGE_CHARS,
     RATE_LIMIT,
     RATE_WINDOW_SECONDS,
+    UNSENT_UPLOAD_HOURS,
+    UPLOAD_RATE_LIMIT,
+    AttachmentKind,
     MessageRole,
     MessageStatus,
     conversation_title,
@@ -43,6 +60,12 @@ from meobot.domain.audit.models import AuditAction, AuditEntry, AuditResult
 from meobot.domain.org.models import Seat, seat_label
 
 NEW_TITLE = "Cuộc trò chuyện mới"
+#: What the agent reads when a question is only files.
+FILES_ONLY = "(Người hỏi gửi tệp đính kèm, không kèm lời nhắn.)"
+SKILL_HINT = (
+    "Người hỏi gửi skill này để bạn dùng trong cuộc trò chuyện. Muốn giữ lâu dài thì "
+    "tạo đề xuất skill như thường lệ - Emma duyệt trước khi dùng chính thức."
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -56,6 +79,9 @@ class PreparedTurn:
     prompt: str
     session_id: str
     session_key: str
+    #: The pictures, as ``data:`` URLs (Hermes sees them).
+    images: tuple[str, ...] = ()
+    attachments: list[AgentAttachment] = field(default_factory=list)
 
 
 @dataclass(frozen=True, slots=True)
@@ -168,10 +194,169 @@ class AgentChatService:
         await self._session.flush()
         return row
 
-    async def archive(self, access: AgentAccess, conversation_id: uuid.UUID) -> None:
-        row, _ = await self.conversation(access, conversation_id)
-        row.archived_at = utcnow()
+    async def delete_conversation(
+        self, access: AgentAccess, conversation_id: uuid.UUID, *, request_id: uuid.UUID
+    ) -> tuple[str, str]:
+        """Delete a conversation with its messages and files, for good.
+
+        Returns the agent's slug and the Hermes transcript id, for the caller
+        to delete that one too.
+        """
+        row, agent = await self.conversation(access, conversation_id)
+        messages = await self._session.scalar(
+            select(func.count(AgentMessage.id)).where(AgentMessage.conversation_id == row.id)
+        )
+        await self._session.execute(
+            delete(AgentAttachment).where(AgentAttachment.conversation_id == row.id)
+        )
+        await self._session.execute(
+            delete(AgentMessage).where(AgentMessage.conversation_id == row.id)
+        )
+        session_id = row.hermes_session_id
+        await self._session.delete(row)
         await self._session.flush()
+        await self._audit.record(
+            AuditEntry(
+                request_id=request_id,
+                action=AuditAction.AGENT_CONVERSATION_DELETED,
+                result=AuditResult.SUCCESS,
+                actor_user_id=access.user_id,
+                entity_type="agent_conversation",
+                entity_id=str(conversation_id),
+                after_data={"agent": agent.slug, "messages": messages or 0},
+            )
+        )
+        return agent.slug, session_id
+
+    # --- attachments ----------------------------------------------------------------
+
+    async def upload(
+        self, access: AgentAccess, conversation_id: uuid.UUID, *, name: str, data: bytes
+    ) -> AgentAttachment:
+        """Keep a file for the next question (read now: a refusal comes at once)."""
+        conversation, _ = await self.conversation(access, conversation_id)
+        assert access.user_id is not None  # conversation() guarantees it
+        now = utcnow()
+        await self._session.execute(
+            delete(AgentAttachment).where(
+                AgentAttachment.user_id == access.user_id,
+                AgentAttachment.message_id.is_(None),
+                AgentAttachment.created_at < now - timedelta(hours=UNSENT_UPLOAD_HOURS),
+            )
+        )
+        recent = await self._session.scalar(
+            select(func.count(AgentAttachment.id)).where(
+                AgentAttachment.user_id == access.user_id,
+                AgentAttachment.created_at >= now - timedelta(seconds=RATE_WINDOW_SECONDS),
+            )
+        )
+        if (recent or 0) >= UPLOAD_RATE_LIMIT:
+            raise AgentRateLimitedError()
+        waiting = await self._session.scalar(
+            select(func.count(AgentAttachment.id)).where(
+                AgentAttachment.conversation_id == conversation.id,
+                AgentAttachment.message_id.is_(None),
+            )
+        )
+        if (waiting or 0) >= MAX_ATTACHMENTS:
+            raise AgentFileInvalidError(f"Mỗi tin nhắn gửi tối đa {MAX_ATTACHMENTS} tệp.")
+        name = clean_name(name)
+        read = await asyncio.to_thread(read_upload, name, data)
+        row = AgentAttachment(
+            conversation_id=conversation.id,
+            user_id=access.user_id,
+            name=name,
+            content_type=read.content_type,
+            kind=read.kind,
+            size_bytes=len(data),
+            data=data,
+            content=read.text,
+            pages=read.pages,
+            truncated=read.truncated,
+            note=read.note,
+            created_at=now,
+        )
+        self._session.add(row)
+        await self._session.flush()
+        return row
+
+    async def attachment(
+        self, access: AgentAccess, attachment_id: uuid.UUID, *, with_data: bool = False
+    ) -> AgentAttachment:
+        """One file of the caller's own conversations (somebody else's = 404)."""
+        query = select(AgentAttachment).where(AgentAttachment.id == attachment_id)
+        if with_data:
+            query = query.options(undefer(AgentAttachment.data))
+        row = await self._session.scalar(query)
+        if row is None or row.user_id != access.user_id:
+            raise AttachmentNotFoundError()
+        try:
+            await self.conversation(access, row.conversation_id)
+        except ConversationNotFoundError as exc:
+            raise AttachmentNotFoundError() from exc
+        return row
+
+    async def remove_attachment(self, access: AgentAccess, attachment_id: uuid.UUID) -> None:
+        """Take a file back out of the composer (not once it went with a question)."""
+        row = await self.attachment(access, attachment_id)
+        if row.message_id is not None:
+            raise AgentFileInvalidError("Tệp đã gửi đi, không gỡ được.")
+        await self._session.delete(row)
+        await self._session.flush()
+
+    async def attachments_for(
+        self, message_ids: Sequence[uuid.UUID]
+    ) -> dict[uuid.UUID, list[AgentAttachment]]:
+        """The files of these messages (no bytes), in the order they were added."""
+        if not message_ids:
+            return {}
+        rows = (
+            await self._session.scalars(
+                select(AgentAttachment)
+                .where(AgentAttachment.message_id.in_(list(message_ids)))
+                .order_by(AgentAttachment.created_at, AgentAttachment.id)
+            )
+        ).all()
+        out: dict[uuid.UUID, list[AgentAttachment]] = {}
+        for row in rows:
+            assert row.message_id is not None
+            out.setdefault(row.message_id, []).append(row)
+        return out
+
+    async def _unsent(
+        self, conversation_id: uuid.UUID, user_id: uuid.UUID, ids: Sequence[uuid.UUID]
+    ) -> list[AgentAttachment]:
+        if not ids:
+            return []
+        if len(set(ids)) > MAX_ATTACHMENTS:
+            raise AgentFileInvalidError(f"Mỗi tin nhắn gửi tối đa {MAX_ATTACHMENTS} tệp.")
+        rows = (
+            await self._session.scalars(
+                select(AgentAttachment)
+                .options(undefer(AgentAttachment.data), undefer(AgentAttachment.content))
+                .where(
+                    AgentAttachment.id.in_(list(set(ids))),
+                    AgentAttachment.conversation_id == conversation_id,
+                    AgentAttachment.user_id == user_id,
+                    AgentAttachment.message_id.is_(None),
+                )
+            )
+        ).all()
+        if len(rows) != len(set(ids)):
+            raise AgentFileInvalidError("Có tệp không còn (đã gửi hoặc đã gỡ). Đính kèm lại.")
+        order = {attachment_id: index for index, attachment_id in enumerate(ids)}
+        found = sorted(rows, key=lambda row: order[row.id])
+        if (
+            sum(row.size_bytes for row in found if row.kind == AttachmentKind.IMAGE)
+            > MAX_IMAGE_BYTES_PER_MESSAGE
+        ):
+            raise AgentFileInvalidError(
+                f"Ảnh của một tin nhắn cộng lại tối đa "
+                f"{MAX_IMAGE_BYTES_PER_MESSAGE // (1024 * 1024)} MB. Gửi bớt ảnh."
+            )
+        if sum(len(row.content or "") for row in found) > MAX_ATTACHED_TEXT_CHARS:
+            raise AgentFileInvalidError("Tài liệu đính kèm dài quá. Gửi bớt tệp, mỗi lần vài tệp.")
+        return found
 
     async def messages(
         self,
@@ -202,6 +387,7 @@ class AgentChatService:
         asker: str,
         seats: Sequence[Seat],
         request_id: uuid.UUID,
+        attachment_ids: Sequence[uuid.UUID] = (),
     ) -> PreparedTurn:
         """Check and record a question, and an empty answer the stream fills.
 
@@ -209,8 +395,10 @@ class AgentChatService:
         which answers are still running in this process.
         """
         conversation, agent = await self.conversation(access, conversation_id)
+        assert access.user_id is not None  # conversation() guarantees it
         body = text.strip()
-        if not body:
+        files = await self._unsent(conversation.id, access.user_id, attachment_ids)
+        if not body and not files:
             raise AgentMessageInvalidError("Tin nhắn trống.")
         if len(body) > MAX_MESSAGE_CHARS:
             raise AgentMessageInvalidError(
@@ -252,8 +440,11 @@ class AgentChatService:
         )
         self._session.add_all([question, answer])
         if first and conversation.title in ("", NEW_TITLE):
-            conversation.title = conversation_title(body)
+            conversation.title = conversation_title(body or files[0].name)
         conversation.last_message_at = now
+        await self._session.flush()
+        for row in files:
+            row.message_id = question.id
         await self._session.flush()
         await self._audit.record(
             AuditEntry(
@@ -263,13 +454,23 @@ class AgentChatService:
                 actor_user_id=access.user_id,
                 entity_type="agent_conversation",
                 entity_id=str(conversation.id),
-                after_data={"agent": agent.slug, "chars": len(body)},  # never the text itself
+                # never the text itself, nor the files' names
+                after_data={
+                    "agent": agent.slug,
+                    "chars": len(body),
+                    "files": sorted(row.kind.value for row in files),
+                },
             )
         )
-        prompt = body
+        prompt = "\n\n".join([body or FILES_ONLY, *(attached_block(row) for row in files)])
         if first:
             who = ", ".join(seat_label(seat) for seat in seats) or "chưa thuộc phòng ban nào"
-            prompt = f"[Người hỏi: {asker} - {who}. Hỏi qua APM Management.]\n\n{body}"
+            prompt = f"[Người hỏi: {asker} - {who}. Hỏi qua APM Management.]\n\n{prompt}"
+        images = tuple(
+            f"data:{row.content_type};base64,{base64.b64encode(row.data).decode('ascii')}"
+            for row in files
+            if row.kind == AttachmentKind.IMAGE
+        )
         return PreparedTurn(
             conversation_id=conversation.id,
             slug=agent.slug,
@@ -278,6 +479,8 @@ class AgentChatService:
             prompt=prompt,
             session_id=conversation.hermes_session_id,
             session_key=hermes_session_key(access.user_id, agent.slug),
+            images=images,
+            attachments=list(files),
         )
 
     async def fail_orphans(self, conversation_id: uuid.UUID, running: set[uuid.UUID]) -> None:
@@ -359,6 +562,19 @@ class AgentChatService:
         return row
 
 
+def attached_block(row: AgentAttachment) -> str:
+    """How a file is introduced to the agent, inside the question's text."""
+    if row.kind == AttachmentKind.IMAGE:
+        return f"[Ảnh đính kèm: {row.name}]"
+    about = f" - {row.note}" if row.note else ""
+    if row.kind == AttachmentKind.SKILL:
+        return (
+            f"[Skill đính kèm: {row.name}{about}]\n{SKILL_HINT}\n\n"
+            f"{row.content or ''}\n[Hết skill: {row.name}]"
+        )
+    return f"[Tệp đính kèm: {row.name}{about}]\n{row.content or ''}\n[Hết tệp: {row.name}]"
+
+
 def _access_data(row: AgentProfile) -> dict[str, object]:
     return {
         "active": row.active,
@@ -426,6 +642,7 @@ __all__ = [
     "AgentChatService",
     "AgentSummary",
     "PreparedTurn",
+    "attached_block",
     "finish_answer",
     "seed_default_agents",
 ]
