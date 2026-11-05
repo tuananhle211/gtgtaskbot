@@ -41,6 +41,7 @@ from meobot.domain.assistant.reports import (
     asks_for_figures,
     day_in,
     month_in,
+    person_in,
     report_topic,
 )
 from meobot.domain.board.models import TASK_STATES
@@ -473,3 +474,57 @@ async def test_10_a_day_s_revenue_is_short_and_a_follow_up_keeps_the_report(
     assert route.mode is RouteMode.CHAT
     route, _ = service._report_route(member, "Hôm nay thôi", MessageRoute.chat(), None, ())
     assert route.mode is RouteMode.CHAT
+
+
+# --- one person ----------------------------------------------------------------------
+
+
+async def test_11_a_person_s_revenue_is_theirs_not_the_department_s(world: World) -> None:
+    names = ["Đào Đình Dương", "Nguyễn Quang Nguyên", "Lê Dương"]
+    assert person_in("Doanh thu của Đào Đình Dương hôm nay", names) == "Đào Đình Dương"
+    assert person_in("doanh thu dao dinh duong", names) == "Đào Đình Dương"
+    assert person_in("doanh thu Đình Dương tuần này", names) == "Đào Đình Dương"
+    assert person_in("doanh thu Dương", names) is None
+    assert person_in("doanh thu hôm nay", names) is None
+
+    _, ngoc, anh = await staffed(world)
+    entries = {
+        f"u:{ngoc.id}": 5_400_000,
+        f"u:{ngoc.id}:hn": 1_080_000,
+        f"u:{anh.id}": 2_000_000,
+    }
+    world.client.put("/api/ads/revenue", json={"day": D2.isoformat(), "entries": entries})
+    world.act_as(world.owner)
+    board = world.client.get(
+        "/api/ads/dashboard",
+        params={"user_id": str(ngoc.id), "start": D2.isoformat(), "end": D2.isoformat()},
+    ).json()
+    owner = world.actor(world.owner)
+    result = await run(
+        world, owner, ReportTool.ADS_REVENUE.value, day="21/10/2026", person=ngoc.full_name
+    )
+    assert result.data["person"] == ngoc.full_name
+    tile = next(kpi for kpi in board["kpis"] if kpi["key"] == "revenue")
+    assert result.data["current"]["revenue"] == tile["value"] == 6_480_000
+    assert f"**Doanh thu Ads · {ngoc.full_name} · ngày 21/10/2026**" in result.message
+    assert "Doanh số SG 5.400.000 đ · HN 1.080.000 đ" in result.message
+    assert f"/ads?user_id={ngoc.id}" in result.message
+    # The month, and a name nobody holds.
+    month = await run(
+        world, owner, ReportTool.ADS_REVENUE.value, month="2026-10", person=ngoc.full_name
+    )
+    assert month.data["current"]["revenue"] == 6_480_000
+    missing = await run(world, owner, ReportTool.ADS_REVENUE.value, person="Không Ai Cả")
+    assert missing.data["found"] is False
+
+    # The question names the person: their report, even when the model reaches
+    # for the company summary and fills no person.
+    member = await granted(world, world.member)
+    reply = await conversation(world, _CompanyPlanner()).handle_message(
+        actor=member,
+        message=f"Doanh thu của {ngoc.full_name} ngày 21/10/2026",
+        request_id=uuid.uuid4(),
+    )
+    assert reply.plan is not None and reply.plan.tool_name == ReportTool.ADS_REVENUE.value
+    assert reply.data["person"] == ngoc.full_name
+    assert reply.data["current"]["revenue"] == 6_480_000

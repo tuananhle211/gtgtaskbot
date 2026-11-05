@@ -77,6 +77,14 @@ class RevenueArguments(MonthArguments):
         max_length=20,
         description='Ngày cuối "YYYY-MM-DD" khi hỏi một khoảng (tuần này, 7 ngày qua).',
     )
+    person: str | None = Field(
+        default=None,
+        max_length=120,
+        description=(
+            'Tên một marketer khi sếp hỏi doanh thu của một người ("doanh thu của Đào '
+            'Đình Dương hôm nay"); bỏ trống = cả phòng Ads.'
+        ),
+    )
 
     @field_validator("day", "day_to")
     @classmethod
@@ -171,10 +179,12 @@ def build_report_tools() -> list[ToolDefinition]:
             "điền day), một khoảng ngày (tuần này, 7 ngày qua - điền day + day_to) "
             "hoặc theo tháng: doanh thu tổng (thực thu CRM), DT hoa hồng, chi phí "
             "Ads, Ads / Doanh thu, SĐT, KPI team, doanh thu Marketing / Cơ sở "
-            "HN-SG, marketer cao nhất. Câu hỏi về doanh thu dùng tool này, không "
-            "dùng report.company.",
+            "HN-SG, marketer cao nhất; hoặc của MỘT marketer (điền person). Câu hỏi "
+            "về doanh thu dùng tool này, không dùng report.company.",
             RevenueArguments,
-            lambda service, context, args: service.ads_revenue(args.month, args.day, args.day_to),
+            lambda service, context, args: service.ads_revenue(
+                args.month, args.day, args.day_to, args.person
+            ),
         ),
         _tool(
             ReportTool.ADS_KPI_BUDGET,

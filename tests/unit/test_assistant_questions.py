@@ -74,6 +74,9 @@ FIGURES: tuple[tuple[str, ReportTool, dict[str, Any]], ...] = (
     ("Doanh thu Hà Nội và Sài Gòn tháng này", ReportTool.ADS_REVENUE, {"month": THIS_MONTH}),
     ("Marketer nào doanh thu cao nhất tháng này?", ReportTool.ADS_REVENUE, {"month": THIS_MONTH}),
     ("Hôm nay ai ra doanh thu nhiều nhất?", ReportTool.ADS_REVENUE, {"day": _day(TODAY)}),
+    # (the person it names is read by ``_named_person``: test_assistant_reports::test_11)
+    ("Doanh thu của Đào Đình Dương hôm nay", ReportTool.ADS_REVENUE, {"day": _day(TODAY)}),
+    ("Doanh thu tháng này của Nguyễn Quang Nguyên", ReportTool.ADS_REVENUE, {"month": THIS_MONTH}),
     ("Bao nhiêu số điện thoại hôm nay?", ReportTool.ADS_REVENUE, {"day": _day(TODAY)}),
     ("Chi phí trên mỗi SĐT tháng này", ReportTool.ADS_REVENUE, {"month": THIS_MONTH}),
     # KPI & ngân sách

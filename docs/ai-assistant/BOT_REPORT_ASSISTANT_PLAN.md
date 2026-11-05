@@ -223,6 +223,12 @@ link web và cách hỏi số; hướng dẫn chọn báo cáo nằm trong promp
 Thêm khoảng ngày cho doanh thu (tuần này, 7 ngày qua, từ … đến …) và liệt kê order
 theo trạng thái. Test `tests/unit/test_assistant_questions.py` chạy đúng danh sách đó.
 
+**Doanh thu của một người (04/11):** "doanh thu của Đào Đình Dương hôm nay" →
+số riêng của người đó (doanh thu so với hôm trước, Doanh số SG/HN, chi phí + Ads/DT,
+SĐT, tiến độ KPI tháng), đúng như Dashboard Ads của họ (`/ads?user_id=`). Tên đọc
+từ câu hỏi theo tên tài khoản (không dấu cũng được, "Đình Dương" cũng được nếu chỉ
+một người); trùng tên → bot liệt kê để sếp chọn.
+
 **Văn phong "em – sếp" (31/10):** với người có quyền Trợ lý AI (kể cả OWNER),
 bot xưng **"em"** và gọi người dùng là **"sếp"**:
 - Hồ sơ hội thoại (`ActorProfileService._compose`) đặt `preferred_address` =

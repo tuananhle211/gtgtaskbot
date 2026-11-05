@@ -46,6 +46,7 @@ from datetime import date
 from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field
+from sqlalchemy import select
 
 from meobot.application.actor_profile_service import ActorProfileService
 from meobot.application.assistant_context_service import AssistantContextService
@@ -68,6 +69,7 @@ from meobot.core.config import Settings
 from meobot.core.errors import MeoBotError
 from meobot.core.logging import get_logger
 from meobot.core.time import utcnow
+from meobot.db.models.user import User
 from meobot.db.session import Database
 from meobot.domain.access.models import GuestPrincipal
 from meobot.domain.assistant.profile import AssistantProfile
@@ -79,6 +81,7 @@ from meobot.domain.assistant.reports import (
     day_in,
     listed_state,
     month_in,
+    person_in,
     report_topic,
     span_in,
 )
@@ -813,7 +816,7 @@ class ConversationService:
         if plan.tool_name in REPORT_TOOLS:
             # A report only reads; a model calling it risky must not make it
             # wait on /confirm (the tool's own LOW still meets the engine).
-            plan = self._grounded_report(plan, message, route)
+            plan = await self._named_person(self._grounded_report(plan, message, route), message)
         if plan.is_unknown:
             # Routing said "operation" but planning could not name one. Ask -
             # a guessed plan is exactly what must not reach the policy engine.
@@ -919,6 +922,22 @@ class ConversationService:
                 "requires_confirmation": False,
             }
         )
+
+    async def _named_person(self, plan: ActionPlan, message: str) -> ActionPlan:
+        """The person a report question names ("doanh thu của Đào Đình Dương
+        hôm nay"), read off the accounts' names - so the report is that
+        person's even when the model left ``person`` out or wrote half a name."""
+        assert plan.tool_name is not None
+        if "person" not in self._registry.get(plan.tool_name).arguments_model.model_fields:
+            return plan
+        async with self._database.session() as session:
+            names = (
+                await session.scalars(select(User.full_name).where(User.deleted_at.is_(None)))
+            ).all()
+        named = person_in(message, names)
+        if named is None:
+            return plan
+        return plan.model_copy(update={"arguments": {**plan.arguments, "person": named}})
 
     async def _reply(
         self,

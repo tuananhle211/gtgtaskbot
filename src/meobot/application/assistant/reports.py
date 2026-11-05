@@ -31,6 +31,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from meobot.application.account.stats_service import Month, resolve_month
 from meobot.application.ads.access import AdsAccess
 from meobot.application.ads.budget_service import AdsBudgetService, BudgetLine
+from meobot.application.ads.dashboard_service import AdsDashboardService
 from meobot.application.ads.team_service import AdsTeamService, Figures, TeamReport
 from meobot.application.audit_service import AuditService
 from meobot.application.board.dashboard_service import DashboardService
@@ -50,6 +51,7 @@ from meobot.db.models.pr_reporting import PrPublication
 from meobot.db.models.resource import ResourceRequest
 from meobot.db.models.user import User
 from meobot.domain.ads.budget import BUDGET_STATUS_LABELS, BudgetStatus
+from meobot.domain.ads.models import Period
 from meobot.domain.board.models import PHASE_LABELS, TASK_STATES, BoardQuery, Phase, TaskRow
 from meobot.domain.identity.models import Actor, Role
 from meobot.domain.member.normalization import strip_accents as fold
@@ -149,7 +151,10 @@ class AssistantReportService:
         month_value: str | None = None,
         day_value: str | None = None,
         day_to_value: str | None = None,
+        person: str | None = None,
     ) -> Report:
+        if person and person.strip():
+            return await self.ads_revenue_person(person, month_value, day_value, day_to_value)
         if day_value:
             start = date.fromisoformat(day_value)
             end = date.fromisoformat(day_to_value) if day_to_value else start
@@ -310,6 +315,96 @@ class AssistantReportService:
                 ],
             },
             link="/ads",
+            notes=notes,
+        )
+
+    async def ads_revenue_person(
+        self,
+        person: str,
+        month_value: str | None = None,
+        day_value: str | None = None,
+        day_to_value: str | None = None,
+    ) -> Report:
+        """One marketer's revenue for a day, a few days or a month - the
+        numbers of their own Dashboard Ads (``/ads?user_id=``): CRM revenue,
+        their ad accounts' spend and phones, against the same span before,
+        and their KPI progress this month."""
+        today = self.today()
+        if day_value:
+            start = date.fromisoformat(day_value)
+            end = max(start, date.fromisoformat(day_to_value)) if day_to_value else start
+            if start == end:
+                named = f"{_day_name(end, today)} {end:%d/%m/%Y}"
+                previous = "hôm qua" if end == today else "ngày trước"
+            else:
+                days = (end - start).days + 1
+                named = f"{start:%d/%m} - {end:%d/%m/%Y} ({days} ngày)"
+                previous = f"{days} ngày trước đó"
+        else:
+            month = self.month(month_value)
+            start = date(month.year, month.month, 1)
+            end = _month_days(month)[1]
+            named = f"tháng {month_label(month)}"
+            previous = "tháng trước"
+        title = f"Doanh thu Ads · {person.strip()} · {named}"
+        people = await self._people_named(person)
+        if len(people) != 1:
+            return self._not_one(title, "người", person, [user.full_name for user in people])
+        user = people[0]
+        title = f"Doanh thu Ads · {user.full_name} · {named}"
+        board = await AdsDashboardService(self._session).staff(
+            COMPANY_ADS,
+            period=Period(start=start, end=end),
+            user_id=user.id,
+        )
+        team = await AdsTeamService(self._session).report(
+            COMPANY_ADS, month=end.replace(day=1), start=start, end=end
+        )
+        line = next((item for item in team.marketers if item.user_id == user.id), None)
+        now, before = board.current, board.before
+        lines = [
+            f"- Doanh thu (thực thu): {money(now.revenue)} ({previous}: {money(before.revenue)})",
+            f"- Doanh số SG {money(now.revenue_sg)} · HN {money(now.revenue_hn)}",
+            f"- Chi phí Ads (Facebook): {money(now.spend)}"
+            f" · Ads / Doanh thu: {percent(now.ads_ratio)}",
+            f"- SĐT: {count(now.phones)} · chi phí / SĐT {money(now.cost_per_phone)}",
+        ]
+        if line is not None and line.kpi:
+            lines.append(
+                f"- KPI tháng {end:%m/%Y}: đã đạt {money(line.kpi_revenue)} / {money(line.kpi)}"
+                f" ({percent(line.kpi_rate)}) tính đến {end:%d/%m}"
+            )
+        else:
+            lines.append(f"- KPI tháng {end:%m/%Y}: chưa nhập KPI cho {user.full_name}")
+        notes: tuple[str, ...] = ()
+        if line is None and now.revenue is None and not now.spend:
+            notes = (f"{user.full_name} chưa có tài khoản QC hay tài khoản CRM nào được gắn.",)
+        elif end == today:
+            notes = ("Doanh thu CRM đồng bộ mỗi giờ (07:10-23:10), số hôm nay còn tăng.",)
+        return Report(
+            title=title,
+            lines=tuple(lines),
+            data={
+                "person": user.full_name,
+                "user_id": str(user.id),
+                "found": True,
+                "from": start.isoformat(),
+                "day": end.isoformat(),
+                "month": f"{end.year:04d}-{end.month:02d}",
+                "current": {
+                    "revenue": now.revenue,
+                    "revenue_sg": now.revenue_sg,
+                    "revenue_hn": now.revenue_hn,
+                    "revenue_net": now.revenue_net,
+                    "spend": now.spend,
+                    "phones": now.phones,
+                },
+                "previous": {"revenue": before.revenue, "spend": before.spend},
+                "kpi": None if line is None else line.kpi,
+                "kpi_revenue": None if line is None else line.kpi_revenue,
+                "kpi_rate": None if line is None else line.kpi_rate,
+            },
+            link=f"/ads?user_id={user.id}",
             notes=notes,
         )
 

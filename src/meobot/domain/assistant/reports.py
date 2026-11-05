@@ -25,7 +25,7 @@ accent-folded like the other conversation patterns.
 from __future__ import annotations
 
 import re
-from collections.abc import Mapping
+from collections.abc import Iterable, Mapping
 from datetime import date, timedelta
 from enum import StrEnum
 from types import MappingProxyType
@@ -375,6 +375,30 @@ def listed_state(message: str) -> str | None:
     if not any(word in folded for word in _LIST_WORDS):
         return None
     return next((state for words, state in _STATE_WORDS if words in folded), None)
+
+
+def person_in(message: str, names: Iterable[str]) -> str | None:
+    """The one person a question names, picked from ``names`` (the accounts'
+    full names): the longest full name found as whole words ("doanh thu của
+    Đào Đình Dương hôm nay"), else a name's last two words when exactly one
+    account ends that way ("Đình Dương"). Accents and case do not matter;
+    ``None`` when nobody, or nobody for sure, is named."""
+    folded = f" {' '.join(_TOKEN.findall(fold(message)))} "
+    spaced = {name: " ".join(_TOKEN.findall(fold(name))) for name in names}
+    whole = [name for name, key in spaced.items() if key and f" {key} " in folded]
+    if whole:
+        longest = max(len(spaced[name]) for name in whole)
+        found = {spaced[name] for name in whole if len(spaced[name]) == longest}
+        return next(name for name in whole if spaced[name] in found) if len(found) == 1 else None
+    tails: dict[str, list[str]] = {}
+    for name, key in spaced.items():
+        parts = key.split()
+        if len(parts) >= 3:
+            tails.setdefault(" ".join(parts[-2:]), []).append(name)
+    hits = [names for tail, names in tails.items() if f" {tail} " in folded]
+    if len(hits) == 1 and len(hits[0]) == 1:
+        return hits[0][0]
+    return None
 
 
 def area_question() -> str:

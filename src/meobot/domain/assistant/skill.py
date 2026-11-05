@@ -427,7 +427,10 @@ def explain(term: Term, base_url: str = "") -> str:
 #: What to ask for each report's figures, shown under an explanation.
 _ASK_FOR: dict[ReportTool, str] = {
     ReportTool.COMPANY: '"tổng hợp tình hình công ty tháng này"',
-    ReportTool.ADS_REVENUE: '"doanh thu hôm nay", "doanh thu tuần này" hoặc "doanh thu tháng 10"',
+    ReportTool.ADS_REVENUE: (
+        '"doanh thu hôm nay", "doanh thu tuần này", "doanh thu tháng 10" hoặc '
+        '"doanh thu của <họ tên> hôm nay"'
+    ),
     ReportTool.ADS_KPI_BUDGET: '"KPI tháng này", "KPI của <tên>" hoặc "ngân sách tuần"',
     ReportTool.PERFORMANCE: '"điểm hiệu suất tháng này" hoặc "điểm phòng <tên phòng>"',
     ReportTool.ORDERS: '"order trễ hạn" hoặc "có bao nhiêu order chờ duyệt"',
@@ -444,6 +447,8 @@ Sếp hỏi SỐ LIỆU -> gọi đúng MỘT công cụ báo cáo, không tự 
 - Thời gian: "hôm nay / hôm qua / 3/11" -> day; "tuần này / tuần trước / 7 ngày qua /
   từ 1/11 đến 3/11" -> day + day_to (chỉ report.ads_revenue); "tháng này / tháng 10"
   -> month; không nói -> tháng này.
+- Hỏi số của MỘT người ("doanh thu của Đào Đình Dương", "KPI của <tên>", "điểm của
+  <tên>") -> điền person bằng đúng họ tên trong câu hỏi.
 - Câu nối tiếp chỉ đổi thời gian ("hôm nay thôi", "còn tháng 9?") -> hỏi lại đúng
   báo cáo vừa xem.
 - report.company chỉ khi sếp hỏi tổng hợp / tình hình chung, không khi câu hỏi nêu

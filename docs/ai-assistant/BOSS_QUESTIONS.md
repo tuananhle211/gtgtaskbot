@@ -31,6 +31,7 @@ link để đối chiếu trên web.
 | Tỉ lệ Ads / Doanh thu tháng này? | Báo cáo doanh thu tháng, có dòng Ads/DT và ngưỡng ≤ 40% |
 | Doanh thu Hà Nội và Sài Gòn tháng này? | Dòng doanh thu Marketing và doanh thu Cơ sở theo HN / SG |
 | Marketer nào doanh thu cao nhất? Hôm nay ai ra doanh thu nhiều nhất? | Top marketer của tháng / của ngày |
+| Doanh thu của Đào Đình Dương hôm nay? / Doanh thu tháng này của Nguyễn Quang Nguyên? | Số riêng của người đó: doanh thu (so với hôm trước / tháng trước), Doanh số SG / HN, chi phí Facebook, Ads/DT, SĐT, tiến độ KPI tháng. Gõ đúng họ tên (không dấu cũng được); trùng tên thì bot liệt kê để sếp chọn |
 | Bao nhiêu SĐT hôm nay? Chi phí trên mỗi SĐT tháng này? | Dòng SĐT và chi phí / SĐT |
 
 ## 2. KPI & ngân sách tuần
