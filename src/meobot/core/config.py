@@ -319,6 +319,14 @@ class Settings(BaseSettings):
     crm_api_base_url: str = "https://aicrmtech.vn/api/internal"
     crm_api_key: OptionalSecret = None
 
+    # --- Đội agent (0091): the relay in front of the Hermes agents ----------
+    #: The relay on the agents' VPS (``/opt/apexmed/agent-relay.py``), reached
+    #: through an SSH tunnel, e.g. ``http://host.docker.internal:8650``. It holds
+    #: every agent's Hermes key; APM only holds its token. Unset = the screen
+    #: says "chưa cấu hình" and calls nothing.
+    hermes_relay_url: str | None = None
+    hermes_relay_token: OptionalSecret = None
+
     #: TikTok app for the TikTok channel connector. Server-side credentials:
     #: they belong to the deployment, never to a channel row, and the secret is
     #: never sent to a browser.

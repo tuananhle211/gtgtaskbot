@@ -35,6 +35,13 @@ from meobot.domain.ads.permissions import (
     AdsDepartmentPermission,
     ads_allowed_scopes,
 )
+from meobot.domain.agents.models import (
+    AGENT_PERMISSION_LABELS,
+    AGENTS_OWNER_ONLY,
+    MODULE_AGENTS,
+    AgentPermission,
+    agent_allowed_scopes,
+)
 from meobot.domain.assistant.reports import (
     ASSISTANT_OWNER_ONLY,
     ASSISTANT_PERMISSION_LABELS,
@@ -233,6 +240,15 @@ MODULES: Mapping[str, ModuleSpec] = MappingProxyType(
             labels=ADS_PERMISSION_LABELS,
             own_meaning=MappingProxyType({}),
             scopes=ads_allowed_scopes,
+        ),
+        MODULE_AGENTS: ModuleSpec(
+            module=MODULE_AGENTS,
+            label="Đội agent",
+            permissions=AgentPermission,
+            labels=AGENT_PERMISSION_LABELS,
+            own_meaning=MappingProxyType({}),
+            scopes=agent_allowed_scopes,
+            owner_only=AGENTS_OWNER_ONLY,
         ),
         MODULE_ASSISTANT: ModuleSpec(
             module=MODULE_ASSISTANT,

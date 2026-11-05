@@ -101,6 +101,10 @@ const nextConfig = {
         destination: `${target}/api/departments/:path*`,
       },
       // "Kết nối AI" (0064): the OWNER's AI connections and their routes.
+      // Đội agent (0091). The answer is a Server-Sent Events stream; the API
+      // sends a keepalive every 15 s, so `proxyTimeout` never cuts a long one.
+      { source: "/api/agents", destination: `${target}/api/agents` },
+      { source: "/api/agents/:path*", destination: `${target}/api/agents/:path*` },
       { source: "/api/ai", destination: `${target}/api/ai` },
       { source: "/api/ai/:path*", destination: `${target}/api/ai/:path*` },
       // "Tác vụ định kỳ" (0077).

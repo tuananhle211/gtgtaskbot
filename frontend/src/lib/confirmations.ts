@@ -1514,4 +1514,38 @@ export const ACTION_INVENTORY: readonly ActionInventoryEntry[] = [
     reason:
       "Chỉ đổi trạng thái đã đọc của chính người đang đăng nhập, không đổi dữ liệu nghiệp vụ và bấm nhầm không gây hậu quả.",
   },
+  // --- Đội agent (0091)
+  {
+    action: "Gửi tin nhắn cho agent / Cuộc trò chuyện mới / Dừng câu trả lời",
+    policy: "none",
+    reason:
+      "Như gõ tin trên Telegram: chỉ hỏi agent trong cuộc trò chuyện của chính mình, agent chỉ soạn nháp và đề xuất, không đổi dữ liệu nghiệp vụ nào; Dừng giữ lại phần đã trả lời.",
+  },
+  {
+    action: "Đổi tên cuộc trò chuyện với agent",
+    policy: "parameter-modal",
+    reason:
+      "Ô tên chính là bước xác nhận: chỉ đổi tiêu đề cuộc trò chuyện của chính mình, đổi lại được ngay.",
+  },
+  { action: "Lưu trữ cuộc trò chuyện với agent", policy: "dialog" },
+  { action: "Bật / tắt agent, đổi phòng ban được chat với agent", policy: "dialog" },
 ];
+
+/** "Lưu trữ" a conversation with an agent: out of the list, kept. */
+export function archiveAgentConversationConfirmation(title: string): ConfirmSpec {
+  return {
+    title: `Lưu trữ cuộc trò chuyện “${title}”?`,
+    description:
+      "Cuộc trò chuyện rời khỏi danh sách của bạn; nội dung vẫn được giữ trên hệ thống. Câu trả lời đang chạy (nếu có) sẽ dừng.",
+    confirmLabel: "Lưu trữ",
+  };
+}
+
+/** The OWNER changes who may chat with an agent, or turns it on / off. */
+export function agentAccessConfirmation(name: string, summary: string): ConfirmSpec {
+  return {
+    title: `Lưu quyền chat với agent ${name}?`,
+    description: summary,
+    confirmLabel: "Lưu quyền",
+  };
+}

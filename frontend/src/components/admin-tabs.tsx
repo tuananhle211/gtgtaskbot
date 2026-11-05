@@ -26,13 +26,15 @@ import { api, type UnitsMe } from "@/lib/api";
  * Who sees which tab is a convenience; every route and write is checked again
  * on the server.
  */
-export type AdminTabKey = "departments" | "accounts" | "settings" | "ai";
+export type AdminTabKey = "departments" | "accounts" | "settings" | "ai" | "agents";
 
 export const ADMIN_TABS: ReadonlyArray<{ key: AdminTabKey; href: string; label: string }> = [
   { key: "departments", href: "/admin/departments", label: "Phòng ban" },
   { key: "accounts", href: "/admin/accounts", label: "Quản lý tài khoản" },
   { key: "settings", href: "/admin/settings", label: "Thiết lập ORD" },
   { key: "ai", href: "/admin/ai", label: "Kết nối AI" },
+  // Đội agent (0091): who may chat with which Hermes agent (OWNER).
+  { key: "agents", href: "/admin/agents", label: "Đội agent" },
 ];
 
 /** Whether this person heads at least one department (a seat with position HEAD). */
@@ -52,6 +54,7 @@ export function adminTabsFor(
     accounts: manages || headsDepartments(me),
     settings: ordSettings,
     ai: sessionRole === "OWNER",
+    agents: Boolean(me?.agents?.manage),
   };
   return ADMIN_TABS.filter((tab) => shown[tab.key]);
 }

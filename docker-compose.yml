@@ -46,6 +46,10 @@ x-app-env: &app-env
   # ads.sync_crm_revenue job only reports that it is not configured.
   CRM_API_BASE_URL: ${CRM_API_BASE_URL:-https://aicrmtech.vn/api/internal}
   CRM_API_KEY: ${CRM_API_KEY:-}
+  # Đội agent (0091): the relay in front of the Hermes agents, through an SSH
+  # tunnel (ssh -N -L 8650:127.0.0.1:8650 secondbrain). Empty = not configured.
+  HERMES_RELAY_URL: ${HERMES_RELAY_URL:-}
+  HERMES_RELAY_TOKEN: ${HERMES_RELAY_TOKEN:-}
   PR_SECRET_ENCRYPTION_KEY_FILE: ${PR_SECRET_ENCRYPTION_KEY_FILE:-}
   PR_SECRET_ENCRYPTION_KEY_ID: ${PR_SECRET_ENCRYPTION_KEY_ID:-v1}
   PR_SECRET_ENCRYPTION_KEYS_OLD: ${PR_SECRET_ENCRYPTION_KEYS_OLD:-}
@@ -345,6 +349,45 @@ services:
       resources:
         limits:
           memory: 128M
+
+  # Đội agent (0091): an SSH tunnel to the relay in front of the Hermes agents
+  # (VPS `secondbrain`, /opt/apexmed/agent-relay.py on 127.0.0.1:8650). The API
+  # reaches it as http://agent-tunnel:8650 (HERMES_RELAY_URL). The key
+  # `secrets/agent_tunnel_key` (root 600, generated on the server, never copied)
+  # belongs to user `apmtunnel` on the agents' VPS, restricted there to
+  # permitopen="127.0.0.1:8650" with no shell. Without the key the container
+  # only idles. Exits on a lost link; `restart` brings it back (autossh-like).
+  agent-tunnel:
+    image: alpine:3.20.3
+    profiles: ["tunnel"]
+    restart: unless-stopped
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - |
+        if [ ! -f /run/secrets/agent_tunnel_key ]; then
+          echo "agent-tunnel: no secrets/agent_tunnel_key - idle"; exec sleep 2147483647
+        fi
+        apk add --no-cache openssh-client >/dev/null
+        cp /run/secrets/agent_tunnel_key /tmp/key && chmod 600 /tmp/key
+        exec ssh -N -i /tmp/key -o IdentitiesOnly=yes -o BatchMode=yes \
+          -o StrictHostKeyChecking=yes -o UserKnownHostsFile=/etc/agent-tunnel/known_hosts \
+          -o ExitOnForwardFailure=yes -o ServerAliveInterval=30 -o ServerAliveCountMax=3 \
+          -p ${AGENT_TUNNEL_PORT:-24700} -L 0.0.0.0:8650:127.0.0.1:8650 \
+          ${AGENT_TUNNEL_TARGET:-apmtunnel@43.240.117.204}
+    volumes:
+      - ./secrets:/run/secrets:ro
+      - ./deploy/agent-tunnel/known_hosts:/etc/agent-tunnel/known_hosts:ro
+    healthcheck:
+      test: ["CMD", "nc", "-z", "127.0.0.1", "8650"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
+    logging: *default-logging
+    deploy:
+      resources:
+        limits:
+          memory: 64M
 
 volumes:
   meobot_postgres_data:

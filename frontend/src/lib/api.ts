@@ -3473,6 +3473,11 @@ export interface UnitsMe {
    */
   assistant?: { chat: boolean } | null;
   /**
+   * "Đội agent" (0091): `chat` = at least one Hermes agent to talk to (the nav
+   * item), `manage` = the OWNER's admin tab. Optional: an older API omits it = no.
+   */
+  agents?: { chat: boolean; manage: boolean } | null;
+  /**
    * May open other people's profile pages (`/people/<id>`, 2026-10-19): the
    * OWNER / ADMIN, or a head of some department. Names are drawn as links
    * only then (`PersonLink`). Optional: an older API omits it = no.
@@ -7975,7 +7980,100 @@ export const api = {
       `/api/account/members/${userId}/employment-status`,
       { employment_status: employmentStatus },
     ),
+
+  // --- Đội agent (0091) ---------------------------------------------------------
+  /** The agents the caller chats with. `configured` false = sending is off. */
+  agents: () => get<AgentList>("/api/agents"),
+  agentConversations: (slug: string) =>
+    get<{ conversations: AgentConversation[] }>(`/api/agents/${slug}/conversations`),
+  /** 201. 404 `agent_not_found` for an agent the caller may not chat with. */
+  createAgentConversation: (slug: string) =>
+    post<AgentConversation>(`/api/agents/${slug}/conversations`),
+  /** Oldest first; `before` (an ISO time) pages back. Somebody else's = 404. */
+  agentMessages: (conversationId: Uuid, before?: string) =>
+    get<AgentMessageList>(
+      `/api/agents/conversations/${conversationId}/messages${before ? `?before=${encodeURIComponent(before)}` : ""}`,
+    ),
+  /** "Dừng": what came so far is kept as CANCELLED. */
+  stopAgentAnswer: (conversationId: Uuid) =>
+    post<{ stopped: boolean }>(`/api/agents/conversations/${conversationId}/stop`),
+  renameAgentConversation: (conversationId: Uuid, title: string) =>
+    patch<AgentConversation>(`/api/agents/conversations/${conversationId}`, { title }),
+  /** 204. "Lưu trữ": out of the list, kept. */
+  archiveAgentConversation: (conversationId: Uuid) =>
+    del<void>(`/api/agents/conversations/${conversationId}`),
+  /** (OWNER) every agent with who may chat with it. 403 `agents_forbidden`. */
+  agentsAdmin: () => get<{ agents: AgentAdmin[]; configured: boolean }>("/api/agents/admin"),
+  updateAgentAccess: (
+    slug: string,
+    body: { active?: boolean; everyone?: boolean; department_ids?: Uuid[]; user_ids?: Uuid[] },
+  ) => put<AgentAdmin>(`/api/agents/admin/${slug}`, body),
 };
+
+// --- Đội agent (0091) --------------------------------------------------------------
+
+export type AgentGroupKey = "BOARD" | "MARKETING" | "SALES" | "SUPPORT";
+
+export interface AgentInfo {
+  slug: string;
+  name: string;
+  title: string;
+  description: string;
+  /** Short letters for the round badge ("CEO", "PC"). */
+  badge: string;
+  group: AgentGroupKey;
+  last_message_at: string | null;
+}
+
+export interface AgentList {
+  agents: AgentInfo[];
+  groups: Array<{ key: AgentGroupKey; label: string }>;
+  configured: boolean;
+  manage: boolean;
+  max_message_chars: number;
+}
+
+export interface AgentConversation {
+  id: Uuid;
+  agent: string;
+  title: string;
+  created_at: string | null;
+  last_message_at: string | null;
+  /** An answer is being written right now. */
+  running: boolean;
+}
+
+export type AgentMessageStatus = "STREAMING" | "DONE" | "FAILED" | "CANCELLED";
+
+export interface AgentMessage {
+  id: Uuid;
+  role: "USER" | "ASSISTANT";
+  content: string;
+  status: AgentMessageStatus;
+  error_code: string | null;
+  tools_used: string[];
+  duration_ms: number | null;
+  created_at: string | null;
+  finished_at: string | null;
+}
+
+export interface AgentMessageList {
+  conversation: AgentConversation;
+  messages: AgentMessage[];
+  has_more: boolean;
+}
+
+export interface AgentAdmin {
+  slug: string;
+  name: string;
+  title: string;
+  badge: string;
+  group: AgentGroupKey;
+  active: boolean;
+  everyone: boolean;
+  department_ids: Uuid[];
+  user_ids: Uuid[];
+}
 
 // --- Thành viên & Phân quyền, phase 1 --------------------------------------
 

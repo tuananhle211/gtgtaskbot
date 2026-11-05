@@ -28,6 +28,7 @@ from meobot.api.schemas.resources import ResourceAccessResponse
 from meobot.api.schemas.seeding import SeedingAccessResponse
 from meobot.api.schemas.units import (
     AdsAccessResponse,
+    AgentsAccessResponse,
     AssistantAccessResponse,
     BanStatsResponse,
     CreateDesignCodeRequest,
@@ -72,6 +73,8 @@ from meobot.api.schemas.units import (
 )
 from meobot.application.account.avatar_service import avatar_urls
 from meobot.application.ads.access import ads_access
+from meobot.application.agents.access import agent_access
+from meobot.application.agents.service import AgentChatService
 from meobot.application.assistant.access import may_chat_assistant
 from meobot.application.audit_service import AuditService
 from meobot.application.orders.design_code_service import (
@@ -286,7 +289,15 @@ async def my_units(
         seeding=await _seeding_block(directory.session, membership),
         ads=_ads_block(membership),
         assistant=AssistantAccessResponse(chat=may_chat_assistant(membership)),
+        agents=await _agents_block(directory.session, membership),
     )
+
+
+async def _agents_block(session: AsyncSession, membership: UnitMembership) -> AgentsAccessResponse:
+    """ "Đội agent" (0091): the nav item when there is somebody to talk to."""
+    access = agent_access(membership)
+    agents = await AgentChatService(session, AuditService(session)).agents(access)
+    return AgentsAccessResponse(chat=bool(agents), manage=access.manage)
 
 
 async def _seeding_block(

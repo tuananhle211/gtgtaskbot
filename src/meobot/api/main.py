@@ -16,6 +16,7 @@ from meobot.api.routers import (
     access,
     account,
     ads,
+    agents,
     ai,
     board,
     conversations,
@@ -67,6 +68,7 @@ from meobot.core.errors import (
 from meobot.core.logging import configure_logging, get_logger
 from meobot.db.session import Database
 from meobot.domain.account.errors import LoginLockedError
+from meobot.domain.agents.errors import AgentRateLimitedError, AgentsNotConfiguredError
 from meobot.domain.pr.errors import PrImmutableFieldError
 from meobot.domain.units.models import UnitCode
 from meobot.integrations.google.factory import build_drive_client, build_sheets_client
@@ -100,6 +102,9 @@ _STATUS_MAP: tuple[tuple[type[MeoBotError], int], ...] = (
     (ConfigurationError, status.HTTP_500_INTERNAL_SERVER_ERROR),
     # 0045. A plain ``MeoBotError``, so its place in the order is free.
     (LoginLockedError, status.HTTP_429_TOO_MANY_REQUESTS),
+    # Đội agent (0091): plain ``MeoBotError``s, so their place is free too.
+    (AgentRateLimitedError, status.HTTP_429_TOO_MANY_REQUESTS),
+    (AgentsNotConfiguredError, status.HTTP_503_SERVICE_UNAVAILABLE),
 )
 
 #: Paths whose failures use the ``{"error": {...}}`` envelope the web client
@@ -119,6 +124,7 @@ _ENVELOPE_PREFIXES = (
     "/api/board",
     "/api/tasks",
     "/api/account",
+    "/api/agents",
     "/auth/",
 )
 
@@ -240,6 +246,9 @@ def _include_web_facing_routers(app: FastAPI) -> None:
     # member list. Not behind a unit gate - everybody has an account; who may
     # list or reset whom is decided inside ``AccountService``.
     app.include_router(account.router)
+    # Đội agent (0091): every signed-in account; each route shows only the
+    # agents the caller may chat with and only their own conversations.
+    app.include_router(agents.router)
     # Invite codes for the web "Mời thành viên" panel: team lead and above,
     # behind the session. The internal ``/api/v1/invites`` stays off.
     app.include_router(web_invites.router)

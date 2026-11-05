@@ -82,10 +82,14 @@ type NavIcon =
   | "performance"
   | "timeline"
   | "ads"
+  | "agents"
   | "account";
 
 /** The screen every unit shares besides the order boards. */
 const DASHBOARD_NAV: NavItem = { href: "/dashboard", label: "Dashboard", icon: "dashboard" };
+
+/** "Đội agent" (0091): for whoever has at least one Hermes agent to talk to. */
+const AGENTS_NAV: NavItem = { href: "/agents", label: "Đội agent", icon: "agents" };
 
 /**
  * "Bảng order": the task tables, one per kind of order. "Order tổng" is the
@@ -366,6 +370,7 @@ export function navFor(me: UnitsMe | undefined, sessionRole?: string): NavEntry[
   return [
     DASHBOARD_NAV,
     performanceBranch(me),
+    ...(me?.agents?.chat ? [AGENTS_NAV] : []),
     ...(orders ? [orderBoards(me, sessionRole)] : []),
     ...(effort ? EFFORT_NAV : []),
     ...(ads ? [ads] : []),
@@ -484,6 +489,13 @@ function Icon({ name }: { name: NavIcon }) {
         <path d="M3 10v4a1 1 0 0 0 1 1h3l6 4V5L7 9H4a1 1 0 0 0-1 1z" />
         <path d="M17 9a4 4 0 0 1 0 6" />
         <path d="M20 6.5a8 8 0 0 1 0 11" />
+      </>
+    ),
+    agents: (
+      <>
+        <path d="M4 5h11a2 2 0 0 1 2 2v6a2 2 0 0 1-2 2H9l-4 3v-3H4a2 2 0 0 1-2-2V7a2 2 0 0 1 2-2z" />
+        <path d="M19 9h1a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-1v3l-3.5-3H12" />
+        <path d="M6.5 10h.01M9.5 10h.01M12.5 10h.01" />
       </>
     ),
     performance: (

@@ -529,6 +529,12 @@ class AuditAction(StrEnum):
     ADS_CRM_ACCOUNT_UPDATED = "ads.crm.account.updated"
     ADS_CRM_IMPORTED = "ads.crm.imported"
 
+    # Đội agent (0091): a conversation opened, a question sent (never its
+    # text), who may chat with an agent changed.
+    AGENT_CONVERSATION_CREATED = "agent.conversation.created"
+    AGENT_MESSAGE_SENT = "agent.message.sent"
+    AGENT_ACCESS_UPDATED = "agent.access.updated"
+
     # Resources ("Quản lý tài nguyên", 0065).
     RESOURCE_CREATED = "resource.created"
     RESOURCE_UPDATED = "resource.updated"
