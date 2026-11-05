@@ -8011,6 +8011,38 @@ export const api = {
     slug: string,
     body: { active?: boolean; everyone?: boolean; department_ids?: Uuid[]; user_ids?: Uuid[] },
   ) => put<AgentAdmin>(`/api/agents/admin/${slug}`, body),
+
+  // --- Phòng họp agent (0093) ------------------------------------------------------
+  /** Rooms the caller owns or was invited to, last spoken in first. */
+  agentRooms: () => get<AgentRoomList>("/api/agents/rooms"),
+  /** 201. 422 `room_invalid` (2-6 agents the caller chats with, chair among them). */
+  createAgentRoom: (body: { title?: string; agents: string[]; chair?: string | null }) =>
+    post<AgentRoom>("/api/agents/rooms", body),
+  /** The room + its messages, oldest first. 404 `room_not_found` for anybody not in it. */
+  agentRoomMessages: (roomId: Uuid, before?: string) =>
+    get<AgentRoomMessageList>(
+      `/api/agents/rooms/${roomId}/messages${before ? `?before=${encodeURIComponent(before)}` : ""}`,
+    ),
+  /** (Owner) name; agents in speaking order + chair (409 `room_busy` mid-round, 422 `room_access_mismatch`). */
+  updateAgentRoom: (roomId: Uuid, body: { title?: string; agents?: string[]; chair?: string | null }) =>
+    patch<AgentRoom>(`/api/agents/rooms/${roomId}`, body),
+  deleteAgentRoom: (roomId: Uuid) => del<void>(`/api/agents/rooms/${roomId}`),
+  /** (Owner) who might be invited; `allowed` false = may not chat with `missing`. */
+  agentRoomCandidates: (roomId: Uuid) =>
+    get<{ people: AgentRoomCandidate[] }>(`/api/agents/rooms/${roomId}/candidates`),
+  addAgentRoomMember: (roomId: Uuid, userId: Uuid) =>
+    post<AgentRoom>(`/api/agents/rooms/${roomId}/members`, { user_id: userId }),
+  /** The owner takes somebody out; one's own id = leave the room. */
+  removeAgentRoomMember: (roomId: Uuid, userId: Uuid) =>
+    del<void>(`/api/agents/rooms/${roomId}/members/${userId}`),
+  /** The owner's message starts a round when none runs (`round_started`). */
+  postAgentRoomMessage: (roomId: Uuid, text: string) =>
+    post<{ message: AgentRoomMessage; round_started: boolean }>(`/api/agents/rooms/${roomId}/messages`, {
+      text,
+    }),
+  /** (Owner) "Họp tiếp". 409 `room_busy`, 503 `agents_not_configured`. */
+  startAgentRoomRound: (roomId: Uuid) => post<{ started: boolean }>(`/api/agents/rooms/${roomId}/rounds`),
+  stopAgentRoomRound: (roomId: Uuid) => post<{ stopped: boolean }>(`/api/agents/rooms/${roomId}/stop`),
 };
 
 // --- Đội agent (0091) --------------------------------------------------------------
@@ -8098,6 +8130,90 @@ export interface AgentAdmin {
   everyone: boolean;
   department_ids: Uuid[];
   user_ids: Uuid[];
+}
+
+// --- Phòng họp agent (0093) ----------------------------------------------------------
+
+export interface AgentRoomAgent {
+  agent_id: Uuid;
+  slug: string;
+  name: string;
+  title: string;
+  badge: string;
+  active: boolean;
+  /** Opens and closes every round. */
+  chair: boolean;
+}
+
+export interface AgentRoomSummary {
+  id: Uuid;
+  title: string;
+  owner_name: string;
+  is_owner: boolean;
+  agents: AgentRoomAgent[];
+  /** People in the room, the owner included. */
+  people: number;
+  rounds: number;
+  created_at: string | null;
+  last_message_at: string | null;
+  running: boolean;
+}
+
+export interface AgentRoomList {
+  rooms: AgentRoomSummary[];
+  configured: boolean;
+  min_agents: number;
+  max_agents: number;
+  max_message_chars: number;
+}
+
+export interface AgentRoom {
+  id: Uuid;
+  title: string;
+  is_owner: boolean;
+  rounds: number;
+  running: boolean;
+  agents: AgentRoomAgent[];
+  people: Array<{ user_id: Uuid; name: string; owner: boolean }>;
+  created_at: string | null;
+  last_message_at: string | null;
+}
+
+export type AgentRoomStep = "OPEN" | "SPEAK" | "CLOSE";
+
+export interface AgentRoomMessage {
+  id: Uuid;
+  speaker: "PERSON" | "AGENT";
+  user_id: Uuid | null;
+  agent_id: Uuid | null;
+  agent_slug: string | null;
+  /** "Lê Tuấn Anh - Trưởng phòng Ads", "CMO". */
+  speaker_label: string;
+  round_no: number | null;
+  step: AgentRoomStep | null;
+  /** "Mở đầu" / "Phát biểu" / "Kết luận". */
+  step_label: string | null;
+  content: string;
+  status: AgentMessageStatus;
+  error_code: string | null;
+  tools_used: string[];
+  duration_ms: number | null;
+  created_at: string | null;
+  finished_at: string | null;
+}
+
+export interface AgentRoomMessageList {
+  room: AgentRoom;
+  messages: AgentRoomMessage[];
+  has_more: boolean;
+}
+
+export interface AgentRoomCandidate {
+  user_id: Uuid;
+  name: string;
+  allowed: boolean;
+  /** The room's agents this person may not chat with. */
+  missing: string[];
 }
 
 // --- Thành viên & Phân quyền, phase 1 --------------------------------------

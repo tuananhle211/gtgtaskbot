@@ -535,6 +535,13 @@ class AuditAction(StrEnum):
     AGENT_MESSAGE_SENT = "agent.message.sent"
     AGENT_CONVERSATION_DELETED = "agent.conversation.deleted"
     AGENT_ACCESS_UPDATED = "agent.access.updated"
+    AGENT_ROOM_CREATED = "agent.room.created"
+    AGENT_ROOM_UPDATED = "agent.room.updated"
+    AGENT_ROOM_DELETED = "agent.room.deleted"
+    AGENT_ROOM_MEMBER_ADDED = "agent.room.member_added"
+    AGENT_ROOM_MEMBER_REMOVED = "agent.room.member_removed"
+    AGENT_ROOM_MESSAGE_SENT = "agent.room.message_sent"
+    AGENT_ROOM_ROUND_STARTED = "agent.room.round_started"
 
     # Resources ("Quản lý tài nguyên", 0065).
     RESOURCE_CREATED = "resource.created"

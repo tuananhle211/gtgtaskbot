@@ -152,6 +152,7 @@ async def test_03_models_and_migration_agree(database: tuple[AsyncEngine, str]) 
             for item in compare_metadata(context, Base.metadata)
             if any(table in repr(item) for table in TABLES)
             and "agent_attachments" not in repr(item)  # 0092's own test
+            and "agent_room" not in repr(item)  # 0093's own test
         ]
 
     engine, _ = database

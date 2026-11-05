@@ -99,6 +99,53 @@ class AgentsNotConfiguredError(MeoBotError):
         )
 
 
+# --- Phòng họp agent (0093) --------------------------------------------------------------
+
+
+class RoomNotFoundError(NotFoundError):
+    """No such room - or one the caller is not in (or no longer may read): the same answer."""
+
+    code = "room_not_found"
+
+    def __init__(self) -> None:
+        super().__init__("Không tìm thấy phòng họp.", details={"reason": self.code})
+
+
+class RoomForbiddenError(AuthorizationError):
+    """Only the room's owner runs the meeting and decides who and which agents are in."""
+
+    code = "room_forbidden"
+
+    def __init__(self, message: str = "Chỉ người tạo phòng làm được việc này.") -> None:
+        super().__init__(message, details={"reason": self.code})
+
+
+class RoomInvalidError(ValidationError):
+    code = "room_invalid"
+
+    def __init__(self, message: str) -> None:
+        super().__init__(message, details={"reason": self.code})
+
+
+class RoomAccessMismatchError(ValidationError):
+    """A person who may not chat with an agent of the room, or an agent one of its people
+    may not chat with: what the agent reads must not reach them."""
+
+    code = "room_access_mismatch"
+
+    def __init__(self, message: str, *, people: list[str], agents: list[str]) -> None:
+        super().__init__(message, details={"reason": self.code, "people": people, "agents": agents})
+
+
+class RoomBusyError(ConflictError):
+    code = "room_busy"
+
+    def __init__(self) -> None:
+        super().__init__(
+            "Phòng đang họp. Chờ vòng này xong hoặc bấm Dừng.", details={"reason": self.code}
+        )
+
+
 __all__ = [
     "AgentAccessInvalidError",
     "AgentBusyError",
@@ -110,4 +157,9 @@ __all__ = [
     "AgentsNotConfiguredError",
     "AttachmentNotFoundError",
     "ConversationNotFoundError",
+    "RoomAccessMismatchError",
+    "RoomBusyError",
+    "RoomForbiddenError",
+    "RoomInvalidError",
+    "RoomNotFoundError",
 ]

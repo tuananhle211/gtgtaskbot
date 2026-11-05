@@ -16,6 +16,7 @@ from meobot.api.routers import (
     access,
     account,
     ads,
+    agent_rooms,
     agents,
     ai,
     board,
@@ -248,6 +249,8 @@ def _include_web_facing_routers(app: FastAPI) -> None:
     app.include_router(account.router)
     # Đội agent (0091): every signed-in account; each route shows only the
     # agents the caller may chat with and only their own conversations.
+    # Phòng họp agent (0093): a room's owner and invited people only.
+    app.include_router(agent_rooms.router)
     app.include_router(agents.router)
     # Invite codes for the web "Mời thành viên" panel: team lead and above,
     # behind the session. The internal ``/api/v1/invites`` stays off.

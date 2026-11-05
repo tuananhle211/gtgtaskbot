@@ -1542,6 +1542,37 @@ export function deleteAgentConversationConfirmation(title: string): ConfirmSpec 
   };
 }
 
+/** Phòng họp agent (0093): the owner deletes a room. */
+export function deleteAgentRoomConfirmation(title: string): ConfirmSpec {
+  return {
+    title: `Xoá phòng họp “${title}”?`,
+    description:
+      "Xoá hẳn mọi tin nhắn của phòng và bản các agent lưu bên máy chủ agent. Người được mời cũng mất phòng này. Không khôi phục được. Vòng họp đang chạy (nếu có) sẽ dừng.",
+    confirmLabel: "Xoá phòng họp",
+    variant: "destructive",
+  };
+}
+
+/** The owner takes somebody out of a room. */
+export function removeAgentRoomMemberConfirmation(name: string): ConfirmSpec {
+  return {
+    title: `Mời ${name} ra khỏi phòng?`,
+    description: "Người này không xem và không nhắn được trong phòng nữa. Tin họ đã nhắn vẫn giữ lại.",
+    confirmLabel: "Mời ra",
+    variant: "destructive",
+  };
+}
+
+/** An invited person leaves a room. */
+export function leaveAgentRoomConfirmation(title: string): ConfirmSpec {
+  return {
+    title: `Rời phòng họp “${title}”?`,
+    description: "Bạn không xem được phòng này nữa, trừ khi người tạo phòng mời lại. Tin bạn đã nhắn vẫn giữ lại.",
+    confirmLabel: "Rời phòng",
+    variant: "destructive",
+  };
+}
+
 /** The OWNER changes who may chat with an agent, or turns it on / off. */
 export function agentAccessConfirmation(name: string, summary: string): ConfirmSpec {
   return {

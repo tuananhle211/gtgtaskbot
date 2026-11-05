@@ -24,6 +24,7 @@ import {
 import { deleteAgentConversationConfirmation } from "@/lib/confirmations";
 import { formatShortDateTime } from "@/lib/datetime";
 import { AgentMarkdown } from "@/components/agent-markdown";
+import { AgentTabs, Badge } from "@/components/agent-common";
 import { ConfirmButton } from "@/components/confirm";
 import { PrimaryButton, SecondaryButton } from "@/components/pr";
 import { ErrorBox, Loading, NoticeBox } from "@/components/states";
@@ -57,18 +58,6 @@ type Live = {
   tools: Array<{ tool: string; label: string; emoji: string }>;
 };
 
-function Badge({ agent, size = "md" }: { agent: Pick<AgentInfo, "badge" | "name">; size?: "sm" | "md" }) {
-  const box = size === "sm" ? "h-8 w-8 text-[10px]" : "h-10 w-10 text-xs";
-  return (
-    <span
-      aria-hidden
-      className={`inline-flex ${box} shrink-0 items-center justify-center rounded-full border border-[var(--border)] bg-[var(--accent-soft)] font-semibold tracking-wide text-[var(--accent-strong)]`}
-    >
-      {agent.badge || agent.name.slice(0, 2).toUpperCase()}
-    </span>
-  );
-}
-
 export function AgentsWorkspace() {
   const router = useRouter();
   const params = useSearchParams();
@@ -101,6 +90,7 @@ export function AgentsWorkspace() {
           <p className="brand-eyebrow">Trợ lý AI</p>
           <h1 className="text-xl font-semibold tracking-tight sm:text-2xl">Đội agent</h1>
         </div>
+        <AgentTabs current="chat" />
       </div>
       {!data.configured ? (
         <div className="rounded-lg border border-[var(--warn)]/30 bg-[var(--warn-soft)] p-3 text-sm">

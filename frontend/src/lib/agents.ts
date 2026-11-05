@@ -8,7 +8,13 @@
  * connection only stops the live view (the page re-reads the conversation).
  */
 
-import { ApiError, type AgentAttachment, type AgentMessage, type Uuid } from "@/lib/api";
+import {
+  ApiError,
+  type AgentAttachment,
+  type AgentMessage,
+  type AgentRoomMessage,
+  type Uuid,
+} from "@/lib/api";
 
 export type AgentStreamEvent =
   | { type: "start"; user_message: AgentMessage; answer_id: string }
@@ -17,8 +23,10 @@ export type AgentStreamEvent =
   | { type: "done"; message: AgentMessage };
 
 /** Splits an SSE text buffer into whole frames; returns the events and the rest. */
-export function readSseFrames(buffer: string): { events: AgentStreamEvent[]; rest: string } {
-  const events: AgentStreamEvent[] = [];
+export function readSseFrames<E extends { type: string } = AgentStreamEvent>(
+  buffer: string,
+): { events: E[]; rest: string } {
+  const events: E[] = [];
   const parts = buffer.replace(/\r\n/g, "\n").split("\n\n");
   const rest = parts.pop() ?? "";
   for (const frame of parts) {
@@ -32,7 +40,7 @@ export function readSseFrames(buffer: string): { events: AgentStreamEvent[]; res
     if (!kind || data.length === 0) continue;
     try {
       const payload = JSON.parse(data.join("\n")) as Record<string, unknown>;
-      events.push({ ...payload, type: kind } as AgentStreamEvent);
+      events.push({ ...payload, type: kind } as unknown as E);
     } catch {
       // A broken frame is skipped; the saved answer is re-read at the end anyway.
     }
@@ -76,7 +84,7 @@ export async function sendAgentMessage(
   tail.events.forEach(onEvent);
 }
 
-async function refusal(response: Response, fallback: string): Promise<ApiError> {
+export async function refusal(response: Response, fallback: string): Promise<ApiError> {
   type Envelope = { error?: { code?: string; message?: string; details?: Record<string, unknown> } };
   const body: Envelope | null = await response.json().then(
     (parsed: unknown) => parsed as Envelope,
@@ -190,4 +198,54 @@ export const ANSWER_ERRORS: Record<string, string> = {
 
 export function answerError(code: string | null): string {
   return (code && ANSWER_ERRORS[code]) || "Câu trả lời bị gián đoạn.";
+}
+
+// --- Phòng họp agent (0093) ----------------------------------------------------------
+
+export type AgentRoomEvent =
+  | {
+      type: "state";
+      running: boolean;
+      round: number | null;
+      message_id: string | null;
+      text: string;
+      tools: Array<{ tool: string; label: string; emoji: string; message_id: string }>;
+    }
+  | { type: "message"; message: AgentRoomMessage }
+  | { type: "delta"; message_id: string; text: string }
+  | { type: "tool"; message_id: string; tool: string; label: string; emoji: string }
+  | { type: "done"; message: AgentRoomMessage }
+  | { type: "round"; running: boolean; round: number | null }
+  | { type: "people" }
+  | { type: "deleted" };
+
+/**
+ * The room live (`GET /api/agents/rooms/<id>/events`): `state` first, then
+ * every message, piece of a turn, tool, round start / end. Resolves when the
+ * server closes the stream; rejects with an `ApiError` when it refuses (404).
+ */
+export async function listenAgentRoom(
+  roomId: Uuid,
+  onEvent: (event: AgentRoomEvent) => void,
+  signal: AbortSignal,
+): Promise<void> {
+  const response = await fetch(`/api/agents/rooms/${roomId}/events`, {
+    credentials: "same-origin",
+    headers: { Accept: "text/event-stream" },
+    signal,
+  });
+  if (!response.ok || !response.body) {
+    throw await refusal(response, "Mất kết nối với phòng họp.");
+  }
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = "";
+  for (;;) {
+    const { value, done } = await reader.read();
+    if (done) break;
+    buffer += decoder.decode(value, { stream: true });
+    const { events, rest } = readSseFrames<AgentRoomEvent>(buffer);
+    buffer = rest;
+    events.forEach(onEvent);
+  }
 }

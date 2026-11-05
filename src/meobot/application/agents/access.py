@@ -12,12 +12,19 @@ ticked it for.
 from __future__ import annotations
 
 import uuid
+from collections.abc import Sequence
 from dataclasses import dataclass, field
 
-from meobot.application.org.access import Access
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from meobot.application.org.access import Access, load_access
+from meobot.application.org.seats import load_seats
 from meobot.db.models.agent_chat import AgentProfile
+from meobot.db.models.user import User
 from meobot.domain.agents.errors import AgentsForbiddenError
 from meobot.domain.agents.models import MODULE_AGENTS, AgentPermission
+from meobot.domain.identity.models import Role
+from meobot.domain.org.models import Seat
 from meobot.domain.units.models import UnitMembership
 
 
@@ -63,4 +70,24 @@ def agent_access(membership: UnitMembership) -> AgentAccess:
     )
 
 
-__all__ = ["AgentAccess", "agent_access"]
+async def agent_access_for(
+    session: AsyncSession, user: User, seats: Sequence[Seat] | None = None
+) -> AgentAccess:
+    """Somebody else's :class:`AgentAccess` (a person invited to a room): the same
+    rules as :func:`agent_access`, from their role, seats and personal grants.
+    Never ``manage`` (it is not asked here)."""
+    if user.deleted_at is not None or not user.active:
+        return AgentAccess(user_id=user.id)
+    if user.role in (Role.OWNER, Role.ADMIN):
+        return AgentAccess(user_id=user.id, chat_all=True)
+    if seats is None:
+        seats = (await load_seats(session, [user.id])).get(user.id, ())
+    access = await load_access(session, user_id=user.id, role=user.role, seats=seats)
+    return AgentAccess(
+        user_id=user.id,
+        chat_all=access.allows(MODULE_AGENTS, AgentPermission.CHAT.value),
+        department_ids=frozenset(seat.department_id for seat in seats),
+    )
+
+
+__all__ = ["AgentAccess", "agent_access", "agent_access_for"]

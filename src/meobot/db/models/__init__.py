@@ -25,6 +25,12 @@ from meobot.db.models.agent_chat import (
     AgentMessage,
     AgentProfile,
 )
+from meobot.db.models.agent_room import (
+    AgentRoom,
+    AgentRoomAgent,
+    AgentRoomMember,
+    AgentRoomMessage,
+)
 from meobot.db.models.ai_connection import AiConnection, AiRoute
 from meobot.db.models.audit_log import AuditLog
 from meobot.db.models.confirmation_request import ConfirmationRequestRow
@@ -215,6 +221,10 @@ __all__ = [
     "AgentConversation",
     "AgentMessage",
     "AgentProfile",
+    "AgentRoom",
+    "AgentRoomAgent",
+    "AgentRoomMember",
+    "AgentRoomMessage",
     "AiConnection",
     "AiRoute",
     "Announcement",
