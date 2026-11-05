@@ -1,0 +1,75 @@
+# /etc/brain-mcp/policy.yaml - root owned, OUTSIDE the vault: pushing to the vault
+# cannot widen anybody's rights. Read by brain-mcp on every call (no restart needed).
+#
+# Patterns are vault paths: ** = anything (any depth), * = one segment, {agent} = the
+# agent asking. "cam" beats "doc". An agent reads only what it is named for here.
+#
+# Rule with the APM chat (Đội agent): an agent must not read wider than EVERY person
+# allowed to chat with it there. Keep this file and docs/ai-assistant/AGENT_TEAM_CHAT_PLAN.md
+# section 4 in step.
+
+# Số điện thoại CÔNG KHAI của công ty được phép xuất hiện trong ghi chú / skill
+# (mọi số khác bị coi là dữ liệu khách hàng và bị từ chối khi ghi).
+so_cong_khai:
+  - "0766151566"   # Hotline Thẩm mỹ Apexmed (0766.1515.66)
+
+mac_dinh:
+  doc:
+    - "10-chung/**"
+    - "90-ban-do/**"
+    - "98-mau/**"
+    - "70-ai-agents/_chung/**"
+    - "70-ai-agents/{agent}/**"
+  ghi:
+    - "01-inbox-ai/{agent}/**"
+    - "02-de-xuat/{agent}/**"
+  cam:
+    - "00-inbox/**"
+    - "99-luu-tru/**"
+
+agents:
+  # Top agent: everything except 00-inbox and 99-luu-tru.
+  chutich: { doc: ["**"] }
+  ceo: { doc: ["20-phong/**", "30-han-che/ban-giam-doc/**"] }
+  # APM: only Ban Giám đốc + Tài chính - Kế toán chat with cfo.
+  cfo: { doc: ["30-han-che/tai-chinh/**", "30-han-che/ban-giam-doc/**"] }
+  cmo: { doc: ["20-phong/marketing/**"] }
+  mktads: { doc: ["20-phong/marketing/ads/**", "20-phong/marketing/nghien-cuu/**"] }
+  mktnghiencuu: { doc: ["20-phong/marketing/**"] }
+  mktnoidung: { doc: ["20-phong/marketing/noi-dung/**", "20-phong/marketing/pr/**"] }
+  mktthietke: { doc: ["20-phong/marketing/thiet-ke/**"] }
+  mktdung: { doc: ["20-phong/marketing/dung/**"] }
+  cco: { doc: ["20-phong/kinh-doanh/**"] }
+  telesale: { doc: ["20-phong/kinh-doanh/telesale/**"] }
+  cskh: { doc: ["20-phong/kinh-doanh/cskh/**"] }
+  chatpage: { doc: ["20-phong/kinh-doanh/chatpage/**"] }
+  # Not 30-han-che/nhan-su-mat (salaries, discipline).
+  nhansu: { doc: ["20-phong/nhan-su/**"] }
+  # Not 30-han-che/hop-dong while everyone may chat with phapche in APM (owner to decide).
+  phapche: { doc: ["20-phong/phap-che/**", "20-phong/marketing/noi-dung/**"] }
+
+# --- Gói quyền cho NGƯỜI (Claude trên máy riêng, qua link connector) ------------------
+# Người nằm trong /etc/brain-mcp/people.yaml, do them-nguoi.sh ghi:  <tên>: { nhom: [bgd, tai-chinh] }
+# Ai cũng có sẵn phần mac_dinh (10-chung, 90-ban-do, 98-mau); gói chỉ cộng thêm.
+# Sửa một gói ở đây = mọi người trong gói đổi theo ngay (không cần đổi link).
+nhom:
+  chung: []                                    # chỉ phần chung
+  tat-ca: ["**"]                               # cả kho, trừ 00-inbox và 99-luu-tru
+  bgd: ["20-phong/**", "30-han-che/ban-giam-doc/**"]
+  tai-chinh: ["30-han-che/tai-chinh/**"]
+  hop-dong: ["30-han-che/hop-dong/**"]
+  nhan-su-mat: ["30-han-che/nhan-su-mat/**"]   # lương, kỷ luật
+  marketing: ["20-phong/marketing/**"]
+  ads: ["20-phong/marketing/ads/**"]
+  nghien-cuu: ["20-phong/marketing/nghien-cuu/**"]
+  noi-dung: ["20-phong/marketing/noi-dung/**"]
+  thiet-ke: ["20-phong/marketing/thiet-ke/**"]
+  dung: ["20-phong/marketing/dung/**"]
+  pr: ["20-phong/marketing/pr/**"]
+  kinh-doanh: ["20-phong/kinh-doanh/**"]
+  telesale: ["20-phong/kinh-doanh/telesale/**"]
+  cskh: ["20-phong/kinh-doanh/cskh/**"]
+  chatpage: ["20-phong/kinh-doanh/chatpage/**"]
+  nhan-su: ["20-phong/nhan-su/**"]
+  phap-che: ["20-phong/phap-che/**"]
+  tai-nguyen: ["20-phong/tai-nguyen/**"]
