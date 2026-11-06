@@ -584,6 +584,17 @@ def _access_data(row: AgentProfile) -> dict[str, object]:
     }
 
 
+@dataclass(frozen=True, slots=True)
+class AnswerFile:
+    """A picture or a web page the agent put in its answer, kept as a file of the answer."""
+
+    name: str
+    content_type: str
+    data: bytes
+    kind: AttachmentKind = AttachmentKind.IMAGE
+    note: str = "Ảnh agent gửi"
+
+
 async def finish_answer(
     session: AsyncSession,
     answer_id: uuid.UUID,
@@ -593,8 +604,10 @@ async def finish_answer(
     error_code: str | None,
     tools: list[str],
     started_at: datetime,
-) -> AgentMessage | None:
-    """Record how an answer ended (on the stream's own transaction)."""
+    files: Sequence[AnswerFile] = (),
+) -> tuple[AgentMessage, list[AgentAttachment]] | None:
+    """Record how an answer ended (on the stream's own transaction), with the
+    pictures and pages the agent made as the answer's files (owned by the conversation's owner)."""
     row = await session.get(AgentMessage, answer_id)
     if row is None:
         return None
@@ -606,10 +619,25 @@ async def finish_answer(
     row.finished_at = now
     row.duration_ms = int((now - started_at).total_seconds() * 1000)
     conversation = await session.get(AgentConversation, row.conversation_id)
+    kept: list[AgentAttachment] = []
     if conversation is not None:
         conversation.last_message_at = now
+        for item in files:
+            file = AgentAttachment(
+                conversation_id=conversation.id,
+                message_id=row.id,
+                user_id=conversation.user_id,
+                name=item.name,
+                content_type=item.content_type,
+                kind=item.kind,
+                size_bytes=len(item.data),
+                data=item.data,
+                note=item.note,
+            )
+            session.add(file)
+            kept.append(file)
     await session.flush()
-    return row
+    return row, kept
 
 
 async def seed_default_agents(session: AsyncSession) -> list[AgentProfile]:
@@ -641,6 +669,7 @@ async def seed_default_agents(session: AsyncSession) -> list[AgentProfile]:
 __all__ = [
     "AgentChatService",
     "AgentSummary",
+    "AnswerFile",
     "PreparedTurn",
     "attached_block",
     "finish_answer",

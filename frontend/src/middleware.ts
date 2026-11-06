@@ -110,7 +110,20 @@ function contentSecurityPolicy(nonce: string, isSecure: boolean, { tiktokImages 
   return directives.join("; ");
 }
 
+/**
+ * A web page an agent wrote (Đội agent, an answer's `.html` file) opens in its
+ * own tab from the API, which sends a stricter policy of its own: sandboxed
+ * without `allow-same-origin` (no APM cookie or storage), no requests
+ * (`connect-src 'none'`), https pictures and styles only. The app's policy
+ * would blank the page (its nonce refuses the page's own inline script), so
+ * this one path keeps the API's header.
+ */
+const AGENT_PAGE_PREVIEW = /^\/api\/agents\/attachments\/[0-9a-f-]{36}\/view$/;
+
 export function middleware(request: NextRequest): NextResponse {
+  if (AGENT_PAGE_PREVIEW.test(request.nextUrl.pathname)) {
+    return NextResponse.next();
+  }
   const isSecure = request.nextUrl.protocol === "https:" || request.headers.get("x-forwarded-proto") === "https";
   const nonce = crypto.randomUUID();
   const csp = contentSecurityPolicy(nonce, isSecure, {

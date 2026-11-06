@@ -791,3 +791,94 @@ async def test_17_each_agent_shows_its_skills(world: World) -> None:
     )
     assert parsed == {"x": [AgentSkill("a", "", "kho")]}
     assert parse_skills(["junk"]) == {}
+
+
+async def test_18_pictures_the_agent_makes_come_with_its_answer(world: World) -> None:
+    import base64
+
+    from meobot.domain.agents.media import find_media
+    from meobot.integrations.hermes.relay import RelayMedia
+
+    made = "/home/hermes/.hermes/profiles/mktthietke/cache/generated/images/banner_1.png"
+    lost = "/home/hermes/.hermes/profiles/mktthietke/cache/generated/images/mat.png"
+    inline = base64.b64encode(_png()).decode()
+    answer: list[RelayEvent] = [
+        RelayTool(tool="image_generate", label="Vẽ ảnh", emoji="🎨"),
+        RelayDelta("Dạ em gửi banner:\n\nMEDIA:"),
+        RelayDelta(f"{made}\n\nBản nhỏ: ![image](data:image/png;base64,{inline})\n"),
+        RelayDelta(f"`MEDIA:{lost}` và lặp lại MEDIA:{made}\n\nSếp xem ạ."),
+    ]
+    relay = setup(
+        world,
+        FakeAgentRelay([answer], media={made: RelayMedia(data=_png(), content_type="image/png")}),
+    )
+    await seeded(world)
+    world.act_as(world.owner)
+    conversation = open_conversation(world, "mktthietke")
+    sent = world.client.post(
+        f"/api/agents/conversations/{conversation}/messages", json={"text": "Vẽ banner"}
+    )
+    assert sent.status_code == 200, sent.text
+    done = events(sent.text)[-1][1]["message"]
+    # The tags are gone from the words; the one the relay would not hand is a note.
+    assert "MEDIA:" not in done["content"] and "data:image" not in done["content"]
+    assert done["content"].startswith("Dạ em gửi banner:")
+    assert "(Không lấy được ảnh mat.png)" in done["content"]
+    assert done["content"].endswith("Sếp xem ạ.")
+    # Two pictures kept as the answer's files, the repeat fetched once.
+    names = [(item["name"], item["kind"]) for item in done["attachments"]]
+    assert names == [("banner_1.png", "IMAGE"), ("anh-agent.png", "IMAGE")]
+    assert relay.media_asked == [("mktthietke", made), ("mktthietke", lost)]
+    listed = world.client.get(f"/api/agents/conversations/{conversation}/messages").json()
+    assert [len(m["attachments"]) for m in listed["messages"]] == [0, 2]
+    shown = world.client.get(done["attachments"][0]["url"])
+    assert shown.status_code == 200 and shown.content == _png()
+    # Only the conversation's owner opens them.
+    world.act_as(world.member)
+    assert world.client.get(done["attachments"][0]["url"]).status_code == 404
+    # The reader: a path only once; at most six pictures.
+    many = "\n".join(f"MEDIA:/x/{n}.png" for n in range(9))
+    assert len([ref for ref in find_media(many) if ref.path]) == 6
+    assert find_media("không có ảnh") == []
+
+
+async def test_19_a_whole_html_page_becomes_a_file_with_a_sandboxed_preview(world: World) -> None:
+    page = "<!doctype html>\n<html><head><style>h1{color:red}</style></head><body><h1>Mới</h1></body></html>"
+    answer: list[RelayEvent] = [
+        RelayDelta("Dạ bản thiết kế lại:\n\n```html\n"),
+        RelayDelta(page + "\n```\n\nVà đoạn nhỏ:\n```html\n<button>Đặt lịch</button>\n```"),
+    ]
+    setup(world, FakeAgentRelay([answer]))
+    await seeded(world)
+    world.act_as(world.owner)
+    conversation = open_conversation(world, "mktthietke")
+    sent = world.client.post(
+        f"/api/agents/conversations/{conversation}/messages", json={"text": "Làm lại trang chủ"}
+    )
+    done = events(sent.text)[-1][1]["message"]
+    # The page left the text (a line names its file); a snippet stays as code.
+    assert "<!doctype" not in done["content"]
+    assert "*(Trang HTML: giao-dien-1.html - xem trước ở tệp bên dưới)*" in done["content"]
+    assert "<button>Đặt lịch</button>" in done["content"]
+    [file] = done["attachments"]
+    assert (file["name"], file["kind"], file["content_type"]) == (
+        "giao-dien-1.html",
+        "DOCUMENT",
+        "text/html",
+    )
+    # Downloading gives the file; the preview is a page in a sandbox of its own.
+    assert world.client.get(file["url"]).content == page.encode()
+    shown = world.client.get(f"{file['url']}/view")
+    assert shown.status_code == 200 and shown.content == page.encode()
+    assert shown.headers["content-type"].startswith("text/html")
+    csp = shown.headers["content-security-policy"]
+    assert csp.startswith("sandbox allow-scripts") and "allow-same-origin" not in csp
+    assert "connect-src 'none'" in csp
+    # Only an HTML file previews; only its owner sees it.
+    from meobot.db.models.agent_chat import AgentAttachment
+
+    picture = upload(world, conversation, "a.png", _png())
+    assert world.client.get(f"/api/agents/attachments/{picture.json()['id']}/view").status_code == 404
+    world.act_as(world.member)
+    assert world.client.get(f"{file['url']}/view").status_code == 404
+    assert (await world.session.scalars(select(AgentAttachment))).all()

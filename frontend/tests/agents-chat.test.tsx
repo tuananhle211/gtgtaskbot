@@ -272,6 +272,52 @@ describe("Đội agent: files and deleting", () => {
     expect(within(download).getByText(/3 trang · 117 KB/)).toBeInTheDocument();
   });
 
+  it("shows the pictures an agent sends under its answer, never a raw MEDIA: path", async () => {
+    const drawn = {
+      ...ANSWER,
+      content: "Dạ em gửi banner ạ.\n\nMEDIA:/home/hermes/.hermes/profiles/x/cache/old.png",
+      attachments: [{ ...SENT_FILES[0], id: "g1", name: "banner_1.png", note: "Ảnh agent gửi", url: "/api/agents/attachments/g1" }],
+    };
+    backend({ saved: [QUESTION, drawn] });
+    NAV.arriveAt("/agents?a=phapche&c=c1");
+    renderWithQuery(<AgentsWorkspace />);
+    const log = await screen.findByRole("log", { name: "Tin nhắn" });
+    const picture = await within(log).findByRole("img", { name: "banner_1.png" });
+    expect(picture).toHaveAttribute("src", "/api/agents/attachments/g1");
+    expect(within(log).getByText("Dạ em gửi banner ạ.")).toBeInTheDocument();
+    expect(log.textContent).not.toContain("MEDIA:");
+  });
+
+  it("offers an HTML page the agent wrote as a sandboxed preview and a download", async () => {
+    const page = {
+      ...SENT_FILES[1],
+      id: "p1",
+      name: "giao-dien-1.html",
+      content_type: "text/html",
+      note: "Trang HTML · bấm Xem trước",
+      url: "/api/agents/attachments/p1",
+    };
+    backend({ saved: [QUESTION, { ...ANSWER, content: "Dạ bản mới ạ.", attachments: [page] }] });
+    NAV.arriveAt("/agents?a=phapche&c=c1");
+    renderWithQuery(<AgentsWorkspace />);
+    const log = await screen.findByRole("log", { name: "Tin nhắn" });
+    const preview = await within(log).findByRole("link", { name: "Xem trước" });
+    expect(preview).toHaveAttribute("href", "/api/agents/attachments/p1/view");
+    expect(preview).toHaveAttribute("target", "_blank");
+    expect(within(log).getByRole("link", { name: "Tải về" })).toHaveAttribute("download", "giao-dien-1.html");
+  });
+
+  it("hides a picture tag while the answer still streams", async () => {
+    const { hideAnswerMedia } = await import("@/lib/agents");
+    expect(hideAnswerMedia("Dạ:\n\nMEDIA:/a/b.png\n\nXong")).toEqual({ text: "Dạ:\n\nXong", pictures: 1 });
+    expect(hideAnswerMedia("Đang gửi MEDIA:/home/her").pictures).toBe(1);
+    expect(hideAnswerMedia("Ảnh ![image](data:image/png;base64,iVBOR").text).toBe("Ảnh ");
+    expect(hideAnswerMedia("Không có ảnh")).toEqual({ text: "Không có ảnh", pictures: 0 });
+    // A page still being written stays out of the bubble; a closed snippet stays.
+    expect(hideAnswerMedia("Dạ:\n```html\n<!doctype html><body>").text).toBe("Dạ:\n*(Đang viết trang HTML…)*");
+    expect(hideAnswerMedia("```html\n<b>x</b>\n```").text).toBe("```html\n<b>x</b>\n```");
+  });
+
   it("deletes a conversation for good, after asking", async () => {
     const calls = backend();
     const user = userEvent.setup();

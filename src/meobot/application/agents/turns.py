@@ -24,10 +24,18 @@ from typing import Any
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from meobot.application.agents.service import PreparedTurn, finish_answer
+from meobot.application.agents.files import clean_name, image_type
+from meobot.application.agents.service import AnswerFile, PreparedTurn, finish_answer
 from meobot.core.time import utcnow
 from meobot.db.models.agent_chat import AgentAttachment, AgentMessage
-from meobot.domain.agents.models import ANSWER_TIMEOUT_SECONDS, MessageStatus
+from meobot.domain.agents.media import (
+    MAX_ANSWER_IMAGE_BYTES,
+    find_html_pages,
+    find_media,
+    has_media,
+    replace_media,
+)
+from meobot.domain.agents.models import ANSWER_TIMEOUT_SECONDS, AttachmentKind, MessageStatus
 from meobot.integrations.hermes.relay import AgentRelay, RelayDelta, RelayError, RelayTool
 
 logger = logging.getLogger(__name__)
@@ -74,6 +82,53 @@ def message_payload(
         "finished_at": row.finished_at.isoformat() if row.finished_at else None,
         "attachments": [attachment_payload(item) for item in attachments or []],
     }
+
+
+#: How long fetching an answer's pictures from the VPS may take, all together.
+MEDIA_TIMEOUT_SECONDS = 60.0
+
+
+async def answer_files(relay: AgentRelay, slug: str, text: str) -> tuple[str, list[AnswerFile]]:
+    """Take the pictures and whole web pages out of an answer: ``MEDIA:`` paths
+    fetched through the relay, ``data:`` URLs decoded, ```` ```html ```` pages kept
+    as ``.html`` files. Returns the text without them, and the files. A picture
+    the relay will not hand stays as a short note in the text; a page leaves a
+    line naming its file."""
+    replacements: dict[str, str] = {}
+    files: list[AnswerFile] = []
+    for number, page in enumerate(find_html_pages(text), start=1):
+        name = f"giao-dien-{number}.html"
+        files.append(
+            AnswerFile(
+                name=name,
+                content_type="text/html",
+                data=page.html.encode(),
+                kind=AttachmentKind.DOCUMENT,
+                note="Trang HTML · bấm Xem trước",
+            )
+        )
+        replacements[page.raw] = f"*(Trang HTML: {name} - xem trước ở tệp bên dưới)*"
+    text = replace_media(text, replacements) if replacements else text
+    replacements = {}
+    for ref in find_media(text):
+        data, content_type = ref.data, None
+        if ref.path is not None:
+            media = await relay.fetch_media(slug, ref.path)
+            data = media.data if media is not None else None
+        elif data is None:  # a repeated path: shown once already
+            replacements[ref.raw] = ""
+            continue
+        if data:
+            content_type = image_type(data)
+        if not data or content_type is None or len(data) > MAX_ANSWER_IMAGE_BYTES:
+            replacements[ref.raw] = f"(Không lấy được ảnh {ref.name})"
+            continue
+        name = clean_name(ref.name)
+        if "." not in name:
+            name = f"{name}.{content_type.split('/', 1)[1].replace('jpeg', 'jpg')}"
+        files.append(AnswerFile(name=name, content_type=content_type, data=data))
+        replacements[ref.raw] = ""
+    return replace_media(text, replacements), files
 
 
 @dataclass
@@ -229,18 +284,30 @@ class TurnRegistry:
         except Exception:  # never leave the row STREAMING
             logger.exception("agent answer failed", extra={"answer_id": str(turn.answer_id)})
             status, error = MessageStatus.FAILED, "agent_error"
+        content: str = turn.partial
+        files: list[AnswerFile] = []
+        if status != MessageStatus.FAILED and has_media(content):
+            try:
+                async with asyncio.timeout(MEDIA_TIMEOUT_SECONDS):
+                    content, files = await answer_files(relay, prepared.slug, content)
+            except Exception:  # the words are still worth keeping
+                logger.exception(
+                    "taking an answer's files failed", extra={"answer_id": str(turn.answer_id)}
+                )
+                content, files = turn.partial, []
         try:
             async with transactions() as session:
-                row = await finish_answer(
+                saved = await finish_answer(
                     session,
                     turn.answer_id,
-                    content=turn.partial,
+                    content=content,
                     status=status,
                     error_code=error,
                     tools=turn.tools,
                     started_at=turn.started_at,
+                    files=files,
                 )
-                turn.final = message_payload(row) if row is not None else None
+                turn.final = message_payload(*saved) if saved is not None else None
         except Exception:
             logger.exception(
                 "saving an agent answer failed", extra={"answer_id": str(turn.answer_id)}
@@ -249,7 +316,7 @@ class TurnRegistry:
             turn.final = {
                 "id": str(turn.answer_id),
                 "role": "ASSISTANT",
-                "content": turn.partial,
+                "content": content,
                 "status": status.value,
                 "error_code": error,
                 "tools_used": list(turn.tools),
@@ -267,6 +334,7 @@ __all__ = [
     "RunningTurn",
     "TransactionFactory",
     "TurnRegistry",
+    "answer_files",
     "attachment_payload",
     "attachment_url",
     "message_payload",

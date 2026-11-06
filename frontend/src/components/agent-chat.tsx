@@ -18,6 +18,7 @@ import {
   ATTACH_ACCEPT,
   answerError,
   fileSize,
+  hideAnswerMedia,
   sendAgentMessage,
   shrinkImage,
   uploadAgentAttachment,
@@ -848,11 +849,19 @@ function Bubble({ message, agent }: { message: AgentMessage; agent: AgentInfo })
   const failed = message.status === "FAILED";
   const cancelled = message.status === "CANCELLED";
   const streaming = message.status === "STREAMING";
+  const shown = hideAnswerMedia(message.content ?? "");
+  const pictures = message.attachments ?? [];
   return (
     <div className="flex items-end gap-2">
       <Badge agent={agent} size="sm" />
       <div className="max-w-[85%] min-w-0 rounded-2xl rounded-bl-md border border-[var(--border)] bg-[var(--surface)] px-3.5 py-2 text-[var(--text)]">
-        {message.content ? <AgentMarkdown text={message.content} /> : null}
+        {shown.text.trim() ? <AgentMarkdown text={shown.text} /> : null}
+        {pictures.length > 0 ? (
+          <div className={shown.text.trim() ? "mt-2" : undefined}>
+            <SentFiles files={pictures} />
+          </div>
+        ) : null}
+        {streaming && shown.pictures > 0 ? <p className="text-xs text-[var(--text-muted)]">🖼 Đang lấy ảnh…</p> : null}
         {streaming && !message.content ? <p className="text-sm text-[var(--text-muted)]">Đang trả lời…</p> : null}
         {failed ? (
           <p className="mt-1 rounded-md bg-[var(--bad-soft)] px-2 py-1 text-xs text-[var(--bad)]">
@@ -872,14 +881,21 @@ function Bubble({ message, agent }: { message: AgentMessage; agent: AgentInfo })
 
 function LiveAnswer({ live, agent }: { live: Live; agent: AgentInfo }) {
   const lastTool = live.tools[live.tools.length - 1];
+  const shown = hideAnswerMedia(live.text);
   return (
     <div className="flex items-end gap-2">
       <Badge agent={agent} size="sm" />
       <div className="max-w-[85%] min-w-0 rounded-2xl rounded-bl-md border border-[var(--border)] bg-[var(--surface)] px-3.5 py-2 text-[var(--text)]">
-        {live.text ? <AgentMarkdown text={live.text} /> : null}
+        {shown.text.trim() ? <AgentMarkdown text={shown.text} /> : null}
         <p className="mt-1 flex items-center gap-1.5 text-xs text-[var(--text-muted)]" aria-live="polite">
           <span className="inline-block h-1.5 w-1.5 animate-pulse rounded-full bg-[var(--accent-strong)]" aria-hidden />
-          {lastTool ? `${lastTool.emoji ? `${lastTool.emoji} ` : ""}${lastTool.label}` : live.text ? "Đang viết…" : "Đang suy nghĩ…"}
+          {shown.pictures > 0
+            ? "🖼 Đang gửi ảnh…"
+            : lastTool
+              ? `${lastTool.emoji ? `${lastTool.emoji} ` : ""}${lastTool.label}`
+              : live.text
+                ? "Đang viết…"
+                : "Đang suy nghĩ…"}
         </p>
       </div>
     </div>
@@ -908,7 +924,10 @@ function SentFiles({ files }: { files: AgentAttachment[] }) {
           ))}
         </div>
       ) : null}
-      {documents.map((file) => (
+      {documents.map((file) =>
+        file.content_type === "text/html" ? (
+          <PageCard key={file.id} file={file} />
+        ) : (
         <a
           key={file.id}
           href={file.url}
@@ -924,7 +943,39 @@ function SentFiles({ files }: { files: AgentAttachment[] }) {
             </span>
           </span>
         </a>
-      ))}
+        ),
+      )}
+    </div>
+  );
+}
+
+/** A web page the agent wrote: preview in its own (sandboxed) tab, or download. */
+function PageCard({ file }: { file: AgentAttachment }) {
+  return (
+    <div className="flex min-h-11 flex-wrap items-center gap-2.5 rounded-lg border border-[var(--border)] bg-[var(--surface)] px-2.5 py-1.5 text-[var(--text)]">
+      <FileBadge kind={file.kind} name={file.name} />
+      <span className="min-w-0 flex-1">
+        <span className="block truncate text-sm font-medium">{file.name}</span>
+        <span className="block truncate text-xs text-[var(--text-muted)]">Trang HTML · {fileSize(file.size_bytes)}</span>
+      </span>
+      <span className="flex gap-1.5">
+        <a
+          href={`${file.url}/view`}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="inline-flex min-h-9 items-center rounded-md bg-[var(--accent)] px-3 text-xs font-medium text-[var(--accent-text)] hover:opacity-90"
+        >
+          Xem trước
+        </a>
+        <a
+          href={file.url}
+          download={file.name}
+          className="inline-flex min-h-9 items-center rounded-md border border-[var(--border)] bg-[var(--surface)] px-3 text-xs hover:bg-[var(--surface-muted)]"
+          title={`Tải ${file.name}`}
+        >
+          Tải về
+        </a>
+      </span>
     </div>
   );
 }
@@ -981,7 +1032,9 @@ function FileBadge({ kind, name }: { kind: AgentAttachment["kind"]; name: string
             ? "XLS"
             : extension.startsWith("ppt")
               ? "PPT"
-              : "TXT";
+              : extension.startsWith("htm")
+                ? "HTML"
+                : "TXT";
   const tone =
     kind === "SKILL"
       ? "bg-[var(--magenta-soft)] text-[var(--magenta)]"

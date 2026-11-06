@@ -67,6 +67,7 @@ from meobot.domain.agents.errors import (
     AgentBusyError,
     AgentFileInvalidError,
     AgentsNotConfiguredError,
+    AttachmentNotFoundError,
 )
 from meobot.domain.agents.models import MAX_FILE_BYTES, AttachmentKind
 from meobot.integrations.hermes.relay import AgentRelay, HttpAgentRelay
@@ -388,6 +389,40 @@ async def open_attachment(
             "Cache-Control": "private, max-age=86400",
             "X-Content-Type-Options": "nosniff",
             "Content-Security-Policy": "default-src 'none'; sandbox",
+        },
+    )
+
+
+#: A web page an agent wrote, opened in its own tab: sandboxed without
+#: ``allow-same-origin`` (an opaque origin: no APM cookie, no APM storage), no
+#: requests of its own (``connect-src 'none'``), pictures / fonts / styles from
+#: https only; the Next middleware leaves this path's CSP alone.
+PAGE_PREVIEW_CSP = (
+    "sandbox allow-scripts allow-popups; default-src 'none'; "
+    "script-src 'unsafe-inline' 'unsafe-eval' https:; style-src 'unsafe-inline' https:; "
+    "img-src https: data: blob:; font-src https: data:; media-src https: data:; "
+    "connect-src 'none'; form-action 'none'; frame-src https:; base-uri 'none'"
+)
+
+
+@router.get("/attachments/{attachment_id}/view")
+async def view_page(
+    attachment_id: uuid.UUID, session: SessionDep, membership: UnitMembershipDep
+) -> Response:
+    """A web page the agent wrote (``.html`` file of an answer), shown as a page."""
+    service, access = _context(session, membership)
+    row = await service.attachment(access, attachment_id, with_data=True)
+    if row.content_type != "text/html":
+        raise AttachmentNotFoundError()
+    return Response(
+        content=row.data,
+        media_type="text/html; charset=utf-8",
+        headers={
+            "Content-Disposition": f"inline; filename*=UTF-8''{quote(row.name)}",
+            "Cache-Control": "private, no-store",
+            "X-Content-Type-Options": "nosniff",
+            "Content-Security-Policy": PAGE_PREVIEW_CSP,
+            "Referrer-Policy": "no-referrer",
         },
     )
 

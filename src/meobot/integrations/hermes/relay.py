@@ -10,6 +10,9 @@ The stream is read here into :class:`RelayDelta` (a piece of the answer) and
 :class:`RelayTool` (the agent started a tool) events. Comment lines
 (``: keepalive``, every 10 s) are skipped.
 
+``GET /agents/<slug>/media?path=`` hands back a picture the agent made (the
+``MEDIA:/path`` tag of its answer), only from that agent's own folder.
+
 ``GET /skills`` lists every agent's skills (read from files on the VPS, no
 Hermes call): approved ones from the Second Brain (``kho``), the agent's own
 not yet approved (``rieng``), Hermes' bundled ones (``co-san``). Kept a few
@@ -55,6 +58,15 @@ class RelayTool:
 
 
 RelayEvent = RelayDelta | RelayTool
+
+
+@dataclass(frozen=True, slots=True)
+class RelayMedia:
+    """A picture an agent made, fetched from its VPS."""
+
+    data: bytes
+    content_type: str
+
 
 #: Where a skill comes from (relay ``source``).
 SKILL_SOURCES = ("kho", "rieng", "co-san")
@@ -129,6 +141,8 @@ class AgentRelay(Protocol):
     async def delete_session(self, slug: str, session_id: str) -> bool: ...
 
     async def skills(self) -> SkillBook | None: ...
+
+    async def fetch_media(self, slug: str, path: str) -> RelayMedia | None: ...
 
 
 def chat_content(text: str, images: Sequence[str]) -> str | list[dict[str, Any]]:
@@ -333,6 +347,31 @@ class HttpAgentRelay:
         _SKILL_CACHE[self._base_url] = (time.monotonic(), book)
         return book
 
+    async def fetch_media(self, slug: str, path: str) -> RelayMedia | None:
+        """A picture the agent saved (``MEDIA:`` path); None when the relay will not hand it."""
+        if not self.configured or not path.startswith("/") or len(path) > 1000:
+            return None
+        timeout = httpx.Timeout(30.0, connect=CONNECT_TIMEOUT_SECONDS)
+        client = self._client or httpx.AsyncClient(timeout=timeout)
+        try:
+            response = await client.get(
+                f"{self._base_url}/agents/{slug}/media",
+                params={"path": path},
+                headers={"Authorization": f"Bearer {self._token}"},
+                timeout=timeout,
+            )
+        except httpx.HTTPError:
+            return None
+        finally:
+            if self._client is None:
+                await client.aclose()
+        if response.status_code != 200 or not response.content:
+            return None
+        return RelayMedia(
+            data=response.content,
+            content_type=response.headers.get("content-type", "application/octet-stream"),
+        )
+
 
 class FakeAgentRelay:
     """Answers from a script (tests, local work without the VPS)."""
@@ -344,6 +383,7 @@ class FakeAgentRelay:
         fail: str | None = None,
         configured: bool = True,
         skill_book: SkillBook | None = None,
+        media: dict[str, RelayMedia] | None = None,
     ) -> None:
         self.answers = (
             answers
@@ -355,6 +395,8 @@ class FakeAgentRelay:
         self.calls: list[dict[str, Any]] = []
         self.deleted: list[tuple[str, str]] = []
         self.skill_book = skill_book
+        self.media = media or {}
+        self.media_asked: list[tuple[str, str]] = []
 
     @property
     def configured(self) -> bool:
@@ -395,6 +437,10 @@ class FakeAgentRelay:
     async def skills(self) -> SkillBook | None:
         return self.skill_book if self._configured else None
 
+    async def fetch_media(self, slug: str, path: str) -> RelayMedia | None:
+        self.media_asked.append((slug, path))
+        return self.media.get(path) if self._configured else None
+
 
 __all__ = [
     "SKILL_SOURCES",
@@ -405,6 +451,7 @@ __all__ = [
     "RelayDelta",
     "RelayError",
     "RelayEvent",
+    "RelayMedia",
     "RelayTool",
     "SkillBook",
     "SseParser",

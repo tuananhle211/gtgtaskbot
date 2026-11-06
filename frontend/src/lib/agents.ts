@@ -183,6 +183,35 @@ export function fileSize(bytes: number): string {
 }
 
 /** Why an answer failed, in words. */
+/**
+ * A picture the agent puts in its answer arrives as `MEDIA:/path.png` (or a
+ * `![image](data:...)`); the server takes it out of the saved answer and keeps
+ * it as the answer's file. While the answer still streams, hide the raw tag.
+ */
+const MEDIA_TAG = /[`'"]?MEDIA:\s*\/[^\s`'"<>()[\]]+\.(?:png|jpe?g|webp|gif)(?![A-Za-z0-9])[`'"]?/gi;
+const DATA_IMAGE = /!\[[^\]\n]{0,200}\]\(data:image\/[^)]*\)?/g;
+/** A ```html page still being written (no closing fence yet): the code stays out of the bubble. */
+const HTML_PAGE_OPEN = /```[ \t]*html[^\n]*\n(?![\s\S]*```)[\s\S]*$/i;
+/** An unfinished tag at the very end of the streamed text (`MEDIA:/ho…`). */
+const MEDIA_TAIL = /[`'"]?MEDIA:[^\s]*$|!\[[^\]\n]*\]\(data:[^)]*$/i;
+
+export function hideAnswerMedia(text: string): { text: string; pictures: number } {
+  let pictures = 0;
+  const count = () => {
+    pictures += 1;
+    return "";
+  };
+  const out = text
+    .replace(MEDIA_TAG, count)
+    .replace(DATA_IMAGE, count)
+    .replace(MEDIA_TAIL, count)
+    .replace(HTML_PAGE_OPEN, () => {
+      pictures += 1;
+      return "*(Đang viết trang HTML…)*";
+    });
+  return { text: out.replace(/\n{3,}/g, "\n\n"), pictures };
+}
+
 export const ANSWER_ERRORS: Record<string, string> = {
   agent_unreachable: "Không kết nối được máy chủ agent.",
   agent_timeout: "Máy chủ agent không phản hồi.",
