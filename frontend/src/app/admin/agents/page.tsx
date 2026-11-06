@@ -1,10 +1,11 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api, type AgentAdmin, type Department, type DirectoryUser, type Uuid } from "@/lib/api";
 import { agentAccessConfirmation } from "@/lib/confirmations";
 import { AdminTabs } from "@/components/admin-tabs";
+import { AgentAccessMatrix } from "@/components/agent-access-matrix";
 import { ConfirmButton } from "@/components/confirm";
 import { Modal, ModalBody, ModalFooter } from "@/components/modal";
 import { PageHeader, SecondaryButton } from "@/components/pr";
@@ -13,7 +14,8 @@ import { ErrorBox, Loading } from "@/components/states";
 /**
  * "Quản trị › Đội agent" (0091), the OWNER's: which Hermes agents are on, and
  * who may chat with each - its departments (everybody seated there), single
- * people, or everyone. Whoever holds "Chat với mọi agent" (Phòng ban / Quyền)
+ * people, or everyone. Since 2026-11-06 the departments are ticked in one grid
+ * (`AgentAccessMatrix`); people and on / off stay in the agent's dialog. Whoever holds "Chat với mọi agent" (Phòng ban / Quyền)
  * sees every agent whatever this says.
  */
 export default function AgentsAdminPage() {
@@ -22,21 +24,13 @@ export default function AgentsAdminPage() {
   const directory = useQuery({ queryKey: ["units", "directory"], queryFn: api.unitDirectory });
   const [editing, setEditing] = useState<AgentAdmin | null>(null);
 
-  const deptName = useMemo(
-    () => new Map((departments.data?.departments ?? []).map((dept) => [dept.id, dept.name])),
-    [departments.data],
-  );
-  const personName = useMemo(
-    () => new Map((directory.data ?? []).map((person) => [person.user_id, person.full_name])),
-    [directory.data],
-  );
 
   return (
     <div className="space-y-4">
       <AdminTabs active="agents" />
       <PageHeader
         title="Đội agent"
-        subtitle="Bật / tắt từng agent và chọn ai được chat: theo phòng ban, từng người, hoặc mọi người. Người có quyền “Chat với mọi agent” thấy tất cả."
+        subtitle="Ai thấy agent nào: tick phòng ban cho từng agent (cả phòng thấy), “Mọi người” để mở cho tất cả, “Chi tiết” để thêm từng người hoặc bật / tắt agent. Chủ sở hữu, quản trị viên và người có quyền “Chat với mọi agent” luôn thấy tất cả."
       />
       {agents.data && !agents.data.configured ? (
         <div className="rounded-lg border border-[var(--warn)]/30 bg-[var(--warn-soft)] p-3 text-sm">
@@ -46,52 +40,11 @@ export default function AgentsAdminPage() {
       {agents.isPending ? <Loading label="Đang tải đội agent…" /> : null}
       {agents.isError ? <ErrorBox error={agents.error} onRetry={() => agents.refetch()} /> : null}
       {agents.data ? (
-        <div className="panel table-scroll-x">
-          <table className="table-dense w-full">
-            <thead>
-              <tr>
-                <th>Agent</th>
-                <th>Trạng thái</th>
-                <th>Ai được chat</th>
-                <th aria-label="Thao tác" />
-              </tr>
-            </thead>
-            <tbody>
-              {agents.data.agents.map((agent) => (
-                <tr key={agent.slug}>
-                  <td>
-                    <p className="font-medium">{agent.name}</p>
-                    <p className="text-xs text-[var(--text-muted)]">
-                      {agent.slug} · {agent.title}
-                    </p>
-                  </td>
-                  <td>
-                    <span className={`st ${agent.active ? "st-green" : "st-slate"}`}>
-                      {agent.active ? "Đang bật" : "Đã tắt"}
-                    </span>
-                  </td>
-                  <td className="text-sm">
-                    {agent.everyone ? (
-                      "Mọi người"
-                    ) : (
-                      <span>
-                        {[
-                          ...agent.department_ids.map((id) => deptName.get(id) ?? "Phòng đã xoá"),
-                          ...agent.user_ids.map((id) => personName.get(id) ?? "Tài khoản đã xoá"),
-                        ].join(", ") || <span className="text-[var(--text-muted)]">Chưa ai (chỉ chủ sở hữu, quản trị viên)</span>}
-                      </span>
-                    )}
-                  </td>
-                  <td className="text-right">
-                    <SecondaryButton type="button" onClick={() => setEditing(agent)}>
-                      Sửa quyền
-                    </SecondaryButton>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
+        <AgentAccessMatrix
+          agents={agents.data.agents}
+          departments={departments.data?.departments ?? []}
+          onDetails={setEditing}
+        />
       ) : null}
       {editing ? (
         <AccessDialog

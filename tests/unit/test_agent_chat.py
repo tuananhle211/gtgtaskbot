@@ -738,3 +738,56 @@ async def test_16_the_relay_sends_pictures_as_parts() -> None:
         {"type": "text", "text": "Hỏi"},
         {"type": "image_url", "image_url": {"url": "data:image/png;base64,AA=="}},
     ]
+
+
+# --- skills (2026-11-06) ----------------------------------------------------------------
+
+
+async def test_17_each_agent_shows_its_skills(world: World) -> None:
+    from meobot.integrations.hermes.relay import AgentSkill, parse_skills
+
+    book = {
+        "phapche": [
+            AgentSkill("hop-dong-mau", "Soát hợp đồng", "kho"),
+            AgentSkill("ghi-chu-rieng", "Agent tự học", "rieng"),
+            AgentSkill("arxiv", "Tìm bài báo", "co-san", "research"),
+        ],
+        "cfo": [AgentSkill("doc-so", "Đọc số", "kho")],
+    }
+    setup(world, FakeAgentRelay([list(ANSWER)], skill_book=book))
+    await seeded(world)
+    # Only the agents the caller chats with; an agent the relay does not list = empty.
+    outsider = await person(world, "Người ngoài")
+    world.act_as(outsider)
+    body = world.client.get("/api/agents/skills").json()
+    assert body["available"] is True
+    assert list(body["agents"]) == ["phapche"]
+    assert body["agents"]["phapche"] == {
+        "approved": [{"name": "hop-dong-mau", "description": "Soát hợp đồng", "group": None}],
+        "own": [{"name": "ghi-chu-rieng", "description": "Agent tự học", "group": None}],
+        "builtin": [{"name": "arxiv", "description": "Tìm bài báo", "group": "research"}],
+    }
+    world.act_as(world.owner)
+    agents = world.client.get("/api/agents/skills").json()["agents"]
+    assert len(agents) == 15
+    assert agents["cfo"]["approved"][0]["name"] == "doc-so"
+    assert agents["ceo"] == {"approved": [], "own": [], "builtin": []}
+    # The relay cannot say: the screen hides the counts.
+    setup(world, FakeAgentRelay(configured=False))
+    assert world.client.get("/api/agents/skills").json() == {"available": False, "agents": {}}
+    # What the relay sends is read defensively.
+    parsed = parse_skills(
+        {
+            "agents": {
+                "x": [
+                    {"name": "a", "source": "kho"},
+                    {"name": "", "source": "kho"},
+                    {"name": "b", "source": "la"},
+                    "junk",
+                ],
+                "y": "junk",
+            }
+        }
+    )
+    assert parsed == {"x": [AgentSkill("a", "", "kho")]}
+    assert parse_skills(["junk"]) == {}

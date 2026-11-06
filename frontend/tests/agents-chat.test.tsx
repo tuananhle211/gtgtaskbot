@@ -89,6 +89,21 @@ const SENT_FILES = [
   },
 ];
 
+const SKILLS = {
+  available: true,
+  agents: {
+    ceo: { approved: [], own: [], builtin: [] },
+    phapche: {
+      approved: [
+        { name: "soat-quang-cao", description: "Soát câu quảng cáo theo luật.", group: null },
+        { name: "hop-dong-mau", description: "Mẫu hợp đồng dịch vụ.", group: null },
+      ],
+      own: [{ name: "ghi-chu-phap-ly", description: "Agent tự học.", group: null }],
+      builtin: [{ name: "arxiv", description: "Tìm bài báo khoa học.", group: "research" }],
+    },
+  },
+};
+
 function backend(options: { configured?: boolean; saved?: unknown[] } = {}) {
   const calls: Call[] = [];
   let saved: unknown[] = options.saved ?? [];
@@ -102,6 +117,7 @@ function backend(options: { configured?: boolean; saved?: unknown[] } = {}) {
     if (url.endsWith("/api/agents") && method === "GET") {
       return json({ ...AGENTS, configured: options.configured ?? true });
     }
+    if (url.endsWith("/api/agents/skills")) return json(SKILLS);
     if (url.includes("/api/agents/phapche/conversations")) return json({ conversations: [CONVERSATION] });
     if (url.includes("/api/agents/conversations/c1/attachments") && method === "POST") {
       const name = new URL(url, "http://x").searchParams.get("name");
@@ -185,8 +201,8 @@ describe("Đội agent: the chat", () => {
     const user = userEvent.setup();
     renderWithQuery(<AgentsWorkspace />);
     const agents = await screen.findByRole("navigation", { name: "Danh sách agent" });
-    expect(within(agents).getByText("Ban Giám đốc")).toBeInTheDocument();
-    await user.click(within(agents).getByRole("button", { name: /Pháp chế/ }));
+    expect(within(agents).getByRole("region", { name: "Ban Giám đốc" })).toBeInTheDocument();
+    await user.click(within(agents).getByRole("button", { name: /^Pháp chế/ }));
     expect(NAV.current()).toBe("a=phapche");
     await user.click(await screen.findByRole("button", { name: /^Soát câu quảng cáo/ }));
     expect(NAV.current()).toBe("a=phapche&c=c1");
@@ -305,3 +321,79 @@ describe("Đội agent: the menu", () => {
   });
 });
 
+
+describe("Đội agent: the row of agents and their skills (2026-11-06)", () => {
+  it("lays the agents in a row with a person avatar and a skill count; a pick shows the skills", async () => {
+    backend();
+    const user = userEvent.setup();
+    renderWithQuery(<AgentsWorkspace />);
+    const agents = await screen.findByRole("navigation", { name: "Danh sách agent" });
+    expect(agents.querySelectorAll("[data-agent-avatar]")).toHaveLength(2);
+    // Each agent its own robot (public/agent-avatars/<slug>.svg).
+    expect([...agents.querySelectorAll("[data-agent-avatar] img")].map((img) => img.getAttribute("src"))).toEqual([
+      "/agent-avatars/ceo.svg",
+      "/agent-avatars/phapche.svg",
+    ]);
+    // Approved + its own = 3; the bundled ones are not counted.
+    const count = await within(agents).findByRole("button", { name: "3 skill của Pháp chế - xem danh sách" });
+    expect(count).toHaveTextContent("3");
+    expect(within(agents).getByRole("button", { name: "0 skill của CEO - xem danh sách" })).toBeInTheDocument();
+    // Picking the agent shows its skills beside the conversations.
+    await user.click(within(agents).getByRole("button", { name: /^Pháp chế/ }));
+    const list = await screen.findByTestId("agent-skills");
+    expect(within(list).getByText("soat-quang-cao")).toBeInTheDocument();
+    expect(within(list).getByText("ghi-chu-phap-ly")).toBeInTheDocument();
+    expect(within(list).getByText("Có sẵn của Hermes")).toBeInTheDocument();
+    // The count opens the same list in a dialog.
+    await user.click(count);
+    const dialog = await screen.findByRole("dialog", { name: "Skill của Pháp chế" });
+    expect(within(dialog).getByText("hop-dong-mau")).toBeInTheDocument();
+    expect(within(dialog).getByText("2 skill Apexmed · 1 tự học · 1 có sẵn của Hermes")).toBeInTheDocument();
+  });
+});
+
+describe("Đội agent: who sees which agent, in one grid (2026-11-06)", () => {
+  it("ticks departments for several agents and saves only the ones that changed", async () => {
+    const { AgentAccessMatrix } = await import("@/components/agent-access-matrix");
+    const puts: Array<{ url: string; body: unknown }> = [];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+        puts.push({ url: String(input), body: JSON.parse(String(init?.body ?? "{}")) });
+        return new Response(JSON.stringify({}), { status: 200, headers: { "Content-Type": "application/json" } });
+      }),
+    );
+    const agent = (slug: string, name: string, extra: object = {}) => ({
+      slug, name, title: name, badge: "", group: "MARKETING", active: true, everyone: false,
+      department_ids: [] as string[], user_ids: [] as string[], ...extra,
+    });
+    const agents = [
+      agent("mktthietke", "Thiết kế", { department_ids: ["d-tk"] }),
+      agent("mktads", "Marketing Ads", { department_ids: ["d-ads"] }),
+      agent("phapche", "Pháp chế", { group: "SUPPORT", everyone: true }),
+    ];
+    const departments = [
+      { id: "d-ads", code: "ADS", name: "Phòng Ads", function: "NONE", active: true, sort_order: 1 },
+      { id: "d-tk", code: "TK", name: "Thiết Kế", function: "THIET_KE", active: true, sort_order: 2 },
+    ];
+    const user = userEvent.setup();
+    renderWithQuery(<AgentAccessMatrix agents={agents as never} departments={departments as never} onDetails={() => {}} />);
+    const grid = screen.getByTestId("agent-matrix");
+    // "Mọi người" ticks every department and locks them.
+    expect(within(grid).getByRole("checkbox", { name: "Pháp chế: Phòng Ads" })).toBeDisabled();
+    // Each department sees its own agent (+ Pháp chế for everyone).
+    expect(within(grid).getAllByText("2 agent")).toHaveLength(2);
+    await user.click(within(grid).getByRole("checkbox", { name: "Thiết kế: Phòng Ads" }));
+    expect(screen.getByText("1 agent đã đổi, chưa lưu.")).toBeInTheDocument();
+    // Untick it again: nothing to save.
+    await user.click(within(grid).getByRole("checkbox", { name: "Thiết kế: Phòng Ads" }));
+    expect(screen.getByRole("button", { name: "Lưu thay đổi" })).toBeDisabled();
+    // Take Thiết kế away from its own department and save.
+    await user.click(within(grid).getByRole("checkbox", { name: "Thiết kế: Thiết Kế" }));
+    await user.click(screen.getByRole("button", { name: "Lưu thay đổi" }));
+    const confirm = await screen.findByRole("dialog");
+    await user.click(within(confirm).getByRole("button", { name: "Lưu thay đổi" }));
+    await waitFor(() => expect(puts).toHaveLength(1));
+    expect(puts[0]).toEqual({ url: "/api/agents/admin/mktthietke", body: { everyone: false, department_ids: [] } });
+  });
+});

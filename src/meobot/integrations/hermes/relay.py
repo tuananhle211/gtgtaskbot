@@ -9,12 +9,18 @@ transcript itself, keyed by ``X-Hermes-Session-Id``.
 The stream is read here into :class:`RelayDelta` (a piece of the answer) and
 :class:`RelayTool` (the agent started a tool) events. Comment lines
 (``: keepalive``, every 10 s) are skipped.
+
+``GET /skills`` lists every agent's skills (read from files on the VPS, no
+Hermes call): approved ones from the Second Brain (``kho``), the agent's own
+not yet approved (``rieng``), Hermes' bundled ones (``co-san``). Kept a few
+minutes here so the agents screen does not ask the VPS on every load.
 """
 
 from __future__ import annotations
 
 import json
 import re
+import time
 from collections.abc import AsyncIterator, Iterable, Sequence
 from dataclasses import dataclass
 from typing import Any, Protocol
@@ -50,6 +56,56 @@ class RelayTool:
 
 RelayEvent = RelayDelta | RelayTool
 
+#: Where a skill comes from (relay ``source``).
+SKILL_SOURCES = ("kho", "rieng", "co-san")
+#: How long the skill list is kept before the VPS is asked again.
+SKILLS_TTL_SECONDS = 120.0
+
+
+@dataclass(frozen=True, slots=True)
+class AgentSkill:
+    name: str
+    description: str
+    source: str
+    group: str | None = None
+
+
+#: slug -> that agent's skills.
+SkillBook = dict[str, list[AgentSkill]]
+
+
+def parse_skills(payload: object) -> SkillBook:
+    """The relay's ``{"agents": {slug: [...]}}``, anything odd skipped."""
+    book: SkillBook = {}
+    agents = payload.get("agents") if isinstance(payload, dict) else None
+    if not isinstance(agents, dict):
+        return book
+    for slug, items in agents.items():
+        if not isinstance(slug, str) or not isinstance(items, list):
+            continue
+        skills: list[AgentSkill] = []
+        for item in items:
+            if not isinstance(item, dict) or item.get("source") not in SKILL_SOURCES:
+                continue
+            name = str(item.get("name") or "").strip()[:80]
+            if not name:
+                continue
+            group = item.get("group")
+            skills.append(
+                AgentSkill(
+                    name=name,
+                    description=str(item.get("description") or "").strip()[:300],
+                    source=str(item["source"]),
+                    group=str(group)[:60] if isinstance(group, str) and group else None,
+                )
+            )
+        book[slug] = skills
+    return book
+
+
+#: base url -> (when fetched, book); one API process, so a plain dict is enough.
+_SKILL_CACHE: dict[str, tuple[float, SkillBook]] = {}
+
 
 #: What a Hermes transcript id may look like (``apm-<uuid>``) before it goes in a URL.
 _SESSION_ID = re.compile(r"^[A-Za-z0-9_.:-]{1,80}$")
@@ -71,6 +127,8 @@ class AgentRelay(Protocol):
     ) -> AsyncIterator[RelayEvent]: ...
 
     async def delete_session(self, slug: str, session_id: str) -> bool: ...
+
+    async def skills(self) -> SkillBook | None: ...
 
 
 def chat_content(text: str, images: Sequence[str]) -> str | list[dict[str, Any]]:
@@ -249,6 +307,32 @@ class HttpAgentRelay:
                 await client.aclose()
         return response.status_code in (200, 204, 404)
 
+    async def skills(self) -> SkillBook | None:
+        """Every agent's skills; None when the relay cannot say (down, or an older relay)."""
+        if not self.configured:
+            return None
+        cached = _SKILL_CACHE.get(self._base_url)
+        if cached and time.monotonic() - cached[0] < SKILLS_TTL_SECONDS:
+            return cached[1]
+        timeout = httpx.Timeout(15.0, connect=CONNECT_TIMEOUT_SECONDS)
+        client = self._client or httpx.AsyncClient(timeout=timeout)
+        try:
+            response = await client.get(
+                f"{self._base_url}/skills",
+                headers={"Authorization": f"Bearer {self._token}"},
+                timeout=timeout,
+            )
+            if response.status_code != 200:
+                return cached[1] if cached else None
+            book = parse_skills(response.json())
+        except (httpx.HTTPError, ValueError):
+            return cached[1] if cached else None
+        finally:
+            if self._client is None:
+                await client.aclose()
+        _SKILL_CACHE[self._base_url] = (time.monotonic(), book)
+        return book
+
 
 class FakeAgentRelay:
     """Answers from a script (tests, local work without the VPS)."""
@@ -259,6 +343,7 @@ class FakeAgentRelay:
         *,
         fail: str | None = None,
         configured: bool = True,
+        skill_book: SkillBook | None = None,
     ) -> None:
         self.answers = (
             answers
@@ -269,6 +354,7 @@ class FakeAgentRelay:
         self._configured = configured
         self.calls: list[dict[str, Any]] = []
         self.deleted: list[tuple[str, str]] = []
+        self.skill_book = skill_book
 
     @property
     def configured(self) -> bool:
@@ -306,16 +392,23 @@ class FakeAgentRelay:
         self.deleted.append((slug, session_id))
         return self._configured
 
+    async def skills(self) -> SkillBook | None:
+        return self.skill_book if self._configured else None
+
 
 __all__ = [
+    "SKILL_SOURCES",
     "AgentRelay",
+    "AgentSkill",
     "FakeAgentRelay",
     "HttpAgentRelay",
     "RelayDelta",
     "RelayError",
     "RelayEvent",
     "RelayTool",
+    "SkillBook",
     "SseParser",
     "chat_content",
+    "parse_skills",
     "parse_sse",
 ]

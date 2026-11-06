@@ -25,6 +25,7 @@ from meobot.domain.agents.models import (
     MAX_MESSAGE_CHARS,
     AgentGroup,
 )
+from meobot.integrations.hermes.relay import AgentSkill
 
 
 class AgentGroupResponse(BaseModel):
@@ -70,6 +71,37 @@ class AgentListResponse(BaseModel):
     max_attachments: int = MAX_ATTACHMENTS
     max_file_bytes: int = MAX_FILE_BYTES
     max_image_bytes: int = MAX_IMAGE_BYTES
+
+
+class AgentSkillResponse(BaseModel):
+    name: str
+    description: str
+    group: str | None = None
+
+
+class AgentSkillSetResponse(BaseModel):
+    """One agent's skills: Apexmed's approved ones, its own (not approved yet), Hermes' bundled."""
+
+    approved: list[AgentSkillResponse]
+    own: list[AgentSkillResponse]
+    builtin: list[AgentSkillResponse]
+
+    @classmethod
+    def from_skills(cls, skills: list[AgentSkill]) -> AgentSkillSetResponse:
+        def pick(source: str) -> list[AgentSkillResponse]:
+            rows = [s for s in skills if s.source == source]
+            return [
+                AgentSkillResponse(name=s.name, description=s.description, group=s.group)
+                for s in sorted(rows, key=lambda s: (s.group or "", s.name))
+            ]
+
+        return cls(approved=pick("kho"), own=pick("rieng"), builtin=pick("co-san"))
+
+
+class AgentSkillsResponse(BaseModel):
+    #: False = the agents' VPS could not say (not configured, down, older relay).
+    available: bool
+    agents: dict[str, AgentSkillSetResponse]
 
 
 class ConversationResponse(BaseModel):

@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
+import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
@@ -10,6 +11,7 @@ import {
   type AgentInfo,
   type AgentList,
   type AgentMessage,
+  type AgentSkillSet,
   type Uuid,
 } from "@/lib/api";
 import {
@@ -25,14 +27,23 @@ import { deleteAgentConversationConfirmation } from "@/lib/confirmations";
 import { formatShortDateTime } from "@/lib/datetime";
 import { AgentMarkdown } from "@/components/agent-markdown";
 import { AgentTabs, Badge } from "@/components/agent-common";
+import {
+  AgentSkillList,
+  AgentSkillsDialog,
+  skillCount,
+  skillSummary,
+  useAgentSkills,
+} from "@/components/agent-skills";
 import { ConfirmButton } from "@/components/confirm";
 import { PrimaryButton, SecondaryButton } from "@/components/pr";
 import { ErrorBox, Loading, NoticeBox } from "@/components/states";
 
 /**
- * "Đội agent" (0091): chat with the company's Hermes agents, like Telegram -
- * the agents on the left, one's conversations with the chosen agent, the
- * conversation itself. On a phone one column at a time. The URL holds the
+ * "Đội agent" (0091): chat with the company's Hermes agents - the agents in a
+ * row across the top (avatar, skill count; 2026-11-06), below one's
+ * conversations with the chosen agent and the conversation itself (with no
+ * conversation open: the agent's skills). On a phone the row stays on top and
+ * one column below. The URL holds the
  * choice (`?a=<agent>&c=<conversation>`), so the back button and a shared link
  * work. Every answer is saved on the server, even if this page is closed.
  */
@@ -64,6 +75,8 @@ export function AgentsWorkspace() {
   const agentSlug = params.get("a");
   const conversationId = params.get("c");
   const list = useQuery({ queryKey: ["agents"], queryFn: api.agents });
+  const skills = useAgentSkills();
+  const [skillsOf, setSkillsOf] = useState<string | null>(null);
 
   const go = (next: { a?: string | null; c?: string | null }) => {
     const query = new URLSearchParams();
@@ -79,9 +92,19 @@ export function AgentsWorkspace() {
   if (list.isError) return <ErrorBox error={list.error} onRetry={() => list.refetch()} />;
   const data = list.data;
   const agent = data.agents.find((item) => item.slug === agentSlug) ?? null;
+  // undefined = still loading, null = the agents' VPS could not say.
+  const setOf = (slug: string) =>
+    skills.isError
+      ? null
+      : skills.data === undefined
+        ? undefined
+        : skills.data.available
+          ? (skills.data.agents[slug] ?? null)
+          : null;
+  const dialogAgent = data.agents.find((item) => item.slug === skillsOf) ?? null;
 
-  // Phone: one column - the chat when a conversation is open, else its agent's list, else the agents.
-  const pane = conversationId && agent ? "chat" : agent ? "conversations" : "agents";
+  // Phone: the agents stay on top (scrolled sideways); below, the chat when one is open, else the conversations.
+  const pane = conversationId && agent ? "chat" : "conversations";
 
   return (
     <div className="space-y-3">
@@ -90,7 +113,17 @@ export function AgentsWorkspace() {
           <p className="brand-eyebrow">Trợ lý AI</p>
           <h1 className="text-xl font-semibold tracking-tight sm:text-2xl">Đội agent</h1>
         </div>
-        <AgentTabs current="chat" />
+        <div className="flex items-center gap-2">
+          {data.manage ? (
+            <Link
+              href="/admin/agents"
+              className="inline-flex min-h-11 items-center rounded-lg px-3 text-sm text-[var(--text-muted)] hover:bg-[var(--surface-muted)] hover:text-[var(--text)]"
+            >
+              Ai thấy agent nào
+            </Link>
+          ) : null}
+          <AgentTabs current="chat" />
+        </div>
       </div>
       {!data.configured ? (
         <div className="rounded-lg border border-[var(--warn)]/30 bg-[var(--warn-soft)] p-3 text-sm">
@@ -102,118 +135,160 @@ export function AgentsWorkspace() {
           Bạn chưa được chat với agent nào. Hỏi chủ sở hữu nếu bạn cần.
         </div>
       ) : (
-        <div className="grid h-[calc(100dvh-13rem)] min-h-[30rem] grid-cols-[minmax(0,1fr)] gap-3 lg:grid-cols-[16rem_15rem_minmax(0,1fr)]">
-          <div className={`${pane === "agents" ? "flex" : "hidden"} min-h-0 min-w-0 flex-col lg:flex`}>
-            <AgentPicker data={data} selected={agentSlug} onPick={(slug) => go({ a: slug, c: null })} />
+        <>
+          <AgentStrip
+            data={data}
+            selected={agentSlug}
+            skillSets={(slug) => setOf(slug)}
+            onPick={(slug) => go({ a: slug, c: null })}
+            onSkills={setSkillsOf}
+          />
+          <div className="grid h-[calc(100dvh-14.5rem)] min-h-[30rem] grid-cols-[minmax(0,1fr)] gap-3 lg:grid-cols-[17rem_minmax(0,1fr)]">
+            <div className={`${pane === "conversations" ? "flex" : "hidden"} min-h-0 min-w-0 flex-col lg:flex`}>
+              {agent ? (
+                <Conversations
+                  agent={agent}
+                  selected={conversationId}
+                  onBack={() => go({ a: null, c: null })}
+                  onPick={(id) => go({ c: id })}
+                  onDeleted={(id) => {
+                    if (id === conversationId) go({ c: null });
+                  }}
+                />
+              ) : (
+                <div className="panel flex h-full items-center justify-center p-4 text-center text-sm text-[var(--text-muted)]">
+                  Chọn một agent ở trên để xem các cuộc trò chuyện.
+                </div>
+              )}
+            </div>
+            <div className={`${pane === "chat" ? "flex" : "hidden"} min-h-0 min-w-0 flex-col lg:flex`}>
+              {agent && conversationId ? (
+                <Chat
+                  key={conversationId}
+                  agent={agent}
+                  conversationId={conversationId}
+                  configured={data.configured}
+                  maxChars={data.max_message_chars}
+                  maxFiles={data.max_attachments ?? 6}
+                  onBack={() => go({ c: null })}
+                  onGone={() => go({ c: null })}
+                />
+              ) : (
+                <div className="panel hidden h-full min-h-0 flex-col overflow-y-auto p-6 lg:flex">
+                  {agent ? (
+                    <div className="mx-auto w-full max-w-2xl space-y-4">
+                      <div className="flex items-center gap-3">
+                        <Badge agent={agent} size="lg" />
+                        <div className="min-w-0">
+                          <p className="text-lg font-semibold">{agent.name}</p>
+                          <p className="text-sm text-[var(--text-muted)]">{agent.description}</p>
+                        </div>
+                      </div>
+                      <p className="text-sm text-[var(--text-muted)]">
+                        Mở một cuộc trò chuyện bên trái hoặc tạo cuộc mới. {agent.name} đang có các skill sau:
+                      </p>
+                      <AgentSkillList set={setOf(agent.slug)} agent={agent} />
+                    </div>
+                  ) : (
+                    <p className="m-auto text-sm text-[var(--text-muted)]">
+                      Chọn một agent ở trên: bên phải hiện các skill của agent đó.
+                    </p>
+                  )}
+                </div>
+              )}
+            </div>
           </div>
-          <div className={`${pane === "conversations" ? "flex" : "hidden"} min-h-0 min-w-0 flex-col lg:flex`}>
-            {agent ? (
-              <Conversations
-                agent={agent}
-                selected={conversationId}
-                onBack={() => go({ a: null, c: null })}
-                onPick={(id) => go({ c: id })}
-                onDeleted={(id) => {
-                  if (id === conversationId) go({ c: null });
-                }}
-              />
-            ) : (
-              <div className="panel hidden h-full items-center justify-center p-4 text-sm text-[var(--text-muted)] lg:flex">
-                Chọn một agent để bắt đầu.
-              </div>
-            )}
-          </div>
-          <div className={`${pane === "chat" ? "flex" : "hidden"} min-h-0 min-w-0 flex-col lg:flex`}>
-            {agent && conversationId ? (
-              <Chat
-                key={conversationId}
-                agent={agent}
-                conversationId={conversationId}
-                configured={data.configured}
-                maxChars={data.max_message_chars}
-                maxFiles={data.max_attachments ?? 6}
-                onBack={() => go({ c: null })}
-                onGone={() => go({ c: null })}
-              />
-            ) : (
-              <div className="panel hidden h-full flex-col items-center justify-center gap-2 p-6 text-center text-sm text-[var(--text-muted)] lg:flex">
-                {agent ? (
-                  <>
-                    <Badge agent={agent} />
-                    <p className="font-medium text-[var(--text)]">{agent.name}</p>
-                    <p className="max-w-sm">{agent.description}</p>
-                    <p>Mở một cuộc trò chuyện hoặc tạo cuộc mới.</p>
-                  </>
-                ) : (
-                  <p>Chọn một agent, rồi một cuộc trò chuyện.</p>
-                )}
-              </div>
-            )}
-          </div>
-        </div>
+        </>
       )}
+      <AgentSkillsDialog
+        agent={dialogAgent}
+        set={dialogAgent ? setOf(dialogAgent.slug) : undefined}
+        onClose={() => setSkillsOf(null)}
+      />
     </div>
   );
 }
 
-function AgentPicker({
+/** The agents in one compact row across the page, by group; scrolls sideways (most room left to the chat). */
+function AgentStrip({
   data,
   selected,
+  skillSets,
   onPick,
+  onSkills,
 }: {
   data: AgentList;
   selected: string | null;
+  skillSets: (slug: string) => AgentSkillSet | null | undefined;
   onPick: (slug: string) => void;
+  onSkills: (slug: string) => void;
 }) {
   const [query, setQuery] = useState("");
   const fold = (text: string) => text.normalize("NFD").replace(/\p{M}/gu, "").replace(/đ/gi, "d").toLowerCase();
   const shown = data.agents.filter((agent) =>
     fold(`${agent.name} ${agent.title}`).includes(fold(query.trim())),
   );
+  const row = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    // Keep the chosen agent in view (a shared link, the back button).
+    row.current?.querySelector('[aria-current="true"]')?.scrollIntoView?.({ block: "nearest", inline: "nearest" });
+  }, [selected]);
   return (
-    <nav aria-label="Danh sách agent" className="panel flex min-h-0 flex-1 flex-col overflow-hidden">
-      <div className="border-b border-[var(--border)] p-2">
-        <input
-          type="search"
-          value={query}
-          onChange={(event) => setQuery(event.target.value)}
-          placeholder="Tìm agent…"
-          aria-label="Tìm agent"
-          className="min-h-11 w-full rounded-lg border border-[var(--border)] bg-[var(--surface)] px-3 text-sm text-[var(--text)]"
-        />
-      </div>
-      <div className="min-h-0 flex-1 overflow-y-auto p-1.5">
+    <nav aria-label="Danh sách agent" className="panel flex items-center gap-2 overflow-hidden p-1.5">
+      <input
+        type="search"
+        value={query}
+        onChange={(event) => setQuery(event.target.value)}
+        placeholder="Tìm agent…"
+        aria-label="Tìm agent"
+        className="min-h-11 w-28 shrink-0 rounded-lg border border-[var(--border)] bg-[var(--surface)] px-2.5 text-sm text-[var(--text)] sm:w-36"
+      />
+      <div ref={row} className="flex min-w-0 flex-1 snap-x items-center gap-1.5 overflow-x-auto [scrollbar-width:thin]">
         {data.groups.map((group) => {
           const agents = shown.filter((agent) => agent.group === group.key);
           if (agents.length === 0) return null;
           return (
-            <section key={group.key} className="mb-2">
-              <h2 className="px-2 pb-1 pt-2 text-[11px] font-semibold uppercase tracking-wider text-[var(--text-muted)]">
-                {group.label}
-              </h2>
-              <ul className="space-y-0.5">
+            <section key={group.key} aria-label={group.label} title={group.label} className="group/agents flex shrink-0 items-center gap-1.5">
+              <span aria-hidden title={group.label} className="h-7 w-px shrink-0 bg-[var(--border)] group-first/agents:hidden" />
+              <ul className="flex gap-1.5">
                 {agents.map((agent) => {
                   const active = agent.slug === selected;
+                  const set = skillSets(agent.slug);
+                  const count = skillCount(set ?? undefined);
                   return (
-                    <li key={agent.slug}>
-                      <button
-                        type="button"
-                        onClick={() => onPick(agent.slug)}
-                        aria-current={active ? "true" : undefined}
-                        className={`flex min-h-11 w-full items-center gap-2.5 rounded-lg px-2 py-1.5 text-left transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-[var(--accent)] ${
+                    <li key={agent.slug} className="flex shrink-0 snap-start">
+                      <div
+                        className={`flex items-center rounded-full border pr-1 transition-colors ${
                           active
-                            ? "bg-[var(--accent-soft)] text-[var(--accent-strong)]"
-                            : "hover:bg-[var(--surface-muted)]"
+                            ? "border-[var(--accent)] bg-[var(--accent-soft)] text-[var(--accent-strong)]"
+                            : "border-[var(--border)] bg-[var(--surface)] hover:bg-[var(--surface-muted)]"
                         }`}
                       >
-                        <Badge agent={agent} size="sm" />
-                        <span className="min-w-0 flex-1">
-                          <span className={`block truncate text-sm ${active ? "font-semibold" : "font-medium"}`}>
+                        <button
+                          type="button"
+                          onClick={() => onPick(agent.slug)}
+                          aria-current={active ? "true" : undefined}
+                          title={`${agent.name} - ${agent.title}`}
+                          className="flex min-h-11 items-center gap-2 rounded-full py-1 pl-1 pr-1.5 text-left focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-[var(--accent)]"
+                        >
+                          <Badge agent={agent} size="sm" />
+                          <span className={`max-w-[9rem] truncate whitespace-nowrap text-sm ${active ? "font-semibold" : "font-medium"}`}>
                             {agent.name}
                           </span>
-                          <span className="block truncate text-xs text-[var(--text-muted)]">{agent.title}</span>
-                        </span>
-                      </button>
+                        </button>
+                        {count !== null && set ? (
+                          <button
+                            type="button"
+                            onClick={() => onSkills(agent.slug)}
+                            title={skillSummary(set)}
+                            aria-label={`${count} skill của ${agent.name} - xem danh sách`}
+                            className="inline-flex min-h-7 min-w-7 items-center justify-center gap-0.5 rounded-full px-1.5 text-[11px] font-semibold text-[var(--accent-strong)] hover:bg-[var(--accent-soft)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-[var(--accent)]"
+                          >
+                            <PuzzleIcon />
+                            {count}
+                          </button>
+                        ) : null}
+                      </div>
                     </li>
                   );
                 })}
@@ -222,7 +297,7 @@ function AgentPicker({
           );
         })}
         {shown.length === 0 ? (
-          <p className="p-3 text-sm text-[var(--text-muted)]">Không có agent nào khớp.</p>
+          <p className="px-2 text-sm text-[var(--text-muted)]">Không có agent nào khớp.</p>
         ) : null}
       </div>
     </nav>
@@ -925,6 +1000,14 @@ function PaperclipIcon() {
   return (
     <svg aria-hidden viewBox="0 0 24 24" className="h-5 w-5" fill="none" stroke="currentColor" strokeWidth={1.8} strokeLinecap="round" strokeLinejoin="round">
       <path d="m21 11.5-8.6 8.6a5.5 5.5 0 0 1-7.8-7.8l8.6-8.6a3.7 3.7 0 0 1 5.2 5.2l-8.6 8.6a1.8 1.8 0 0 1-2.6-2.6l7.9-7.9" />
+    </svg>
+  );
+}
+
+function PuzzleIcon() {
+  return (
+    <svg aria-hidden viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M9 3h6v4a2 2 0 1 0 4 0h2v6h-2a2 2 0 1 0 0 4h2v4H3V7h4a2 2 0 1 1 4 0" />
     </svg>
   );
 }

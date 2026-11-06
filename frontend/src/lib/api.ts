@@ -7984,6 +7984,8 @@ export const api = {
   // --- Đội agent (0091) ---------------------------------------------------------
   /** The agents the caller chats with. `configured` false = sending is off. */
   agents: () => get<AgentList>("/api/agents"),
+  /** Each visible agent's skills, read on the agents' VPS. `available` false = it could not say. */
+  agentSkills: () => get<AgentSkills>("/api/agents/skills"),
   agentConversations: (slug: string) =>
     get<{ conversations: AgentConversation[] }>(`/api/agents/${slug}/conversations`),
   /** 201. 404 `agent_not_found` for an agent the caller may not chat with. */
@@ -8058,6 +8060,25 @@ export interface AgentInfo {
   badge: string;
   group: AgentGroupKey;
   last_message_at: string | null;
+}
+
+export interface AgentSkill {
+  name: string;
+  description: string;
+  /** Hermes' own folder for a bundled skill ("research"), else null. */
+  group: string | null;
+}
+
+/** One agent's skills: approved in the Second Brain, its own (not approved yet), Hermes' bundled. */
+export interface AgentSkillSet {
+  approved: AgentSkill[];
+  own: AgentSkill[];
+  builtin: AgentSkill[];
+}
+
+export interface AgentSkills {
+  available: boolean;
+  agents: Record<string, AgentSkillSet>;
 }
 
 export interface AgentList {

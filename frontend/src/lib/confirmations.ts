@@ -1574,6 +1574,17 @@ export function leaveAgentRoomConfirmation(title: string): ConfirmSpec {
 }
 
 /** The OWNER changes who may chat with an agent, or turns it on / off. */
+/** "Ai thấy agent nào": several agents' departments saved together. */
+export function agentMatrixConfirmation(names: string[]): ConfirmSpec {
+  return {
+    title: `Lưu quyền thấy của ${names.length} agent?`,
+    description: names.length
+      ? `Đổi: ${names.join(", ")}. Người trong các phòng được tick thấy và chat được với agent đó ngay; phòng bỏ tick thì không thấy nữa (cuộc trò chuyện cũ vẫn giữ).`
+      : "Chưa có gì thay đổi.",
+    confirmLabel: "Lưu thay đổi",
+  };
+}
+
 export function agentAccessConfirmation(name: string, summary: string): ConfirmSpec {
   return {
     title: `Lưu quyền chat với agent ${name}?`,

@@ -14,6 +14,9 @@ Files (0092) are uploaded one by one first - the raw bytes as the body of
 ``POST /conversations/{id}/attachments?name=`` - and sent with the question by
 id (``attachment_ids``). Deleting a conversation deletes it for good, its
 files, and its transcript on the Hermes side.
+
+``GET /skills`` = the skills each visible agent carries (approved by Emma in the
+Second Brain, its own not yet approved, Hermes' bundled), for the agents screen.
 """
 
 from __future__ import annotations
@@ -42,6 +45,8 @@ from meobot.api.schemas.agents import (
     AgentAdminResponse,
     AgentListResponse,
     AgentResponse,
+    AgentSkillSetResponse,
+    AgentSkillsResponse,
     AttachmentResponse,
     ConversationListResponse,
     ConversationResponse,
@@ -121,6 +126,22 @@ async def list_agents(
         agents=[AgentResponse.from_summary(item) for item in await service.agents(access)],
         configured=relay.configured,
         manage=access.manage,
+    )
+
+
+@router.get("/skills", response_model=AgentSkillsResponse)
+async def list_skills(
+    session: SessionDep, membership: UnitMembershipDep, relay: RelayDep
+) -> AgentSkillsResponse:
+    """The skills of every agent the caller chats with (read on the agents' VPS)."""
+    service, access = _context(session, membership)
+    visible = [item.agent.slug for item in await service.agents(access)]
+    book = await relay.skills()
+    if book is None:
+        return AgentSkillsResponse(available=False, agents={})
+    return AgentSkillsResponse(
+        available=True,
+        agents={slug: AgentSkillSetResponse.from_skills(book.get(slug, [])) for slug in visible},
     )
 
 
