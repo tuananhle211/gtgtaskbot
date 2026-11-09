@@ -443,3 +443,44 @@ describe("Đội agent: who sees which agent, in one grid (2026-11-06)", () => {
     expect(puts[0]).toEqual({ url: "/api/agents/admin/mktthietke", body: { everyone: false, department_ids: [] } });
   });
 });
+
+describe("Đội agent: APM data each agent reads (2026-11-09)", () => {
+  it("ticks report areas per agent and saves only the agents that changed", async () => {
+    const { AgentDataMatrix } = await import("@/components/agent-data-matrix");
+    const puts: Array<{ url: string; body: unknown }> = [];
+    const book = {
+      areas: [
+        { key: "ADS_REVENUE", label: "Doanh thu Ads", description: "Doanh thu…" },
+        { key: "PERFORMANCE", label: "Điểm hiệu suất", description: "Điểm…" },
+      ],
+      agents: { cfo: ["ADS_REVENUE"], nhansu: ["PERFORMANCE"] },
+      gateway_configured: false,
+    };
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+        if ((init?.method ?? "GET") === "GET") {
+          return new Response(JSON.stringify(book), { status: 200, headers: { "Content-Type": "application/json" } });
+        }
+        puts.push({ url: String(input), body: JSON.parse(String(init?.body ?? "{}")) });
+        return new Response(JSON.stringify({}), { status: 200, headers: { "Content-Type": "application/json" } });
+      }),
+    );
+    const agent = (slug: string, name: string) => ({
+      slug, name, title: name, badge: "", group: "BOARD", active: true, everyone: false, department_ids: [], user_ids: [],
+    });
+    const user = userEvent.setup();
+    renderWithQuery(<AgentDataMatrix agents={[agent("cfo", "CFO"), agent("nhansu", "Nhân sự")] as never} />);
+    const grid = await screen.findByTestId("agent-data-matrix");
+    expect(screen.getByText(/chưa cấu hình cổng cho agent/)).toBeInTheDocument();
+    expect(within(grid).getByRole("checkbox", { name: "CFO: Doanh thu Ads" })).toBeChecked();
+    expect(within(grid).getByRole("checkbox", { name: "CFO: Điểm hiệu suất" })).not.toBeChecked();
+    await user.click(within(grid).getByRole("checkbox", { name: "Nhân sự: Doanh thu Ads" }));
+    expect(screen.getByText("1 agent đã đổi, chưa lưu.")).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Lưu dữ liệu agent" }));
+    const confirm = await screen.findByRole("dialog");
+    await user.click(within(confirm).getByRole("button", { name: "Lưu thay đổi" }));
+    await waitFor(() => expect(puts).toHaveLength(1));
+    expect(puts[0]).toEqual({ url: "/api/agents/admin/data/nhansu", body: { areas: ["PERFORMANCE", "ADS_REVENUE"] } });
+  });
+});

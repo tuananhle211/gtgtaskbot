@@ -326,6 +326,13 @@ class Settings(BaseSettings):
     #: says "chưa cấu hình" and calls nothing.
     hermes_relay_url: str | None = None
     hermes_relay_token: OptionalSecret = None
+    #: The door the agents read APM figures through (``/api/agents/gateway``,
+    #: 2026-11-09): brain-mcp on the agents' VPS presents this token. Unset =
+    #: the door is closed (404).
+    agent_gateway_token: OptionalSecret = None
+    #: Comma-separated client IPs allowed to use it (the agents' VPS, as
+    #: Cloudflare reports it in ``CF-Connecting-IP``). Empty = any IP (local work).
+    agent_gateway_allowed_ips: str = ""
 
     #: TikTok app for the TikTok channel connector. Server-side credentials:
     #: they belong to the deployment, never to a channel row, and the secret is

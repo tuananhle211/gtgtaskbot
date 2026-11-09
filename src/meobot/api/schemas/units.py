@@ -227,6 +227,15 @@ class AssistantAccessResponse(BaseModel):
     chat: bool = False
 
 
+class CskhMenuResponse(BaseModel):
+    """ "Chăm sóc khách hàng" (0094): ``reply`` = the nav item, ``manage`` = the
+    pages tab, ``waiting`` = suggestions waiting for a person (the nav badge)."""
+
+    reply: bool = False
+    manage: bool = False
+    waiting: int = 0
+
+
 class AgentsAccessResponse(BaseModel):
     """ "Đội agent" (0091): ``chat`` = at least one agent to talk to (the nav
     item); ``manage`` = the OWNER's "Đội agent" admin tab."""
@@ -284,6 +293,7 @@ class UnitMeResponse(BaseModel):
     ads: AdsAccessResponse = AdsAccessResponse()
     assistant: AssistantAccessResponse = AssistantAccessResponse()
     agents: AgentsAccessResponse = AgentsAccessResponse()
+    cskh: CskhMenuResponse = CskhMenuResponse()
 
     @classmethod
     def from_domain(
@@ -302,6 +312,7 @@ class UnitMeResponse(BaseModel):
         seeding: SeedingAccessResponse | None = None,
         assistant: AssistantAccessResponse | None = None,
         agents: AgentsAccessResponse | None = None,
+        cskh: CskhMenuResponse | None = None,
     ) -> UnitMeResponse:
         entries = sorted(entries, key=lambda entry: stream_rank(entry.code))
         heads = any(seat.position is Position.HEAD for seat in membership.seats)
@@ -332,6 +343,7 @@ class UnitMeResponse(BaseModel):
             seeding=seeding or SeedingAccessResponse(),
             assistant=assistant or AssistantAccessResponse(),
             agents=agents or AgentsAccessResponse(),
+            cskh=cskh or CskhMenuResponse(),
         )
 
 

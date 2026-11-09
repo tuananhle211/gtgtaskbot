@@ -49,6 +49,13 @@ from meobot.domain.assistant.reports import (
     AssistantPermission,
     assistant_allowed_scopes,
 )
+from meobot.domain.cskh.permissions import (
+    CSKH_OWNER_ONLY,
+    CSKH_PERMISSION_LABELS,
+    MODULE_CSKH,
+    CskhPermission,
+    cskh_allowed_scopes,
+)
 from meobot.domain.identity.models import Role
 from meobot.domain.orders.permissions import (
     OWN_MEANING,
@@ -249,6 +256,15 @@ MODULES: Mapping[str, ModuleSpec] = MappingProxyType(
             own_meaning=MappingProxyType({}),
             scopes=agent_allowed_scopes,
             owner_only=AGENTS_OWNER_ONLY,
+        ),
+        MODULE_CSKH: ModuleSpec(
+            module=MODULE_CSKH,
+            label="Chăm sóc khách hàng",
+            permissions=CskhPermission,
+            labels=CSKH_PERMISSION_LABELS,
+            own_meaning=MappingProxyType({}),
+            scopes=cskh_allowed_scopes,
+            owner_only=CSKH_OWNER_ONLY,
         ),
         MODULE_ASSISTANT: ModuleSpec(
             module=MODULE_ASSISTANT,

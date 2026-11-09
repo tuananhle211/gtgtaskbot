@@ -83,6 +83,7 @@ type NavIcon =
   | "timeline"
   | "ads"
   | "agents"
+  | "cskh"
   | "account";
 
 /** The screen every unit shares besides the order boards. */
@@ -90,6 +91,20 @@ const DASHBOARD_NAV: NavItem = { href: "/dashboard", label: "Dashboard", icon: "
 
 /** "Đội agent" (0091): for whoever has at least one Hermes agent to talk to. */
 const AGENTS_NAV: NavItem = { href: "/agents", label: "Đội agent", icon: "agents" };
+
+/** "Chăm sóc khách hàng" (0094): CSKH REPLY holders; the badge = suggestions
+ * waiting for a person to send or dismiss. */
+function cskhNav(me: UnitsMe | undefined): NavItem[] {
+  if (!me?.cskh?.reply) return [];
+  return [
+    {
+      href: "/cskh",
+      label: "Chăm sóc khách hàng",
+      icon: "cskh",
+      badge: me.cskh.waiting || undefined,
+    },
+  ];
+}
 
 /**
  * "Bảng order": the task tables, one per kind of order. "Order tổng" is the
@@ -371,6 +386,7 @@ export function navFor(me: UnitsMe | undefined, sessionRole?: string): NavEntry[
     DASHBOARD_NAV,
     performanceBranch(me),
     ...(me?.agents?.chat ? [AGENTS_NAV] : []),
+    ...cskhNav(me),
     ...(orders ? [orderBoards(me, sessionRole)] : []),
     ...(effort ? EFFORT_NAV : []),
     ...(ads ? [ads] : []),
@@ -489,6 +505,14 @@ function Icon({ name }: { name: NavIcon }) {
         <path d="M3 10v4a1 1 0 0 0 1 1h3l6 4V5L7 9H4a1 1 0 0 0-1 1z" />
         <path d="M17 9a4 4 0 0 1 0 6" />
         <path d="M20 6.5a8 8 0 0 1 0 11" />
+      </>
+    ),
+    cskh: (
+      <>
+        <path d="M4 13v-1a8 8 0 0 1 16 0v1" />
+        <rect x="2.5" y="13" width="4" height="6" rx="1.5" />
+        <rect x="17.5" y="13" width="4" height="6" rx="1.5" />
+        <path d="M19.5 19v.5a2.5 2.5 0 0 1-2.5 2.5h-3" />
       </>
     ),
     agents: (

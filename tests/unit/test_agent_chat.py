@@ -843,7 +843,10 @@ async def test_18_pictures_the_agent_makes_come_with_its_answer(world: World) ->
 
 
 async def test_19_a_whole_html_page_becomes_a_file_with_a_sandboxed_preview(world: World) -> None:
-    page = "<!doctype html>\n<html><head><style>h1{color:red}</style></head><body><h1>Mới</h1></body></html>"
+    page = (
+        "<!doctype html>\n<html><head><style>h1{color:red}</style></head>"
+        "<body><h1>Mới</h1></body></html>"
+    )
     answer: list[RelayEvent] = [
         RelayDelta("Dạ bản thiết kế lại:\n\n```html\n"),
         RelayDelta(page + "\n```\n\nVà đoạn nhỏ:\n```html\n<button>Đặt lịch</button>\n```"),
@@ -878,7 +881,8 @@ async def test_19_a_whole_html_page_becomes_a_file_with_a_sandboxed_preview(worl
     from meobot.db.models.agent_chat import AgentAttachment
 
     picture = upload(world, conversation, "a.png", _png())
-    assert world.client.get(f"/api/agents/attachments/{picture.json()['id']}/view").status_code == 404
+    picture_view = f"/api/agents/attachments/{picture.json()['id']}/view"
+    assert world.client.get(picture_view).status_code == 404
     world.act_as(world.member)
     assert world.client.get(f"{file['url']}/view").status_code == 404
     assert (await world.session.scalars(select(AgentAttachment))).all()

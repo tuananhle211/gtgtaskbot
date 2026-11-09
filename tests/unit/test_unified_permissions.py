@@ -63,6 +63,7 @@ async def test_01_the_registry_and_the_pr_defaults_mirror_the_old_role_matrix() 
         "PERFORMANCE",
         "ADS",
         "AGENTS",
+        "CSKH",
         "ASSISTANT",
     ]
     for spec in MODULES.values():

@@ -1585,6 +1585,16 @@ export function agentMatrixConfirmation(names: string[]): ConfirmSpec {
   };
 }
 
+export function agentDataConfirmation(names: string[]): ConfirmSpec {
+  return {
+    title: `Lưu dữ liệu APM cho ${names.length} agent?`,
+    description: names.length
+      ? `Đổi: ${names.join(", ")}. Agent đọc ngay các mảng được tick (doanh thu, KPI, điểm…) và trả lời bất kỳ ai chat được với nó - nên giữ chặt bảng “Ai thấy agent nào”.`
+      : "Chưa có gì thay đổi.",
+    confirmLabel: "Lưu thay đổi",
+  };
+}
+
 export function agentAccessConfirmation(name: string, summary: string): ConfirmSpec {
   return {
     title: `Lưu quyền chat với agent ${name}?`,

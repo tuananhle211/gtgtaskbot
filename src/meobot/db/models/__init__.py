@@ -91,6 +91,7 @@ from meobot.db.models.org_unit import (
     UnitPlatform,
     UnitVideoKind,
 )
+from meobot.db.models.pancake import PancakeConversation, PancakePage, PancakeReply
 from meobot.db.models.point_coefficient import UserPointCoefficient
 from meobot.db.models.pr import (
     PrApprovalEvent,
@@ -274,6 +275,9 @@ __all__ = [
     "OrgUnitMember",
     "OrganizationHoliday",
     "OutboundMessage",
+    "PancakeConversation",
+    "PancakePage",
+    "PancakeReply",
     "PendingGuestAccessRequest",
     "PrAction",
     "PrAiReview",

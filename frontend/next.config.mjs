@@ -109,6 +109,8 @@ const nextConfig = {
       // sends a keepalive every 15 s, so `proxyTimeout` never cuts a long one.
       { source: "/api/agents", destination: `${target}/api/agents` },
       { source: "/api/agents/:path*", destination: `${target}/api/agents/:path*` },
+      // Chăm sóc khách hàng (0094): also Pancake's webhook (/api/cskh/pancake/webhook/<key>).
+      { source: "/api/cskh/:path*", destination: `${target}/api/cskh/:path*` },
       { source: "/api/ai", destination: `${target}/api/ai` },
       { source: "/api/ai/:path*", destination: `${target}/api/ai/:path*` },
       // "Tác vụ định kỳ" (0077).

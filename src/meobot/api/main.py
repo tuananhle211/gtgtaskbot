@@ -16,12 +16,14 @@ from meobot.api.routers import (
     access,
     account,
     ads,
+    agent_gateway,
     agent_rooms,
     agents,
     ai,
     board,
     conversations,
     cron,
+    cskh,
     departments,
     drive,
     health,
@@ -250,6 +252,12 @@ def _include_web_facing_routers(app: FastAPI) -> None:
     # Đội agent (0091): every signed-in account; each route shows only the
     # agents the caller may chat with and only their own conversations.
     # Phòng họp agent (0093): a room's owner and invited people only.
+    # APM figures for the agents (2026-11-09): /gateway/* behind its own token
+    # + IP list (no web session), /admin/data* for the OWNER.
+    app.include_router(agent_gateway.router)
+    # Chăm sóc khách hàng (0094): Pancake's webhook (key in the address, no
+    # session) + the inbox (CSKH REPLY) + the pages (CSKH MANAGE).
+    app.include_router(cskh.router)
     app.include_router(agent_rooms.router)
     app.include_router(agents.router)
     # Invite codes for the web "Mời thành viên" panel: team lead and above,

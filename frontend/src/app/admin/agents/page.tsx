@@ -6,6 +6,7 @@ import { api, type AgentAdmin, type Department, type DirectoryUser, type Uuid } 
 import { agentAccessConfirmation } from "@/lib/confirmations";
 import { AdminTabs } from "@/components/admin-tabs";
 import { AgentAccessMatrix } from "@/components/agent-access-matrix";
+import { AgentDataMatrix } from "@/components/agent-data-matrix";
 import { ConfirmButton } from "@/components/confirm";
 import { Modal, ModalBody, ModalFooter } from "@/components/modal";
 import { PageHeader, SecondaryButton } from "@/components/pr";
@@ -46,6 +47,7 @@ export default function AgentsAdminPage() {
           onDetails={setEditing}
         />
       ) : null}
+      {agents.data ? <AgentDataMatrix agents={agents.data.agents} /> : null}
       {editing ? (
         <AccessDialog
           key={editing.slug}

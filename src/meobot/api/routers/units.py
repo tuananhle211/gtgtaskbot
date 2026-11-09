@@ -14,6 +14,7 @@ from datetime import date
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, Query, Request, status
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from meobot.api.deps import (
@@ -35,6 +36,7 @@ from meobot.api.schemas.units import (
     CreateDurationRequest,
     CreatePlatformRequest,
     CreateVideoKindRequest,
+    CskhMenuResponse,
     DepartmentSeatResponse,
     DesignAccessResponse,
     DesignCodeListResponse,
@@ -77,6 +79,7 @@ from meobot.application.agents.access import agent_access
 from meobot.application.agents.service import AgentChatService
 from meobot.application.assistant.access import may_chat_assistant
 from meobot.application.audit_service import AuditService
+from meobot.application.cskh.access import cskh_access
 from meobot.application.orders.design_code_service import (
     DesignCodeService,
     has_birthday_orders,
@@ -107,10 +110,12 @@ from meobot.application.seeding.service import (
 from meobot.application.units.admin import ROLES_BY_UNIT, UnitAdminService
 from meobot.application.units.directory import NOT_VISIBLE, UnitDirectoryService
 from meobot.core.errors import ValidationError
+from meobot.db.models.pancake import PancakeReply
 from meobot.domain.identity.labels import role_label
 from meobot.domain.identity.models import Actor
 from meobot.domain.orders.models import OrderNodeType
 from meobot.domain.orders.task_codes import DEFAULT_FORM, TASK_PHASES
+from meobot.domain.pancake.models import ReplyStatus
 from meobot.domain.units.errors import UnitAccessDeniedError, UnitNotFoundError, UnitValidationError
 from meobot.domain.units.labels import (
     LEAD_ROLE_LABELS,
@@ -290,7 +295,21 @@ async def my_units(
         ads=_ads_block(membership),
         assistant=AssistantAccessResponse(chat=may_chat_assistant(membership)),
         agents=await _agents_block(directory.session, membership),
+        cskh=await _cskh_block(directory.session, membership),
     )
+
+
+async def _cskh_block(session: AsyncSession, membership: UnitMembership) -> CskhMenuResponse:
+    """ "Chăm sóc khách hàng" (0094): the nav item + its badge."""
+    access = cskh_access(membership)
+    if not access.sees:
+        return CskhMenuResponse()
+    waiting = await session.scalar(
+        select(func.count())
+        .select_from(PancakeReply)
+        .where(PancakeReply.status == ReplyStatus.SUGGESTED)
+    )
+    return CskhMenuResponse(reply=True, manage=access.manage, waiting=int(waiting or 0))
 
 
 async def _agents_block(session: AsyncSession, membership: UnitMembership) -> AgentsAccessResponse:

@@ -237,6 +237,9 @@ const del = <T>(path: string, body?: unknown) =>
     body: body === undefined ? undefined : JSON.stringify(body),
   });
 
+/** The same helpers for API clients kept in their own file (`lib/cskh.ts`). */
+export const http = { get, post, patch, put, del };
+
 // --- Shapes, mirroring src/meobot/api/schemas/pr.py -------------------------
 // Hand-written rather than generated. A generated client would be one more thing
 // to keep in step, and the surface is small enough that a mismatch shows up as a
@@ -3477,6 +3480,11 @@ export interface UnitsMe {
    * item), `manage` = the OWNER's admin tab. Optional: an older API omits it = no.
    */
   agents?: { chat: boolean; manage: boolean } | null;
+  /**
+   * "Chăm sóc khách hàng" (0094): `reply` = the nav item, `manage` = the pages
+   * tab, `waiting` = suggestions waiting for a person (the badge). Optional.
+   */
+  cskh?: { reply: boolean; manage: boolean; waiting: number } | null;
   /**
    * May open other people's profile pages (`/people/<id>`, 2026-10-19): the
    * OWNER / ADMIN, or a head of some department. Names are drawn as links
@@ -8009,6 +8017,10 @@ export const api = {
   removeAgentAttachment: (attachmentId: Uuid) => del<void>(`/api/agents/attachments/${attachmentId}`),
   /** (OWNER) every agent with who may chat with it. 403 `agents_forbidden`. */
   agentsAdmin: () => get<{ agents: AgentAdmin[]; configured: boolean }>("/api/agents/admin"),
+  /** (OWNER) what APM data each agent reads (2026-11-09): the areas, each agent's ticks. */
+  agentDataAreas: () => get<AgentDataBook>("/api/agents/admin/data"),
+  setAgentDataAreas: (slug: string, areas: string[]) =>
+    put<{ agent: string; areas: string[] }>(`/api/agents/admin/data/${slug}`, { areas }),
   updateAgentAccess: (
     slug: string,
     body: { active?: boolean; everyone?: boolean; department_ids?: Uuid[]; user_ids?: Uuid[] },
@@ -8140,6 +8152,16 @@ export interface AgentMessageList {
   messages: AgentMessage[];
   has_more: boolean;
 }
+
+/** A kind of APM report an agent may read (`/api/agents/admin/data`). */
+export type AgentDataArea = { key: string; label: string; description: string };
+export type AgentDataBook = {
+  areas: AgentDataArea[];
+  /** slug -> the areas it reads. */
+  agents: Record<string, string[]>;
+  /** AGENT_GATEWAY_TOKEN set on the server. */
+  gateway_configured: boolean;
+};
 
 export interface AgentAdmin {
   slug: string;

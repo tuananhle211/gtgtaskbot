@@ -542,6 +542,18 @@ class AuditAction(StrEnum):
     AGENT_ROOM_MEMBER_REMOVED = "agent.room.member_removed"
     AGENT_ROOM_MESSAGE_SENT = "agent.room.message_sent"
     AGENT_ROOM_ROUND_STARTED = "agent.room.round_started"
+    # Agents reading APM figures (2026-11-09): which areas an agent may read
+    # changed, an agent read a report (the area and arguments, never the figures).
+    AGENT_DATA_AREAS_UPDATED = "agent.data.areas_updated"
+    AGENT_DATA_READ = "agent.data.read"
+
+    # Chăm sóc khách hàng (0094): a Pancake page wired / changed / removed, a
+    # suggested answer sent or dismissed by a person (never the customer's words).
+    CSKH_PAGE_CREATED = "cskh.page.created"
+    CSKH_PAGE_UPDATED = "cskh.page.updated"
+    CSKH_PAGE_DELETED = "cskh.page.deleted"
+    CSKH_REPLY_SENT = "cskh.reply.sent"
+    CSKH_REPLY_DISMISSED = "cskh.reply.dismissed"
 
     # Resources ("Quản lý tài nguyên", 0065).
     RESOURCE_CREATED = "resource.created"
