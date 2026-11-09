@@ -110,6 +110,7 @@ Full backend suite takes ~18 min; prefer running the relevant files.
 Demo Ads data (local only): `docker compose exec -T api python - < scripts/seed_ads_demo.py`. Migrate local DB: `docker compose exec -T api alembic upgrade head`.
 
 ## Known gotchas
+- **Prod network (09/11)**: ufw active (deny incoming, only SSH 24700/tcp); Docker-published ports skip ufw, so every `ports:` entry must be `127.0.0.1:` (web `127.0.0.1:8811`, 9router `/root/9router` `127.0.0.1:20128` - dashboard via `ssh -N -L 20128:127.0.0.1:20128 gtg-prod`). The site is reached only through the Cloudflare tunnel (`app.umetech.vn` -> `http://web:3000`). Logs: `RedactingFilter` redacts the rendered message (httpx puts URLs in `args`), URL query secrets (`*token`, `key`, `secret`…) and bot tokens glued to `/bot` (test `tests/unit/test_log_redaction.py`).
 - Pre-existing failures to ignore: `frontend/tests/security.test.ts` #37 (x-forwarded-proto); `tests/unit/test_provider_compatibility.py` 2 tests flaky only in full runs.
 - Several frontend tests **scan source files** (e.g. `confirmation.test.tsx` #173 requires every `useMutation` file to import `@/components/confirm` or be in its exempt list; `ux.test.tsx` checks the nav href list and file contents). Moving code between files means updating those tests.
 - Work/KPI tests rely on the `frozen_work_clock` fixture (`tests/unit/work_clock.py`, pinned 2026-09-15 04:00 UTC).

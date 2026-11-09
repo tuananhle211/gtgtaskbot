@@ -89,12 +89,19 @@ SENSITIVE_KEYS: frozenset[str] = frozenset(
 )
 
 _TOKEN_PATTERNS: tuple[re.Pattern[str], ...] = (
-    # Telegram bot token: 123456789:AA...
-    re.compile(r"\b\d{6,12}:[A-Za-z0-9_-]{30,}\b"),
+    # Telegram bot token: 123456789:AA... - also glued to "bot" in an API URL
+    # (``/bot123456789:AA.../sendMessage``), where ``\b`` never matched (03/11).
+    re.compile(r"(?<![0-9])\d{6,12}:[A-Za-z0-9_-]{30,}"),
     # Generic bearer tokens
     re.compile(r"(?i)\bbearer\s+[A-Za-z0-9._\-]{16,}"),
     # DSN passwords: scheme://user:password@host
     re.compile(r"(?i)\b([a-z0-9+]+://[^:\s/]+):([^@\s]+)@"),
+)
+
+#: A secret carried in a URL's query string - Meta's paging links hold
+#: ``access_token``, Pancake takes its token there too (09/11).
+_QUERY_SECRET = re.compile(
+    r"(?i)([?&](?:[a-z_]*token|api_key|apikey|key|secret|client_secret|password)=)[^&\s\"'#]+"
 )
 
 _RESERVED_ATTRS: frozenset[str] = frozenset(
@@ -104,7 +111,7 @@ _RESERVED_ATTRS: frozenset[str] = frozenset(
 
 def redact_text(text: str) -> str:
     """Mask token-shaped substrings inside free-form text."""
-    result = text
+    result = _QUERY_SECRET.sub(rf"\1{REDACTED}", text)
     for pattern in _TOKEN_PATTERNS:
         if pattern.groups == 2:
             result = pattern.sub(rf"\1:{REDACTED}@", result)
@@ -135,6 +142,16 @@ class RedactingFilter(logging.Filter):
     """Scrub secrets from the message and from ``extra`` fields."""
 
     def filter(self, record: logging.LogRecord) -> bool:
+        # The message is redacted once rendered: a library's ``%s`` arguments
+        # (httpx logs the request URL that way) carry the secret, not the
+        # format string (03/11: the bot token reached the worker's log).
+        if record.args:
+            try:
+                record.msg = record.getMessage()
+            except (TypeError, ValueError):
+                # A broken format string: keep both, still redacted below.
+                record.msg = f"{record.msg} {record.args!r}"
+            record.args = None
         if isinstance(record.msg, str):
             record.msg = redact_text(record.msg)
         for key, value in list(record.__dict__.items()):
@@ -171,7 +188,8 @@ class JsonFormatter(logging.Formatter):
         if request_id:
             payload["request_id"] = request_id
         if record.exc_info:
-            payload["exception"] = self.formatException(record.exc_info)
+            # An HTTP error's text names the URL it failed on.
+            payload["exception"] = redact_text(self.formatException(record.exc_info))
         for key, value in record.__dict__.items():
             if key in _RESERVED_ATTRS or key in payload or key == "request_id":
                 continue

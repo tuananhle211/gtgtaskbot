@@ -260,7 +260,10 @@ services:
       WEB_COOKIE_SECURE: ${WEB_COOKIE_SECURE:-true}
       TZ: ${APP_TIMEZONE:-Asia/Ho_Chi_Minh}
     ports:
-      - "8811:3000"
+      # Loopback only (09/11): the tunnel reaches the panel as web:3000 inside
+      # the compose network; "8811:3000" had it on the VPS's public address over
+      # plain HTTP, past Cloudflare - Docker's published ports skip ufw.
+      - "127.0.0.1:8811:3000"
     depends_on:
       api:
         condition: service_healthy
