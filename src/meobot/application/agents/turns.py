@@ -30,6 +30,7 @@ from meobot.core.time import utcnow
 from meobot.db.models.agent_chat import AgentAttachment, AgentMessage
 from meobot.domain.agents.media import (
     MAX_ANSWER_IMAGE_BYTES,
+    file_type,
     find_html_pages,
     find_media,
     has_media,
@@ -119,14 +120,26 @@ async def answer_files(relay: AgentRelay, slug: str, text: str) -> tuple[str, li
             replacements[ref.raw] = ""
             continue
         if data:
-            content_type = image_type(data)
+            content_type = file_type(ref.extension, data) if ref.is_file else image_type(data)
         if not data or content_type is None or len(data) > MAX_ANSWER_IMAGE_BYTES:
-            replacements[ref.raw] = f"(Không lấy được ảnh {ref.name})"
+            what = "tệp" if ref.is_file else "ảnh"
+            replacements[ref.raw] = f"(Không lấy được {what} {ref.name})"
             continue
         name = clean_name(ref.name)
         if "." not in name:
             name = f"{name}.{content_type.split('/', 1)[1].replace('jpeg', 'jpg')}"
-        files.append(AnswerFile(name=name, content_type=content_type, data=data))
+        if ref.is_file:
+            files.append(
+                AnswerFile(
+                    name=name,
+                    content_type=content_type,
+                    data=data,
+                    kind=AttachmentKind.DOCUMENT,
+                    note="Tệp agent gửi",
+                )
+            )
+        else:
+            files.append(AnswerFile(name=name, content_type=content_type, data=data))
         replacements[ref.raw] = ""
     return replace_media(text, replacements), files
 

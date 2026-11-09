@@ -159,9 +159,10 @@ describe('the "Bảng order" branch of the nav', () => {
       expect(navHrefs()).toEqual(["/dashboard", "/performance/me", "/performance/timeline", "/tasks", "/tasks/task-codes"]),
     );
     const branch = within(primary()).getByRole("group", { name: "Bảng order" });
+    // Folded by default; its entries stay in the DOM (hidden from lg only).
     expect(within(branch).getByRole("button", { name: "Bảng order" })).toHaveAttribute(
       "aria-expanded",
-      "true",
+      "false",
     );
     expect(
       within(branch)
@@ -230,10 +231,11 @@ describe('the "Bảng order" branch of the nav', () => {
     shell(DESIGNER);
     await screen.findByRole("link", { name: "Order sinh nhật" });
     const heading = screen.getByRole("button", { name: "Bảng order" });
-    await userEvent.click(heading);
     expect(heading).toHaveAttribute("aria-expanded", "false");
     await userEvent.click(heading);
     expect(heading).toHaveAttribute("aria-expanded", "true");
+    await userEvent.click(heading);
+    expect(heading).toHaveAttribute("aria-expanded", "false");
   });
 });
 

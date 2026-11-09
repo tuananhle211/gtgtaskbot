@@ -886,3 +886,49 @@ async def test_19_a_whole_html_page_becomes_a_file_with_a_sandboxed_preview(worl
     world.act_as(world.member)
     assert world.client.get(f"{file['url']}/view").status_code == 404
     assert (await world.session.scalars(select(AgentAttachment))).all()
+
+
+async def test_20_a_brand_asset_comes_as_a_file_to_download(world: World) -> None:
+    """2026-11-09: the brand library (/srv/brain/tai-san) - a logo SVG or the
+    guideline PDF is a document of the answer; a PNG logo stays a picture; a
+    file whose bytes do not fit its name is refused."""
+    from meobot.integrations.hermes.relay import RelayMedia
+
+    root = "/srv/brain/tai-san"
+    svg = b'<?xml version="1.0"?>\n<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 10 10"/>'
+    pdf = b"%PDF-1.7\n%..."
+    media = {
+        f"{root}/logo/apexmed-ngang.svg": RelayMedia(data=svg, content_type="image/svg+xml"),
+        f"{root}/logo/apexmed.png": RelayMedia(data=_png(), content_type="image/png"),
+        f"{root}/guideline.pdf": RelayMedia(data=pdf, content_type="application/pdf"),
+        f"{root}/font/gia.otf": RelayMedia(data=b"not a font", content_type="font/otf"),
+    }
+    answer: list[RelayEvent] = [
+        RelayDelta(
+            "Dạ logo đây ạ:\n\n"
+            + "\n".join(f"MEDIA:{path}" for path in media)
+            + "\n\nCần bản khác cứ bảo em."
+        ),
+    ]
+    setup(world, FakeAgentRelay([answer], media=media))
+    await seeded(world)
+    world.act_as(world.owner)
+    conversation = open_conversation(world, "mktthietke")
+    sent = world.client.post(
+        f"/api/agents/conversations/{conversation}/messages", json={"text": "Cho xin logo"}
+    )
+    assert sent.status_code == 200, sent.text
+    done = events(sent.text)[-1][1]["message"]
+    assert "MEDIA:" not in done["content"]
+    assert "(Không lấy được tệp gia.otf)" in done["content"]
+    kept = [(f["name"], f["kind"], f["content_type"]) for f in done["attachments"]]
+    assert kept == [
+        ("apexmed-ngang.svg", "DOCUMENT", "image/svg+xml"),
+        ("apexmed.png", "IMAGE", "image/png"),
+        ("guideline.pdf", "DOCUMENT", "application/pdf"),
+    ]
+    # An SVG is a download, never drawn in the app's own origin.
+    got = world.client.get(done["attachments"][0]["url"])
+    assert got.content == svg
+    assert got.headers["content-type"] == "application/octet-stream"
+    assert got.headers["content-disposition"].startswith("attachment;")

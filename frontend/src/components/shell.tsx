@@ -337,8 +337,12 @@ const ADMIN_NAV: NavItem = { href: "/admin", label: "Quản trị", icon: "admin
 /** Whether the sidebar is folded; shared by every Shell mount in this tab. */
 let sidebarCollapsed = false;
 
-/** The branches that are folded ("Bảng order", "Phòng PR", "Thư viện"), by label; shared the same way. */
-const foldedBranches: Record<string, boolean> = {};
+/**
+ * The branches someone opened ("Bảng order", "Phòng PR", "Thư viện"), by label;
+ * shared the same way. Every branch starts folded (2026-11-09: the open menu
+ * was too long), so a branch shows its entries only once it is pressed.
+ */
+const openBranches: Record<string, boolean> = {};
 
 /**
  * The public legal pages. Deliberately *not* in the nav - see the footer below.
@@ -658,12 +662,12 @@ export function Shell({ children }: { children: React.ReactNode }) {
     refetchInterval: 60_000,
   });
 
-  const [foldedNow, setFoldedNow] = useState<Record<string, boolean>>(() => ({
-    ...foldedBranches,
+  const [openNow, setOpenNow] = useState<Record<string, boolean>>(() => ({
+    ...openBranches,
   }));
   const toggleBranch = (label: string) =>
-    setFoldedNow((was) => {
-      foldedBranches[label] = !was[label];
+    setOpenNow((was) => {
+      openBranches[label] = !was[label];
       return { ...was, [label]: !was[label] };
     });
   const nav = navFor(me.data, session.data?.role);
@@ -756,7 +760,7 @@ export function Shell({ children }: { children: React.ReactNode }) {
         >
           {nav.map((entry) => {
             if (!isGroup(entry)) return navLink(entry);
-            const folded = Boolean(foldedNow[entry.label]);
+            const folded = !openNow[entry.label];
             const section = entry.variant === "section";
             const holdsCurrent = entry.children.some((child) => isActive(child.href));
             // A branch. On a phone the strip is one row, so the heading is

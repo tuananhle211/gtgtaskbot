@@ -1034,7 +1034,11 @@ function FileBadge({ kind, name }: { kind: AgentAttachment["kind"]; name: string
               ? "PPT"
               : extension.startsWith("htm")
                 ? "HTML"
-                : "TXT";
+                : ["svg", "ai", "eps", "psd", "zip"].includes(extension)
+                  ? extension.toUpperCase()
+                  : ["ttf", "otf", "woff", "woff2"].includes(extension)
+                    ? "FONT"
+                    : "TXT";
   const tone =
     kind === "SKILL"
       ? "bg-[var(--magenta-soft)] text-[var(--magenta)]"

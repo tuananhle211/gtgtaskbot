@@ -311,6 +311,7 @@ describe("Đội agent: files and deleting", () => {
     const { hideAnswerMedia } = await import("@/lib/agents");
     expect(hideAnswerMedia("Dạ:\n\nMEDIA:/a/b.png\n\nXong")).toEqual({ text: "Dạ:\n\nXong", pictures: 1 });
     expect(hideAnswerMedia("Đang gửi MEDIA:/home/her").pictures).toBe(1);
+    expect(hideAnswerMedia("Logo: MEDIA:/srv/brain/tai-san/logo/a.svg").text).toBe("Logo: ");
     expect(hideAnswerMedia("Ảnh ![image](data:image/png;base64,iVBOR").text).toBe("Ảnh ");
     expect(hideAnswerMedia("Không có ảnh")).toEqual({ text: "Không có ảnh", pictures: 0 });
     // A page still being written stays out of the bubble; a closed snippet stays.

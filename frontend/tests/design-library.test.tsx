@@ -243,13 +243,14 @@ describe('the "Thư viện" branch of the nav', () => {
     await screen.findByRole("link", { name: /Nhập môn/ });
     const heading = within(branch()).getByRole("button", { name: "Thư viện" });
     const boards = screen.getByRole("button", { name: "Bảng order" });
+    // Every branch starts folded.
+    expect(heading).toHaveAttribute("aria-expanded", "false");
+    await userEvent.click(heading);
     expect(heading).toHaveAttribute("aria-expanded", "true");
+    expect(boards).toHaveAttribute("aria-expanded", "false");
+    // Back folded: the fold is shared by every Shell of the tab (and every test).
     await userEvent.click(heading);
     expect(heading).toHaveAttribute("aria-expanded", "false");
-    expect(boards).toHaveAttribute("aria-expanded", "true");
-    // Back open: the fold is shared by every Shell of the tab (and every test).
-    await userEvent.click(heading);
-    expect(heading).toHaveAttribute("aria-expanded", "true");
   });
 
   it("keeps the names for screen readers on the icon-only sidebar", async () => {

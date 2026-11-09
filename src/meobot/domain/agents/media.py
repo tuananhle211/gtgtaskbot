@@ -13,6 +13,11 @@ A whole web page the agent writes (a mockup, a redesign demo) in one
 ```` ```html ```` block is kept the same way, as an ``.html`` file of the
 answer: the chat shows a short line instead of the code, and the file opens
 as a preview in its own sandboxed tab or downloads.
+
+Brand assets (2026-11-09): an agent hands a file from the company's brand
+library (``/srv/brain/tai-san`` on the VPS - logo SVG/PNG, the guideline PDF,
+fonts) the same way, ``MEDIA:/srv/brain/tai-san/logo/x.svg``. A picture is kept
+as a picture; any other file (:data:`FILE_TYPES`) as a document to download.
 """
 
 from __future__ import annotations
@@ -24,10 +29,24 @@ from dataclasses import dataclass
 
 #: At most this many pictures are taken out of one answer (the rest stay as text).
 MAX_ANSWER_IMAGES = 6
-#: The biggest picture kept (the relay refuses bigger ones too).
-MAX_ANSWER_IMAGE_BYTES = 10 * 1024 * 1024
+#: The biggest picture / file kept (the relay refuses bigger ones too).
+MAX_ANSWER_IMAGE_BYTES = 25 * 1024 * 1024
 
-_EXT = r"(?:png|jpe?g|webp|gif)"
+#: Files that are not pictures an agent may hand (brand assets), by extension.
+FILE_TYPES: dict[str, str] = {
+    "svg": "image/svg+xml",
+    "pdf": "application/pdf",
+    "ai": "application/postscript",
+    "eps": "application/postscript",
+    "psd": "image/vnd.adobe.photoshop",
+    "zip": "application/zip",
+    "ttf": "font/ttf",
+    "otf": "font/otf",
+    "woff": "font/woff",
+    "woff2": "font/woff2",
+}
+
+_EXT = r"(?:png|jpe?g|webp|gif|svg|pdf|ai|eps|psd|zip|ttf|otf|woff2?)"
 #: ``MEDIA:/path/x.png``, maybe wrapped in quotes or backticks.
 _MEDIA_TAG = re.compile(
     rf"[`'\"]?MEDIA:\s*(?P<path>/[^\s`'\"<>()\[\]]+?\.{_EXT})(?![A-Za-z0-9])[`'\"]?",
@@ -63,6 +82,34 @@ class MediaRef:
         if self.path:
             return self.path.rsplit("/", 1)[-1][:200] or "anh"
         return "anh-agent"
+
+    @property
+    def extension(self) -> str:
+        return self.name.rsplit(".", 1)[-1].lower() if "." in self.name else ""
+
+    @property
+    def is_file(self) -> bool:
+        """A file that is not a picture (kept as a document to download)."""
+        return self.path is not None and self.extension in FILE_TYPES
+
+
+def file_type(extension: str, data: bytes) -> str | None:
+    """The content type of a non-picture file whose first bytes fit its extension, else None."""
+    head = data[:2048]
+    ext = extension.lower()
+    ok = {
+        "svg": b"<svg" in head.lower(),
+        "pdf": head.startswith(b"%PDF-"),
+        "ai": head.startswith((b"%PDF-", b"%!PS")),
+        "eps": head.startswith((b"%!PS", b"\xc5\xd0\xd3\xc6")),
+        "psd": head.startswith(b"8BPS"),
+        "zip": head.startswith(b"PK\x03\x04"),
+        "ttf": head.startswith((b"\x00\x01\x00\x00", b"true")),
+        "otf": head.startswith(b"OTTO"),
+        "woff": head.startswith(b"wOFF"),
+        "woff2": head.startswith(b"wOF2"),
+    }.get(ext, False)
+    return FILE_TYPES[ext] if ok else None
 
 
 def has_media(text: str) -> bool:
@@ -136,12 +183,14 @@ def replace_media(text: str, replacements: dict[str, str]) -> str:
 
 
 __all__ = [
+    "FILE_TYPES",
     "MAX_ANSWER_IMAGES",
     "MAX_ANSWER_IMAGE_BYTES",
     "MAX_ANSWER_PAGES",
     "MAX_ANSWER_PAGE_BYTES",
     "HtmlPage",
     "MediaRef",
+    "file_type",
     "find_html_pages",
     "find_media",
     "has_media",
