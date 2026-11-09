@@ -43,6 +43,7 @@ from meobot.application.user_service import UserService
 from meobot.application.web_auth_service import IssuedLogin, WebAuthService
 from meobot.core.time import ensure_utc, utcnow
 from meobot.db.models.department import DepartmentMember
+from meobot.db.models.legal_entity import LegalEntity
 from meobot.db.models.order import Order, OrderNode
 from meobot.db.models.org_unit import OrgUnit, OrgUnitMember
 from meobot.db.models.user import User
@@ -60,12 +61,13 @@ from meobot.domain.account.errors import (
     MemberDeleteForbiddenError,
     PasswordResetForbiddenError,
     PasswordResetUndeliverableError,
+    WorkInfoForbiddenError,
 )
 from meobot.domain.audit.models import AuditAction, AuditResult
 from meobot.domain.identity.labels import role_label
 from meobot.domain.identity.models import Actor, Role
 from meobot.domain.orders.models import ACTIVE_NODE_STATUSES, TERMINAL_STAGES
-from meobot.domain.org.models import Position, Seat, seat_label
+from meobot.domain.org.models import BRANCHES, Position, Seat, seat_label
 from meobot.domain.performance.models import MODULE_PERFORMANCE, PerformancePermission
 from meobot.domain.units.member_code import normalise_member_code
 from meobot.domain.units.models import FUNCTION_ROLES, UnitCode, UnitMemberRole, UnitMembership
@@ -98,6 +100,8 @@ class MemberView:
     avatar_url: str | None = None
     #: The person's open seats ("Phòng ban"), in the departments' order.
     seats: tuple[Seat, ...] = ()
+    #: 0095: the code of their company ("Pháp nhân"), if any.
+    legal_entity_code: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -147,6 +151,9 @@ def member_role_label(user: User, seats: Iterable[Seat]) -> str:
     made everybody in it "Nhân viên ADS (người order)" (2026-11-02)."""
     if user.role in (Role.OWNER, Role.ADMIN):
         return role_label(user.role)
+    if user.job_title:
+        # 0095 (HR plan D10): the job title of the HR sheet says it best.
+        return user.job_title
     labels = list(dict.fromkeys(seat_label(seat) for seat in seats))
     return " · ".join(labels) if labels else role_label(user.role)
 
@@ -270,6 +277,7 @@ class AccountService:
         stats = await self._stats.stats_for(ids, month)
         last_logins = await self._last_logins(ids)
         avatars = await avatar_urls(self._session, ids)
+        entities = await self._entity_codes()
         now = utcnow()
         # Sign-in details are for whoever is shown the full roster.
         private = visibility is None
@@ -294,6 +302,7 @@ class AccountService:
                     stats=stats[user.id],
                     avatar_url=avatars.get(user.id),
                     seats=seats_by_user.get(user.id, ()),
+                    legal_entity_code=entities.get(user.legal_entity_id),
                 )
                 for user, units in listed
             ],
@@ -331,7 +340,12 @@ class AccountService:
             stats=stats,
             avatar_url=avatars.get(user.id),
             seats=seats,
+            legal_entity_code=(await self._entity_codes()).get(user.legal_entity_id),
         )
+
+    async def _entity_codes(self) -> dict[uuid.UUID | None, str]:
+        rows = (await self._session.execute(select(LegalEntity.id, LegalEntity.code))).all()
+        return {row[0]: row[1] for row in rows}
 
     async def may_view_profile(
         self, actor: Actor, membership: UnitMembership, user_id: uuid.UUID
@@ -658,6 +672,113 @@ class AccountService:
         )
         return code
 
+    async def set_work_info(
+        self,
+        *,
+        actor: Actor,
+        request_id: uuid.UUID,
+        user_id: uuid.UUID,
+        fields: dict[str, object],
+    ) -> User:
+        """0095: job title, branch, company ("Pháp nhân") and Telegram id of
+        any account - only the keys sent. The OWNER and the ADMIN (an ADMIN
+        never on the OWNER's account).
+
+        A Telegram id links the account to the bot: the person's ``/start`` is
+        recognised from then on. Changing it forgets the old chat (private
+        chat id, username, delivery state), which belonged to somebody else.
+
+        Raises:
+            WorkInfoForbiddenError: not OWNER/ADMIN, or an ADMIN on the OWNER.
+            AccountNotFoundError: no such account, or a deleted one.
+            AccountValidationError: ``telegram_id_invalid`` / ``telegram_id_taken``
+                / ``branch_invalid`` / ``legal_entity_invalid`` / ``job_title_too_long``.
+        """
+        if actor.role not in (Role.OWNER, Role.ADMIN):
+            raise WorkInfoForbiddenError()
+        target = await self._session.get(User, user_id)
+        if target is None or target.deleted_at is not None:
+            raise AccountNotFoundError()
+        if target.role is Role.OWNER and actor.role is not Role.OWNER:
+            raise WorkInfoForbiddenError()
+        before = _work_snap(target)
+
+        if "job_title" in fields:
+            title = " ".join(str(fields["job_title"] or "").split())
+            if len(title) > 150:
+                raise AccountValidationError(
+                    "job_title_too_long",
+                    "Chức danh tối đa 150 ký tự.",
+                    details={"field": "job_title"},
+                )
+            target.job_title = title or None
+        if "branch" in fields:
+            branch = fields["branch"]
+            if branch is not None and branch not in BRANCHES:
+                raise AccountValidationError(
+                    "branch_invalid", "Chi nhánh không hợp lệ.", details={"field": "branch"}
+                )
+            target.branch = branch  # type: ignore[assignment]
+        if "legal_entity_id" in fields:
+            entity_id = fields["legal_entity_id"]
+            if entity_id is not None:
+                entity = await self._session.get(LegalEntity, entity_id)
+                if entity is None or (not entity.active and entity_id != target.legal_entity_id):
+                    raise AccountValidationError(
+                        "legal_entity_invalid",
+                        "Pháp nhân không hợp lệ.",
+                        details={"field": "legal_entity_id"},
+                    )
+            target.legal_entity_id = entity_id  # type: ignore[assignment]
+        if "telegram_user_id" in fields:
+            await self._set_telegram_id(target, fields["telegram_user_id"])
+
+        await self._session.flush()
+        after = _work_snap(target)
+        if after != before:
+            await self._audit.record_action(
+                request_id=request_id,
+                actor=actor,
+                action=AuditAction.USER_WORK_INFO_UPDATED.value,
+                result=AuditResult.SUCCESS,
+                entity_type="user",
+                entity_id=str(target.id),
+                before_data=before,
+                after_data=after,
+            )
+        return target
+
+    async def _set_telegram_id(self, target: User, value: object) -> None:
+        number: int | None
+        if value is None or (isinstance(value, str) and not value.strip()):
+            number = None
+        else:
+            text_value = str(value).strip()
+            if not text_value.isdigit() or not 0 < int(text_value) <= 2**63 - 1:
+                raise AccountValidationError(
+                    "telegram_id_invalid",
+                    "Telegram ID là một dãy số.",
+                    details={"field": "telegram_user_id"},
+                )
+            number = int(text_value)
+        if number == target.telegram_user_id:
+            return
+        if number is not None:
+            taken = await self._session.scalar(
+                select(User.id).where(User.telegram_user_id == number, User.id != target.id)
+            )
+            if taken is not None:
+                raise AccountValidationError(
+                    "telegram_id_taken",
+                    "Telegram ID này đã gắn với một tài khoản khác.",
+                    details={"field": "telegram_user_id"},
+                )
+        target.telegram_user_id = number
+        # The old chat was somebody else's (or nobody's): forget it.
+        target.telegram_username = None
+        target.telegram_private_chat_id = None
+        target.private_chat_available = False
+
     async def restore_member(
         self, *, actor: Actor, request_id: uuid.UUID, user_id: uuid.UUID
     ) -> User:
@@ -857,6 +978,15 @@ class AccountService:
             )
         ).all()
         return {user_id: ensure_utc(at) for user_id, at in rows if at is not None}
+
+
+def _work_snap(user: User) -> dict[str, object]:
+    return {
+        "job_title": user.job_title,
+        "branch": user.branch,
+        "legal_entity_id": None if user.legal_entity_id is None else str(user.legal_entity_id),
+        "telegram_user_id": user.telegram_user_id,
+    }
 
 
 __all__ = [

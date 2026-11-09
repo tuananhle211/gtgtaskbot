@@ -127,6 +127,14 @@ class User(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     #: ``TUAN-D-261014-01``), edited by the OWNER / ADMIN only and copied onto
     #: every open stream tag (``org_unit_members.member_code``).
     member_code: Mapped[str | None] = mapped_column(String(20), nullable=True)
+    #: 0095: the company employing them ("Pháp nhân"), its job title in the HR
+    #: sheet ("Chức danh nội bộ" - shown as what they are) and where they work
+    #: ("Chi nhánh", a :data:`meobot.domain.org.models.BRANCHES` code).
+    legal_entity_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("legal_entities.id", ondelete="SET NULL"), nullable=True, index=True
+    )
+    job_title: Mapped[str | None] = mapped_column(String(150), nullable=True)
+    branch: Mapped[str | None] = mapped_column(String(20), nullable=True)
     #: 0065: the person's standing with the company ("trạng thái nhân sự":
     #: Đang làm / Thử việc / Tạm nghỉ / Đã nghỉ việc), updated on the
     #: members screen; the resources module paints what a leaver holds red.

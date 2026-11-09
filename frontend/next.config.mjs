@@ -100,6 +100,11 @@ const nextConfig = {
       // Departments ("Phòng ban"): list + create on the bare collection route,
       // the rest (catalog, a department, its members and grants) below it.
       { source: "/api/departments", destination: `${target}/api/departments` },
+      { source: "/api/legal-entities", destination: `${target}/api/legal-entities` },
+      {
+        source: "/api/legal-entities/:path*",
+        destination: `${target}/api/legal-entities/:path*`,
+      },
       {
         source: "/api/departments/:path*",
         destination: `${target}/api/departments/:path*`,

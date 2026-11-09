@@ -282,7 +282,7 @@ function ProfileHero({
                   •
                 </span>
                 <span>
-                  ID Telegram <span className="font-medium tabular-nums text-[var(--text)]">{String(me.telegram_user_id)}</span>
+                  ID Telegram <span className="font-medium tabular-nums text-[var(--text)]">{me.telegram_user_id == null ? "chưa liên kết" : String(me.telegram_user_id)}</span>
                 </span>
                 {me.telegram_username ? (
                   <>
@@ -447,7 +447,7 @@ function AccountSettings({
         description="Do quản trị viên quản lý; liên hệ họ nếu cần đổi."
       >
         <SettingRow label="ID Telegram" hint="Dùng làm tên đăng nhập.">
-          <span className="font-medium tabular-nums">{String(me.telegram_user_id)}</span>
+          <span className="font-medium tabular-nums">{me.telegram_user_id == null ? "Chưa liên kết" : String(me.telegram_user_id)}</span>
           {me.telegram_username ? (
             <span className="ml-2 text-[var(--text-muted)]">@{me.telegram_username}</span>
           ) : null}
@@ -928,7 +928,7 @@ function Members({
                           <div className="min-w-0">
                             <PersonLink userId={row.user_id} name={row.full_name} className="person" />
                             <span className="block text-xs text-[var(--text-muted)]">
-                              {row.role_label} · {String(row.telegram_user_id)}
+                              {row.role_label} · {row.telegram_user_id == null ? "Chưa liên kết Telegram" : String(row.telegram_user_id)}
                               {me.role === "OWNER" ? (
                                 <>
                                   {" · "}

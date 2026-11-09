@@ -147,7 +147,7 @@ export function PasswordForm({
   const fields = (
     <div className="space-y-5">
       {/* For password managers: which account this new password belongs to. */}
-      <input type="text" name="username" autoComplete="username" value={String(me.telegram_user_id)} readOnly hidden />
+      <input type="text" name="username" autoComplete="username" value={me.member_code ?? String(me.telegram_user_id ?? "")} readOnly hidden />
 
       {change.isError ? (
         <div

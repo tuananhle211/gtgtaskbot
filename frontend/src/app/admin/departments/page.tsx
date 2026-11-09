@@ -49,6 +49,16 @@ export default function DepartmentsPage() {
   );
   const selected =
     departments.find((item) => item.id === chosen) ?? departments[0] ?? null;
+  // 0095: grouped by division ("Khối …") in the list's order; a department
+  // under another one is indented.
+  const groups: { block: string | null; items: Department[] }[] = [];
+  for (const department of departments) {
+    const block = department.block ?? null;
+    const last = groups[groups.length - 1];
+    if (last && last.block === block) last.items.push(department);
+    else groups.push({ block, items: [department] });
+  }
+  const nameOf = new Map(departments.map((item) => [item.id, item.name]));
 
   return (
     <div className="space-y-4">
@@ -71,8 +81,15 @@ export default function DepartmentsPage() {
             {departments.length === 0 ? (
               <p className="p-3 text-sm text-[var(--text-muted)]">Chưa có phòng ban nào.</p>
             ) : (
+              groups.map((group, index) => (
+              <div key={`${group.block ?? "none"}:${index}`}>
+                {group.block ? (
+                  <p className="brand-eyebrow border-b border-[var(--border)] px-3 pb-1 pt-3">
+                    {group.block}
+                  </p>
+                ) : null}
               <ul className="divide-y divide-[var(--border)]">
-                {departments.map((department) => (
+                {group.items.map((department) => (
                   <li key={department.id}>
                     <button
                       type="button"
@@ -83,10 +100,17 @@ export default function DepartmentsPage() {
                         selected?.id === department.id
                           ? "bg-[var(--accent-soft)] font-medium"
                           : "hover:bg-[var(--surface-muted)]"
-                      } ${department.active ? "" : "opacity-60"}`}
+                      } ${department.active ? "" : "opacity-60"} ${department.parent_id ? "pl-7" : ""}`}
                     >
                       <span className="min-w-0">
-                        <span className="block truncate">{department.name}</span>
+                        <span className="block truncate">
+                          {department.parent_id ? (
+                            <span aria-hidden className="mr-1 text-[var(--text-muted)]">
+                              ↳
+                            </span>
+                          ) : null}
+                          {department.name}
+                        </span>
                         <span className="block text-xs text-[var(--text-muted)]">
                           <span className="font-mono">{department.code}</span>
                           {functionLabel(department, catalog.data) ? (
@@ -105,6 +129,8 @@ export default function DepartmentsPage() {
                   </li>
                 ))}
               </ul>
+              </div>
+              ))
             )}
           </nav>
           {owner ? (
@@ -117,10 +143,12 @@ export default function DepartmentsPage() {
         {selected ? (
           <div className="min-w-0 space-y-4">
             <DepartmentHeader
-              key={`${selected.id}:${selected.code}:${selected.name}:${selected.function}:${selected.active}`}
+              key={`${selected.id}:${selected.code}:${selected.name}:${selected.function}:${selected.active}:${selected.block ?? ""}:${selected.parent_id ?? ""}`}
               department={selected}
               catalog={catalog.data}
               owner={owner}
+              departments={departments}
+              parentName={selected.parent_id ? nameOf.get(selected.parent_id) : undefined}
             />
             <Members key={`members:${selected.id}`} department={selected} catalog={catalog.data} owner={owner} />
             {modulesOf(catalog.data).map((module) => (
@@ -318,10 +346,15 @@ function DepartmentHeader({
   department,
   catalog,
   owner,
+  departments,
+  parentName,
 }: {
   department: Department;
   catalog: DepartmentCatalog | undefined;
   owner: boolean;
+  /** 0095: the other departments, for "Phòng cha" and the "Khối" suggestions. */
+  departments: Department[];
+  parentName?: string;
 }) {
   const refresh = useRefreshDepartments();
   const ids = { code: useId(), name: useId(), codeError: useId(), nameError: useId() };
@@ -339,7 +372,14 @@ function DepartmentHeader({
     name: draft.name ?? department.name,
     function: draft.function ?? department.function,
     active: draft.active ?? department.active,
+    block: draft.block !== undefined ? (draft.block ?? "") : (department.block ?? ""),
+    parent_id:
+      draft.parent_id !== undefined ? (draft.parent_id ?? "") : (department.parent_id ?? ""),
   };
+  const blocks = Array.from(
+    new Set(departments.map((item) => item.block).filter((item): item is string => Boolean(item))),
+  );
+  const blockList = useId();
   const change = <K extends keyof DepartmentBody>(key: K, next: DepartmentBody[K]) =>
     setDraft((current) => {
       const copy = { ...current };
@@ -359,6 +399,8 @@ function DepartmentHeader({
           <span className="font-mono text-sm text-[var(--text-muted)]">{department.code}</span>
         </h2>
         <p className="mt-1 text-sm text-[var(--text-muted)]">
+          {department.block ? `${department.block} · ` : ""}
+          {parentName ? `Thuộc ${parentName} · ` : ""}
           Chức năng: {functionLabel(department, catalog) ?? "Không"}
           {department.active ? "" : " · "}
           {department.active ? null : <Pill tone="bad">Ngừng hoạt động</Pill>}
@@ -413,6 +455,40 @@ function DepartmentHeader({
           className="mt-1 w-full text-sm"
         >
           <FunctionOptions catalog={catalog} />
+        </Select>
+      </label>
+      <label className="block text-xs text-[var(--text-muted)]">
+        Khối
+        <input
+          type="text"
+          value={value.block}
+          maxLength={60}
+          list={blockList}
+          placeholder="Ví dụ: Khối vận hành"
+          onChange={(event) => change("block", event.target.value.trim() ? event.target.value : null)}
+          className={`mt-1 ${FIELD}`}
+        />
+        <datalist id={blockList}>
+          {blocks.map((item) => (
+            <option key={item} value={item} />
+          ))}
+        </datalist>
+      </label>
+      <label className="block text-xs text-[var(--text-muted)]">
+        Thuộc phòng
+        <Select
+          value={value.parent_id}
+          onChange={(event) => change("parent_id", event.target.value || null)}
+          className="mt-1 w-full text-sm"
+        >
+          <option value="">Không (phòng cấp trên)</option>
+          {departments
+            .filter((item) => item.id !== department.id)
+            .map((item) => (
+              <option key={item.id} value={item.id}>
+                {item.name}
+              </option>
+            ))}
         </Select>
       </label>
       <label className="inline-flex min-h-11 items-center gap-2 self-end text-sm">

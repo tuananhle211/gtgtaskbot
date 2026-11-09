@@ -27,6 +27,9 @@ class DepartmentResponse(BaseModel):
     active: bool
     sort_order: int
     member_count: int = 0
+    #: Additive (0095): the department it sits under, and its division.
+    parent_id: uuid.UUID | None = None
+    block: str | None = None
 
     @classmethod
     def from_row(cls, row: Department, member_count: int = 0) -> DepartmentResponse:
@@ -39,6 +42,8 @@ class DepartmentResponse(BaseModel):
             active=row.active,
             sort_order=row.sort_order,
             member_count=member_count,
+            parent_id=row.parent_id,
+            block=row.block,
         )
 
 
@@ -51,6 +56,8 @@ class CreateDepartmentRequest(BaseModel):
     name: str = Field(min_length=1, max_length=200)
     function: DepartmentFunction = DepartmentFunction.NONE
     sort_order: int | None = Field(default=None, ge=0, le=100000)
+    parent_id: uuid.UUID | None = None
+    block: str | None = Field(default=None, max_length=60)
 
 
 class UpdateDepartmentRequest(BaseModel):
@@ -59,6 +66,9 @@ class UpdateDepartmentRequest(BaseModel):
     function: DepartmentFunction | None = None
     active: bool | None = None
     sort_order: int | None = Field(default=None, ge=0, le=100000)
+    #: 0095: sent keys only; ``null`` clears.
+    parent_id: uuid.UUID | None = None
+    block: str | None = Field(default=None, max_length=60)
 
 
 class SeatResponse(BaseModel):

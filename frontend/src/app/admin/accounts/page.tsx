@@ -6,6 +6,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   api,
   type Department,
+  type LegalEntity,
   type DirectoryUser,
   type MemberRow,
   type MemberSeat,
@@ -17,7 +18,10 @@ import { AdminTabs, headsDepartments } from "@/components/admin-tabs";
 import {
   EmploymentStatusField,
   EmploymentStatusPill,
+  LegalEntitiesDialog,
+  LegalEntityField,
   MemberCodeField,
+  WorkInfoDialog,
   PasswordStatus,
 } from "@/components/account-fields";
 import { Avatar } from "@/components/avatar";
@@ -112,6 +116,14 @@ export default function AccountsAdminPage() {
   );
   const effortOn = useEffortEnabled();
   const [addingAnyone, setAddingAnyone] = useState(false);
+  // 0095: the companies ("Pháp nhân") and branches the rows pick from.
+  const [editingEntities, setEditingEntities] = useState(false);
+  const entities = useQuery({
+    queryKey: ["legal-entities"],
+    queryFn: () => api.legalEntities(),
+    enabled: manages,
+    retry: false,
+  });
   // Every account, for "Thêm người vào phòng": a head's roster lists only
   // their own people, so the picker reads the directory instead.
   const placeable = placeableDepartments(
@@ -226,12 +238,28 @@ export default function AccountsAdminPage() {
         <p className="ml-auto self-center text-sm text-[var(--text-muted)]">
           {rows.length} tài khoản
         </p>
+        {manages ? (
+          <SecondaryButton type="button" onClick={() => setEditingEntities(true)}>
+            Pháp nhân
+          </SecondaryButton>
+        ) : null}
         {placeable.length > 0 ? (
           <PrimaryButton type="button" onClick={() => setAddingAnyone(true)}>
             Thêm người vào phòng
           </PrimaryButton>
         ) : null}
       </section>
+      {manages ? (
+        <LegalEntitiesDialog
+          open={editingEntities}
+          onClose={() => setEditingEntities(false)}
+          onChanged={(text) => {
+            setNotice(text);
+            void entities.refetch();
+            void members.refetch();
+          }}
+        />
+      ) : null}
       <AddToDepartmentDialog
         open={addingAnyone}
         viewer={viewer}
@@ -271,6 +299,7 @@ export default function AccountsAdminPage() {
                 <th className="w-[18rem]">Tài khoản</th>
                 <th className="w-[16rem]">Phòng ban</th>
                 <th className="w-[9rem]">Mã nhân viên</th>
+                <th className="w-[8rem]">Pháp nhân</th>
                 <th className="w-[9rem]">Nhân sự</th>
                 {showOrd ? (
                   <th className="w-[16rem]">
@@ -287,7 +316,7 @@ export default function AccountsAdminPage() {
               {rows.length === 0 ? (
                 <tr>
                   <td
-                    colSpan={showOrd ? 7 : 6}
+                    colSpan={showOrd ? 8 : 7}
                     className="text-[var(--text-muted)]"
                   >
                     Không có tài khoản nào trong bộ lọc này.
@@ -302,6 +331,8 @@ export default function AccountsAdminPage() {
                   manages={manages}
                   mayHr={manages || Boolean(me.data?.resources?.hr)}
                   placeable={placeable}
+                  entities={entities.data?.entities ?? []}
+                  branches={entities.data?.branches ?? []}
                   ordRow={showOrd ? ordOf.get(row.user_id) : undefined}
                   showOrd={showOrd}
                   showTokens={showOrd && effortOn}
@@ -374,7 +405,15 @@ function placeableDepartments(
 type Viewer = { role?: string; userId: string | null };
 
 /** What the "⋯" menu may open for this row, besides the links. */
-type RowAction = "reset" | "status" | "restore" | "delete" | "role" | "impersonate" | null;
+type RowAction =
+  | "reset"
+  | "status"
+  | "restore"
+  | "delete"
+  | "role"
+  | "impersonate"
+  | "work"
+  | null;
 
 function AccountRow({
   row,
@@ -382,6 +421,8 @@ function AccountRow({
   manages,
   mayHr,
   placeable,
+  entities,
+  branches,
   ordRow,
   showOrd,
   showTokens,
@@ -390,6 +431,9 @@ function AccountRow({
 }: {
   row: MemberRow;
   viewer: Viewer;
+  /** 0095: what the "Pháp nhân" cell and "Thông tin công việc" pick from. */
+  entities: LegalEntity[];
+  branches: { code: string; label: string }[];
   /** OWNER / ADMIN: the account controls. */
   manages: boolean;
   /** May set the employment status. */
@@ -451,6 +495,15 @@ function AccountRow({
       label: "Quyền",
       href: `/admin/people/${row.user_id}`,
     });
+  // 0095: job title, branch, company, Telegram id - OWNER / ADMIN, an ADMIN
+  // never on the OWNER's account; not on a revoked one.
+  if (manages && !revoked && (row.role !== "OWNER" || viewer.role === "OWNER")) {
+    items.push({
+      key: "work",
+      label: "Thông tin công việc…",
+      onSelect: () => setAction("work"),
+    });
+  }
   if (viewer.role === "OWNER" && !isSelf && row.role !== "OWNER") {
     items.push({
       key: "role",
@@ -529,7 +582,13 @@ function AccountRow({
               <PersonLink userId={row.user_id} name={row.full_name} />
             </p>
             <p className="mt-0.5 truncate text-xs text-[var(--text-muted)]">
-              {row.role_label} · {String(row.telegram_user_id)}
+              {row.role_label}
+              {row.branch_label ? ` · ${row.branch_label}` : ""} ·{" "}
+              {row.telegram_user_id == null ? (
+                <span className="italic">Chưa liên kết Telegram</span>
+              ) : (
+                String(row.telegram_user_id)
+              )}
             </p>
             {active ? null : (
               <span className="mt-1 block">
@@ -563,6 +622,25 @@ function AccountRow({
           />
         ) : (
           <span className="font-mono text-xs">{row.member_code || "–"}</span>
+        )}
+      </td>
+      <td>
+        {manages ? (
+          <LegalEntityField
+            key={`${row.user_id}:${row.legal_entity_id ?? ""}`}
+            row={row}
+            entities={entities}
+            onSaved={(code) => {
+              onNotice(
+                code
+                  ? `Đã đặt pháp nhân ${code} cho ${row.full_name}.`
+                  : `Đã bỏ pháp nhân của ${row.full_name}.`,
+              );
+              refresh();
+            }}
+          />
+        ) : (
+          <span className="font-mono text-xs">{row.legal_entity_code || "–"}</span>
         )}
       </td>
       <td>
@@ -623,6 +701,16 @@ function AccountRow({
         ) : null}
         {action === "impersonate" ? (
           <LoginLinkDialog row={row} onClose={() => setAction(null)} />
+        ) : null}
+        {action === "work" ? (
+          <WorkInfoDialog
+            open
+            row={row}
+            entities={entities}
+            branches={branches}
+            onClose={() => setAction(null)}
+            onDone={done}
+          />
         ) : null}
         <RoleDialog
           open={action === "role"}

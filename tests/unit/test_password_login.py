@@ -82,7 +82,7 @@ NEW = "Mèo con 2026"
 FAILED_BODY = {
     "error": {
         "code": "login_failed",
-        "message": "Sai ID Telegram hoặc mật khẩu.",
+        "message": "Sai mã nhân viên / ID Telegram hoặc mật khẩu.",
         "details": {"reason": "login_failed"},
     }
 }

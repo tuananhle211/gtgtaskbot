@@ -60,6 +60,7 @@ from meobot.db.models.hr import (
     WorkSchedule,
 )
 from meobot.db.models.invite import InviteCode
+from meobot.db.models.legal_entity import LegalEntity
 from meobot.db.models.notifications import (
     Announcement,
     AnnouncementAcknowledgement,
@@ -252,6 +253,7 @@ __all__ = [
     "HrRequest",
     "HrRequestEvent",
     "InviteCode",
+    "LegalEntity",
     "MemberListContext",
     "MessageDispatch",
     "MessageDispatchDraft",

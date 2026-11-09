@@ -28,6 +28,7 @@ from meobot.api.routers import (
     drive,
     health,
     invites,
+    legal_entities,
     notifications,
     orders,
     performance,
@@ -120,6 +121,7 @@ _ENVELOPE_PREFIXES = (
     "/api/notifications",
     "/api/units",
     "/api/departments",
+    "/api/legal-entities",
     "/api/ai",
     "/api/resources",
     "/api/permissions",
@@ -220,6 +222,7 @@ def _include_web_facing_routers(app: FastAPI) -> None:
     # units the caller has, and the per-unit routes check inside.
     app.include_router(units.router)
     app.include_router(departments.router)
+    app.include_router(legal_entities.router)
     app.include_router(ai.router)
     # "Tác vụ định kỳ" (0077): OWNER / ADMIN, checked inside.
     app.include_router(cron.router)

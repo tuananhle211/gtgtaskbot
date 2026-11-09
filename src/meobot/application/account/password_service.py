@@ -1,6 +1,7 @@
 """Password login and password change for the web panel.
 
-The username is the person's Telegram numeric id (``users.telegram_user_id``);
+The username is the person's Telegram numeric id (``users.telegram_user_id``)
+or, since 0095, their member code (``users.member_code``, own password only);
 every account starts on the default password from settings, and a session
 opened with it - or with a temporary password a reset sent by Telegram
 (``users.password_temporary``, see ``password_reset_service``) - must choose a
@@ -63,6 +64,7 @@ from meobot.domain.account.errors import (
 )
 from meobot.domain.audit.models import AuditAction, AuditEntry, AuditResult
 from meobot.domain.identity.models import Actor
+from meobot.domain.units.member_code import normalise_member_code
 
 logger = get_logger(__name__)
 
@@ -132,7 +134,15 @@ class PasswordService:
         and the route renders it.
         """
         telegram_id = parse_username(username)
-        user = await self._locked_user_by_telegram_id(telegram_id)
+        if telegram_id is not None:
+            user = await self._locked_user_by_telegram_id(telegram_id)
+        else:
+            # 0095: the member code ("mã nhân viên") signs in too - but only
+            # with the person's own password. The default password is not
+            # accepted here: codes are printed on every roster, Telegram ids
+            # are not, so an untouched account must not open to its code.
+            user = await self._locked_user_by_member_code(normalise_member_code(username))
+        by_code = telegram_id is None
         if user is not None and not user.may_sign_in:
             # A deactivated, suspended or departed account is indistinguishable from an
             # unknown id: no lock, no counter, the same answer.
@@ -144,7 +154,7 @@ class PasswordService:
             await self._audit_login(request_id, user, telegram_id, AuditResult.DENIED, "locked")
             return LoginOutcome(status=LoginStatus.LOCKED)
 
-        password_ok = await self._password_matches(user, password)
+        password_ok = await self._password_matches(user, password, allow_default=not by_code)
         if user is None:
             await self._audit_login(request_id, None, telegram_id, AuditResult.FAILED, "rejected")
             return LoginOutcome(status=LoginStatus.FAILED)
@@ -248,7 +258,9 @@ class PasswordService:
 
     # --- internals ----------------------------------------------------------------
 
-    async def _password_matches(self, user: User | None, password: str) -> bool:
+    async def _password_matches(
+        self, user: User | None, password: str, *, allow_default: bool = True
+    ) -> bool:
         """Exactly one scrypt per call, whoever ``user`` is.
 
         A stored hash is verified; otherwise a dummy hash is, and the password
@@ -258,7 +270,7 @@ class PasswordService:
         if user is not None and user.password_hash is not None:
             return await verify_password_async(password, user.password_hash)
         await burn_dummy_hash_async(password)
-        if user is None:
+        if user is None or not allow_default:
             return False
         return matches_default(password, self._settings.web_default_password.get_secret_value())
 
@@ -288,6 +300,17 @@ class PasswordService:
         user: User | None = (await self._session.execute(statement)).scalar_one_or_none()
         return user
 
+    async def _locked_user_by_member_code(self, code: str | None) -> User | None:
+        """The living account carrying ``code`` (unique since 0068), held like
+        :meth:`_locked_user_by_telegram_id`."""
+        if not code:
+            return None
+        statement = select(User).where(User.member_code == code, User.deleted_at.is_(None))
+        if supports_row_locks(self._session):
+            statement = statement.with_for_update()
+        user: User | None = (await self._session.execute(statement)).scalar_one_or_none()
+        return user
+
     async def _locked_user_by_id(self, user_id: uuid.UUID | None) -> User | None:
         if user_id is None:
             return None
@@ -310,7 +333,9 @@ class PasswordService:
             AuditEntry(
                 request_id=request_id,
                 actor_user_id=None if user is None else user.id,
-                actor_telegram_id=telegram_id,
+                actor_telegram_id=telegram_id
+                if telegram_id is not None or user is None
+                else user.telegram_user_id,
                 action=AuditAction.AUTH_PASSWORD_LOGIN_FAILED,
                 result=result,
                 entity_type="user",

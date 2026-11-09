@@ -59,6 +59,14 @@ class Department(Base, UUIDPrimaryKeyMixin, TimestampMixin):
     sort_order: Mapped[int] = mapped_column(
         Integer, nullable=False, default=0, server_default=text("0")
     )
+    #: 0095: the department this one sits under ("Phòng Media" holds Thiết
+    #: kế / Biên tập / Quay dựng; "Trung tâm" holds the clinics' units).
+    #: Nothing is inherited from it - grants stay per department.
+    parent_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey(f"{DEPARTMENTS}.id", ondelete=RESTRICT), nullable=True, index=True
+    )
+    #: 0095: the division ("Khối marketing", "Khối vận hành"...) it belongs to.
+    block: Mapped[str | None] = mapped_column(String(60), nullable=True)
 
 
 class DepartmentMember(Base, UUIDPrimaryKeyMixin, TimestampMixin):

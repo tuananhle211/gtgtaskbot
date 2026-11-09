@@ -286,6 +286,7 @@ describe("Quản lý tài khoản for the OWNER", () => {
     const menu = screen.getByRole("menu", { name: "Thao tác với Quỳnh Như" });
     expect(within(menu).getAllByRole("menuitem").map((item) => item.textContent)).toEqual([
       "Quyền",
+      "Thông tin công việc…",
       "Đổi vai trò hệ thống…",
       "Đặt lại mật khẩu…",
       "Đăng nhập thay…",
@@ -465,5 +466,81 @@ describe("Quản lý tài khoản for a department head", () => {
     ]);
     renderWithQuery(<UnitsAdminPage />);
     expect(replace).toHaveBeenCalledWith("/admin/accounts");
+  });
+});
+
+describe("Pháp nhân, chi nhánh, Telegram ID (0095)", () => {
+  const ENTITIES = {
+    entities: [
+      { id: "11111111-0000-0000-0000-000000000001", code: "APEXMED", name: "Công ty TNHH Apexmed", tax_code: null, active: true, people: 0 },
+      { id: "11111111-0000-0000-0000-000000000002", code: "GPI", name: "Công ty TNHH GPI Tech", tax_code: null, active: true, people: 3 },
+    ],
+    branches: [
+      { code: "VP_HN", label: "VP - Hà Nội" },
+      { code: "CS_SG", label: "CS - Sài Gòn" },
+    ],
+    can_edit: true,
+  };
+  const WORK = `/api/account/members/${NHU}/work-info`;
+
+  it("picks a person's company on the row and edits their work info", async () => {
+    const stub = stubPage("OWNER", OWNER_ME, ROWS, [
+      { match: WORK, method: "PATCH", body: { job_title: "Thiết kế", branch: "CS_SG", branch_label: "CS - Sài Gòn", legal_entity_id: ENTITIES.entities[1].id, telegram_user_id: 555 } },
+      { match: "/api/legal-entities", body: ENTITIES },
+    ]);
+    renderWithQuery(<AccountsAdminPage />);
+    await screen.findByText("Quỳnh Như");
+    const nhu = rowOf("Quỳnh Như");
+    const company = within(nhu).getByRole("combobox", { name: "Pháp nhân của Quỳnh Như" });
+    await waitFor(() => expect(within(company).getByRole("option", { name: "GPI" })).toBeInTheDocument());
+    await userEvent.selectOptions(company, "GPI");
+    await waitFor(() =>
+      expect(calls(stub).find((call) => call.url === WORK)?.body).toEqual({
+        legal_entity_id: ENTITIES.entities[1].id,
+      }),
+    );
+
+    await userEvent.click(within(nhu).getByRole("button", { name: "Thao tác với Quỳnh Như" }));
+    await userEvent.click(screen.getByRole("menuitem", { name: "Thông tin công việc…" }));
+    const dialog = screen.getByRole("dialog", { name: "Thông tin công việc" });
+    await userEvent.type(within(dialog).getByLabelText("Chức danh"), "Thiết kế");
+    await userEvent.selectOptions(within(dialog).getByLabelText("Chi nhánh"), "CS_SG");
+    const telegram = within(dialog).getByLabelText(/Telegram ID/);
+    await userEvent.type(telegram, "12a");
+    expect(within(dialog).getByRole("alert")).toHaveTextContent("chỉ gồm chữ số");
+    await userEvent.clear(telegram);
+    await userEvent.type(telegram, "555");
+    await userEvent.click(within(dialog).getByRole("button", { name: "Lưu" }));
+    // A new Telegram id is confirmed first: it links the bot.
+    expect(await screen.findByText("Liên kết Telegram 555 cho Quỳnh Như?")).toBeInTheDocument();
+    const accept = document.querySelector<HTMLElement>("[data-confirm-accept]");
+    expect(accept).not.toBeNull();
+    await userEvent.click(accept as HTMLElement);
+    await waitFor(() => {
+      const sent = calls(stub).filter((call) => call.url === WORK);
+      expect(sent.at(-1)?.body).toEqual({
+        job_title: "Thiết kế",
+        branch: "CS_SG",
+        legal_entity_id: null,
+        telegram_user_id: "555",
+      });
+    });
+    expect(await screen.findByRole("status")).toHaveTextContent(
+      "Đã lưu thông tin công việc của Quỳnh Như.",
+    );
+  });
+
+  it("says when an account is not linked to Telegram", async () => {
+    stubPage("OWNER", OWNER_ME, {
+      ...ROWS,
+      members: [
+        ...ROWS.members,
+        row(OUTSIDER, "Lễ Tân Sài Gòn", { telegram_user_id: null, branch_label: "CS - Sài Gòn" }),
+      ],
+    }, [{ match: "/api/legal-entities", body: ENTITIES }]);
+    renderWithQuery(<AccountsAdminPage />);
+    await screen.findByText("Lễ Tân Sài Gòn");
+    expect(rowOf("Lễ Tân Sài Gòn")).toHaveTextContent("CS - Sài Gòn");
+    expect(rowOf("Lễ Tân Sài Gòn")).toHaveTextContent("Chưa liên kết Telegram");
   });
 });

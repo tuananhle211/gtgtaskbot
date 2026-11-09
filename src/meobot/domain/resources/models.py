@@ -335,7 +335,9 @@ def format_resource_code(prefix: str, number: int) -> str:
     return f"{prefix}-{number:03d}"
 
 
-_CODE = re.compile(r"^[A-Z0-9]{1,12}-\d{1,6}$")
+#: The prefix is a department code - since 2026-11-09 it may hold inner
+#: hyphens (``MEDIA-TK-001``).
+_CODE = re.compile(r"^[A-Z0-9](?:[A-Z0-9-]{0,10}[A-Z0-9])?-\d{1,6}$")
 
 
 def is_resource_code(value: str) -> bool:

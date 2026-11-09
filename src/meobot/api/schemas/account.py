@@ -14,7 +14,7 @@ from meobot.application.account.account_service import MemberView
 from meobot.application.account.stats_service import MemberStats
 from meobot.db.models.user import User
 from meobot.domain.identity.labels import RoleInput, role_label
-from meobot.domain.org.models import POSITION_LABELS, Position, Seat
+from meobot.domain.org.models import BRANCHES, POSITION_LABELS, Position, Seat
 from meobot.domain.resources.models import EMPLOYMENT_STATUS_LABELS, EmploymentStatus
 from meobot.domain.units.labels import (
     function_tag,
@@ -31,7 +31,8 @@ from meobot.domain.units.models import UnitCode, UnitMemberRole, UnitMembership
 
 
 class PasswordLoginRequest(BaseModel):
-    """``username`` is the Telegram numeric id; surrounding spaces are ignored."""
+    """``username`` is the Telegram numeric id or (0095) the member code;
+    surrounding spaces are ignored."""
 
     username: str = Field(min_length=1, max_length=40)
     password: str
@@ -72,6 +73,53 @@ class MemberCodeRequest(BaseModel):
     """``null`` or blank clears the code; anything else is folded to A-Z0-9."""
 
     member_code: str | None = Field(default=None, max_length=40)
+
+
+class WorkInfoRequest(BaseModel):
+    """0095: only the keys sent are changed; ``null`` clears one."""
+
+    job_title: str | None = Field(default=None, max_length=200)
+    branch: str | None = Field(default=None, max_length=20)
+    legal_entity_id: uuid.UUID | None = None
+    #: Digits; a string so a long id never loses precision in a browser.
+    telegram_user_id: str | None = Field(default=None, max_length=25)
+
+
+class WorkInfoResponse(BaseModel):
+    job_title: str | None
+    branch: str | None
+    branch_label: str | None
+    legal_entity_id: uuid.UUID | None
+    telegram_user_id: int | None
+
+
+class LegalEntityResponse(BaseModel):
+    id: uuid.UUID
+    code: str
+    name: str
+    tax_code: str | None
+    active: bool
+    #: How many living accounts name it.
+    people: int = 0
+
+
+class LegalEntityListResponse(BaseModel):
+    entities: list[LegalEntityResponse]
+    branches: list[dict[str, str]]
+    can_edit: bool
+
+
+class LegalEntityCreateRequest(BaseModel):
+    code: str = Field(min_length=1, max_length=40)
+    name: str = Field(min_length=1, max_length=250)
+    tax_code: str | None = Field(default=None, max_length=40)
+
+
+class LegalEntityUpdateRequest(BaseModel):
+    code: str | None = Field(default=None, max_length=40)
+    name: str | None = Field(default=None, max_length=250)
+    tax_code: str | None = Field(default=None, max_length=40)
+    active: bool | None = None
 
 
 class EmploymentStatusRequest(BaseModel):
@@ -233,6 +281,8 @@ class AccountMeResponse(BaseModel):
     #: Additive (0088): heads a department - invites people into it, whatever
     #: the system role ("Mời thành viên").
     heads_department: bool = False
+    #: Additive (0095): the member code - the login name for a password.
+    member_code: str | None = None
 
     @classmethod
     def build(
@@ -267,6 +317,7 @@ class AccountMeResponse(BaseModel):
             stats=MemberStatsResponse.from_domain(stats),
             avatar_url=avatar_url,
             heads_department=any(seat.position is Position.HEAD for seat in membership.seats),
+            member_code=user.member_code,
         )
 
 
@@ -333,6 +384,13 @@ class MemberRowResponse(BaseModel):
     departments: list[MemberSeatResponse] = []
     #: Additive (2026-10-31): in the PR seeding group - a "Seeding" tag.
     seeding: bool = False
+    #: Additive (0095): job title ("Chức danh"), branch ("Chi nhánh" code +
+    #: label) and company ("Pháp nhân" id + code).
+    job_title: str | None = None
+    branch: str | None = None
+    branch_label: str | None = None
+    legal_entity_id: uuid.UUID | None = None
+    legal_entity_code: str | None = None
 
     @classmethod
     def from_view(cls, view: MemberView) -> MemberRowResponse:
@@ -346,6 +404,11 @@ class MemberRowResponse(BaseModel):
         return cls(
             role=view.user.role.value,
             member_code=view.user.member_code,
+            job_title=view.user.job_title,
+            branch=view.user.branch,
+            branch_label=BRANCHES.get(view.user.branch or ""),
+            legal_entity_id=view.user.legal_entity_id,
+            legal_entity_code=view.legal_entity_code,
             employment_status=view.user.employment_status.value,
             employment_status_label=EMPLOYMENT_STATUS_LABELS[view.user.employment_status],
             departments=[MemberSeatResponse.from_domain(seat) for seat in view.seats],

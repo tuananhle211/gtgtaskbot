@@ -67,6 +67,8 @@ async def create_department(
         name=body.name,
         function=body.function,
         sort_order=body.sort_order,
+        parent_id=body.parent_id,
+        block=body.block,
     )
     return DepartmentResponse.from_row(row)
 
@@ -90,6 +92,11 @@ async def update_department(
         function=body.function,
         active=body.active,
         sort_order=body.sort_order,
+        structure={
+            key: getattr(body, key)
+            for key in ("parent_id", "block")
+            if key in body.model_fields_set
+        },
     )
     return DepartmentResponse.from_row(row)
 

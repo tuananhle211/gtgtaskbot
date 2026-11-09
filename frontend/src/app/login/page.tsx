@@ -11,7 +11,8 @@ const FIELD =
   "min-h-11 w-full rounded-lg border border-[var(--border)] bg-[var(--surface)] px-3 text-[var(--text)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-[var(--accent)]";
 
 /**
- * Sign in with the Telegram numeric id and a password.
+ * Sign in with the member code ("mã nhân viên", 0095) or the Telegram numeric
+ * id, and a password.
  *
  * The password goes in the POST body and nowhere else: the server answers by
  * setting the same HttpOnly session cookie the Telegram link sets, so this page
@@ -69,7 +70,8 @@ export default function LoginPage() {
                 cho bot để nhận link
               </p>
               <p className="mt-2 text-xs">
-                ID Telegram là dãy số của tài khoản Telegram (không phải @username).
+                Mã nhân viên do phòng Hành chính nhân sự cấp. ID Telegram là dãy số của
+                tài khoản Telegram (không phải @username).
               </p>
             </div>
           </div>
@@ -151,6 +153,7 @@ function BrandHero() {
 }
 
 const NUMERIC_ID_HINT = "ID Telegram chỉ gồm chữ số, ví dụ 123456789.";
+const LOGIN_ID_HINT = "Nhập mã nhân viên (ví dụ M001DUNG) hoặc ID Telegram.";
 
 function LoginForm({
   username,
@@ -180,8 +183,8 @@ function LoginForm({
   const submit = (event: React.FormEvent) => {
     event.preventDefault();
     const id = username.trim();
-    if (!/^\d+$/.test(id)) {
-      setHint(NUMERIC_ID_HINT);
+    if (!id) {
+      setHint(LOGIN_ID_HINT);
       return;
     }
     if (!password) {
@@ -201,11 +204,10 @@ function LoginForm({
   return (
     <form className="mt-6 space-y-4" onSubmit={submit} noValidate>
       <label className="block text-sm font-medium">
-        ID Telegram
+        Mã nhân viên hoặc ID Telegram
         <input
           name="username"
           type="text"
-          inputMode="numeric"
           autoComplete="username"
           autoCapitalize="off"
           spellCheck={false}

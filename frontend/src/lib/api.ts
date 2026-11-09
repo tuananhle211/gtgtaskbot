@@ -4476,6 +4476,9 @@ export interface Department {
   active: boolean;
   sort_order?: number;
   member_count?: number;
+  /** 0095: the department it sits under, and its division ("Khối …"). Optional. */
+  parent_id?: Uuid | null;
+  block?: string | null;
 }
 
 export interface DepartmentList {
@@ -4514,6 +4517,9 @@ export interface DepartmentBody {
   function?: DepartmentFunction | string;
   active?: boolean;
   sort_order?: number;
+  /** 0095: sent keys only; null clears. */
+  parent_id?: Uuid | null;
+  block?: string | null;
 }
 
 /** One person's seat in a department. */
@@ -5914,7 +5920,10 @@ export interface AccountUnit {
 
 export interface AccountMe {
   user_id: Uuid;
-  telegram_user_id: number | string;
+  /** Null for an account not linked to the bot yet (0095). */
+  telegram_user_id: number | string | null;
+  /** 0095: the member code, the login name for a password. Optional. */
+  member_code?: string | null;
   telegram_username: string | null;
   full_name: string;
   role: string;
@@ -5937,7 +5946,8 @@ export interface AccountMe {
 export interface MemberRow {
   user_id: Uuid;
   full_name: string;
-  telegram_user_id: number | string;
+  /** Null for an account made from the HR sheet that is not linked to the bot yet (0095). */
+  telegram_user_id: number | string | null;
   /** Unit codes, e.g. ["PR", "ADS"]. */
   units: string[];
   /** The base role (OWNER, ADMIN, TEAM_LEAD, EMPLOYEE). Optional. */
@@ -5966,7 +5976,48 @@ export interface MemberRow {
   departments?: MemberSeat[];
   /** 2026-10-31: in the PR seeding group - a "Seeding" tag. Optional. */
   seeding?: boolean;
+  /** 0095: "Chức danh", "Chi nhánh" (code + label), "Pháp nhân" (id + code). Optional. */
+  job_title?: string | null;
+  branch?: string | null;
+  branch_label?: string | null;
+  legal_entity_id?: Uuid | null;
+  legal_entity_code?: string | null;
   stats: MemberStats;
+}
+
+/** 0095: a company people are employed by ("Pháp nhân"). */
+export interface LegalEntity {
+  id: Uuid;
+  code: string;
+  name: string;
+  tax_code: string | null;
+  active: boolean;
+  /** How many living accounts name it. */
+  people: number;
+}
+
+export interface LegalEntityList {
+  entities: LegalEntity[];
+  /** Where people work ("Chi nhánh"): code + label. */
+  branches: { code: string; label: string }[];
+  can_edit: boolean;
+}
+
+/** `PATCH /api/account/members/{id}/work-info`: only the keys sent change. */
+export interface WorkInfoInput {
+  job_title?: string | null;
+  branch?: string | null;
+  legal_entity_id?: Uuid | null;
+  /** Digits as a string; null unlinks the bot. */
+  telegram_user_id?: string | null;
+}
+
+export interface WorkInfo {
+  job_title: string | null;
+  branch: string | null;
+  branch_label: string | null;
+  legal_entity_id: Uuid | null;
+  telegram_user_id: number | null;
 }
 
 /** One seat on a roster row: the department chip, ★ for its head. */
@@ -6144,6 +6195,18 @@ export const api = {
    * `member_code_forbidden`). Folded to A-Z0-9, at most 12; blank / null
    * clears it. Written on the account and every open stream tag.
    */
+  setWorkInfo: (userId: Uuid, fields: WorkInfoInput) =>
+    patch<WorkInfo>(`/api/account/members/${userId}/work-info`, fields),
+  legalEntities: (includeInactive = false) =>
+    get<LegalEntityList>(
+      `/api/legal-entities${includeInactive ? "?include_inactive=true" : ""}`,
+    ),
+  createLegalEntity: (body: { code: string; name: string; tax_code?: string | null }) =>
+    post<LegalEntity>("/api/legal-entities", body),
+  updateLegalEntity: (
+    id: Uuid,
+    body: { code?: string; name?: string; tax_code?: string | null; active?: boolean },
+  ) => patch<LegalEntity>(`/api/legal-entities/${id}`, body),
   setMemberCode: (userId: Uuid, memberCode: string | null) =>
     put<{ member_code: string | null }>(`/api/account/members/${userId}/member-code`, {
       member_code: memberCode,

@@ -34,6 +34,7 @@ from meobot.application.units.directory import (
     UnitMemberRow,
     manager_fits,
 )
+from meobot.db.models.department import DepartmentPermission
 from meobot.db.models.org_unit import OrgUnit
 from meobot.db.models.pr import PrContentItem, PrContentTarget
 from meobot.db.models.user import User
@@ -350,12 +351,31 @@ async def ads_approvers(session: AsyncSession, unit_id: uuid.UUID) -> AdsApprove
                     Person(user.id, user.full_name)
                 )
     in_flow = {row.user.id for row in rows}
+    # 2026-11-09 (HR plan D7): the form lists the heads of departments that
+    # take part in the order flow - they grant something in it beyond seeing
+    # (ordering, approving, running a production step) - not every head of
+    # the company's ~30 departments.
+    ordering = frozenset(
+        (
+            await session.scalars(
+                select(DepartmentPermission.department_id)
+                .where(
+                    DepartmentPermission.module == MODULE_ORDER,
+                    DepartmentPermission.permission != AdsPermission.VIEW.value,
+                )
+                .distinct()
+            )
+        ).all()
+    )
     head_people = sorted(
         (
             Person(user.id, user.full_name)
             for user_id, user in active.items()
             if user_id in in_flow
-            and any(seat.position is Position.HEAD for seat in seats.get(user_id, ()))
+            and any(
+                seat.position is Position.HEAD and seat.department_id in ordering
+                for seat in seats.get(user_id, ())
+            )
         ),
         key=lambda person: person.name,
     )

@@ -154,7 +154,7 @@ const FORBIDDEN = {
 describe("the login page", () => {
   const fill = async (id: string, password: string) => {
     const user = userEvent.setup();
-    await user.type(screen.getByLabelText("ID Telegram"), id);
+    await user.type(screen.getByLabelText("Mã nhân viên hoặc ID Telegram"), id);
     await user.type(screen.getByLabelText("Mật khẩu"), password);
     await user.click(screen.getByRole("button", { name: "Đăng nhập" }));
   };
@@ -165,8 +165,7 @@ describe("the login page", () => {
     ]);
     renderWithQuery(<LoginPage />);
     expect(screen.getByRole("heading", { name: "Đăng nhập APM Management" })).toBeInTheDocument();
-    const id = screen.getByLabelText("ID Telegram");
-    expect(id).toHaveAttribute("inputmode", "numeric");
+    const id = screen.getByLabelText("Mã nhân viên hoặc ID Telegram");
     expect(id).toHaveAttribute("autocomplete", "username");
     expect(screen.getByLabelText("Mật khẩu")).toHaveAttribute("autocomplete", "current-password");
     // The bot route is still offered.
@@ -233,12 +232,25 @@ describe("the login page", () => {
     expect(await screen.findByRole("alert")).toHaveTextContent("Tài khoản tạm khoá 15 phút");
   });
 
-  it("asks for a numeric id before sending anything", async () => {
+  it("asks for a member code or id before sending anything", async () => {
     const fetchMock = stubFetch([]);
     renderWithQuery(<LoginPage />);
-    await fill("@tuan", "Bi-mat-2026");
-    expect(await screen.findByRole("alert")).toHaveTextContent("chỉ gồm chữ số");
+    const user = userEvent.setup();
+    await user.type(screen.getByLabelText("Mật khẩu"), "Bi-mat-2026");
+    await user.click(screen.getByRole("button", { name: "Đăng nhập" }));
+    expect(await screen.findByRole("alert")).toHaveTextContent("mã nhân viên");
     expect(callsOf(fetchMock)).toHaveLength(0);
+  });
+
+  it("signs in with a member code (0095)", async () => {
+    const fetchMock = stubFetch([
+      { match: "/api/auth/password-login", method: "POST", body: { must_change_password: true } },
+    ]);
+    renderWithQuery(<LoginPage />);
+    await fill(" Đ019DUYEN ", "Tam-1234ab");
+    await waitFor(() => expect(REPLACED).toEqual(["/account?doi-mat-khau=1"]));
+    const [call] = callsOf(fetchMock);
+    expect(call.body).toEqual({ username: "Đ019DUYEN", password: "Tam-1234ab" });
   });
 });
 
@@ -257,7 +269,7 @@ describe("forgot password", () => {
     renderWithQuery(<LoginPage />);
     const user = userEvent.setup();
     // The id already typed into the login form carries over.
-    await user.type(screen.getByLabelText("ID Telegram"), "123456789");
+    await user.type(screen.getByLabelText("Mã nhân viên hoặc ID Telegram"), "123456789");
     await user.click(screen.getByRole("button", { name: "Quên mật khẩu?" }));
     expect(screen.getByRole("heading", { name: "Quên mật khẩu" })).toBeInTheDocument();
     expect(screen.queryByLabelText("Mật khẩu")).not.toBeInTheDocument();
@@ -277,7 +289,7 @@ describe("forgot password", () => {
     // And back to the login form.
     await user.click(screen.getByRole("button", { name: "Quay lại đăng nhập" }));
     expect(screen.getByRole("heading", { name: "Đăng nhập APM Management" })).toBeInTheDocument();
-    expect(screen.getByLabelText("ID Telegram")).toHaveValue(" 987654321 ");
+    expect(screen.getByLabelText("Mã nhân viên hoặc ID Telegram")).toHaveValue(" 987654321 ");
   });
 
   it("asks for a numeric id before sending anything", async () => {

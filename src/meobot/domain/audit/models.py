@@ -465,6 +465,8 @@ class AuditAction(StrEnum):
     USER_AVATAR_REMOVED = "user.avatar.removed"
     #: The person's member code (0063): before / after, by the OWNER / ADMIN.
     USER_MEMBER_CODE_UPDATED = "user.member_code.updated"
+    #: 0095: job title / branch / company / Telegram id, by the OWNER / ADMIN.
+    USER_WORK_INFO_UPDATED = "user.work_info.updated"
     #: "Hệ số điểm" (0076): a member's points coefficient from a month on.
     USER_POINT_COEFFICIENT_SET = "user.point_coefficient.set"
     #: "Định mức" (2026-10-29): points per hour / hours per day / quota %.
@@ -493,6 +495,11 @@ class AuditAction(StrEnum):
     DEPARTMENT_MEMBER_SET = "department.member.set"
     DEPARTMENT_MEMBER_REMOVED = "department.member.removed"
     DEPARTMENT_GRANTS_UPDATED = "department.grants.updated"
+    #: 0095: the companies people are employed by ("Pháp nhân").
+    LEGAL_ENTITY_CREATED = "legal_entity.created"
+    LEGAL_ENTITY_UPDATED = "legal_entity.updated"
+    #: 0095: the HR sheet's org chart + staff loaded (counts only, no names).
+    HR_ORG_IMPORTED = "hr.org.imported"
     #: "Kết nối AI" (0064). Snapshots carry the key's last four characters,
     #: never the key; a test records whether it answered.
     AI_CONNECTION_CREATED = "ai.connection.created"

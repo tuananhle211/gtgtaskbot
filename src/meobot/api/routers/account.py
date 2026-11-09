@@ -47,6 +47,8 @@ from meobot.api.schemas.account import (
     MemberRowResponse,
     MemberStatsResponse,
     UpdateProfileRequest,
+    WorkInfoRequest,
+    WorkInfoResponse,
 )
 from meobot.api.schemas.pr import ErrorEnvelope
 from meobot.application.account.stats_service import resolve_month
@@ -58,6 +60,7 @@ from meobot.application.resources.employment import (
 from meobot.application.seeding.service import seeding_member_ids
 from meobot.application.user_service import UserService
 from meobot.domain.account.errors import PasswordRejectedError
+from meobot.domain.org.models import BRANCHES
 from meobot.domain.resources.models import EMPLOYMENT_STATUS_LABELS
 
 router = APIRouter(prefix="/api/account", tags=["account"])
@@ -465,6 +468,45 @@ async def set_member_code(
         actor=actor, request_id=request_id, user_id=user_id, member_code=body.member_code
     )
     return MemberCodeResponse(member_code=code)
+
+
+@router.patch(
+    "/members/{user_id}/work-info",
+    response_model=WorkInfoResponse,
+    responses={
+        403: {
+            "model": ErrorEnvelope,
+            "description": "work_info_forbidden - OWNER/ADMIN only (an ADMIN never on the OWNER).",
+        },
+        404: {"model": ErrorEnvelope, "description": "account_not_found."},
+        422: {
+            "model": ErrorEnvelope,
+            "description": "telegram_id_invalid / telegram_id_taken / branch_invalid / "
+            "legal_entity_invalid / job_title_too_long.",
+        },
+    },
+)
+async def set_work_info(
+    user_id: uuid.UUID,
+    body: WorkInfoRequest,
+    actor: CurrentActorDep,
+    accounts: AccountServiceDep,
+    request_id: RequestIdDep,
+) -> WorkInfoResponse:
+    """0095: *Chức danh*, *Chi nhánh*, *Pháp nhân* and *Telegram ID* of any
+    account - only the keys sent. A Telegram id links the account to the bot
+    (the person's ``/start`` is recognised); ``null`` unlinks it."""
+    fields = {key: getattr(body, key) for key in body.model_fields_set}
+    user = await accounts.set_work_info(
+        actor=actor, request_id=request_id, user_id=user_id, fields=fields
+    )
+    return WorkInfoResponse(
+        job_title=user.job_title,
+        branch=user.branch,
+        branch_label=BRANCHES.get(user.branch or ""),
+        legal_entity_id=user.legal_entity_id,
+        telegram_user_id=user.telegram_user_id,
+    )
 
 
 @router.put(

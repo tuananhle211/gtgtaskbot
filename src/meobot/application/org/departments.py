@@ -780,6 +780,8 @@ class DepartmentService:
         name: str,
         function: DepartmentFunction = DepartmentFunction.NONE,
         sort_order: int | None = None,
+        parent_id: uuid.UUID | None = None,
+        block: str | None = None,
     ) -> Department:
         self._require_owner(actor)
         cleaned_code = await self._code(code, exclude=None)
@@ -787,10 +789,17 @@ class DepartmentService:
             orders = (await self._session.scalars(select(Department.sort_order))).all()
             sort_order = max(orders, default=-1) + 1
         row = Department(
-            code=cleaned_code, name=_name(name), function=function, sort_order=sort_order
+            code=cleaned_code,
+            name=_name(name),
+            function=function,
+            sort_order=sort_order,
+            block=_block(block),
         )
         self._session.add(row)
         await self._session.flush()
+        if parent_id is not None:
+            row.parent_id = await self._parent(row, parent_id)
+            await self._session.flush()
         seed_module_defaults(self._session, row)
         await self._session.flush()
         await self._record(
@@ -809,10 +818,18 @@ class DepartmentService:
         function: DepartmentFunction | None = None,
         active: bool | None = None,
         sort_order: int | None = None,
+        structure: dict[str, Any] | None = None,
     ) -> Department:
+        """``structure`` (0095) = the sent ones of ``parent_id`` / ``block``."""
         self._require_owner(actor)
         row = await self.department(department_id)
         before = _snap(row)
+        structure = structure or {}
+        if "parent_id" in structure:
+            parent = structure["parent_id"]
+            row.parent_id = None if parent is None else await self._parent(row, parent)
+        if "block" in structure:
+            row.block = _block(structure["block"])
         if code is not None:
             row.code = await self._code(code, exclude=row.id)
         if name is not None:
@@ -1057,6 +1074,26 @@ class DepartmentService:
             ).all()
         )
 
+    async def _parent(self, row: Department, parent_id: uuid.UUID) -> uuid.UUID:
+        """A parent exists, is not the department itself, and is not under it."""
+        seen: set[uuid.UUID] = {row.id}
+        current: uuid.UUID | None = parent_id
+        while current is not None:
+            if current in seen:
+                raise DepartmentValidationError(
+                    "Phòng cha không hợp lệ (vòng lặp).",
+                    details={"reason": "department_parent_invalid", "field": "parent_id"},
+                )
+            seen.add(current)
+            parent = await self._session.get(Department, current)
+            if parent is None:
+                raise DepartmentValidationError(
+                    "Không tìm thấy phòng cha.",
+                    details={"reason": "department_parent_invalid", "field": "parent_id"},
+                )
+            current = parent.parent_id
+        return parent_id
+
     async def _code(self, value: str, *, exclude: uuid.UUID | None) -> str:
         cleaned = normalise_department_code(value)
         if not cleaned:
@@ -1104,6 +1141,16 @@ def _name(value: str) -> str:
     return cleaned
 
 
+def _block(value: str | None) -> str | None:
+    cleaned = " ".join((value or "").split())
+    if len(cleaned) > 60:
+        raise DepartmentValidationError(
+            "Tên khối tối đa 60 ký tự.",
+            details={"reason": "department_block_invalid", "field": "block"},
+        )
+    return cleaned or None
+
+
 def _bad_cell(what: str) -> DepartmentValidationError:
     return DepartmentValidationError(
         f"Ô phân quyền không hợp lệ: {what}.",
@@ -1118,6 +1165,8 @@ def _snap(row: Department) -> dict[str, Any]:
         "function": row.function.value,
         "active": row.active,
         "sort_order": row.sort_order,
+        "parent_id": None if row.parent_id is None else str(row.parent_id),
+        "block": row.block,
     }
 
 

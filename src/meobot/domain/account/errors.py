@@ -21,7 +21,7 @@ from meobot.core.errors import (
 #: The one sentence every failed login reads - unknown id, wrong password,
 #: deactivated account alike. Telling them apart would tell a stranger which
 #: Telegram ids have accounts.
-LOGIN_FAILED_MESSAGE = "Sai ID Telegram hoặc mật khẩu."
+LOGIN_FAILED_MESSAGE = "Sai mã nhân viên / ID Telegram hoặc mật khẩu."
 LOGIN_LOCKED_MESSAGE = "Đăng nhập sai quá nhiều lần. Vui lòng thử lại sau ít phút."
 #: A sentence, not a secret.
 PASSWORD_CHANGE_REQUIRED_MESSAGE = "Bạn cần đổi mật khẩu mặc định trước khi tiếp tục."  # noqa: S105
@@ -132,6 +132,18 @@ class MemberCodeForbiddenError(AuthorizationError):
         super().__init__(message, details={"reason": self.code})
 
 
+class WorkInfoForbiddenError(AuthorizationError):
+    """0095: a person's job title, branch, company or Telegram id is set by the
+    OWNER and the ADMIN only (an ADMIN never on the OWNER's account). 403."""
+
+    code = "work_info_forbidden"
+
+    def __init__(
+        self, message: str = "Chỉ quản trị viên mới sửa được thông tin công việc."
+    ) -> None:
+        super().__init__(message, details={"reason": self.code})
+
+
 class MemberCodeTakenError(ValidationError):
     """0068: one member code per person. 422."""
 
@@ -235,4 +247,5 @@ __all__ = [
     "PasswordRejectedError",
     "PasswordResetForbiddenError",
     "PasswordResetUndeliverableError",
+    "WorkInfoForbiddenError",
 ]

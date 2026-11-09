@@ -204,7 +204,14 @@ function AccountInfo({ person }: { person: MemberRow }) {
   const rows: Array<{ label: string; value: React.ReactNode }> = [
     { label: "Họ tên", value: person.full_name },
     { label: "Vai trò", value: person.role_label },
-    { label: "ID Telegram", value: <span className="tabular-nums">{String(person.telegram_user_id)}</span> },
+    {
+      label: "ID Telegram",
+      value: (
+        <span className="tabular-nums">
+          {person.telegram_user_id == null ? "Chưa liên kết" : String(person.telegram_user_id)}
+        </span>
+      ),
+    },
     { label: "Mã nhân viên", value: person.member_code ? <span className="font-mono">{person.member_code}</span> : "–" },
     { label: "Trạng thái nhân sự", value: person.employment_status_label ?? "–" },
     {

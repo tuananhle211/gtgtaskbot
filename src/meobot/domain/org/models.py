@@ -19,6 +19,8 @@ Legal...: what they may do comes from their grants alone).
 
 from __future__ import annotations
 
+import re
+import unicodedata
 import uuid
 from dataclasses import dataclass
 from enum import StrEnum
@@ -169,8 +171,67 @@ DEFAULT_ORDER_GRANTS: MappingProxyType[
 
 
 def normalise_department_code(value: str) -> str:
-    """A department code: A-Z and 0-9, at most 12 (it prefixes other codes)."""
-    return "".join(character for character in value.upper() if character.isalnum())[:12]
+    """A department code: A-Z, 0-9 and inner hyphens, at most 12 (it prefixes
+    other codes: ``MEDIA-TK`` -> resource ``MEDIA-TK-001``). Accents go
+    ("Đ" -> "D"), spaces go ("hc ns" -> ``HCNS``), any other character
+    becomes a hyphen ("MEDIA (TK)" -> ``MEDIA-TK``, "ĐT&TTNB" -> ``DT-TTNB``)."""
+    folded = unicodedata.normalize("NFD", (value or "").replace("đ", "d").replace("Đ", "D"))
+    plain = "".join(char for char in folded if unicodedata.category(char) != "Mn").upper()
+    plain = re.sub(r"\s+", "", plain)
+    code = re.sub(r"[^A-Z0-9]+", "-", plain).strip("-")
+    return code[:12].rstrip("-")
+
+
+#: Where a person works (2026-11-09, the HR sheet's "Chi nhánh"). A department
+#: shared by the clinics (Tiếp đón, Điều dưỡng...) has people in several, and
+#: each reports to the head of their own branch.
+BRANCHES: MappingProxyType[str, str] = MappingProxyType(
+    {
+        "VP_HN": "VP - Hà Nội",
+        "CS_HN": "CS - Hà Nội",
+        "CS_HN2": "CS - Hà Nội 2",
+        "CS_SG": "CS - Sài Gòn",
+    }
+)
+
+
+def branch_of(text: str | None) -> str | None:
+    """The branch code for a label as the sheet writes it ("CS - Hà Nội 2"),
+    a code ("CS_HN2"), or ``None`` for blank / unknown."""
+    if not text or not text.strip():
+        return None
+    value = text.strip()
+    if value.upper() in BRANCHES:
+        return value.upper()
+
+    def squash(item: str) -> str:
+        folded = unicodedata.normalize("NFD", item.replace("đ", "d").replace("Đ", "D"))
+        plain = "".join(char for char in folded if unicodedata.category(char) != "Mn")
+        return re.sub(r"[^a-z0-9]", "", plain.lower())
+
+    wanted = squash(value)
+    return next((code for code, label in BRANCHES.items() if squash(label) == wanted), None)
+
+
+#: 2026-11-09 (HR plan D1): the order flow every new department opens with -
+#: what ``SALE`` / ``CSKH`` / ``HCNS`` were given by hand: a head approves the
+#: orders sent to them, orders, reviews the final cut, prioritises; a member
+#: orders and sees their own.
+BASIC_ORDER_GRANTS: MappingProxyType[Position, MappingProxyType[str, str]] = MappingProxyType(
+    {
+        Position.HEAD: MappingProxyType(
+            {
+                "VIEW": "OWN",
+                "ORDER_CREATE": "ALL",
+                "ORDER_APPROVE": "OWN",
+                "FINAL_REVIEW": "ALL",
+                "PRIORITY": "ALL",
+                "CANCEL": "OWN",
+            }
+        ),
+        Position.MEMBER: MappingProxyType({"VIEW": "OWN", "ORDER_CREATE": "ALL", "CANCEL": "OWN"}),
+    }
+)
 
 
 def seat_label(seat: Seat) -> str:
@@ -188,6 +249,8 @@ def seat_label(seat: Seat) -> str:
 
 
 __all__ = [
+    "BASIC_ORDER_GRANTS",
+    "BRANCHES",
     "DEFAULT_DEPARTMENTS",
     "DEFAULT_ORDER_GRANTS",
     "FUNCTION_LABELS",
@@ -200,6 +263,7 @@ __all__ = [
     "Grant",
     "Position",
     "Seat",
+    "branch_of",
     "normalise_department_code",
     "seat_label",
 ]
