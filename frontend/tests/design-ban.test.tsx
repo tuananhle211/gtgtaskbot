@@ -156,7 +156,7 @@ describe('the "Bảng order" branch of the nav', () => {
     shell();
     await screen.findByText("Phòng ban của bạn");
     await waitFor(() =>
-      expect(navHrefs()).toEqual(["/dashboard", "/performance/me", "/performance/timeline", "/hr/me", "/hr/org", "/tasks", "/tasks/task-codes"]),
+      expect(navHrefs()).toEqual(["/dashboard", "/performance/me", "/performance/timeline", "/hr/me", "/hr/leave", "/hr/timesheet", "/hr/org", "/tasks", "/tasks/task-codes"]),
     );
     const branch = within(primary()).getByRole("group", { name: "Bảng order" });
     // Folded by default; its entries stay in the DOM (hidden from lg only).
@@ -184,7 +184,7 @@ describe('the "Bảng order" branch of the nav', () => {
     expect(navHrefs()).toEqual([
       "/dashboard",
       "/performance/me", "/performance/timeline",
-      "/hr/me", "/hr/org",
+      "/hr/me", "/hr/leave", "/hr/timesheet", "/hr/org",
       "/tasks",
       "/tasks/birthday",
       "/tasks/task-codes",

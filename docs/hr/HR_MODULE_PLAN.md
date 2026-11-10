@@ -1,6 +1,6 @@
 # Module Hành chính nhân sự (kiểu MISA AMIS HRM, bản cơ bản) - kế hoạch
 
-> Trạng thái: **ĐỢT 1 ĐÃ LÊN PROD (09/11/2026 17:52)**: 33 phòng, 161 tài khoản mới. **Đợt 2 (hồ sơ) đã code + chạy local 10/11, chưa lên prod.** Đợt 3-4 chờ (đợt 4 cần file mẫu máy chấm công). Chưa viết dòng code nào.
+> Trạng thái: **ĐỢT 1 ĐÃ LÊN PROD (09/11/2026 17:52)**: 33 phòng, 161 tài khoản mới. **Đợt 2 (hồ sơ) đã lên prod 10/11.** **Đợt 3-4 (đơn từ, phép năm, ca, chấm công - 0100) đã code + chạy local 10/11, chưa lên prod** (mục 0, bảng "Chốt đợt 3-4").
 > Nguồn: Google Sheet "Sổ tay" (tab **Mã phòng ban**, **Nhân sự**, tham khảo **Thông tin cơ bản**, **Phân quyền**),
 > đối chiếu với dữ liệu prod đọc ngày 09/11/2026.
 > **[HỎI Qn]** / **[HỎI Dn]** = chờ anh quyết (mục 10 / mục 3.1). Không ghi dữ liệu cá nhân (CCCD, SĐT, ngày sinh…) vào tài liệu này.
@@ -29,6 +29,16 @@ Sau khi anh sửa: **60** người khớp mã, **161** người tạo mới (đ�
 | Q12 | Ca làm việc: **HCNS tự cấu hình** (giờ vào/ra, ngày làm, số phút cho phép trễ) theo phòng / chi nhánh |
 | Q13 | Nhân viên **tự gửi yêu cầu sửa** SĐT / email của mình, **HCNS duyệt** rồi mới đổi |
 | Q14 | **APM là bản chính** sau lần nhập đầu; có nút xuất Excel |
+
+**Chốt đợt 3-4 (10/11/2026)**
+
+| # | Anh chốt |
+|---|---|
+| L1 | Đơn **nghỉ**: duyệt lần lượt **Trưởng phòng → Giám đốc khối → Giám đốc → HCNS** (thay Q10) |
+| L2 | "Giám đốc khối" = Trưởng phòng của phòng Văn phòng khối (mã bắt đầu `VP`, cùng khối); "Giám đốc" = Trưởng phòng BOD; cấp trống / trùng người đã duyệt / chính người gửi thì bỏ qua |
+| L3 | **Đi muộn / về sớm**: 2 cấp - cấp quản lý đầu tiên có người (Trưởng phòng, không có thì Giám đốc khối, rồi Giám đốc) và HCNS |
+| L4 | Ca mặc định 8:00-12:00, 13:30-17:30, thứ 7 sáng, cho phép trễ 5 phút (HCNS sửa theo phòng / chi nhánh) |
+| L5 | File chấm công = "HCNS - DỮ LIỆU CHẤM CÔNG.xlsx", 3 tab giữa (VP / CS HN / CS HCM): mỗi dòng 1 người 1 ngày, Mã nhân viên + Ngày + Vào + Ra |
 
 **Chốt hồ sơ nhân sự theo mẫu `QuanLyHoSoNhanSu.html` (10/11/2026)**
 

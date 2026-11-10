@@ -81,6 +81,7 @@ from meobot.application.agents.service import AgentChatService
 from meobot.application.assistant.access import may_chat_assistant
 from meobot.application.audit_service import AuditService
 from meobot.application.cskh.access import cskh_access
+from meobot.application.hr.absences import HrAbsenceService
 from meobot.application.hr.access import hr_access
 from meobot.application.hr.files import HrFileService
 from meobot.application.orders.design_code_service import (
@@ -112,6 +113,7 @@ from meobot.application.seeding.service import (
 )
 from meobot.application.units.admin import ROLES_BY_UNIT, UnitAdminService
 from meobot.application.units.directory import NOT_VISIBLE, UnitDirectoryService
+from meobot.core.config import get_settings
 from meobot.core.errors import ValidationError
 from meobot.db.models.pancake import PancakeReply
 from meobot.domain.identity.labels import role_label
@@ -299,7 +301,7 @@ async def my_units(
         assistant=AssistantAccessResponse(chat=may_chat_assistant(membership)),
         agents=await _agents_block(directory.session, membership),
         cskh=await _cskh_block(directory.session, membership),
-        hr=await _hr_block(directory.session, membership),
+        hr=await _hr_block(directory.session, actor, membership),
     )
 
 
@@ -316,13 +318,21 @@ async def _cskh_block(session: AsyncSession, membership: UnitMembership) -> Cskh
     return CskhMenuResponse(reply=True, manage=access.manage, waiting=int(waiting or 0))
 
 
-async def _hr_block(session: AsyncSession, membership: UnitMembership) -> HrMenuResponse:
+async def _hr_block(
+    session: AsyncSession, actor: Actor, membership: UnitMembership
+) -> HrMenuResponse:
     """ "Nhân sự" (0096): what the nav shows, and the requests badge."""
     access = await hr_access(session, membership)
     pending = 0
     if access.edit:
         pending = await HrFileService(session, AuditService(session)).pending_count()
+    awaiting = await HrAbsenceService(
+        session, get_settings(), AuditService(session)
+    ).awaiting_count(actor, access)
     return HrMenuResponse(
+        timesheet=access.timesheet,
+        lists_attendance=access.lists_attendance,
+        absences_awaiting=awaiting,
         lists=access.lists,
         overview=access.view_all,
         edit=access.edit,

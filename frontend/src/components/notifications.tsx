@@ -75,6 +75,8 @@ export function notificationHref(item: AppNotification): string | null {
   // 2026-10-31: what waits for the Trưởng phòng PR.
   if (item.target_kind === "seeding") return "/seeding?tab=review";
   if (item.target_kind === "pr_claim") return "/performance/pr-claims";
+  // 0100: a leave / late / early request.
+  if (item.target_kind === "hr_absence" && item.target_id) return `/hr/leave/${item.target_id}`;
   return null;
 }
 

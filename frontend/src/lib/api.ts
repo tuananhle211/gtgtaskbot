@@ -3507,6 +3507,12 @@ export interface UnitsMe {
     sensitive: boolean;
     export: boolean;
     pending: number;
+    /** 0100: HCNS - import, shifts, holidays, every timesheet. */
+    timesheet?: boolean;
+    /** 0100: may open other people's timesheets / annual leave. */
+    lists_attendance?: boolean;
+    /** 0100: leave / late / early requests waiting on the caller. */
+    absences_awaiting?: number;
   } | null;
   /**
    * May open other people's profile pages (`/people/<id>`, 2026-10-19): the

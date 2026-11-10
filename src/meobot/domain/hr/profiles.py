@@ -11,6 +11,8 @@ Pure - no database. The permission module ``HR`` ("Nhân sự"):
   account, salary, insurance and tax (Q11: HCNS + the OWNER + oneself). The
   OWNER grants it alone and an ADMIN does not hold it by role.
 * ``EXPORT`` - the Excel file.
+* ``TIMESHEET`` (0100) - the last step of every leave / late / early request,
+  the time clock's file, shifts, holidays, annual leave, every timesheet.
 
 Everybody always sees their own whole profile.
 """
@@ -33,6 +35,9 @@ class HrPermission(StrEnum):
     EDIT = "EDIT"
     SENSITIVE = "SENSITIVE"
     EXPORT = "EXPORT"
+    #: 0100: confirm leave / late / early requests (the last step), import the
+    #: time clock's file, shifts, holidays, annual leave, every timesheet.
+    TIMESHEET = "TIMESHEET"
 
 
 HR_PERMISSION_LABELS: Mapping[HrPermission, str] = MappingProxyType(
@@ -41,6 +46,7 @@ HR_PERMISSION_LABELS: Mapping[HrPermission, str] = MappingProxyType(
         HrPermission.EDIT: "Thêm / sửa hồ sơ, hợp đồng, tài liệu; duyệt yêu cầu sửa",
         HrPermission.SENSITIVE: "Xem dữ liệu nhạy cảm (CCCD, SĐT, ngày sinh, lương, bảo hiểm)",
         HrPermission.EXPORT: "Xuất Excel hồ sơ",
+        HrPermission.TIMESHEET: "Chấm công, phép năm & xác nhận đơn từ (HCNS)",
     }
 )
 HR_OWN_MEANING: Mapping[HrPermission, str] = MappingProxyType(

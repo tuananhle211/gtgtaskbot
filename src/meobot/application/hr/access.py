@@ -46,6 +46,9 @@ class HrAccess:
     edit: bool = False
     sensitive: bool = False
     export: bool = False
+    #: 0100 ``TIMESHEET``: every request's HCNS step, the time clock's file,
+    #: shifts, holidays, annual leave, every timesheet.
+    timesheet: bool = False
     #: ``VIEW OWN``: the people of the departments one heads.
     team: frozenset[uuid.UUID] = field(default_factory=frozenset)
 
@@ -63,6 +66,19 @@ class HrAccess:
     def require_view(self, user_id: uuid.UUID) -> None:
         if not self.may_view(user_id):
             raise HrNotFoundError()
+
+    def sees_attendance(self, user_id: uuid.UUID) -> bool:
+        """A timesheet / request: oneself, one's department heads' people
+        (``VIEW OWN``), HCNS (``TIMESHEET``) and whoever sees every profile."""
+        return self.timesheet or self.may_view(user_id)
+
+    @property
+    def lists_attendance(self) -> bool:
+        return self.timesheet or self.lists
+
+    def require_timesheet(self) -> None:
+        if not self.timesheet:
+            raise HrForbiddenError("Chỉ phòng Hành chính nhân sự làm được việc này.")
 
     def require_edit(self) -> None:
         if not self.edit:
@@ -95,6 +111,7 @@ async def hr_access(session: AsyncSession, membership: UnitMembership) -> HrAcce
         edit=edit,
         sensitive=scope(HrPermission.SENSITIVE) == "ALL",
         export=scope(HrPermission.EXPORT) == "ALL",
+        timesheet=scope(HrPermission.TIMESHEET) == "ALL",
         team=team,
     )
 

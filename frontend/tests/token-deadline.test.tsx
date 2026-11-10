@@ -716,7 +716,7 @@ describe("the Effort entry in the nav", () => {
     expect(navHrefs()).toEqual([
       "/dashboard",
       "/performance/me", "/performance/timeline",
-      "/hr/me", "/hr/org",
+      "/hr/me", "/hr/leave", "/hr/timesheet", "/hr/org",
       "/tasks",
       "/tasks/task-codes",
       "/tasks/effort",
@@ -744,7 +744,7 @@ describe("the Effort entry in the nav", () => {
     renderWithQuery(<Shell>{null}</Shell>);
     await screen.findByText(/Le Trưởng Nhóm|Thành viên|Nhân viên/);
     await waitFor(() =>
-      expect(navHrefs()).toEqual(["/dashboard", "/performance/me", "/performance/timeline", "/hr/me", "/hr/org", "/tasks", "/tasks/task-codes"]),
+      expect(navHrefs()).toEqual(["/dashboard", "/performance/me", "/performance/timeline", "/hr/me", "/hr/leave", "/hr/timesheet", "/hr/org", "/tasks", "/tasks/task-codes"]),
     );
     expect(screen.queryByRole("link", { name: /Effort/ })).not.toBeInTheDocument();
   });

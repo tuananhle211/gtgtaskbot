@@ -256,6 +256,20 @@ function hrBranch(me: UnitsMe | undefined): NavGroup | null {
           ]
         : []),
       { href: "/hr/me", label: "Hồ sơ của tôi", icon: "mine" },
+      // 0100: đơn từ, bảng công, phép năm, ca & ngày lễ.
+      {
+        href: "/hr/leave",
+        label: "Đơn từ",
+        icon: "request",
+        badge: hr?.absences_awaiting || undefined,
+      },
+      { href: "/hr/timesheet", label: "Bảng công", icon: "timeline" },
+      ...(hr?.lists_attendance || hr?.timesheet
+        ? [{ href: "/hr/leave/balances", label: "Phép năm", icon: "report" as NavIcon }]
+        : []),
+      ...(hr?.timesheet
+        ? [{ href: "/hr/attendance-settings", label: "Ca & ngày lễ", icon: "settings" as NavIcon }]
+        : []),
       { href: "/hr/org", label: "Sơ đồ tổ chức", icon: "department" },
       ...(hr?.edit ? [{ href: "/hr/settings", label: "Danh mục", icon: "settings" as NavIcon }] : []),
     ],

@@ -254,6 +254,13 @@ class NotificationEvent(StrEnum):
     #: Phone numbers / "việc khác" handed in on "Báo cáo công việc/Seeding"
     #: wait for a Trưởng phòng PR.
     SEEDING_REVIEW_REQUESTED = "seeding_review_requested"
+    # --- Đơn từ (0100) ------------------------------------------------------
+    #: A leave / late / early request reached a step the recipient decides.
+    HR_ABSENCE_AWAITING = "hr_absence_awaiting"
+    #: The whole chain approved it: to the requester.
+    HR_ABSENCE_APPROVED = "hr_absence_approved"
+    #: A step refused it: to the requester.
+    HR_ABSENCE_REJECTED = "hr_absence_rejected"
     #: A Guest's held-back first question, answered after approval.
     GUEST_REPLY = "guest_reply"
     #: One firing of a user-defined reminder.

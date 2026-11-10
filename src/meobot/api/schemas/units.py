@@ -239,6 +239,12 @@ class HrMenuResponse(BaseModel):
     sensitive: bool = False
     export: bool = False
     pending: int = 0
+    #: 0100: HCNS (``TIMESHEET``): import, shifts, holidays, every timesheet.
+    timesheet: bool = False
+    #: 0100: may open "Bảng công" / "Phép năm" of other people.
+    lists_attendance: bool = False
+    #: 0100: leave / late / early requests waiting on the caller (the badge).
+    absences_awaiting: int = 0
 
 
 class CskhMenuResponse(BaseModel):

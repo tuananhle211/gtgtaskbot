@@ -743,6 +743,16 @@ TEMPLATES: dict[str, MessageTemplate] = {
             optional=("note",),
             renderer=_order_update,
         ),
+        # --- Đơn từ (0100) ----------------------------------------------
+        # PERSONAL_PRIVATE: names whose leave is asked and when. Same shape.
+        MessageTemplate(
+            key="hr.absence",
+            version=1,
+            classification=PrivacyClassification.PERSONAL_PRIVATE,
+            required=("heading", "title", "code", "body", "link"),
+            optional=("note",),
+            renderer=_order_update,
+        ),
         # --- Account (0046) ---------------------------------------------
         # A credential: only ever the owner's private chat, and the outbox
         # blanks it once the row is settled.
