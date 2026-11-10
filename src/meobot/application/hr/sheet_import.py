@@ -32,10 +32,16 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from meobot.application.hr.profiles import HrProfileService
 from meobot.application.org.hr_import import entity_code_of, fold, parse_day
-from meobot.db.models.hr_profile import HrContract, HrContractType, HrProfile
+from meobot.db.models.hr_profile import HrContract, HrContractType, HrProfile, HrScanLink
 from meobot.db.models.legal_entity import LegalEntity
 from meobot.db.models.user import User
-from meobot.domain.hr.profiles import DOCUMENT_KINDS, PAPER_DOCUMENTS, add_months, gender_of
+from meobot.domain.hr.profiles import (
+    DOCUMENT_KINDS,
+    PAPER_DOCUMENTS,
+    add_months,
+    gender_of,
+    split_scan_cell,
+)
 from meobot.domain.units.member_code import normalise_member_code
 
 UNKNOWN_TYPE = ("HDLD", "HĐ lao động (chưa rõ thời hạn)")
@@ -89,7 +95,7 @@ COLUMNS: dict[str, tuple[str, ...]] = {
     "bank_account_2": ("stk",),
     "bank2_name": ("ngan hang",),
     "bank2_holder": ("ten tai khoan",),
-    "scan_link": ("ho so scan",),
+    "scan": ("ho so scan",),
     "paper:CV": ("so yeu ly lich",),
     "paper:CCCD": ("cccd",),
     "paper:BIRTH": ("giay khai sinh",),
@@ -192,10 +198,21 @@ def cell_text(value: object) -> str:
 
 def table_from_xlsx(data: bytes, sheet: str) -> list[list[str]]:
     """Every row of ``sheet`` as text (header rows included)."""
-    book = load_workbook(io.BytesIO(data), read_only=True, data_only=True)
+    # Not read-only: a cell's hidden hyperlink ("Link" pointing at Drive) only
+    # shows in full mode; its target is added after the text when missing.
+    book = load_workbook(io.BytesIO(data), data_only=True)
     try:
-        rows = book[sheet].iter_rows(values_only=True)
-        return [[cell_text(value) for value in row] for row in rows]
+        table: list[list[str]] = []
+        for row in book[sheet].iter_rows():
+            texts: list[str] = []
+            for cell in row:
+                text = cell_text(cell.value)
+                target = getattr(cell.hyperlink, "target", None) if cell.hyperlink else None
+                if target and target not in text:
+                    text = f"{text}\n{target}" if text else target
+                texts.append(text)
+            table.append(texts)
+        return table
     finally:
         book.close()
 
@@ -288,7 +305,6 @@ class HrProfileImport:
             "bank_holder": 200,
             "bank2_name": 100,
             "bank2_holder": 200,
-            "scan_link": 1000,
             "insurance_title": 200,
             "social_insurance_no": 30,
         }
@@ -305,6 +321,8 @@ class HrProfileImport:
                 if day is not None:
                     self._report.count(name)
                     setattr(profile, name, day)
+        if "scan" in at:
+            await self._scan_links(user, profile, cell("scan"))
         papers = [code for code in PAPER_DOCUMENTS if f"paper:{code}" in at]
         if papers:
             ticked = {code for code in papers if _yes(cell(f"paper:{code}"))}
@@ -345,6 +363,34 @@ class HrProfileImport:
             if entity and entity in self._entities:
                 user.legal_entity_id = self._entities[entity]
                 self._report.companies_filled += 1
+
+    async def _scan_links(self, user: User, profile: HrProfile, text: str) -> None:
+        """0099: each link of "Hồ sơ scan" is a row (added once, never removed
+        here) named by the words before it on its line; the rest is the note."""
+        links, rest = split_scan_cell(text)
+        if rest:
+            profile.scan_note = rest[:1000]
+        if not links:
+            return
+        existing = (
+            await self._session.scalars(select(HrScanLink).where(HrScanLink.user_id == user.id))
+        ).all()
+        known = {row.url for row in existing}
+        order = max((row.sort_order for row in existing), default=-1)
+        for label, url in links:
+            if url in known or len(url) > 2000:
+                continue
+            order += 1
+            self._session.add(
+                HrScanLink(
+                    user_id=user.id,
+                    label=None if label is None else label[:200],
+                    url=url,
+                    sort_order=order,
+                )
+            )
+            known.add(url)
+            self._report.count("scan_links")
 
     async def _contracts(self, user: User, cell: Any) -> None:
         existing = {

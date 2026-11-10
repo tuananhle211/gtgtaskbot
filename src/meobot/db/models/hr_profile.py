@@ -36,6 +36,7 @@ CONTRACT_TYPES = "hr_contract_types"
 CONTRACTS = "hr_contracts"
 DOCUMENTS = "hr_documents"
 REQUESTS = "hr_change_requests"
+SCAN_LINKS = "hr_scan_links"
 
 
 class HrProfile(Base, TimestampMixin):
@@ -91,8 +92,8 @@ class HrProfile(Base, TimestampMixin):
     fingerprint_id: Mapped[str | None] = mapped_column(String(30), nullable=True)
     fingerprint_on: Mapped[date | None] = mapped_column(Date, nullable=True)
     fingerprint_floor: Mapped[str | None] = mapped_column(String(30), nullable=True)
-    #: The folder of scanned papers (a Drive link).
-    scan_link: Mapped[str | None] = mapped_column(Text, nullable=True)
+    #: Words about the scanned papers (0099: the links are ``hr_scan_links``).
+    scan_note: Mapped[str | None] = mapped_column(Text, nullable=True)
     #: Paper documents handed in (``DOCUMENT_KINDS`` codes).
     paper_documents: Mapped[list[str]] = mapped_column(
         JSONColumn, nullable=False, default=list, server_default=text("'[]'")
@@ -163,6 +164,24 @@ class HrDocument(Base, UUIDPrimaryKeyMixin):
     )
 
 
+class HrScanLink(Base, UUIDPrimaryKeyMixin, TimestampMixin):
+    """0099: one Drive link of a person's scanned papers ("Hồ sơ scan")."""
+
+    __tablename__ = SCAN_LINKS
+
+    user_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey(f"{USERS_TABLE}.id", ondelete=RESTRICT), nullable=False, index=True
+    )
+    label: Mapped[str | None] = mapped_column(String(200), nullable=True)
+    url: Mapped[str] = mapped_column(Text, nullable=False)
+    sort_order: Mapped[int] = mapped_column(
+        Integer, nullable=False, default=0, server_default=text("0")
+    )
+    created_by_user_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey(f"{USERS_TABLE}.id", ondelete="SET NULL"), nullable=True
+    )
+
+
 class HrChangeRequest(Base, UUIDPrimaryKeyMixin, TimestampMixin):
     """Q13: a person asks HCNS to change their own contact details."""
 
@@ -188,9 +207,11 @@ __all__ = [
     "DOCUMENTS",
     "PROFILES",
     "REQUESTS",
+    "SCAN_LINKS",
     "HrChangeRequest",
     "HrContract",
     "HrContractType",
     "HrDocument",
     "HrProfile",
+    "HrScanLink",
 ]

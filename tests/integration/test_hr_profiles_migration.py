@@ -40,6 +40,7 @@ LATER = (
     "'insurance_title'",
     "'fingerprint_",
     "'scan_link'",
+    "'scan_note'",
     "'paper_documents'",
 )
 

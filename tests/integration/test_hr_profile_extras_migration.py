@@ -80,6 +80,8 @@ async def test_01_model_and_migration_agree(database: Database) -> None:
             item
             for item in compare_metadata(context, Base.metadata)
             if any(word in repr(item) for word in words)
+            # 0099 renames scan_link to scan_note and adds hr_scan_links.
+            and "scan_" not in repr(item)
         ]
 
     async with database.engine.begin() as connection:

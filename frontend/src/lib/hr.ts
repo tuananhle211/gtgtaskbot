@@ -101,6 +101,8 @@ export type HrDocument = {
   created_at: string;
 };
 
+export type HrScanLink = { id: string; label: string | null; url: string; created_at: string };
+
 export type HrProfile = HrRow & {
   contracts: HrContract[];
   work: {
@@ -121,7 +123,10 @@ export type HrProfile = HrRow & {
   can_edit: boolean;
   /** 0097: the paper file HCNS keeps (sensitive viewers only). */
   papers?: null | {
-    scan_link: string | null;
+    /** Words about the scanned papers (0099). */
+    scan_note: string | null;
+    /** The Drive links of the scanned papers (0099). */
+    scan_links: HrScanLink[];
     items: { code: string; label: string; handed: boolean; uploaded: boolean; required: boolean }[];
   };
   personal: null | {
@@ -274,6 +279,11 @@ export const hrApi = {
       signed,
     }),
   deleteDocument: (documentId: string) => http.del<void>(`/api/hr/documents/${documentId}`),
+  addScanLink: (userId: string, body: { label: string | null; url: string }) =>
+    http.post<HrScanLink>(`/api/hr/profiles/${userId}/scan-links`, body),
+  editScanLink: (linkId: string, body: { label: string | null; url: string }) =>
+    http.patch<HrScanLink>(`/api/hr/scan-links/${linkId}`, body),
+  deleteScanLink: (linkId: string) => http.del<void>(`/api/hr/scan-links/${linkId}`),
   requests: (status?: string, mine = false) =>
     http.get<{ items: HrRequest[]; can_decide: boolean }>(
       `/api/hr/requests${query({ status, mine: mine ? "true" : undefined } as HrFilters)}`,

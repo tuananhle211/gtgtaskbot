@@ -65,6 +65,7 @@ from meobot.db.models.hr_profile import (
     HrContractType,
     HrDocument,
     HrProfile,
+    HrScanLink,
 )
 from meobot.db.models.invite import InviteCode
 from meobot.db.models.legal_entity import LegalEntity
@@ -264,6 +265,7 @@ __all__ = [
     "HrProfile",
     "HrRequest",
     "HrRequestEvent",
+    "HrScanLink",
     "InviteCode",
     "LegalEntity",
     "MemberListContext",

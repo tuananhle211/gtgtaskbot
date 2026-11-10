@@ -23,14 +23,16 @@ from sqlalchemy.orm import undefer
 from meobot.application.audit_service import AuditService
 from meobot.application.hr.access import HrAccess, HrForbiddenError, HrNotFoundError
 from meobot.application.hr.profiles import HrValidationError
-from meobot.db.models.hr_profile import HrChangeRequest, HrDocument, HrProfile
+from meobot.db.models.hr_profile import HrChangeRequest, HrDocument, HrProfile, HrScanLink
 from meobot.db.models.user import User
 from meobot.domain.audit.models import AuditAction, AuditResult
 from meobot.domain.hr.profiles import (
     DOCUMENT_KINDS,
     MAX_DOCUMENT_BYTES,
+    MAX_SCAN_LINKS,
     REQUEST_FIELDS,
     REQUEST_STATUS_LABELS,
+    SCAN_LINK,
     RequestStatus,
 )
 from meobot.domain.identity.models import Actor
@@ -142,6 +144,127 @@ class HrFileService:
             AuditAction.HR_DOCUMENT_DELETED,
             row.user_id,
             {"document_id": str(row.id), "kind": row.kind, "name": row.name},
+        )
+
+    # --- scan links (0099) ------------------------------------------------------------
+
+    @staticmethod
+    def _link_fields(label: str | None, url: str | None) -> tuple[str | None, str]:
+        clean_url = (url or "").strip()
+        if not SCAN_LINK.fullmatch(clean_url) or len(clean_url) > 2000:
+            raise HrValidationError(
+                "hr_scan_link_invalid", "Link phải bắt đầu bằng http:// hoặc https://.", field="url"
+            )
+        clean_label = " ".join((label or "").split()) or None
+        if clean_label is not None and len(clean_label) > 200:
+            raise HrValidationError(
+                "hr_scan_link_invalid", "Tên link tối đa 200 ký tự.", field="label"
+            )
+        return clean_label, clean_url
+
+    def _may_edit_links(self, access: HrAccess, user_id: uuid.UUID) -> None:
+        access.require_edit()
+        if not access.sees_sensitive(user_id):
+            raise HrForbiddenError("Chỉ người xem được hồ sơ giấy mới sửa được link scan.")
+
+    async def add_scan_link(
+        self,
+        *,
+        actor: Actor,
+        access: HrAccess,
+        request_id: uuid.UUID,
+        user_id: uuid.UUID,
+        label: str | None,
+        url: str,
+    ) -> HrScanLink:
+        self._may_edit_links(access, user_id)
+        user = await self._session.get(User, user_id)
+        if user is None or user.deleted_at is not None:
+            raise HrNotFoundError()
+        clean_label, clean_url = self._link_fields(label, url)
+        existing = (
+            await self._session.scalars(select(HrScanLink).where(HrScanLink.user_id == user_id))
+        ).all()
+        if len(existing) >= MAX_SCAN_LINKS:
+            raise HrValidationError(
+                "hr_scan_link_invalid", f"Tối đa {MAX_SCAN_LINKS} link mỗi người.", field="url"
+            )
+        if any(row.url == clean_url for row in existing):
+            raise HrValidationError(
+                "hr_scan_link_duplicate", "Link này đã có trong hồ sơ.", field="url"
+            )
+        row = HrScanLink(
+            user_id=user_id,
+            label=clean_label,
+            url=clean_url,
+            sort_order=max((item.sort_order for item in existing), default=-1) + 1,
+            created_by_user_id=actor.user_id,
+        )
+        self._session.add(row)
+        await self._session.flush()
+        await self._record(
+            actor,
+            request_id,
+            AuditAction.HR_SCAN_LINK_ADDED,
+            user_id,
+            {"link_id": str(row.id), "label": clean_label},
+        )
+        return row
+
+    async def update_scan_link(
+        self,
+        *,
+        actor: Actor,
+        access: HrAccess,
+        request_id: uuid.UUID,
+        link_id: uuid.UUID,
+        label: str | None,
+        url: str,
+    ) -> HrScanLink:
+        row = await self._session.get(HrScanLink, link_id)
+        if row is None or not access.sees_sensitive(row.user_id):
+            raise HrNotFoundError("Không tìm thấy link.")
+        self._may_edit_links(access, row.user_id)
+        clean_label, clean_url = self._link_fields(label, url)
+        clash = await self._session.scalar(
+            select(HrScanLink.id).where(
+                HrScanLink.user_id == row.user_id,
+                HrScanLink.url == clean_url,
+                HrScanLink.id != row.id,
+            )
+        )
+        if clash is not None:
+            raise HrValidationError(
+                "hr_scan_link_duplicate", "Link này đã có trong hồ sơ.", field="url"
+            )
+        row.label = clean_label
+        row.url = clean_url
+        row.updated_at = datetime.now(UTC)
+        await self._session.flush()
+        await self._record(
+            actor,
+            request_id,
+            AuditAction.HR_SCAN_LINK_UPDATED,
+            row.user_id,
+            {"link_id": str(row.id), "label": clean_label},
+        )
+        return row
+
+    async def delete_scan_link(
+        self, *, actor: Actor, access: HrAccess, request_id: uuid.UUID, link_id: uuid.UUID
+    ) -> None:
+        row = await self._session.get(HrScanLink, link_id)
+        if row is None or not access.sees_sensitive(row.user_id):
+            raise HrNotFoundError("Không tìm thấy link.")
+        self._may_edit_links(access, row.user_id)
+        await self._session.delete(row)
+        await self._session.flush()
+        await self._record(
+            actor,
+            request_id,
+            AuditAction.HR_SCAN_LINK_DELETED,
+            row.user_id,
+            {"link_id": str(row.id), "label": row.label},
         )
 
     # --- change requests -------------------------------------------------------------

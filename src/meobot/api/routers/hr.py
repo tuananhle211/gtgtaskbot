@@ -115,7 +115,7 @@ class ProfileBody(BaseModel):
     bank_account_2: str | None = Field(default=None, max_length=40)
     bank2_holder: str | None = Field(default=None, max_length=200)
     insurance_title: str | None = Field(default=None, max_length=200)
-    scan_link: str | None = Field(default=None, max_length=1000)
+    scan_note: str | None = Field(default=None, max_length=1000)
     paper_documents: list[str] | None = Field(default=None, max_length=20)
 
 
@@ -169,6 +169,11 @@ class ContractTypeBody(BaseModel):
 class RequestBody(BaseModel):
     field: str = Field(min_length=1, max_length=40)
     value: str | None = Field(default=None, max_length=500)
+
+
+class ScanLinkBody(BaseModel):
+    label: str | None = Field(default=None, max_length=200)
+    url: str = Field(min_length=1, max_length=2000)
 
 
 class DecideBody(BaseModel):
@@ -716,6 +721,81 @@ async def delete_document(
     _service, access = await _ctx(session, settings, membership)
     await HrFileService(session, AuditService(session)).delete(
         actor=actor, access=access, request_id=request_id, document_id=document_id
+    )
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+
+# --- scan links (0099) ---------------------------------------------------------------------
+
+
+def _link(row: Any) -> dict[str, Any]:
+    return {
+        "id": str(row.id),
+        "label": row.label,
+        "url": row.url,
+        "created_at": row.created_at,
+    }
+
+
+@router.post("/profiles/{user_id}/scan-links", status_code=status.HTTP_201_CREATED)
+async def add_scan_link(
+    user_id: uuid.UUID,
+    body: ScanLinkBody,
+    actor: CurrentActorDep,
+    session: SessionDep,
+    settings: SettingsDep,
+    membership: UnitMembershipDep,
+    request_id: RequestIdDep,
+) -> dict[str, Any]:
+    """A Drive link of the person's scanned papers. EDIT + sensitive view;
+    422 ``hr_scan_link_invalid`` (not http(s), too long, > 30) /
+    ``hr_scan_link_duplicate``."""
+    _service, access = await _ctx(session, settings, membership)
+    row = await HrFileService(session, AuditService(session)).add_scan_link(
+        actor=actor,
+        access=access,
+        request_id=request_id,
+        user_id=user_id,
+        label=body.label,
+        url=body.url,
+    )
+    return _link(row)
+
+
+@router.patch("/scan-links/{link_id}")
+async def update_scan_link(
+    link_id: uuid.UUID,
+    body: ScanLinkBody,
+    actor: CurrentActorDep,
+    session: SessionDep,
+    settings: SettingsDep,
+    membership: UnitMembershipDep,
+    request_id: RequestIdDep,
+) -> dict[str, Any]:
+    _service, access = await _ctx(session, settings, membership)
+    row = await HrFileService(session, AuditService(session)).update_scan_link(
+        actor=actor,
+        access=access,
+        request_id=request_id,
+        link_id=link_id,
+        label=body.label,
+        url=body.url,
+    )
+    return _link(row)
+
+
+@router.delete("/scan-links/{link_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_scan_link(
+    link_id: uuid.UUID,
+    actor: CurrentActorDep,
+    session: SessionDep,
+    settings: SettingsDep,
+    membership: UnitMembershipDep,
+    request_id: RequestIdDep,
+) -> Response:
+    _service, access = await _ctx(session, settings, membership)
+    await HrFileService(session, AuditService(session)).delete_scan_link(
+        actor=actor, access=access, request_id=request_id, link_id=link_id
     )
     return Response(status_code=status.HTTP_204_NO_CONTENT)
 

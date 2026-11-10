@@ -42,6 +42,7 @@ from meobot.db.models.hr_profile import (
     HrContractType,
     HrDocument,
     HrProfile,
+    HrScanLink,
 )
 from meobot.db.models.legal_entity import LegalEntity
 from meobot.db.models.system_setting import SystemSetting
@@ -115,7 +116,7 @@ PERSONAL_TEXT = (
     "insurance_title",
     "health_insurance_no",
     "tax_code",
-    "scan_link",
+    "scan_note",
 )
 PERSONAL_DATES = ("birth_date", "id_issued_on", "social_insurance_from")
 #: Sealed in ``secret``.
@@ -137,7 +138,7 @@ TEXT_LIMITS = {
     "permanent_address": 500,
     "current_address": 500,
     "salary_note": 500,
-    "scan_link": 1000,
+    "scan_note": 1000,
 }
 
 
@@ -760,7 +761,22 @@ class HrProfileService:
             }
             handed = set((profile.paper_documents or []) if profile else [])
             view["papers"] = {
-                "scan_link": None if profile is None else profile.scan_link,
+                "scan_note": None if profile is None else profile.scan_note,
+                "scan_links": [
+                    {
+                        "id": str(link.id),
+                        "label": link.label,
+                        "url": link.url,
+                        "created_at": link.created_at,
+                    }
+                    for link in (
+                        await self._session.scalars(
+                            select(HrScanLink)
+                            .where(HrScanLink.user_id == user_id)
+                            .order_by(HrScanLink.sort_order, HrScanLink.created_at)
+                        )
+                    ).all()
+                ],
                 "items": [
                     {
                         "code": code,

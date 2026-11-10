@@ -17,6 +17,7 @@ Everybody always sees their own whole profile.
 
 from __future__ import annotations
 
+import re
 from collections.abc import Mapping
 from datetime import date, timedelta
 from enum import StrEnum
@@ -113,6 +114,57 @@ PAPER_DOCUMENTS: tuple[str, ...] = (
     "DEGREE",
     "LICENSE",
 )
+#: A link of the scanned papers: http(s) only (Drive, Docs or anywhere else).
+SCAN_LINK = re.compile(r"https?://[^\s,;]+", re.IGNORECASE)
+MAX_SCAN_LINKS = 30
+
+
+def split_scan_cell(text: str | None) -> tuple[list[tuple[str | None, str]], str | None]:
+    """The links of a "Hồ sơ scan" cell as ``(label, url)`` in order, once
+    each, and the words left (``None`` when nothing is).
+
+    Line by line: words just before a link on its line name it ("CV <link>",
+    "Kế toán giữ: <link>"); a line that is only the tail of the link above
+    (a URL the sheet wrapped: ``abc_28/view?usp=drive_link``) is glued back
+    on; any other words are the note."""
+    if not text:
+        return [], None
+    found: list[tuple[str | None, str]] = []
+    notes: list[str] = []
+    for raw in text.splitlines():
+        line = raw.strip()
+        if not line:
+            continue
+        if found and not SCAN_LINK.search(line) and _URL_TAIL.fullmatch(line):
+            label, url = found[-1]
+            found[-1] = (label, url + line)
+            continue
+        cursor = 0
+        for match in SCAN_LINK.finditer(line):
+            before = _clean_words(line[cursor : match.start()])
+            found.append((before, match.group(0)))
+            cursor = match.end()
+        after = _clean_words(line[cursor:])
+        if after:
+            notes.append(after)
+    seen: set[str] = set()
+    links: list[tuple[str | None, str]] = []
+    for label, url in found:
+        if url not in seen:
+            seen.add(url)
+            links.append((label, url))
+    return links, " ".join(notes) or None
+
+
+#: The tail of a wrapped URL: no spaces, a path or query in it.
+_URL_TAIL = re.compile(r"[\w\-.~%/?=&#+]*[/?=][\w\-.~%/?=&#+]*")
+
+
+def _clean_words(text: str) -> str | None:
+    words = " ".join(re.sub(r"[\s,;|\-\u2013]+", " ", text).split()).strip(" :")
+    return words or None
+
+
 #: What a complete file holds by default ("thiếu tài liệu"); editable on "Danh mục".
 DEFAULT_REQUIRED_DOCUMENTS: tuple[str, ...] = (
     "CV",
@@ -244,11 +296,13 @@ __all__ = [
     "HR_PERMISSION_LABELS",
     "MARITAL",
     "MAX_DOCUMENT_BYTES",
+    "MAX_SCAN_LINKS",
     "MODULE_HR",
     "PAPER_DOCUMENTS",
     "REQUEST_FIELDS",
     "REQUEST_STATUS_LABELS",
     "SALARY_TYPES",
+    "SCAN_LINK",
     "WORK_FORMS",
     "ContractState",
     "HrPermission",
@@ -261,4 +315,5 @@ __all__ = [
     "gender_of",
     "hr_allowed_scopes",
     "seniority",
+    "split_scan_cell",
 ]

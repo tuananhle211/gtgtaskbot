@@ -9,7 +9,7 @@
  * change their own contact details ("Yêu cầu sửa").
  */
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api } from "@/lib/api";
 import {
@@ -20,6 +20,7 @@ import {
   type HrAccess,
   type HrContract,
   type HrProfile,
+  type HrScanLink,
 } from "@/lib/hr";
 import { formatDate, formatDateTime } from "@/lib/datetime";
 import { ConfirmButton } from "@/components/confirm";
@@ -482,20 +483,12 @@ function Papers({ profile, onChanged }: { profile: HrProfile; onChanged: (note: 
           );
         })}
       </ul>
-      <p className="text-sm">
-        <span className="text-[var(--text-muted)]">Hồ sơ scan: </span>
-        {papers.scan_link ? (
-          /^https?:\/\//i.test(papers.scan_link) ? (
-            <a href={papers.scan_link} target="_blank" rel="noreferrer" className="break-all text-[var(--accent)] hover:underline">
-              Mở thư mục scan
-            </a>
-          ) : (
-            <span className="break-all">{papers.scan_link}</span>
-          )
-        ) : (
-          <span className="text-[var(--text-muted)]">chưa có</span>
-        )}
-      </p>
+      {papers.scan_note ? (
+        <p className="text-sm">
+          <span className="text-[var(--text-muted)]">Ghi chú hồ sơ scan: </span>
+          <span className="break-words">{papers.scan_note}</span>
+        </p>
+      ) : null}
       {open ? (
         <PapersDialog
           profile={profile}
@@ -523,12 +516,12 @@ function PapersDialog({
   const [ticked, setTicked] = useState<Set<string>>(
     () => new Set((papers?.items ?? []).filter((item) => item.handed).map((item) => item.code)),
   );
-  const [link, setLink] = useState(papers?.scan_link ?? "");
+  const [note, setNote] = useState(papers?.scan_note ?? "");
   const save = useMutation({
     mutationFn: () =>
       hrApi.update(profile.user_id, {
         paper_documents: Array.from(ticked),
-        scan_link: link.trim() || null,
+        scan_note: note.trim() || null,
       }),
     onSuccess: () => onSaved(),
   });
@@ -558,15 +551,16 @@ function PapersDialog({
             ))}
           </div>
         </fieldset>
-        <label htmlFor="hr-scan-link" className="mt-3 block text-xs text-[var(--text-muted)]">
-          Link thư mục hồ sơ scan
+        <label htmlFor="hr-scan-note" className="mt-3 block text-xs text-[var(--text-muted)]">
+          Ghi chú hồ sơ scan
         </label>
-        <input
-          id="hr-scan-link"
-          value={link}
-          onChange={(event) => setLink(event.target.value)}
-          className={`${FIELD} mt-1`}
-          placeholder="https://drive.google.com/…"
+        <textarea
+          id="hr-scan-note"
+          value={note}
+          rows={2}
+          onChange={(event) => setNote(event.target.value)}
+          className={`${FIELD} mt-1 py-2`}
+          placeholder="Ví dụ: bản gốc đang giữ ở kho HCNS"
         />
         {save.isError ? (
           <div className="mt-3">
@@ -590,6 +584,177 @@ function PapersDialog({
           tone="primary"
         >
           Lưu
+        </ConfirmButton>
+      </ModalFooter>
+    </Modal>
+  );
+}
+
+/** A link's host, to tell a Drive link from another at a glance. */
+function hostOf(url: string): string {
+  try {
+    return new URL(url).host.replace(/^www\./, "");
+  } catch {
+    return url;
+  }
+}
+
+/** 0099: the Drive links of the scanned papers ("Hồ sơ scan"). */
+function ScanLinks({ profile, onChanged }: { profile: HrProfile; onChanged: (note: string | null) => void }) {
+  const links = profile.papers?.scan_links ?? [];
+  const [editing, setEditing] = useState<HrScanLink | "new" | null>(null);
+  const remove = useMutation({
+    mutationFn: (id: string) => hrApi.deleteScanLink(id),
+    onSuccess: () => onChanged("Đã xoá link hồ sơ scan."),
+  });
+  return (
+    <div className="space-y-3">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <h2 className="text-base font-semibold">
+          Hồ sơ scan{" "}
+          <span className="text-sm font-normal text-[var(--text-muted)]">· {links.length} link</span>
+        </h2>
+        {profile.can_edit ? (
+          <SecondaryButton type="button" onClick={() => setEditing("new")}>
+            + Thêm link
+          </SecondaryButton>
+        ) : null}
+      </div>
+      {links.length === 0 ? (
+        <p className="text-sm text-[var(--text-muted)]">Chưa có link hồ sơ scan.</p>
+      ) : (
+        <ul aria-label="Link hồ sơ scan" className="divide-y divide-[var(--border)] rounded-xl border border-[var(--border)]">
+          {links.map((link, index) => {
+            const name = link.label || `Hồ sơ scan ${index + 1}`;
+            return (
+              <li key={link.id} className="flex flex-wrap items-center gap-3 px-3 py-2 text-sm">
+                <a
+                  href={link.url}
+                  target="_blank"
+                  rel="noreferrer noopener"
+                  className="min-w-0 flex-1 truncate font-medium text-[var(--accent)] hover:underline"
+                >
+                  {name}
+                </a>
+                <span className="text-xs text-[var(--text-muted)]">{hostOf(link.url)}</span>
+                {profile.can_edit ? (
+                  <span className="flex items-center gap-2">
+                    <button
+                      type="button"
+                      className="min-h-9 px-1 text-sm text-[var(--accent)] hover:underline"
+                      onClick={() => setEditing(link)}
+                      aria-label={`Sửa ${name}`}
+                    >
+                      Sửa
+                    </button>
+                    <ConfirmButton
+                      spec={{
+                        title: `Xoá link "${name}"?`,
+                        description: "Link bị xoá khỏi hồ sơ; tệp trên Drive không bị ảnh hưởng.",
+                        confirmLabel: "Xoá",
+                        variant: "destructive",
+                      }}
+                      onConfirm={() => remove.mutate(link.id)}
+                      pending={remove.isPending}
+                      error={remove.error}
+                      tone="danger"
+                      ariaLabel={`Xoá ${name}`}
+                    >
+                      Xoá
+                    </ConfirmButton>
+                  </span>
+                ) : null}
+              </li>
+            );
+          })}
+        </ul>
+      )}
+      {editing ? (
+        <ScanLinkDialog
+          userId={profile.user_id}
+          link={editing === "new" ? null : editing}
+          onClose={() => setEditing(null)}
+          onSaved={(text) => {
+            setEditing(null);
+            onChanged(text);
+          }}
+        />
+      ) : null}
+    </div>
+  );
+}
+
+function ScanLinkDialog({
+  userId,
+  link,
+  onClose,
+  onSaved,
+}: {
+  userId: string;
+  link: HrScanLink | null;
+  onClose: () => void;
+  onSaved: (text: string) => void;
+}) {
+  const [label, setLabel] = useState(link?.label ?? "");
+  const [url, setUrl] = useState(link?.url ?? "");
+  const body = { label: label.trim() || null, url: url.trim() };
+  const save = useMutation({
+    mutationFn: () => (link ? hrApi.editScanLink(link.id, body) : hrApi.addScanLink(userId, body)),
+    onSuccess: () => onSaved(link ? "Đã sửa link hồ sơ scan." : "Đã thêm link hồ sơ scan."),
+  });
+  const valid = /^https?:\/\/\S+$/i.test(body.url);
+  const title = link ? "Sửa link hồ sơ scan" : "Thêm link hồ sơ scan";
+  return (
+    <Modal open onClose={onClose} busy={save.isPending} title={title}>
+      <ModalBody>
+        <label htmlFor="hr-scan-label" className="block text-xs text-[var(--text-muted)]">
+          Tên (không bắt buộc)
+        </label>
+        <input
+          id="hr-scan-label"
+          value={label}
+          onChange={(event) => setLabel(event.target.value)}
+          className={`${FIELD} mt-1`}
+          placeholder="Ví dụ: CCCD 2 mặt, Bằng đại học"
+          data-autofocus
+        />
+        <label htmlFor="hr-scan-url" className="mt-3 block text-xs text-[var(--text-muted)]">
+          Link Drive
+        </label>
+        <input
+          id="hr-scan-url"
+          value={url}
+          onChange={(event) => setUrl(event.target.value)}
+          className={`${FIELD} mt-1`}
+          placeholder="https://drive.google.com/…"
+          inputMode="url"
+        />
+        {url.trim() && !valid ? (
+          <p className="mt-1 text-xs text-[var(--bad)]">Link phải bắt đầu bằng http:// hoặc https://.</p>
+        ) : null}
+        {save.isError ? (
+          <div className="mt-3">
+            <NoticeBox error={save.error} />
+          </div>
+        ) : null}
+      </ModalBody>
+      <ModalFooter>
+        <SecondaryButton type="button" onClick={onClose} disabled={save.isPending}>
+          Huỷ
+        </SecondaryButton>
+        <ConfirmButton
+          spec={{
+            title: link ? "Lưu link đã sửa?" : "Thêm link vào hồ sơ?",
+            description: `${body.label ?? "Link không tên"} · ${hostOf(body.url)}. Thay đổi được lưu vết.`,
+            confirmLabel: link ? "Lưu" : "Thêm",
+          }}
+          onConfirm={() => save.mutate()}
+          pending={save.isPending}
+          error={save.error}
+          disabled={!valid}
+          tone="primary"
+        >
+          {link ? "Lưu" : "Thêm"}
         </ConfirmButton>
       </ModalFooter>
     </Modal>
@@ -689,6 +854,7 @@ function Documents({ profile, access, onChanged }: { profile: HrProfile; access:
 }
 
 type Tab = "personal" | "work" | "contracts" | "pay" | "insurance" | "documents";
+const TABS: Tab[] = ["personal", "work", "contracts", "pay", "insurance", "documents"];
 
 /** The whole profile page body. `me`: one's own (shows "Yêu cầu sửa"). */
 export function HrProfileView({ userId, me = false }: { userId: string; me?: boolean }) {
@@ -697,6 +863,12 @@ export function HrProfileView({ userId, me = false }: { userId: string; me?: boo
   const profile = useQuery({ queryKey: ["hr", "profile", userId], queryFn: () => hrApi.profile(userId) });
   const entities = useQuery({ queryKey: ["legal-entities"], queryFn: () => api.legalEntities() });
   const [tab, setTab] = useState<Tab>("work");
+  // `?tab=documents` (etc.) opens that part straight away - read once from the
+  // address, not useSearchParams (no Suspense boundary needed on /hr/me).
+  useEffect(() => {
+    const wanted = new URLSearchParams(window.location.search).get("tab");
+    if (wanted && TABS.includes(wanted as Tab)) setTab(wanted as Tab);
+  }, []);
   const [editing, setEditing] = useState<string | null>(null);
   const [contract, setContract] = useState<HrContract | "new" | null>(null);
   const [asking, setAsking] = useState(false);
@@ -845,6 +1017,8 @@ export function HrProfileView({ userId, me = false }: { userId: string; me?: boo
         ]
       : []),
   ];
+  // A tab asked for in the address but not shown to this viewer falls back.
+  const current: Tab = tabs.some((item) => item.key === tab) ? tab : "work";
   const editButton = (key: string) =>
     p.can_edit && (key === "work" || a.sensitive) ? (
       <SecondaryButton type="button" onClick={() => setEditing(key)}>
@@ -903,11 +1077,11 @@ export function HrProfileView({ userId, me = false }: { userId: string; me?: boo
       ) : null}
 
       <div className="print:hidden">
-        <TabStrip tabs={tabs} active={tab} onSelect={(key) => setTab(key as Tab)} label="Phần hồ sơ" />
+        <TabStrip tabs={tabs} active={current} onSelect={(key) => setTab(key as Tab)} label="Phần hồ sơ" />
       </div>
 
-      <section className="panel space-y-4 p-4" aria-label={tabs.find((item) => item.key === tab)?.label}>
-        {tab === "work" ? (
+      <section className="panel space-y-4 p-4" aria-label={tabs.find((item) => item.key === current)?.label}>
+        {current === "work" ? (
           <>
             <div className="flex items-center justify-between gap-2">
               <h2 className="text-base font-semibold">Thông tin công việc</h2>
@@ -944,7 +1118,7 @@ export function HrProfileView({ userId, me = false }: { userId: string; me?: boo
           </>
         ) : null}
 
-        {tab === "personal" && p.personal ? (
+        {current === "personal" && p.personal ? (
           <>
             <div className="flex items-center justify-between gap-2">
               <h2 className="text-base font-semibold">Thông tin cá nhân</h2>
@@ -978,7 +1152,7 @@ export function HrProfileView({ userId, me = false }: { userId: string; me?: boo
           </>
         ) : null}
 
-        {tab === "contracts" ? (
+        {current === "contracts" ? (
           <>
             <div className="flex items-center justify-between gap-2">
               <h2 className="text-base font-semibold">Hợp đồng lao động</h2>
@@ -1048,7 +1222,7 @@ export function HrProfileView({ userId, me = false }: { userId: string; me?: boo
           </>
         ) : null}
 
-        {tab === "pay" && p.pay ? (
+        {current === "pay" && p.pay ? (
           <>
             <div className="flex items-center justify-between gap-2">
               <h2 className="text-base font-semibold">Lương & phụ cấp</h2>
@@ -1069,7 +1243,7 @@ export function HrProfileView({ userId, me = false }: { userId: string; me?: boo
           </>
         ) : null}
 
-        {tab === "insurance" && p.insurance ? (
+        {current === "insurance" && p.insurance ? (
           <>
             <div className="flex items-center justify-between gap-2">
               <h2 className="text-base font-semibold">Bảo hiểm & thuế</h2>
@@ -1089,9 +1263,10 @@ export function HrProfileView({ userId, me = false }: { userId: string; me?: boo
           </>
         ) : null}
 
-        {tab === "documents" && p.documents ? (
+        {current === "documents" && p.documents ? (
           <>
             {p.papers ? <Papers profile={p} onChanged={(note) => refresh(note)} /> : null}
+            {p.papers ? <ScanLinks profile={p} onChanged={(note) => refresh(note)} /> : null}
             <h2 className="text-base font-semibold">Tài liệu đính kèm</h2>
             <Documents profile={p} access={a} onChanged={() => refresh(null)} />
           </>

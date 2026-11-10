@@ -383,7 +383,9 @@ async def test_07_the_hcns_workbook(world: World) -> None:
         "VP - Hà Nội", "D050PHUONG", "Phạm Thị Phương", "Nữ", datetime(2001, 12, 30, tzinfo=UTC),
         376618533.0, 38301009918.0, "Team 1", datetime(2022, 11, 3, tzinfo=UTC), 112.0,
         datetime(2022, 11, 4, tzinfo=UTC), "T5", "Techcombank", "19034567891234", "PHAM THI PHUONG",
-        "0011223344", "VCB", "PHAM THI PHUONG", "https://drive.google.com/x", True, True,
+        "0011223344", "VCB", "PHAM THI PHUONG",
+        "CV https://drive.google.com/x\nhttps://drive.google.com/file/d/1Ab\nCd_28/view?usp=drive_link"
+        "\nđã nhận bản gốc", True, True,
         False, True, "Đã nộp đủ", "GPI Tech", "Nhân viên kinh doanh", 5310000.0,
         "0123456789",
     ]  # fmt: skip
@@ -410,7 +412,16 @@ async def test_07_the_hcns_workbook(world: World) -> None:
     assert profile["legal_entity_code"] == "GPI"
     assert "Pháp nhân đóng BHXH: GPI Tech" in profile["work"]["note"]
     papers = profile["papers"]
-    assert papers["scan_link"] == "https://drive.google.com/x"
+    # Words before a link name it; a URL the sheet wrapped is glued back.
+    assert [(link["label"], link["url"]) for link in papers["scan_links"]] == [
+        ("CV", "https://drive.google.com/x"),
+        (None, "https://drive.google.com/file/d/1AbCd_28/view?usp=drive_link"),
+    ]
+    assert papers["scan_note"] == "đã nhận bản gốc"
+    assert summary["filled"]["scan_links"] == 2
+    # Loaded again: no link doubled.
+    again = await HrProfileImport(world.session, service).run(table)
+    assert "scan_links" not in again.summary()["filled"]
     handed = [item["code"] for item in papers["items"] if item["handed"]]
     assert handed == ["CV", "CCCD", "DEGREE"]
     # Required by default: CV, CCCD, BIRTH, RESIDENCE, HEALTH, DEGREE.
@@ -444,3 +455,40 @@ async def test_08_the_filter_lists_every_department(world: World) -> None:
         for item in as_(world, world.lead).get("/api/hr/access").json()["choices"]["departments"]
     }
     assert {"HCNS", "TELE", "KT"} <= names
+
+
+async def test_09_scan_links_are_added_edited_deleted(world: World) -> None:
+    """0099: the Drive links of the scanned papers, on "Tài liệu đính kèm"."""
+    people = await _hr_world(world)
+    seller = people["seller"]
+    hr = as_(world, world.lead)
+    made = hr.post(
+        f"/api/hr/profiles/{seller.id}/scan-links",
+        json={"label": "CCCD 2 mặt", "url": "https://drive.google.com/file/d/abc/view"},
+    )
+    assert made.status_code == 201, made.json()
+    link = made.json()["id"]
+    twice = hr.post(
+        f"/api/hr/profiles/{seller.id}/scan-links",
+        json={"url": "https://drive.google.com/file/d/abc/view"},
+    )
+    assert twice.status_code == 422
+    assert twice.json()["error"]["code"] == "hr_scan_link_duplicate"
+    bad = hr.post(f"/api/hr/profiles/{seller.id}/scan-links", json={"url": "javascript:x"})
+    assert bad.status_code == 422 and bad.json()["error"]["code"] == "hr_scan_link_invalid"
+    edited = hr.patch(
+        f"/api/hr/scan-links/{link}",
+        json={"label": "CCCD", "url": "https://drive.google.com/file/d/new/view"},
+    )
+    assert edited.status_code == 200 and edited.json()["label"] == "CCCD"
+    mine = as_(world, seller).get("/api/hr/profiles/me").json()
+    assert [(item["label"], item["url"]) for item in mine["papers"]["scan_links"]] == [
+        ("CCCD", "https://drive.google.com/file/d/new/view")
+    ]
+    # The person and a head do not edit them; a head does not even see them.
+    assert as_(world, seller).delete(f"/api/hr/scan-links/{link}").status_code == 403
+    assert as_(world, world.member).delete(f"/api/hr/scan-links/{link}").status_code == 404
+    assert as_(world, world.member).get(f"/api/hr/profiles/{seller.id}").json()["papers"] is None
+    assert as_(world, world.lead).delete(f"/api/hr/scan-links/{link}").status_code == 204
+    after = as_(world, world.lead).get(f"/api/hr/profiles/{seller.id}").json()
+    assert after["papers"]["scan_links"] == []

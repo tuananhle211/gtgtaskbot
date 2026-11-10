@@ -194,7 +194,11 @@ describe("Hồ sơ giấy (0097)", () => {
           ...PROFILE,
           can_edit: true,
           papers: {
-            scan_link: "https://drive.google.com/x",
+            scan_note: "Bản gốc ở kho",
+            scan_links: [
+              { id: "l1", label: "CCCD 2 mặt", url: "https://drive.google.com/file/d/a/view", created_at: "2026-11-10T03:00:00Z" },
+              { id: "l2", label: null, url: "https://drive.google.com/file/d/b/view", created_at: "2026-11-10T03:00:00Z" },
+            ],
             items: [
               { code: "CV", label: "Sơ yếu lý lịch / CV", handed: true, uploaded: false, required: true },
               { code: "BIRTH", label: "Giấy khai sinh", handed: false, uploaded: false, required: true },
@@ -209,7 +213,7 @@ describe("Hồ sơ giấy (0097)", () => {
     await userEvent.click(screen.getByRole("tab", { name: "Tài liệu đính kèm" }));
     const list = screen.getByRole("list", { name: "Danh mục hồ sơ giấy" });
     expect(within(list).getByText("Giấy khai sinh").parentElement).toHaveTextContent("còn thiếu");
-    expect(screen.getByRole("link", { name: "Mở thư mục scan" })).toHaveAttribute("href", "https://drive.google.com/x");
+    expect(screen.getByText("Bản gốc ở kho")).toBeInTheDocument();
     await userEvent.click(screen.getByRole("button", { name: "Sửa hồ sơ giấy" }));
     const dialog = screen.getByRole("dialog", { name: "Sửa hồ sơ giấy" });
     await userEvent.click(within(dialog).getByRole("checkbox", { name: "Giấy khai sinh" }));
@@ -219,8 +223,79 @@ describe("Hồ sơ giấy (0097)", () => {
       const sent = (stub as unknown as { calls: { url: string; method: string; body: unknown }[] }).calls.find(
         (call) => call.url === "/api/hr/profiles/u1" && call.method === "PATCH",
       );
-      expect(sent?.body).toEqual({ paper_documents: ["CV", "BIRTH"], scan_link: "https://drive.google.com/x" });
+      expect(sent?.body).toEqual({ paper_documents: ["CV", "BIRTH"], scan_note: "Bản gốc ở kho" });
     });
+  });
+
+  it("lists the scan's Drive links and adds, edits, deletes one", async () => {
+    const stub = stubFetch([
+      { match: "/api/hr/profiles/u1/scan-links", method: "POST", body: { id: "l3" } },
+      { match: "/api/hr/scan-links/l1", method: "PATCH", body: { id: "l1" } },
+      { match: "/api/hr/scan-links/l2", method: "DELETE", body: null },
+      { match: "/api/hr/access", body: ACCESS },
+      {
+        match: "/api/hr/profiles/u1",
+        body: {
+          ...PROFILE,
+          can_edit: true,
+          papers: {
+            scan_note: null,
+            items: [],
+            scan_links: [
+              { id: "l1", label: "CCCD 2 mặt", url: "https://drive.google.com/file/d/a/view", created_at: "2026-11-10T03:00:00Z" },
+              { id: "l2", label: null, url: "https://drive.google.com/file/d/b/view", created_at: "2026-11-10T03:00:00Z" },
+            ],
+          },
+        },
+      },
+      { match: "/api/legal-entities", body: ENTITIES },
+    ]);
+    const sent = (method: string, url: string) =>
+      (stub as unknown as { calls: { url: string; method: string; body: unknown }[] }).calls.find(
+        (call) => call.method === method && call.url === url,
+      );
+    renderWithQuery(<HrProfileView userId="u1" />);
+    await screen.findByRole("heading", { name: "Phạm Thị Phương" });
+    await userEvent.click(screen.getByRole("tab", { name: "Tài liệu đính kèm" }));
+    const list = screen.getByRole("list", { name: "Link hồ sơ scan" });
+    expect(within(list).getByRole("link", { name: "CCCD 2 mặt" })).toHaveAttribute(
+      "href",
+      "https://drive.google.com/file/d/a/view",
+    );
+    expect(within(list).getByRole("link", { name: "Hồ sơ scan 2" })).toBeInTheDocument();
+
+    await userEvent.click(screen.getByRole("button", { name: "+ Thêm link" }));
+    let dialog = screen.getByRole("dialog", { name: "Thêm link hồ sơ scan" });
+    await userEvent.type(within(dialog).getByLabelText("Tên (không bắt buộc)"), "Bằng đại học");
+    await userEvent.type(within(dialog).getByLabelText("Link Drive"), "drive.google.com/x");
+    expect(within(dialog).getByRole("button", { name: "Thêm" })).toBeDisabled();
+    await userEvent.clear(within(dialog).getByLabelText("Link Drive"));
+    await userEvent.type(within(dialog).getByLabelText("Link Drive"), "https://drive.google.com/x");
+    await userEvent.click(within(dialog).getByRole("button", { name: "Thêm" }));
+    await userEvent.click(document.querySelector<HTMLElement>("[data-confirm-accept]") as HTMLElement);
+    await waitFor(() =>
+      expect(sent("POST", "/api/hr/profiles/u1/scan-links")?.body).toEqual({
+        label: "Bằng đại học",
+        url: "https://drive.google.com/x",
+      }),
+    );
+
+    await userEvent.click(within(list).getByRole("button", { name: "Sửa CCCD 2 mặt" }));
+    dialog = screen.getByRole("dialog", { name: "Sửa link hồ sơ scan" });
+    await userEvent.clear(within(dialog).getByLabelText("Tên (không bắt buộc)"));
+    await userEvent.type(within(dialog).getByLabelText("Tên (không bắt buộc)"), "CCCD");
+    await userEvent.click(within(dialog).getByRole("button", { name: "Lưu" }));
+    await userEvent.click(document.querySelector<HTMLElement>("[data-confirm-accept]") as HTMLElement);
+    await waitFor(() =>
+      expect(sent("PATCH", "/api/hr/scan-links/l1")?.body).toEqual({
+        label: "CCCD",
+        url: "https://drive.google.com/file/d/a/view",
+      }),
+    );
+
+    await userEvent.click(within(list).getByRole("button", { name: "Xoá Hồ sơ scan 2" }));
+    await userEvent.click(document.querySelector<HTMLElement>("[data-confirm-accept]") as HTMLElement);
+    await waitFor(() => expect(sent("DELETE", "/api/hr/scan-links/l2")).toBeTruthy());
   });
 });
 
