@@ -67,6 +67,10 @@ class EffectiveRowResponse(BaseModel):
     personal_only: bool = False
     #: Held by the system role itself (OWNER: all; ADMIN: all but OWNER-only).
     by_role: bool = False
+    #: 0098: what the seats (+ the order flow's built-in grants) give - the default.
+    inherited: str = "NONE"
+    #: 0098: the scope the person's own row sets (``None`` = the default stands).
+    personal: str | None = None
 
     @classmethod
     def from_row(cls, row: EffectiveRow) -> EffectiveRowResponse:
@@ -79,6 +83,8 @@ class EffectiveRowResponse(BaseModel):
             gate_grants=[CapabilityGrantResponse.from_grant(grant) for grant in row.gate_grants],
             personal_only=row.personal_only,
             by_role=row.by_role,
+            inherited=row.inherited,
+            personal=row.personal,
         )
 
 
@@ -181,7 +187,9 @@ class PersonOverviewResponse(BaseModel):
 
 
 class ChecklistRequest(BaseModel):
-    """The checklist of one module: ``permission -> scope``, ``null`` = not ticked."""
+    """The checklist of one module: ``permission -> scope`` the person should
+    hold, ``null`` = not ticked (a seat default included); only the
+    permissions sent change."""
 
     module: str = Field(max_length=20)
     permissions: dict[str, str | None] = Field(max_length=100)

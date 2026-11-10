@@ -364,7 +364,6 @@ async def test_07_the_hcns_workbook(world: World) -> None:
     from meobot.application.audit_service import AuditService
     from meobot.application.hr.profiles import HrProfileService
     from meobot.application.hr.sheet_import import HrProfileImport, cell_text
-
     from meobot.db.models.legal_entity import LegalEntity
 
     people = await _hr_world(world)
@@ -433,3 +432,15 @@ async def test_07_the_hcns_workbook(world: World) -> None:
     # A head sees no papers.
     head = as_(world, world.member).get(f"/api/hr/profiles/{seller.id}").json()
     assert head["papers"] is None
+
+
+async def test_08_the_filter_lists_every_department(world: World) -> None:
+    """2026-11-10: "Phòng ban" on Quản lý hồ sơ lists every active department,
+    whatever the reader manages on the Phòng ban page (HCNS staff are no
+    department's head there)."""
+    await _hr_world(world)
+    names = {
+        item["code"]
+        for item in as_(world, world.lead).get("/api/hr/access").json()["choices"]["departments"]
+    }
+    assert {"HCNS", "TELE", "KT"} <= names

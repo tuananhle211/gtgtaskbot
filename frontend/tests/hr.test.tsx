@@ -30,6 +30,10 @@ const ACCESS = {
     contract_types: [{ code: "KXD", name: "HĐ không xác định thời hạn", months: 0 }],
     contract_states: [],
     max_document_mb: 10,
+    departments: [
+      { id: "d1", code: "TELE", name: "Phòng Telesales", block: "Khối Kinh doanh", parent_id: null },
+      { id: "d2", code: "KT", name: "Phòng Kế toán", block: "Khối Văn phòng", parent_id: null },
+    ],
   },
   settings: { contract_warn_days: 30, required_documents: ["CCCD"] },
 };
@@ -232,6 +236,16 @@ describe("Quản lý hồ sơ", () => {
     renderWithQuery(<HrProfilesPage />);
     expect(await screen.findByText("Phạm Thị Phương")).toBeInTheDocument();
     expect(screen.getByRole("link", { name: "Xuất Excel" })).toHaveAttribute("href", "/api/hr/export.xlsx");
+    // Every department in the filter, whatever the reader manages on "Phòng ban".
+    const filter = screen.getByLabelText("Phòng ban") as HTMLSelectElement;
+    expect(Array.from(filter.options).map((option) => option.textContent)).toEqual([
+      "Tất cả",
+      "Phòng Telesales",
+      "Phòng Kế toán",
+    ]);
+    // "Mã hợp đồng" next to the contract's state.
+    expect(screen.getByRole("columnheader", { name: "Mã hợp đồng" })).toBeInTheDocument();
+    expect(screen.getByText("0309/2025")).toBeInTheDocument();
     await userEvent.click(screen.getByRole("checkbox", { name: "Chọn Phạm Thị Phương" }));
     expect(screen.getByText("Đã chọn 1 hồ sơ")).toBeInTheDocument();
     await userEvent.click(screen.getByRole("button", { name: "Sửa hàng loạt" }));

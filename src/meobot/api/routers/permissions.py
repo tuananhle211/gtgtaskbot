@@ -1,8 +1,9 @@
 """The personal permission layer (0066): ``/api/permissions``.
 
 One page per person - everything they hold in every module and where it
-comes from - and the grants on top of their seats. Who may read and write is
-:meth:`~meobot.application.org.access.Access.manages`, checked in the service.
+comes from - and the grants on top of their seats. The OWNER reads and
+writes anybody's, an ADMIN anybody's but the OWNER's and their own (checked
+in the service).
 """
 
 from __future__ import annotations
@@ -44,7 +45,8 @@ async def person(
 ) -> PersonOverviewResponse:
     """Everything one person holds, module by module, with its sources; and
     what the caller may grant them. 403 ``permission_forbidden`` for
-    somebody who manages no module of theirs (one reads one's own)."""
+    anybody but the OWNER / an ADMIN (an ADMIN never on the OWNER nor
+    themselves)."""
     return PersonOverviewResponse.from_domain(await service.overview(actor=actor, user_id=user_id))
 
 
@@ -85,9 +87,11 @@ async def set_checklist(
     request_id: RequestIdDep,
     service: ServiceDep,
 ) -> PersonOverviewResponse:
-    """The checklist of one module, saved whole: a ticked permission is
-    granted personally (with its scope), an unticked one revoked. What the
-    person's seats give is untouched. Answers with the page as it stands."""
+    """The checklist of one module (the permissions sent): each is set to the
+    scope sent (``null`` = not held, a seat default included). Equal to the
+    default -> the person's row goes; else one row holds it (0098). 422
+    ``permission_held_by_role`` for what the system role holds. Answers with
+    the page as it stands."""
     for permission, scope in body.permissions.items():
         if scope is not None and scope not in ("OWN", "ALL"):
             raise PermissionValidationError(

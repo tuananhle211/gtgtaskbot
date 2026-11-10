@@ -5,9 +5,11 @@
   access changed;
 * an ADMIN holds every ORD permission; the stored Admin column is ignored;
 * a person's page shows what they hold in every module and where from;
-* personal grants add to the seats: given by the OWNER alone (2026-10-31 -
-  not an ADMIN, not a head holding ``MANAGE_PERMISSIONS``; the page itself is
-  the OWNER's alone), never the review gates nor the right to grant;
+* personal rows set a permission whatever the seats give (0098: unticking a
+  seat default too): written by the OWNER, and since 2026-11-10 an ADMIN (not
+  on the OWNER, not on themselves) - not a head holding
+  ``MANAGE_PERMISSIONS``; never the review gates nor the right to grant; what
+  the system role holds stays locked;
 * a revoked grant stops at once; the PR head grants review gates to their
   members on the PR screen.
 """
@@ -116,14 +118,15 @@ async def test_02_the_page_shows_every_module_with_its_sources(world: World) -> 
     assert pr["MANAGE_PERMISSIONS"]["scope"] == "OWN"
     assert pr["PR_TEAM_LEAD_REVIEW"]["personal_only"] is True
     assert pr["PR_TEAM_LEAD_REVIEW"]["scope"] == "NONE"
-    # The page is the OWNER's alone (2026-10-31): not one's own, not an ADMIN's,
-    # not a head's - even one holding "Cấp / thu hồi quyền".
+    # The page is the OWNER's and an ADMIN's (2026-11-10): not one's own, not a
+    # head's - even one holding "Cấp / thu hồi quyền"; an ADMIN not on the OWNER.
     admin = await person(world, "Quản trị", Role.ADMIN)
+    assert page(world, admin, ads.writer).status_code == 200
     for viewer, target in (
         (ads.orderer, ads.orderer),
         (ads.orderer, ads.writer),
-        (admin, ads.writer),
         (admin, admin),
+        (admin, world.owner),
         (world.lead, world.member),
     ):
         refused = page(world, viewer, target)
@@ -211,9 +214,9 @@ async def test_03_a_personal_grant_adds_to_the_seat_and_a_revocation_stops_it(
     assert world.client.get("/api/orders/approvers").json()["own_gate"] is True
 
 
-async def test_04_only_the_owner_grants_personally(world: World) -> None:
-    """2026-10-31: a person's grants are the OWNER's alone - a head holding
-    "Cấp / thu hồi quyền" and an ADMIN are refused, the staff too."""
+async def test_04_the_owner_and_an_admin_grant_personally(world: World) -> None:
+    """2026-11-10: the OWNER and an ADMIN write a person's rows - a head holding
+    "Cấp / thu hồi quyền" is refused, the staff too."""
     tn_head = await person(world, "Trưởng phòng Tài nguyên")
     tn_staff = await person(world, "Nhân viên Tài nguyên")
     admin = await person(world, "Quản trị", Role.ADMIN)
@@ -225,7 +228,7 @@ async def test_04_only_the_owner_grants_personally(world: World) -> None:
         json={"module": "RESOURCES", "cells": {"HEAD": {"MANAGE_PERMISSIONS": "OWN"}}},
     )
     assert turned_on.status_code == 200, turned_on.json()
-    for granter in (tn_head, admin, tn_staff):
+    for granter in (tn_head, tn_staff):
         refused = give(
             world, granter, tn_staff, module="RESOURCES", permission="IMPORT", scope="ALL"
         )
@@ -256,13 +259,16 @@ async def test_04_only_the_owner_grants_personally(world: World) -> None:
     assert made.status_code == 201, made.json()
     world.act_as(tn_staff)
     assert world.client.get("/api/units/me").json()["resources"]["import_excel"] is True
-    # Taken back by the OWNER alone.
+    # Taken back by the OWNER or an ADMIN only.
     path = f"/api/permissions/people/{tn_staff.id}/grants/{made.json()['id']}"
-    for user in (tn_staff, tn_head, admin):
+    for user in (tn_staff, tn_head):
         world.act_as(user)
         assert world.client.delete(path).status_code == 403, user.full_name
-    world.act_as(world.owner)
+    world.act_as(admin)
     assert world.client.delete(path).status_code == 204
+    # An ADMIN grants too, the OWNER-only permissions included.
+    made = give(world, admin, tn_staff, module="ASSISTANT", permission="CHAT", scope="ALL")
+    assert made.status_code == 201, made.json()
 
 
 async def test_05_the_pr_head_shapes_their_members_review_rights(world: World) -> None:
@@ -338,17 +344,17 @@ async def test_07_the_checklist_saves_one_module_whole(world: World) -> None:
     body = saved.json()
     assert {item["permission"] for item in body["personal"]} == {"VIEW", "EDIT"}
     assert rows_of(body, "RESOURCES")["EDIT"]["scope"] == "ALL"
-    # Narrow VIEW to OWN and untick EDIT: VIEW's grant is replaced, EDIT's revoked.
+    # Back to VIEW OWN (= what the seat gives) and EDIT unticked: no row left.
     saved = world.client.put(
         f"/api/permissions/people/{ads.orderer.id}/grants",
         json={"module": "RESOURCES", "permissions": {"VIEW": "OWN", "EDIT": None}},
     )
     assert saved.status_code == 200
     body = saved.json()
-    assert [(item["permission"], item["scope"]) for item in body["personal"]] == [("VIEW", "OWN")]
-    # The seat's own VIEW OWN is untouched; the effective scope is still OWN.
-    assert rows_of(body, "RESOURCES")["VIEW"]["scope"] == "OWN"
-    assert len(rows_of(body, "RESOURCES")["VIEW"]["sources"]) == 2
+    assert body["personal"] == []
+    view = rows_of(body, "RESOURCES")["VIEW"]
+    assert view["scope"] == "OWN" and view["inherited"] == "OWN" and view["personal"] is None
+    assert len(view["sources"]) == 1
     bad = world.client.put(
         f"/api/permissions/people/{ads.orderer.id}/grants",
         json={"module": "RESOURCES", "permissions": {"VIEW": "SOME"}},
@@ -448,3 +454,45 @@ async def test_09_the_pr_head_gets_the_whole_bot(world: World) -> None:
     )
     widened = await with_unified_access(world.session, world.actor(world.lead))
     assert Permission.SETTINGS_WRITE.value in widened.extra_permissions
+
+
+async def test_10_a_seat_default_is_unticked_for_one_person(world: World) -> None:
+    """2026-11-10 (0098): a default the seat gives can be taken away from one
+    person - their personal row ``NONE`` wins - and ticked back."""
+    ads = await ads_world(world)
+    admin = await person(world, "Quản trị", Role.ADMIN)
+    world.act_as(ads.head)
+    assert world.client.get("/api/orders/approvers").json()["own_gate"] is True
+    approve = rows_of(page(world, admin, ads.head).json(), "ORDER")["ORDER_APPROVE"]
+    assert approve["inherited"] != "NONE" and approve["by_role"] is False
+    world.act_as(admin)
+    saved = world.client.put(
+        f"/api/permissions/people/{ads.head.id}/grants",
+        json={"module": "ORDER", "permissions": {"ORDER_APPROVE": None}},
+    )
+    assert saved.status_code == 200, saved.json()
+    row = rows_of(saved.json(), "ORDER")["ORDER_APPROVE"]
+    assert row["scope"] == "NONE" and row["personal"] == "NONE"
+    assert [(item["permission"], item["scope"]) for item in saved.json()["personal"]] == [
+        ("ORDER_APPROVE", "NONE")
+    ]
+    world.act_as(ads.head)
+    assert world.client.get("/api/orders/approvers").json()["own_gate"] is False
+    # Ticked back to the default: the row goes, the seat speaks again.
+    world.act_as(admin)
+    saved = world.client.put(
+        f"/api/permissions/people/{ads.head.id}/grants",
+        json={"module": "ORDER", "permissions": {"ORDER_APPROVE": approve["inherited"]}},
+    )
+    assert saved.json()["personal"] == []
+    world.act_as(ads.head)
+    assert world.client.get("/api/orders/approvers").json()["own_gate"] is True
+    # What the system role holds stays locked.
+    other = await person(world, "Quản trị 2", Role.ADMIN)
+    world.act_as(admin)
+    locked = world.client.put(
+        f"/api/permissions/people/{other.id}/grants",
+        json={"module": "ORDER", "permissions": {"NODE_ASSIGN": None}},
+    )
+    assert locked.status_code == 422
+    assert error_reason(locked.json()) == "permission_held_by_role"

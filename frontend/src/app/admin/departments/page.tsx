@@ -5,6 +5,7 @@ import { useId, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   api,
+  mayEditPermissions,
   ApiError,
   type Department,
   type DepartmentBody,
@@ -44,6 +45,7 @@ export default function DepartmentsPage() {
   if (list.isPending || session.isPending) return <Loading label="Đang tải phòng ban…" />;
   if (list.isError) return <ErrorBox error={list.error} onRetry={() => list.refetch()} />;
   const owner = session.data?.role === "OWNER";
+  const viewer = { role: session.data?.role ?? null, userId: session.data?.user_id ?? null };
   const departments = [...list.data.departments].sort(
     (a, b) => (a.sort_order ?? 0) - (b.sort_order ?? 0) || a.name.localeCompare(b.name),
   );
@@ -150,7 +152,13 @@ export default function DepartmentsPage() {
               departments={departments}
               parentName={selected.parent_id ? nameOf.get(selected.parent_id) : undefined}
             />
-            <Members key={`members:${selected.id}`} department={selected} catalog={catalog.data} owner={owner} />
+            <Members
+              key={`members:${selected.id}`}
+              department={selected}
+              catalog={catalog.data}
+              owner={owner}
+              viewer={viewer}
+            />
             {modulesOf(catalog.data).map((module) => (
               <Grants
                 key={`grants:${selected.id}:${module.module}`}
@@ -548,10 +556,12 @@ function Members({
   department,
   catalog,
   owner,
+  viewer,
 }: {
   department: Department;
   catalog: DepartmentCatalog | undefined;
   owner: boolean;
+  viewer: { role: string | null; userId: string | null };
 }) {
   const members = useQuery({
     queryKey: ["departments", department.id, "members"],
@@ -616,6 +626,7 @@ function Members({
                   heads={heads}
                   catalog={catalog}
                   owner={owner}
+                  permissions={mayEditPermissions(viewer, seat)}
                 />
               ))}
             </tbody>
@@ -713,11 +724,14 @@ function SeatRow({
   heads,
   catalog,
   owner,
+  permissions,
 }: {
   department: Department;
   seat: DepartmentSeat;
   heads: DepartmentSeat[];
   catalog: DepartmentCatalog | undefined;
+  /** The viewer may open this person's "Quyền" page. */
+  permissions: boolean;
   owner: boolean;
 }) {
   const refresh = useRefreshDepartments();
@@ -745,8 +759,8 @@ function SeatRow({
       className={`border-b border-[var(--border)] align-top ${active ? "" : "opacity-60"}`}
     >
       <td className="px-3 py-2 font-medium">
-        {/* A person's "Quyền" page is the OWNER's alone. */}
-        {owner ? (
+        {/* A person's "Quyền" page: the OWNER's, an ADMIN's (not on the OWNER, not themselves). */}
+        {permissions ? (
           <Link href={`/admin/people/${seat.user_id}`} className="hover:underline">
             {seat.full_name}
           </Link>

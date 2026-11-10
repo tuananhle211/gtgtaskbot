@@ -23,10 +23,11 @@ import uuid
 from collections.abc import Callable, Iterable
 from dataclasses import dataclass, field
 
-from sqlalchemy import select
+from sqlalchemy import or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from meobot.application.audit_service import AuditService
+from meobot.application.org.access import widest
 from meobot.application.org.seats import function_staff, grants_of, load_grants, load_seats
 from meobot.application.pr_capability_service import PrCapabilityService
 from meobot.application.units.directory import (
@@ -34,10 +35,12 @@ from meobot.application.units.directory import (
     UnitMemberRow,
     manager_fits,
 )
+from meobot.core.time import utcnow
 from meobot.db.models.department import DepartmentPermission
 from meobot.db.models.org_unit import OrgUnit
 from meobot.db.models.pr import PrContentItem, PrContentTarget
 from meobot.db.models.user import User
+from meobot.db.models.user_permission import UserPermission
 from meobot.domain.identity.models import Actor, Role
 from meobot.domain.orders.models import PRODUCTION_NODES, OrderNodeType, OrderVideoType
 from meobot.domain.orders.permissions import AdsPermission, AdsPermissions
@@ -255,9 +258,24 @@ async def ads_approvers(session: AsyncSession, unit_id: uuid.UUID) -> AdsApprove
     table = await load_grants(
         session, MODULE_ORDER, {seat.department_id for held in seats.values() for seat in held}
     )
+    # 0098: personal rows set a permission's scope whatever the seats give.
+    personal: dict[uuid.UUID, dict[str, str]] = {}
+    today = utcnow().date()
+    for grant in (
+        await session.scalars(
+            select(UserPermission).where(
+                UserPermission.module == MODULE_ORDER,
+                UserPermission.revoked_at.is_(None),
+                or_(UserPermission.effective_to.is_(None), UserPermission.effective_to >= today),
+            )
+        )
+    ).all():
+        mine = personal.setdefault(grant.user_id, {})
+        mine[grant.permission] = widest([mine.get(grant.permission, "NONE"), grant.scope])
     people: list[tuple[UnitMemberRow, AdsPermissions]] = []
     for row in rows:
         held = seats.get(row.user.id, ())
+        own = personal.get(row.user.id)
         membership = UnitMembership(
             user_id=row.user.id,
             entries=(
@@ -272,7 +290,7 @@ async def ads_approvers(session: AsyncSession, unit_id: uuid.UUID) -> AdsApprove
             is_owner=False,
             is_admin=row.user.role is Role.ADMIN,
             seats=held,
-            grants=grants_of(held, table) if held else None,
+            grants=grants_of(held, table, own) if held else None,
         )
         people.append((row, OrderActorContext.from_membership(membership, settings).permissions))
 

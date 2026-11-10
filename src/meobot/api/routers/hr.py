@@ -18,6 +18,7 @@ from fastapi import APIRouter, Query, Request, Response, status
 from openpyxl import Workbook
 from openpyxl.styles import Font
 from pydantic import BaseModel, Field
+from sqlalchemy import select
 
 from meobot.api.deps import (
     CurrentActorDep,
@@ -31,6 +32,7 @@ from meobot.application.audit_service import AuditService
 from meobot.application.hr.access import HrAccess, HrForbiddenError, hr_access
 from meobot.application.hr.files import HrFileService
 from meobot.application.hr.profiles import HrProfileService, HrValidationError
+from meobot.db.models.department import Department
 from meobot.domain.audit.models import AuditAction, AuditResult
 from meobot.domain.hr.profiles import (
     CONTRACT_STATE_LABELS,
@@ -183,6 +185,15 @@ async def access_of(
 ) -> dict[str, Any]:
     service, access = await _ctx(session, settings, membership)
     types = await service.contract_types()
+    # Every active department, whatever the reader may manage on "Phòng ban":
+    # the list's filter and the new-employee form pick from the whole company.
+    departments = (
+        await session.scalars(
+            select(Department)
+            .where(Department.active.is_(True))
+            .order_by(Department.block.nulls_last(), Department.name)
+        )
+    ).all()
     return {
         "lists": access.lists,
         "overview": access.view_all,
@@ -213,6 +224,16 @@ async def access_of(
                 for state, label in CONTRACT_STATE_LABELS.items()
             ],
             "max_document_mb": MAX_DOCUMENT_BYTES // (1024 * 1024),
+            "departments": [
+                {
+                    "id": str(row.id),
+                    "code": row.code,
+                    "name": row.name,
+                    "block": row.block,
+                    "parent_id": None if row.parent_id is None else str(row.parent_id),
+                }
+                for row in departments
+            ],
         },
         "settings": (await service.settings()).as_dict(),
     }

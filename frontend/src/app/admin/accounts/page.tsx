@@ -5,6 +5,7 @@ import { useEffect, useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   api,
+  mayEditPermissions,
   type Department,
   type LegalEntity,
   type DirectoryUser,
@@ -488,8 +489,9 @@ function AccountRow({
   });
 
   const items: RowMenuItem[] = [];
-  // A person's "Quyền" page is the OWNER's alone.
-  if (viewer.role === "OWNER")
+  // A person's "Quyền" page: the OWNER's, and an ADMIN's (not on the OWNER, not
+  // on themselves) since 2026-11-10.
+  if (mayEditPermissions(viewer, row))
     items.push({
       key: "grants",
       label: "Quyền",

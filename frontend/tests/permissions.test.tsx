@@ -1,9 +1,9 @@
 /**
  * "Quyền" of one person (0066): every module with the scope held and its
- * source; a grant, a revocation of a personal grant; the PR review gates
- * point at the PR screen; the roles tab shows the PR positions. The page is
- * the OWNER's alone (2026-10-31): everybody else gets the server's refusal; on
- * an ADMIN's page only what their role gives is locked.
+ * source; a grant, a revocation, a seat default unticked (2026-11-10, 0098);
+ * the PR review gates point at the PR screen. The OWNER and an ADMIN edit it;
+ * everybody else gets the server's refusal; only what a system role gives is
+ * locked.
  */
 import { describe, expect, it, vi } from "vitest";
 import { screen, waitFor, within } from "@testing-library/react";
@@ -66,9 +66,12 @@ const PAGE = {
     {
       module: "ORDER",
       label: "Luồng order",
-      rows: [row("ORDER_APPROVE", "Duyệt / trả order", "OWN", [SEAT]), row("CANCEL", "Huỷ order", "NONE")],
+      rows: [
+        row("ORDER_APPROVE", "Duyệt / trả order", "OWN", [SEAT], { inherited: "OWN", personal: null }),
+        row("CANCEL", "Huỷ order", "NONE", [], { inherited: "NONE", personal: null }),
+      ],
       can_manage: true,
-      grantable: { CANCEL: ["OWN", "ALL"], PRIORITY: ["ALL"] },
+      grantable: { ORDER_APPROVE: ["OWN", "ALL"], CANCEL: ["OWN", "ALL"], PRIORITY: ["ALL"] },
     },
     {
       module: "PR",
@@ -84,8 +87,11 @@ const PAGE = {
       module: "RESOURCES",
       label: "Quản lý tài nguyên",
       rows: [
-        row("VIEW", "Xem tài nguyên", "ALL", [SEAT, PERSONAL]),
-        row("EDIT", "Sửa tài nguyên", "ALL", [{ ...PERSONAL, grant_id: "g-2", note: null, effective_to: null }]),
+        row("VIEW", "Xem tài nguyên", "ALL", [SEAT, PERSONAL], { inherited: "OWN", personal: "ALL" }),
+        row("EDIT", "Sửa tài nguyên", "ALL", [{ ...PERSONAL, grant_id: "g-2", note: null, effective_to: null }], {
+          inherited: "NONE",
+          personal: "ALL",
+        }),
       ],
       can_manage: true,
       grantable: { VIEW: ["OWN", "ALL"], EDIT: ["ALL"] },
@@ -118,22 +124,23 @@ const stubPage = (page: unknown = PAGE) =>
   ]);
 
 describe("Quyền của một người", () => {
-  it("draws every module as a checklist: defaults ticked and locked, extras editable", async () => {
+  it("draws every module as a checklist: defaults ticked and editable", async () => {
     stubPage();
     renderWithQuery(<PersonPermissionsPage />);
     expect(await screen.findByRole("heading", { name: "Quyền · Nguyễn Văn A" })).toBeInTheDocument();
     const order = screen.getByRole("region", { name: "Luồng order" });
     const approve = within(order).getByRole("checkbox", { name: "Duyệt / trả order" });
     expect(approve).toBeChecked();
-    expect(approve).toBeDisabled();
-    expect(within(order).getByText(/mặc định · Trưởng phòng ADS/)).toBeInTheDocument();
+    expect(approve).toBeEnabled();
+    expect(within(order).getByText(/mặc định của mình \/ phòng mình · Trưởng phòng ADS/)).toBeInTheDocument();
     const cancel = within(order).getByRole("checkbox", { name: "Huỷ order" });
     expect(cancel).not.toBeChecked();
     expect(cancel).toBeEnabled();
     const resources = screen.getByRole("region", { name: "Quản lý tài nguyên" });
     const view = within(resources).getByRole("checkbox", { name: "Xem tài nguyên" });
     expect(view).toBeChecked();
-    expect(view).toBeDisabled();
+    expect(view).toBeEnabled();
+    expect(within(resources).getAllByText("khác mặc định")).toHaveLength(1);
     // A PR review gate has no tick: it points at the PR screen.
     const pr = screen.getByRole("region", { name: "Nội dung PR" });
     expect(within(pr).queryByRole("checkbox", { name: "Duyệt Trưởng nhóm" })).not.toBeInTheDocument();
@@ -176,12 +183,30 @@ describe("Quyền của một người", () => {
     await userEvent.click(within(resources).getByRole("button", { name: "Lưu quyền" }));
     const dialog = await screen.findByRole("dialog");
     expect(dialog).toHaveTextContent('Thu hồi "Sửa tài nguyên".');
-    expect(dialog).toHaveTextContent('Thu hồi "Xem tài nguyên".');
+    expect(dialog).toHaveTextContent('Trả "Xem tài nguyên" về mặc định (Của mình / phòng mình).');
     await userEvent.click(within(dialog).getByRole("button", { name: "Lưu quyền" }));
     await waitFor(() => expect(calls(stub).filter((call) => call.method === "PUT")).toHaveLength(1));
     expect(calls(stub).find((call) => call.method === "PUT")?.body).toEqual({
       module: "RESOURCES",
-      permissions: { VIEW: null, EDIT: null },
+      permissions: { VIEW: "OWN", EDIT: null },
+    });
+  });
+
+  it("unticks a default the department seat gives (2026-11-10)", async () => {
+    const stub = stubPage();
+    renderWithQuery(<PersonPermissionsPage />);
+    const order = await screen.findByRole("region", { name: "Luồng order" });
+    await userEvent.click(within(order).getByRole("checkbox", { name: "Duyệt / trả order" }));
+    expect(within(order).getByRole("checkbox", { name: "Duyệt / trả order" })).not.toBeChecked();
+    expect(within(order).getByText("khác mặc định")).toBeInTheDocument();
+    await userEvent.click(within(order).getByRole("button", { name: "Lưu quyền" }));
+    const dialog = await screen.findByRole("dialog");
+    expect(dialog).toHaveTextContent('Bỏ "Duyệt / trả order" (quyền mặc định của phòng ban).');
+    await userEvent.click(within(dialog).getByRole("button", { name: "Lưu quyền" }));
+    await waitFor(() => expect(calls(stub).filter((call) => call.method === "PUT")).toHaveLength(1));
+    expect(calls(stub).find((call) => call.method === "PUT")?.body).toEqual({
+      module: "ORDER",
+      permissions: { ORDER_APPROVE: null },
     });
   });
 
@@ -233,9 +258,9 @@ describe("Quyền của một người", () => {
     });
   });
 
-  it("shows the server's refusal to anybody but the OWNER", async () => {
+  it("shows the server's refusal to anybody but the OWNER / an ADMIN", async () => {
     stubFetch([
-      { match: "/api/auth/session", body: { ...SESSION, role: "ADMIN" } },
+      { match: "/api/auth/session", body: { ...SESSION, role: "EMPLOYEE" } },
       { match: "/api/units/me", body: ME },
       {
         match: "/api/permissions/people/u-1",
@@ -243,13 +268,15 @@ describe("Quyền của một người", () => {
         body: {
           error: {
             code: "permission_forbidden",
-            message: "Chỉ chủ sở hữu xem và sửa được phân quyền cá nhân.",
+            message: "Chỉ chủ sở hữu và quản trị viên xem và sửa được phân quyền cá nhân.",
             details: {},
           },
         },
       },
     ]);
     renderWithQuery(<PersonPermissionsPage />);
-    expect(await screen.findByText("Chỉ chủ sở hữu xem và sửa được phân quyền cá nhân.")).toBeInTheDocument();
+    expect(
+      await screen.findByText("Chỉ chủ sở hữu và quản trị viên xem và sửa được phân quyền cá nhân."),
+    ).toBeInTheDocument();
   });
 });

@@ -34,16 +34,21 @@ const COLUMNS: Column[] = [
   { key: "joined_on", label: "Ngày vào", cell: (row) => formatDate(row.joined_on) || "—" },
   { key: "seniority", label: "Thâm niên", cell: (row) => row.seniority || "—" },
   { key: "contract", label: "Hợp đồng", cell: (row) => <ContractPill contract={row.contract} /> },
+  {
+    key: "contract_number",
+    label: "Mã hợp đồng",
+    cell: (row) =>
+      row.contract?.number ? <span className="whitespace-nowrap font-mono text-xs">{row.contract.number}</span> : "—",
+  },
   { key: "work_email", label: "Email công việc", cell: (row) => row.work_email || "—" },
   { key: "phone", label: "Điện thoại", sensitive: true, cell: (row) => row.phone || "—" },
   { key: "birth_date", label: "Ngày sinh", sensitive: true, cell: (row) => formatDate(row.birth_date ?? null) || "—" },
   { key: "id_masked", label: "CCCD", sensitive: true, cell: (row) => row.id_masked || "—" },
 ];
-const DEFAULT_COLUMNS = ["departments", "job_title", "branch", "status", "contract"];
+const DEFAULT_COLUMNS = ["departments", "job_title", "branch", "status", "contract", "contract_number"];
 export default function HrProfilesPage() {
   const queryClient = useQueryClient();
   const access = useQuery({ queryKey: ["hr", "access"], queryFn: hrApi.access });
-  const departments = useQuery({ queryKey: ["departments"], queryFn: api.departments, retry: false });
   const entities = useQuery({ queryKey: ["legal-entities"], queryFn: () => api.legalEntities() });
   const [filters, setFilters] = useState<HrFilters>({ page: 1, page_size: 50 });
   const [search, setSearch] = useState("");
@@ -110,7 +115,7 @@ export default function HrProfilesPage() {
           Phòng ban
           <Select aria-label="Lọc theo phòng ban" value={filters.department_id ?? ""} onChange={(event) => set({ department_id: event.target.value || undefined })}>
             <option value="">Tất cả</option>
-            {(departments.data?.departments ?? []).filter((item) => item.active).map((item) => (
+            {(a?.choices.departments ?? []).map((item) => (
               <option key={item.id} value={item.id}>{item.name}</option>
             ))}
           </Select>
@@ -407,7 +412,6 @@ function RenewDialog({ ids, onClose, onDone }: { ids: string[]; onClose: () => v
 }
 
 function AddDialog({ onClose, onDone }: { onClose: () => void; onDone: (text: string) => void }) {
-  const departments = useQuery({ queryKey: ["departments"], queryFn: api.departments });
   const access = useQuery({ queryKey: ["hr", "access"], queryFn: hrApi.access });
   const [form, setForm] = useState({ member_code: "", full_name: "", department_id: "", position: "MEMBER", job_title: "", branch: "", joined_on: "" });
   const [made, setMade] = useState<{ member_code: string; password: string } | null>(null);
@@ -449,7 +453,7 @@ function AddDialog({ onClose, onDone }: { onClose: () => void; onDone: (text: st
           Phòng ban
           <Select value={form.department_id} onChange={set("department_id")} className="mt-1">
             <option value="">— Chọn —</option>
-            {(departments.data?.departments ?? []).filter((item) => item.active).map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}
+            {(access.data?.choices.departments ?? []).map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}
           </Select>
         </label>
         <label className="text-xs text-[var(--text-muted)]">

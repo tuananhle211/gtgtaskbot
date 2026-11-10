@@ -166,11 +166,11 @@ async def test_02_only_the_owner_ticks_it_and_it_opens_the_bot(world: World) -> 
     admin_actor = await with_unified_access(world.session, world.actor(admin))
     assert not admin_actor.full_bot
     assert Permission.ASSISTANT_REPORT.value not in admin_actor.extra_permissions
-    # Nor sees the page it sits on: a person's "Quyền" is the OWNER's alone.
+    # Since 2026-11-10 an ADMIN ticks it for others on their "Quyền" page,
+    # never for themselves.
     world.act_as(admin)
-    hidden = world.client.get(f"/api/permissions/people/{world.member.id}")
-    assert hidden.status_code == 403
-    refused = grant(world, admin, world.member)
+    assert world.client.get(f"/api/permissions/people/{world.member.id}").status_code == 200
+    refused = grant(world, admin, admin)
     assert refused.status_code == 403
     assert error_reason(refused.json()) == "permission_forbidden"
     assert world.client.get("/api/units/me").json()["assistant"]["chat"] is False
@@ -191,14 +191,15 @@ async def test_02_only_the_owner_ticks_it_and_it_opens_the_bot(world: World) -> 
     assert world.client.get("/api/units/me").json()["assistant"]["chat"] is True
     world.act_as(world.owner)
     assert world.client.get("/api/units/me").json()["assistant"]["chat"] is True
-    # Taken back by the OWNER alone.
+    # Taken back (by an ADMIN too since 2026-11-10; not by the member).
     personal = world.client.get(f"/api/permissions/people/{world.member.id}").json()["personal"]
     grant_id = next(item["id"] for item in personal if item["module"] == "ASSISTANT")
     path = f"/api/permissions/people/{world.member.id}/grants/{grant_id}"
-    world.act_as(admin)
+    world.act_as(world.member)
     assert world.client.delete(path).status_code == 403
-    world.act_as(world.owner)
+    world.act_as(admin)
     assert world.client.delete(path).status_code == 204
+    world.act_as(world.owner)
     after = await with_unified_access(world.session, world.actor(world.member))
     assert not has_full_bot(after)
     assert Permission.ASSISTANT_REPORT.value not in after.extra_permissions

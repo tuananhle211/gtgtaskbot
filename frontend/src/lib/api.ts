@@ -240,6 +240,20 @@ const del = <T>(path: string, body?: unknown) =>
 /** The same helpers for API clients kept in their own file (`lib/cskh.ts`). */
 export const http = { get, post, patch, put, del };
 
+/**
+ * May this viewer open a person's "Quyền" page (2026-11-10)? The OWNER anybody;
+ * an ADMIN anybody but the OWNER and themselves. `target.role` unknown = not
+ * the OWNER as far as the screen knows (the API still refuses).
+ */
+export function mayEditPermissions(
+  viewer: { role?: string | null; userId?: string | null },
+  target: { user_id: string; role?: string | null },
+): boolean {
+  if (viewer.role === "OWNER") return true;
+  if (viewer.role !== "ADMIN") return false;
+  return target.role !== "OWNER" && target.user_id !== viewer.userId;
+}
+
 // --- Shapes, mirroring src/meobot/api/schemas/pr.py -------------------------
 // Hand-written rather than generated. A generated client would be one more thing
 // to keep in step, and the surface is small enough that a mismatch shows up as a
@@ -8815,6 +8829,10 @@ export interface EffectivePermissionRow {
   personal_only: boolean;
   /** Held by the system role itself (OWNER: all; ADMIN: all but the OWNER-only ones). */
   by_role?: boolean;
+  /** 0098: what the seats (+ built-in order grants) give - the default. */
+  inherited?: string;
+  /** 0098: the scope the person's own row sets (`NONE` = a default taken away). */
+  personal?: string | null;
 }
 
 export interface ModulePermissions {

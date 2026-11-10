@@ -29,7 +29,7 @@ USER_PERMISSIONS = "user_permissions"
 class UserPermission(Base, UUIDPrimaryKeyMixin):
     __tablename__ = USER_PERMISSIONS
     __table_args__ = (
-        CheckConstraint("scope IN ('OWN', 'ALL')", name="scope_known"),
+        CheckConstraint("scope IN ('NONE', 'OWN', 'ALL')", name="scope_known"),
         Index("ix_user_permissions_user_id", "user_id"),
         Index("ix_user_permissions_module_permission", "module", "permission"),
     )
@@ -39,7 +39,7 @@ class UserPermission(Base, UUIDPrimaryKeyMixin):
     )
     module: Mapped[str] = mapped_column(String(20), nullable=False)
     permission: Mapped[str] = mapped_column(String(40), nullable=False)
-    #: ``OWN`` / ``ALL``.
+    #: ``NONE`` (0098: takes away what the seats give) / ``OWN`` / ``ALL``.
     scope: Mapped[str] = mapped_column(String(10), nullable=False)
     note: Mapped[str | None] = mapped_column(Text, nullable=True)
     granted_by_user_id: Mapped[uuid.UUID | None] = mapped_column(

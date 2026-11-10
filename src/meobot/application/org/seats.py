@@ -9,7 +9,8 @@ seat at once.
 from __future__ import annotations
 
 import uuid
-from collections.abc import Iterable, Sequence
+from collections.abc import Iterable, Mapping, Sequence
+from dataclasses import replace
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -100,24 +101,68 @@ async def load_grants(
 HEAD_ORDER_GRANT: tuple[str, str] = ("ORDER_APPROVE", "OWN")
 
 
-def grants_of(
-    seats: Sequence[Seat], table: dict[tuple[uuid.UUID, str], tuple[tuple[str, str], ...]]
-) -> tuple[Grant, ...]:
-    """What a person's seats grant. Built in: Ban Giám đốc sees everything,
-    and every department head approves the orders sent to them
-    (:data:`HEAD_ORDER_GRANT`)."""
+def builtin_order_grants(seats: Sequence[Seat]) -> list[Grant]:
+    """The order flow's built-in grants: Ban Giám đốc sees every order, every
+    department head approves the orders sent to them (:data:`HEAD_ORDER_GRANT`)."""
     grants: list[Grant] = []
     for seat in seats:
-        for permission, scope in table.get((seat.department_id, seat.position.value), ()):
-            grants.append(Grant(permission, scope, seat.function))
         if seat.function is DepartmentFunction.BOARD:
             grants.append(Grant("VIEW", "ALL", seat.function))
         if seat.position is Position.HEAD:
             grants.append(Grant(HEAD_ORDER_GRANT[0], HEAD_ORDER_GRANT[1], seat.function))
-    return tuple(grants)
+    return grants
 
 
-__all__ = ["HEAD_ORDER_GRANT", "grants_of", "load_grants", "load_seats", "points_department"]
+def overridden(grants: Sequence[Grant], personal: Mapping[str, str] | None) -> list[Grant]:
+    """``grants`` under a person's personal rows (0098: ``permission -> scope``
+    sets the scope whatever the seats give; ``NONE`` takes it away), plus the
+    personal rows themselves."""
+    if not personal:
+        return list(grants)
+    out: list[Grant] = []
+    for grant in grants:
+        cap = personal.get(grant.permission)
+        if cap is None:
+            out.append(grant)
+        elif cap != "NONE":
+            out.append(replace(grant, scope=_capped(grant.scope, cap)))
+    out.extend(
+        Grant(permission, scope, DepartmentFunction.NONE)
+        for permission, scope in personal.items()
+        if scope != "NONE"
+    )
+    return out
+
+
+def _capped(scope: str, cap: str) -> str:
+    rank = {"NONE": 0, "OWN": 1, "ALL": 2}
+    return scope if rank.get(scope, 0) <= rank.get(cap, 0) else cap
+
+
+def grants_of(
+    seats: Sequence[Seat],
+    table: dict[tuple[uuid.UUID, str], tuple[tuple[str, str], ...]],
+    personal: Mapping[str, str] | None = None,
+) -> tuple[Grant, ...]:
+    """What a person's seats grant, with the built-in ones
+    (:func:`builtin_order_grants`), under their personal rows (``personal``)."""
+    grants: list[Grant] = []
+    for seat in seats:
+        for permission, scope in table.get((seat.department_id, seat.position.value), ()):
+            grants.append(Grant(permission, scope, seat.function))
+    grants.extend(builtin_order_grants(seats))
+    return tuple(overridden(grants, personal))
+
+
+__all__ = [
+    "HEAD_ORDER_GRANT",
+    "builtin_order_grants",
+    "grants_of",
+    "load_grants",
+    "load_seats",
+    "overridden",
+    "points_department",
+]
 
 
 def points_department(seats: Iterable[Seat], phase: OrderNodeType) -> uuid.UUID | None:

@@ -25,6 +25,8 @@ export type HrAccess = {
     contract_types: { code: string; name: string; months: number }[];
     contract_states: Choice[];
     max_document_mb: number;
+    /** Every active department, whatever the reader manages on "Phòng ban". */
+    departments?: { id: string; code: string; name: string; block: string | null; parent_id: string | null }[];
   };
   settings: { contract_warn_days: number; required_documents: string[] };
 };

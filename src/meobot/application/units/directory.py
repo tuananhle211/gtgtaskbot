@@ -23,13 +23,13 @@ from dataclasses import dataclass
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from meobot.application.org.access import Access, load_access
-from meobot.application.org.seats import HEAD_ORDER_GRANT, load_seats
+from meobot.application.org.access import Access, capped, load_access
+from meobot.application.org.seats import builtin_order_grants, load_seats
 from meobot.db.models.org_unit import OrgUnit, OrgUnitMember
 from meobot.db.models.user import User
 from meobot.domain.identity.models import Actor, Role
 from meobot.domain.orders.models import OrderNodeType
-from meobot.domain.org.models import MODULE_ORDER, DepartmentFunction, Grant, Position
+from meobot.domain.org.models import MODULE_ORDER, Grant
 from meobot.domain.units.errors import UnitNotFoundError
 from meobot.domain.units.models import (
     FUNCTION_ROLES,
@@ -65,11 +65,18 @@ def order_grants(access: Access) -> tuple[Grant, ...]:
     grants = [
         Grant(grant.permission, grant.scope, grant.function) for grant in access.of(MODULE_ORDER)
     ]
-    if any(seat.function is DepartmentFunction.BOARD for seat in access.seats):
-        grants.append(Grant("VIEW", "ALL", DepartmentFunction.BOARD))
-    for seat in access.seats:
-        if seat.position is Position.HEAD:
-            grants.append(Grant(HEAD_ORDER_GRANT[0], HEAD_ORDER_GRANT[1], seat.function))
+    # The built-in ones bow to the person's personal rows (0098) like the seats'.
+    personal = {
+        permission: scope
+        for module, permission, scope in access.overrides
+        if module == MODULE_ORDER
+    }
+    for grant in builtin_order_grants(access.seats):
+        cap = personal.get(grant.permission)
+        if cap is None:
+            grants.append(grant)
+        elif cap != "NONE":
+            grants.append(Grant(grant.permission, capped(grant.scope, cap), grant.function))
     return tuple(grants)
 
 

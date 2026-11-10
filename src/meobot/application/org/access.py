@@ -5,8 +5,12 @@ Three layers, added together (:mod:`meobot.domain.org.modules`):
 1. the **system role** - the OWNER and an ADMIN hold everything, everywhere;
 2. the **department seats** - what each department grants the position the
    person holds there (``department_permissions``);
-3. the **personal grants** - what somebody gave this person on top
-   (``user_permissions``), while not revoked and not past its end date.
+3. the **personal rows** (``user_permissions``), while not revoked and not
+   past their end date. Since 0098 a personal row **sets** the person's scope
+   of that permission whatever the seats give: ``NONE`` takes a seat default
+   away, ``OWN`` caps an ``ALL`` seat at ``OWN`` (the seat grant is kept,
+   narrowed, so its department function still counts), ``ALL`` gives all.
+   The OWNER / ADMIN's role-held permissions are not overridden.
 
 The result, :class:`Access`, is a flat list of :class:`EffectiveGrant` - one
 per (module, permission, scope, source) - that every module's own view is
@@ -24,7 +28,7 @@ from __future__ import annotations
 
 import uuid
 from collections.abc import Iterable, Sequence
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from datetime import date
 
 from sqlalchemy import or_, select
@@ -62,12 +66,37 @@ class EffectiveGrant:
         return self.seat.function if self.seat is not None else DepartmentFunction.NONE
 
 
+SCOPE_RANK = {"NONE": 0, "OWN": 1, "ALL": 2}
+
+
+def widest(scopes: Iterable[str]) -> str:
+    """``ALL`` / ``OWN`` / ``NONE``: the widest of ``scopes`` (none = ``NONE``)."""
+    return max(scopes, key=lambda scope: SCOPE_RANK.get(scope, 0), default="NONE")
+
+
+def capped(scope: str, cap: str) -> str:
+    """``scope`` no wider than ``cap``."""
+    return scope if SCOPE_RANK.get(scope, 0) <= SCOPE_RANK.get(cap, 0) else cap
+
+
 @dataclass(frozen=True, slots=True)
 class Access:
     user_id: uuid.UUID | None
     role: Role
     seats: tuple[Seat, ...] = ()
+    #: In force: the seats' grants (personal overrides applied) + personal rows.
     grants: tuple[EffectiveGrant, ...] = ()
+    #: What the seats give before any personal override (the page's "mặc định").
+    seat_grants: tuple[EffectiveGrant, ...] = ()
+    #: ``(module, permission, scope)``: the personal overrides in force.
+    overrides: tuple[tuple[str, str, str], ...] = ()
+
+    def override(self, module: str, permission: str) -> str | None:
+        """The scope a personal row sets for this permission, if any."""
+        for row_module, row_permission, scope in self.overrides:
+            if row_module == module and row_permission == permission:
+                return scope
+        return None
 
     @property
     def is_owner(self) -> bool:
@@ -226,14 +255,14 @@ async def load_access(
         if seats is not None
         else (await load_seats(session, [user_id])).get(user_id, ())
     )
-    grants: list[EffectiveGrant] = []
+    seat_grants: list[EffectiveGrant] = []
     if held:
         table = await load_all_grants(session, [seat.department_id for seat in held])
         for seat in held:
             for module, permission, scope in table.get(
                 (seat.department_id, seat.position.value), ()
             ):
-                grants.append(
+                seat_grants.append(
                     EffectiveGrant(
                         module=module,
                         permission=permission,
@@ -242,8 +271,22 @@ async def load_access(
                         seat=seat,
                     )
                 )
-    for row in await load_personal_grants(session, user_id, on=on):
-        if row.module not in MODULES:
+    personal = [
+        row for row in await load_personal_grants(session, user_id, on=on) if row.module in MODULES
+    ]
+    rows_of: dict[tuple[str, str], list[str]] = {}
+    for row in personal:
+        rows_of.setdefault((row.module, row.permission), []).append(row.scope)
+    overrides = {key: widest(scopes) for key, scopes in rows_of.items()}
+    grants: list[EffectiveGrant] = []
+    for grant in seat_grants:
+        cap = overrides.get((grant.module, grant.permission))
+        if cap is None:
+            grants.append(grant)
+        elif cap != "NONE":
+            grants.append(replace(grant, scope=capped(grant.scope, cap)))
+    for row in personal:
+        if row.scope == "NONE":
             continue
         grants.append(
             EffectiveGrant(
@@ -257,7 +300,16 @@ async def load_access(
                 note=row.note,
             )
         )
-    return Access(user_id=user_id, role=role, seats=held, grants=tuple(grants))
+    return Access(
+        user_id=user_id,
+        role=role,
+        seats=held,
+        grants=tuple(grants),
+        seat_grants=tuple(seat_grants),
+        overrides=tuple(
+            (module, permission, scope) for (module, permission), scope in overrides.items()
+        ),
+    )
 
 
 async def access_for(session: AsyncSession, actor: Actor) -> Access:
@@ -295,7 +347,9 @@ __all__ = [
     "AccessCache",
     "EffectiveGrant",
     "access_for",
+    "capped",
     "load_access",
     "load_all_grants",
     "load_personal_grants",
+    "widest",
 ]

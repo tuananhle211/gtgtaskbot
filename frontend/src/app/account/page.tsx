@@ -12,6 +12,7 @@ import {
 } from "@tanstack/react-query";
 import {
   api,
+  mayEditPermissions,
   ApiError,
   type AccountMe,
   type AccountMembers,
@@ -929,7 +930,7 @@ function Members({
                             <PersonLink userId={row.user_id} name={row.full_name} className="person" />
                             <span className="block text-xs text-[var(--text-muted)]">
                               {row.role_label} · {row.telegram_user_id == null ? "Chưa liên kết Telegram" : String(row.telegram_user_id)}
-                              {me.role === "OWNER" ? (
+                              {mayEditPermissions({ role: me.role, userId: me.user_id }, row) ? (
                                 <>
                                   {" · "}
                                   <Link
