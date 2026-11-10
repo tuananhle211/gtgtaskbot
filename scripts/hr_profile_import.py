@@ -9,8 +9,11 @@ Run inside the api container (accounts must exist - đợt 1's ``hr_org_import``
     docker compose exec -T api rm /tmp/staff-full.json
 
 ``staff-full.json`` = the whole "Nhân sự" tab as a list of rows (header row
-included). It holds ID numbers and phones: copy it in, run, delete it. The ID
-number is sealed with the deployment's key (``PR_SECRET_ENCRYPTION_KEY``).
+included). HCNS's workbook loads directly (0097): ``--input /tmp/ds.xlsx``
+reads its tab "DS NHÂN SỰ" (``--sheet`` for another). Either file holds ID
+numbers, phones and bank accounts: copy it in, run, delete it. The ID number,
+bank accounts and insurance salary are sealed with the deployment's key
+(``PR_SECRET_ENCRYPTION_KEY``).
 Without ``--apply`` the transaction is rolled back. Only counts are printed.
 """
 
@@ -25,7 +28,11 @@ from pathlib import Path
 
 from meobot.application.audit_service import AuditService
 from meobot.application.hr.profiles import HrProfileService
-from meobot.application.hr.sheet_import import HrProfileImport, ProfileImportReport
+from meobot.application.hr.sheet_import import (
+    HrProfileImport,
+    ProfileImportReport,
+    table_from_xlsx,
+)
 from meobot.core.config import get_settings
 from meobot.db.session import Database
 from meobot.domain.audit.models import AuditAction, AuditEntry, AuditResult
@@ -37,10 +44,16 @@ class _DryRunError(Exception):
 
 async def main() -> int:
     parser = argparse.ArgumentParser(description="Load HR profiles from the sheet")
-    parser.add_argument("--input", required=True)
+    parser.add_argument("--input", required=True, help="rows as JSON, or an .xlsx workbook")
+    parser.add_argument("--sheet", default="DS NHÂN SỰ", help="the workbook's tab (.xlsx only)")
     parser.add_argument("--apply", action="store_true")
     args = parser.parse_args()
-    table = json.loads(Path(args.input).read_text(encoding="utf-8"))
+    source = Path(args.input)
+    table = (
+        table_from_xlsx(source.read_bytes(), args.sheet)
+        if source.suffix.lower() == ".xlsx"
+        else json.loads(source.read_text(encoding="utf-8"))
+    )
 
     settings = get_settings()
     db = Database(settings)

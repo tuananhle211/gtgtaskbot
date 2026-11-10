@@ -1,5 +1,12 @@
 """Load the HR sheet's "Nhân sự" tab into the profiles (HR đợt 2, 0096).
 
+Also reads HCNS's own workbook ("DANH SÁCH NHÂN SỰ", tab DS NHÂN SỰ, 0097):
+team, both bank accounts (numbers sealed), time-clock id / day / floor, the
+scan folder link, the paper documents ticked, the job title + salary on the
+social-insurance file (salary sealed), the BHXH number and the notes. Accounts
+(name, department, title, branch) are never changed here; the company is only
+filled where the account has none.
+
 Re-runnable. A row is matched to its account by member code (accounts come
 from đợt 1, ``hr_org_import``); its profile gets gender, birthday, phone, ID
 number (sealed) + issue date / place, the three e-mails, join / official dates
@@ -13,25 +20,42 @@ Nothing is printed but counts.
 
 from __future__ import annotations
 
+import io
 import re
 from dataclasses import dataclass, field
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta
 from typing import Any
 
+from openpyxl import load_workbook
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from meobot.application.hr.profiles import HrProfileService
-from meobot.application.org.hr_import import fold, parse_day
+from meobot.application.org.hr_import import entity_code_of, fold, parse_day
 from meobot.db.models.hr_profile import HrContract, HrContractType, HrProfile
+from meobot.db.models.legal_entity import LegalEntity
 from meobot.db.models.user import User
-from meobot.domain.hr.profiles import add_months, gender_of
+from meobot.domain.hr.profiles import DOCUMENT_KINDS, PAPER_DOCUMENTS, add_months, gender_of
 from meobot.domain.units.member_code import normalise_member_code
 
 UNKNOWN_TYPE = ("HDLD", "HĐ lao động (chưa rõ thời hạn)")
 _CONTRACT_NUMBER = re.compile(r"\d")
 
-#: header words (folded) -> the field they fill.
+#: header words (folded) -> the field they fill. A header named twice ("STK",
+#: "Ngân hàng", "Tên tài khoản") fills the first name, then the second.
+#: Names in ``EXACT`` match the whole header only.
+EXACT = frozenset(
+    {
+        "probation_signed",
+        "official_signed",
+        "bank_account",
+        "bank_account_2",
+        "team",
+        "fingerprint_id",
+        "paper:CCCD",
+        "paper:DEGREE",
+    }
+)
 COLUMNS: dict[str, tuple[str, ...]] = {
     "code": ("ma", "nhan vien"),
     "gender": ("gioi tinh",),
@@ -52,6 +76,35 @@ COLUMNS: dict[str, tuple[str, ...]] = {
     "official_signed_on": ("ngay ky hdct",),
     "official_number": ("so hdld chinh thuc",),
     "official_signed": ("hdct",),
+    # DANH SÁCH NHÂN SỰ (0097)
+    "team": ("team",),
+    "left_on": ("ngay lam viec cuoi",),
+    "leave_reason": ("ly do dung viec",),
+    "fingerprint_id": ("van tay",),
+    "fingerprint_on": ("ngay lay van tay",),
+    "fingerprint_floor": ("tang lay van tay",),
+    "bank_name": ("ngan hang",),
+    "bank_account": ("stk",),
+    "bank_holder": ("ten tai khoan",),
+    "bank_account_2": ("stk",),
+    "bank2_name": ("ngan hang",),
+    "bank2_holder": ("ten tai khoan",),
+    "scan_link": ("ho so scan",),
+    "paper:CV": ("so yeu ly lich",),
+    "paper:CCCD": ("cccd",),
+    "paper:BIRTH": ("giay khai sinh",),
+    "paper:VSSID": ("vssid",),
+    "paper:ETAX": ("etax",),
+    "paper:RESIDENCE": ("xac nhan cu tru",),
+    "paper:HEALTH": ("giay kham suc khoe",),
+    "paper:DEGREE": ("bang cap",),
+    "paper:LICENSE": ("chung chi hanh nghe",),
+    "note": ("ghi chu",),
+    "insurance_entity": ("phap nhan dong bhxh",),
+    "insurance_note": ("note li do",),
+    "insurance_title": ("chuc danh tren bhxh",),
+    "insurance_salary": ("muc luong", "bhxh"),
+    "social_insurance_no": ("ma so bhxh",),
 }
 
 
@@ -61,6 +114,12 @@ class ProfileImportReport:
     contracts: int = 0
     unknown_codes: list[str] = field(default_factory=list)
     bad_dates: int = 0
+    columns: list[str] = field(default_factory=list)
+    filled: dict[str, int] = field(default_factory=dict)
+    companies_filled: int = 0
+
+    def count(self, name: str) -> None:
+        self.filled[name] = self.filled.get(name, 0) + 1
 
     def summary(self) -> dict[str, Any]:
         return {
@@ -68,6 +127,9 @@ class ProfileImportReport:
             "contracts_created": self.contracts,
             "codes_not_found": self.unknown_codes,
             "unreadable_dates": self.bad_dates,
+            "columns_read": len(self.columns),
+            "companies_filled": self.companies_filled,
+            "filled": dict(sorted(self.filled.items())),
         }
 
 
@@ -78,7 +140,7 @@ def _columns(header: list[str]) -> dict[str, int]:
         for index, cell in enumerate(folded):
             if index in found.values():
                 continue
-            if name in ("probation_signed", "official_signed"):
+            if name in EXACT:
                 if cell == words[0]:
                     found[name] = index
                     break
@@ -102,11 +164,48 @@ def _yes(value: str) -> bool:
     return value.strip().upper() in ("TRUE", "X", "1", "CÓ", "CO", "ĐÃ KÝ", "DA KY")
 
 
+def _id_number(value: str) -> str:
+    digits = re.sub(r"\s+", "", value)
+    if digits.isdigit() and len(digits) == 11:
+        # A 12-digit CCCD typed as a number lost its leading 0.
+        digits = "0" + digits
+    return digits
+
+
+def _amount(value: str) -> int | None:
+    digits = re.sub(r"[.,\s]", "", value)
+    return int(digits) if digits.isdigit() else None
+
+
+def cell_text(value: object) -> str:
+    """A typed workbook value as the sheet would show it."""
+    if value is None:
+        return ""
+    if isinstance(value, bool):
+        return "TRUE" if value else "FALSE"
+    if isinstance(value, datetime | date):
+        return value.strftime("%d/%m/%Y")
+    if isinstance(value, float) and value.is_integer():
+        return str(int(value))
+    return str(value).strip()
+
+
+def table_from_xlsx(data: bytes, sheet: str) -> list[list[str]]:
+    """Every row of ``sheet`` as text (header rows included)."""
+    book = load_workbook(io.BytesIO(data), read_only=True, data_only=True)
+    try:
+        rows = book[sheet].iter_rows(values_only=True)
+        return [[cell_text(value) for value in row] for row in rows]
+    finally:
+        book.close()
+
+
 class HrProfileImport:
     def __init__(self, session: AsyncSession, service: HrProfileService) -> None:
         self._session = session
         self._service = service
         self._report = ProfileImportReport()
+        self._entities: dict[str, Any] = {}
 
     async def run(self, table: list[list[str]]) -> ProfileImportReport:
         header_at = next(
@@ -115,6 +214,10 @@ class HrProfileImport:
             if any("ma" in fold(cell) and "nhan vien" in fold(cell) for cell in row[:4])
         )
         at = _columns(table[header_at])
+        self._report.columns = sorted(at)
+        self._entities = {
+            row.code: row.id for row in (await self._session.scalars(select(LegalEntity))).all()
+        }
         await self._service.contract_types()
         await self._unknown_type()
         for raw in table[header_at + 1 :]:
@@ -134,6 +237,7 @@ class HrProfileImport:
                 self._report.unknown_codes.append(code)
                 continue
             await self._profile(user, cell)
+            await self._extras(user, cell, at)
             await self._contracts(user, cell)
         await self._session.flush()
         return self._report
@@ -163,13 +267,84 @@ class HrProfileImport:
         profile.joined_on = self._day(cell("joined_on")) or profile.joined_on
         profile.official_on = self._day(cell("official_on")) or profile.official_on
         profile.grade = cell("grade")[:20] or profile.grade
-        id_number = re.sub(r"\s+", "", cell("id_number"))
+        id_number = _id_number(cell("id_number"))
         if id_number:
             secret = self._service._open_secret(profile) or {}
             secret["id_number"] = id_number
             self._service._seal_secret(profile, secret)
             profile.id_last4 = id_number[-4:]
         self._report.profiles += 1
+
+    async def _extras(self, user: User, cell: Any, at: dict[str, int]) -> None:
+        """The DANH SÁCH NHÂN SỰ columns (0097); a missing column changes nothing."""
+        profile = await self._session.get(HrProfile, user.id)
+        assert profile is not None
+        limits = {
+            "team": 120,
+            "leave_reason": 1000,
+            "fingerprint_id": 30,
+            "fingerprint_floor": 30,
+            "bank_name": 100,
+            "bank_holder": 200,
+            "bank2_name": 100,
+            "bank2_holder": 200,
+            "scan_link": 1000,
+            "insurance_title": 200,
+            "social_insurance_no": 30,
+        }
+        for name, limit in limits.items():
+            if name not in at:
+                continue
+            value = cell(name)[:limit]
+            if value:
+                self._report.count(name)
+                setattr(profile, name, value)
+        for name in ("left_on", "fingerprint_on"):
+            if name in at:
+                day = self._day(cell(name))
+                if day is not None:
+                    self._report.count(name)
+                    setattr(profile, name, day)
+        papers = [code for code in PAPER_DOCUMENTS if f"paper:{code}" in at]
+        if papers:
+            ticked = {code for code in papers if _yes(cell(f"paper:{code}"))}
+            kept = {code for code in (profile.paper_documents or []) if code not in papers}
+            profile.paper_documents = [
+                code for code in DOCUMENT_KINDS if code in ticked or code in kept
+            ]
+            for code in ticked:
+                self._report.count(f"paper:{code}")
+        if "note" in at or "insurance_note" in at or "insurance_entity" in at:
+            lines = [
+                cell("note"),
+                f"Pháp nhân đóng BHXH: {cell('insurance_entity')}"
+                if cell("insurance_entity")
+                else "",
+                f"Ghi chú BHXH: {cell('insurance_note')}" if cell("insurance_note") else "",
+            ]
+            note = "\n".join(line for line in lines if line)[:2000]
+            if note:
+                profile.note = note
+        sealed: dict[str, object] = {}
+        for name in ("bank_account", "bank_account_2"):
+            if name in at:
+                sealed[name] = re.sub(r"\s+", "", cell(name))[:40] or None
+        if "insurance_salary" in at:
+            sealed["insurance_salary"] = _amount(cell("insurance_salary"))
+        if sealed:
+            secret = self._service._open_secret(profile) or {}
+            for name, value in sealed.items():
+                if value is not None:
+                    self._report.count(name)
+                    secret[name] = value
+            self._service._seal_secret(profile, secret)
+            profile.bank_last4 = _last4(secret.get("bank_account"))
+            profile.bank2_last4 = _last4(secret.get("bank_account_2"))
+        if user.legal_entity_id is None:
+            entity = entity_code_of(cell("insurance_entity"))
+            if entity and entity in self._entities:
+                user.legal_entity_id = self._entities[entity]
+                self._report.companies_filled += 1
 
     async def _contracts(self, user: User, cell: Any) -> None:
         existing = {
@@ -226,4 +401,9 @@ class HrProfileImport:
         await self._session.flush()
 
 
-__all__ = ["HrProfileImport", "ProfileImportReport"]
+def _last4(value: object) -> str | None:
+    text = re.sub(r"\s+", "", str(value or ""))
+    return text[-4:] if text else None
+
+
+__all__ = ["HrProfileImport", "ProfileImportReport", "cell_text", "table_from_xlsx"]

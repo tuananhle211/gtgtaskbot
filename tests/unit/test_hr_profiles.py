@@ -341,12 +341,9 @@ async def test_06_the_sheet_fills_profiles(world: World) -> None:
     ]
     service = HrProfileService(world.session, world.settings, AuditService(world.session))
     report = await HrProfileImport(world.session, service).run(table)
-    assert report.summary() == {
-        "profiles_updated": 1,
-        "contracts_created": 2,
-        "codes_not_found": ["NOBODY"],
-        "unreadable_dates": 0,
-    }
+    summary = report.summary()
+    assert summary["profiles_updated"] == 1 and summary["contracts_created"] == 2
+    assert summary["codes_not_found"] == ["NOBODY"] and summary["unreadable_dates"] == 0
     profile = as_(world, world.lead).get(f"/api/hr/profiles/{seller.id}").json()
     assert profile["personal"]["phone"] == "0376618533"
     assert profile["personal"]["id_number"] == "038301009918"
@@ -357,3 +354,82 @@ async def test_06_the_sheet_fills_profiles(world: World) -> None:
     # Again: nothing doubled.
     again = await HrProfileImport(world.session, service).run(table)
     assert again.contracts == 0
+
+
+async def test_07_the_hcns_workbook(world: World) -> None:
+    """0097: HCNS's own workbook (typed cells, the doubled bank columns, the
+    paper checklist) and the paper checklist edited on the profile."""
+    from datetime import UTC, date, datetime
+
+    from meobot.application.audit_service import AuditService
+    from meobot.application.hr.profiles import HrProfileService
+    from meobot.application.hr.sheet_import import HrProfileImport, cell_text
+
+    from meobot.db.models.legal_entity import LegalEntity
+
+    people = await _hr_world(world)
+    seller = people["seller"]
+    if await world.session.scalar(select(LegalEntity).where(LegalEntity.code == "GPI")) is None:
+        world.session.add(LegalEntity(code="GPI", name="GPI Tech"))
+        await world.session.flush()
+    header = [
+        "Chi nhánh", "Mã \nnhân viên", "Họ và tên", "Giới tính", "Ngày \nsinh",
+        "ĐT di động", "Số CCCD", "Team", "Ngày tham gia", "Vân tay", "Ngày lấy vân tay",
+        "Tầng lấy vân tay", "Ngân hàng", "STK", "Tên tài khoản", "STK", "Ngân hàng",
+        "Tên tài khoản", "Hồ sơ scan", "Sơ yếu lý lịch", "CCCD", "Giấy khai sinh",
+        "Bằng cấp", "Ghi chú các trường hợp phát sinh", "Pháp nhân đóng BHXH",
+        "Chức danh trên BHXH", "Mức lương cơ bản đóng BHXH", "Mã số BHXH",
+    ]  # fmt: skip
+    row: list[object] = [
+        "VP - Hà Nội", "D050PHUONG", "Phạm Thị Phương", "Nữ", datetime(2001, 12, 30, tzinfo=UTC),
+        376618533.0, 38301009918.0, "Team 1", datetime(2022, 11, 3, tzinfo=UTC), 112.0,
+        datetime(2022, 11, 4, tzinfo=UTC), "T5", "Techcombank", "19034567891234", "PHAM THI PHUONG",
+        "0011223344", "VCB", "PHAM THI PHUONG", "https://drive.google.com/x", True, True,
+        False, True, "Đã nộp đủ", "GPI Tech", "Nhân viên kinh doanh", 5310000.0,
+        "0123456789",
+    ]  # fmt: skip
+    table = [[], [cell_text(v) for v in header], [cell_text(v) for v in row]]
+    assert cell_text(True) == "TRUE" and cell_text(date(2026, 1, 2)) == "02/01/2026"
+    service = HrProfileService(world.session, world.settings, AuditService(world.session))
+    report = await HrProfileImport(world.session, service).run(table)
+    summary = report.summary()
+    assert summary["profiles_updated"] == 1 and summary["companies_filled"] == 1
+    assert summary["filled"]["paper:CV"] == 1 and "paper:BIRTH" not in summary["filled"]
+    hr = as_(world, world.lead)
+    profile = hr.get(f"/api/hr/profiles/{seller.id}").json()
+    assert profile["personal"]["id_number"] == "038301009918"
+    assert profile["personal"]["phone"] == "0376618533"
+    assert profile["personal"]["bank_account"] == "19034567891234"
+    assert profile["personal"]["bank_account_2"] == "0011223344"
+    assert profile["personal"]["bank2_name"] == "VCB"
+    assert profile["work"]["team"] == "Team 1"
+    assert profile["work"]["fingerprint_id"] == "112"
+    assert profile["work"]["fingerprint_on"] == "2022-11-04"
+    assert profile["insurance"]["insurance_title"] == "Nhân viên kinh doanh"
+    assert profile["insurance"]["insurance_salary"] == 5310000
+    assert profile["insurance"]["social_insurance_no"] == "0123456789"
+    assert profile["legal_entity_code"] == "GPI"
+    assert "Pháp nhân đóng BHXH: GPI Tech" in profile["work"]["note"]
+    papers = profile["papers"]
+    assert papers["scan_link"] == "https://drive.google.com/x"
+    handed = [item["code"] for item in papers["items"] if item["handed"]]
+    assert handed == ["CV", "CCCD", "DEGREE"]
+    # Required by default: CV, CCCD, BIRTH, RESIDENCE, HEALTH, DEGREE.
+    assert profile["missing_documents"] == ["BIRTH", "RESIDENCE", "HEALTH"]
+    stored = await world.session.get(HrProfile, seller.id)
+    assert stored is not None and stored.bank_last4 == "1234" and stored.bank2_last4 == "3344"
+    assert "19034567891234" not in (stored.secret or "")
+
+    # HCNS ticks the birth certificate on the profile.
+    done = hr.patch(
+        f"/api/hr/profiles/{seller.id}",
+        json={"paper_documents": ["BIRTH", "CV", "CCCD", "DEGREE"]},
+    )
+    assert done.status_code in (200, 204), done.json()
+    after = hr.get(f"/api/hr/profiles/{seller.id}").json()
+    assert after["missing_documents"] == ["RESIDENCE", "HEALTH"]
+    bad = hr.patch(f"/api/hr/profiles/{seller.id}", json={"paper_documents": ["NOPE"]})
+    assert bad.status_code == 422
+    # A head sees no papers.
+    head = as_(world, world.member).get(f"/api/hr/profiles/{seller.id}").json()
+    assert head["papers"] is None

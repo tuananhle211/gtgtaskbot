@@ -55,6 +55,7 @@ from meobot.domain.hr.profiles import (
     DEFAULT_WARN_DAYS,
     DOCUMENT_KINDS,
     GENDERS,
+    PAPER_DOCUMENTS,
     ContractState,
     RequestStatus,
     age,
@@ -83,8 +84,17 @@ class HrValidationError(ValidationError):
 # --- what may be written ------------------------------------------------------------------
 
 #: Plain profile columns, by kind. The work ones are seen by any viewer.
-WORK_TEXT = ("grade", "work_form", "work_email", "leave_reason", "note")
-WORK_DATES = ("joined_on", "official_on", "left_on")
+WORK_TEXT = (
+    "grade",
+    "work_form",
+    "work_email",
+    "leave_reason",
+    "note",
+    "team",
+    "fingerprint_id",
+    "fingerprint_floor",
+)
+WORK_DATES = ("joined_on", "official_on", "left_on", "fingerprint_on")
 PERSONAL_TEXT = (
     "birth_place",
     "nationality",
@@ -99,13 +109,17 @@ PERSONAL_TEXT = (
     "current_address",
     "bank_name",
     "bank_holder",
+    "bank2_name",
+    "bank2_holder",
     "social_insurance_no",
+    "insurance_title",
     "health_insurance_no",
     "tax_code",
+    "scan_link",
 )
 PERSONAL_DATES = ("birth_date", "id_issued_on", "social_insurance_from")
 #: Sealed in ``secret``.
-SECRET_TEXT = ("id_number", "bank_account", "salary_type", "salary_note")
+SECRET_TEXT = ("id_number", "bank_account", "bank_account_2", "salary_type", "salary_note")
 SECRET_MONEY = ("base_salary", "allowance", "insurance_salary")
 #: On ``users``.
 ACCOUNT_FIELDS = ("full_name", "job_title", "branch", "legal_entity_id", "employment_status")
@@ -123,6 +137,7 @@ TEXT_LIMITS = {
     "permanent_address": 500,
     "current_address": 500,
     "salary_note": 500,
+    "scan_link": 1000,
 }
 
 
@@ -502,7 +517,10 @@ class HrProfileService:
                 and current["state"] == ContractState.ACTIVE.value
             ),
             "missing_documents": [
-                kind for kind in settings.required_documents if kind not in documents
+                kind
+                for kind in settings.required_documents
+                if kind not in documents
+                and kind not in ((profile.paper_documents or []) if profile else [])
             ],
             "sensitive": sensitive,
         }
@@ -679,8 +697,13 @@ class HrProfileService:
             "leave_reason": None if profile is None else profile.leave_reason,
             "work_email": None if profile is None else profile.work_email,
             "note": None if profile is None else profile.note,
+            "team": None if profile is None else profile.team,
+            "fingerprint_id": None if profile is None else profile.fingerprint_id,
+            "fingerprint_on": None if profile is None else profile.fingerprint_on,
+            "fingerprint_floor": None if profile is None else profile.fingerprint_floor,
         }
         view["can_edit"] = access.edit
+        view["papers"] = None
         view["personal"] = view["pay"] = view["insurance"] = None
         view["documents"] = None
         if sensitive:
@@ -706,10 +729,13 @@ class HrProfileService:
                         "current_address",
                         "bank_name",
                         "bank_holder",
+                        "bank2_name",
+                        "bank2_holder",
                     )
                 },
                 "id_number": None if secret is None else secret.get("id_number"),
                 "bank_account": None if secret is None else secret.get("bank_account"),
+                "bank_account_2": None if secret is None else secret.get("bank_account_2"),
                 "secret_unreadable": secret is None,
             }
             base = None if secret is None else secret.get("base_salary")
@@ -725,11 +751,26 @@ class HrProfileService:
             }
             view["insurance"] = {
                 "social_insurance_no": None if profile is None else profile.social_insurance_no,
+                "insurance_title": None if profile is None else profile.insurance_title,
                 "social_insurance_from": None if profile is None else profile.social_insurance_from,
                 "insurance_salary": None if secret is None else secret.get("insurance_salary"),
                 "health_insurance_no": None if profile is None else profile.health_insurance_no,
                 "tax_code": None if profile is None else profile.tax_code,
                 "dependants": None if profile is None else profile.dependants,
+            }
+            handed = set((profile.paper_documents or []) if profile else [])
+            view["papers"] = {
+                "scan_link": None if profile is None else profile.scan_link,
+                "items": [
+                    {
+                        "code": code,
+                        "label": DOCUMENT_KINDS[code],
+                        "handed": code in handed,
+                        "uploaded": code in kinds,
+                        "required": code in settings.required_documents,
+                    }
+                    for code in PAPER_DOCUMENTS
+                ],
             }
             view["documents"] = [
                 {
@@ -968,6 +1009,7 @@ class HrProfileService:
                     *SECRET_MONEY,
                     "gender",
                     "dependants",
+                    "paper_documents",
                 )
             )
             and not access.sensitive
@@ -1012,6 +1054,18 @@ class HrProfileService:
             if profile.gender != gender:
                 profile.gender = gender
                 changed.add("gender")
+        if "paper_documents" in fields:
+            raw = fields["paper_documents"] or []
+            if not isinstance(raw, list) or any(
+                not isinstance(code, str) or code not in DOCUMENT_KINDS for code in raw
+            ):
+                raise HrValidationError(
+                    "hr_value_invalid", "Loại giấy tờ không hợp lệ.", field="paper_documents"
+                )
+            papers = [code for code in DOCUMENT_KINDS if code in set(raw)]
+            if list(profile.paper_documents or []) != papers:
+                profile.paper_documents = papers
+                changed.add("paper_documents")
         if "dependants" in fields:
             dependants = fields["dependants"]
             if dependants is not None and (
@@ -1045,6 +1099,7 @@ class HrProfileService:
             self._seal_secret(profile, secret)
             profile.id_last4 = _last4(secret.get("id_number"))
             profile.bank_last4 = _last4(secret.get("bank_account"))
+            profile.bank2_last4 = _last4(secret.get("bank_account_2"))
         # the account
         if "full_name" in fields:
             name = " ".join(str(fields["full_name"] or "").split())

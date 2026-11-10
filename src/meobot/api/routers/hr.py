@@ -104,6 +104,17 @@ class ProfileBody(BaseModel):
     health_insurance_no: str | None = Field(default=None, max_length=30)
     tax_code: str | None = Field(default=None, max_length=20)
     dependants: int | None = Field(default=None, ge=0, le=30)
+    # 0097
+    team: str | None = Field(default=None, max_length=120)
+    fingerprint_id: str | None = Field(default=None, max_length=30)
+    fingerprint_on: date | None = None
+    fingerprint_floor: str | None = Field(default=None, max_length=30)
+    bank2_name: str | None = Field(default=None, max_length=100)
+    bank_account_2: str | None = Field(default=None, max_length=40)
+    bank2_holder: str | None = Field(default=None, max_length=200)
+    insurance_title: str | None = Field(default=None, max_length=200)
+    scan_link: str | None = Field(default=None, max_length=1000)
+    paper_documents: list[str] | None = Field(default=None, max_length=20)
 
 
 def _sent(body: BaseModel) -> dict[str, Any]:

@@ -28,7 +28,7 @@ from sqlalchemy import (
 )
 from sqlalchemy.orm import Mapped, deferred, mapped_column
 
-from meobot.db.base import Base, TimestampMixin, UUIDPrimaryKeyMixin
+from meobot.db.base import Base, JSONColumn, TimestampMixin, UUIDPrimaryKeyMixin
 from meobot.db.models.pr import RESTRICT, USERS_TABLE
 
 PROFILES = "hr_profiles"
@@ -77,10 +77,26 @@ class HrProfile(Base, TimestampMixin):
     health_insurance_no: Mapped[str | None] = mapped_column(String(30), nullable=True)
     tax_code: Mapped[str | None] = mapped_column(String(20), nullable=True)
     dependants: Mapped[int | None] = mapped_column(Integer, nullable=True)
-    #: Sealed JSON: id_number, bank_account, base_salary, allowance,
-    #: insurance_salary, salary_type, salary_note.
+    #: Sealed JSON: id_number, bank_account, bank_account_2 (0097), base_salary,
+    #: allowance, insurance_salary, salary_type, salary_note.
     secret: Mapped[str | None] = mapped_column(Text, nullable=True)
     note: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # 0097: the HCNS master file's extra columns.
+    team: Mapped[str | None] = mapped_column(String(120), nullable=True)
+    bank2_name: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    bank2_last4: Mapped[str | None] = mapped_column(String(4), nullable=True)
+    bank2_holder: Mapped[str | None] = mapped_column(String(200), nullable=True)
+    insurance_title: Mapped[str | None] = mapped_column(String(200), nullable=True)
+    #: The time clock's id for the person ("vân tay"), when and where taken.
+    fingerprint_id: Mapped[str | None] = mapped_column(String(30), nullable=True)
+    fingerprint_on: Mapped[date | None] = mapped_column(Date, nullable=True)
+    fingerprint_floor: Mapped[str | None] = mapped_column(String(30), nullable=True)
+    #: The folder of scanned papers (a Drive link).
+    scan_link: Mapped[str | None] = mapped_column(Text, nullable=True)
+    #: Paper documents handed in (``DOCUMENT_KINDS`` codes).
+    paper_documents: Mapped[list[str]] = mapped_column(
+        JSONColumn, nullable=False, default=list, server_default=text("'[]'")
+    )
     updated_by_user_id: Mapped[uuid.UUID | None] = mapped_column(
         ForeignKey(f"{USERS_TABLE}.id", ondelete="SET NULL"), nullable=True
     )

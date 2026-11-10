@@ -432,6 +432,170 @@ function RequestDialog({
   );
 }
 
+/** 0097: the paper file ("Hồ sơ giấy") - what was handed in, the scan folder. */
+function Papers({ profile, onChanged }: { profile: HrProfile; onChanged: (note: string | null) => void }) {
+  const papers = profile.papers;
+  const [open, setOpen] = useState(false);
+  if (!papers) return null;
+  const handed = papers.items.filter((item) => item.handed || item.uploaded).length;
+  return (
+    <div className="space-y-3">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <h2 className="text-base font-semibold">
+          Hồ sơ giấy{" "}
+          <span className="text-sm font-normal text-[var(--text-muted)]">
+            · đã có {handed}/{papers.items.length}
+          </span>
+        </h2>
+        {profile.can_edit ? (
+          <SecondaryButton type="button" onClick={() => setOpen(true)}>
+            Sửa hồ sơ giấy
+          </SecondaryButton>
+        ) : null}
+      </div>
+      <ul className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3" aria-label="Danh mục hồ sơ giấy">
+        {papers.items.map((item) => {
+          const has = item.handed || item.uploaded;
+          return (
+            <li
+              key={item.code}
+              className="flex items-center gap-2 rounded-lg border border-[var(--border)] px-3 py-2 text-sm"
+            >
+              <span
+                aria-hidden
+                className={`flex h-5 w-5 shrink-0 items-center justify-center rounded-full text-xs font-semibold ${
+                  has
+                    ? "bg-[var(--good-soft)] text-[var(--good)]"
+                    : item.required
+                      ? "bg-[var(--warn-soft)] text-[var(--warn)]"
+                      : "bg-[var(--surface-muted)] text-[var(--text-muted)]"
+                }`}
+              >
+                {has ? "✓" : item.required ? "!" : "–"}
+              </span>
+              <span className="min-w-0 flex-1">{item.label}</span>
+              <span className="sr-only">{has ? "đã có" : item.required ? "còn thiếu" : "không bắt buộc"}</span>
+              {item.uploaded && !item.handed ? (
+                <span className="text-xs text-[var(--text-muted)]">tệp</span>
+              ) : null}
+            </li>
+          );
+        })}
+      </ul>
+      <p className="text-sm">
+        <span className="text-[var(--text-muted)]">Hồ sơ scan: </span>
+        {papers.scan_link ? (
+          /^https?:\/\//i.test(papers.scan_link) ? (
+            <a href={papers.scan_link} target="_blank" rel="noreferrer" className="break-all text-[var(--accent)] hover:underline">
+              Mở thư mục scan
+            </a>
+          ) : (
+            <span className="break-all">{papers.scan_link}</span>
+          )
+        ) : (
+          <span className="text-[var(--text-muted)]">chưa có</span>
+        )}
+      </p>
+      {open ? (
+        <PapersDialog
+          profile={profile}
+          onClose={() => setOpen(false)}
+          onSaved={() => {
+            setOpen(false);
+            onChanged("Đã lưu hồ sơ giấy.");
+          }}
+        />
+      ) : null}
+    </div>
+  );
+}
+
+function PapersDialog({
+  profile,
+  onClose,
+  onSaved,
+}: {
+  profile: HrProfile;
+  onClose: () => void;
+  onSaved: () => void;
+}) {
+  const papers = profile.papers;
+  const [ticked, setTicked] = useState<Set<string>>(
+    () => new Set((papers?.items ?? []).filter((item) => item.handed).map((item) => item.code)),
+  );
+  const [link, setLink] = useState(papers?.scan_link ?? "");
+  const save = useMutation({
+    mutationFn: () =>
+      hrApi.update(profile.user_id, {
+        paper_documents: Array.from(ticked),
+        scan_link: link.trim() || null,
+      }),
+    onSuccess: () => onSaved(),
+  });
+  if (!papers) return null;
+  return (
+    <Modal open onClose={onClose} busy={save.isPending} title="Sửa hồ sơ giấy">
+      <ModalBody>
+        <fieldset>
+          <legend className="text-xs text-[var(--text-muted)]">Giấy tờ đã nộp</legend>
+          <div className="mt-2 grid gap-1 sm:grid-cols-2">
+            {papers.items.map((item) => (
+              <label key={item.code} className="flex min-h-11 items-center gap-2 text-sm">
+                <input
+                  type="checkbox"
+                  checked={ticked.has(item.code)}
+                  onChange={(event) =>
+                    setTicked((old) => {
+                      const next = new Set(old);
+                      if (event.target.checked) next.add(item.code);
+                      else next.delete(item.code);
+                      return next;
+                    })
+                  }
+                />
+                {item.label}
+              </label>
+            ))}
+          </div>
+        </fieldset>
+        <label htmlFor="hr-scan-link" className="mt-3 block text-xs text-[var(--text-muted)]">
+          Link thư mục hồ sơ scan
+        </label>
+        <input
+          id="hr-scan-link"
+          value={link}
+          onChange={(event) => setLink(event.target.value)}
+          className={`${FIELD} mt-1`}
+          placeholder="https://drive.google.com/…"
+        />
+        {save.isError ? (
+          <div className="mt-3">
+            <NoticeBox error={save.error} />
+          </div>
+        ) : null}
+      </ModalBody>
+      <ModalFooter>
+        <SecondaryButton type="button" onClick={onClose} disabled={save.isPending}>
+          Huỷ
+        </SecondaryButton>
+        <ConfirmButton
+          spec={{
+            title: "Lưu hồ sơ giấy?",
+            description: `${ticked.size} giấy tờ đã nộp. Thay đổi được lưu vết.`,
+            confirmLabel: "Lưu",
+          }}
+          onConfirm={() => save.mutate()}
+          pending={save.isPending}
+          error={save.error}
+          tone="primary"
+        >
+          Lưu
+        </ConfirmButton>
+      </ModalFooter>
+    </Modal>
+  );
+}
+
 function Documents({ profile, access, onChanged }: { profile: HrProfile; access: HrAccess; onChanged: () => void }) {
   const [kind, setKind] = useState(access.choices.document_kinds[0]?.code ?? "OTHER");
   const upload = useMutation({
@@ -576,11 +740,15 @@ export function HrProfileView({ userId, me = false }: { userId: string; me?: boo
         },
         { name: "employment_status", label: "Trạng thái", kind: "select", options: options(a.choices.statuses) },
         { name: "grade", label: "Cấp bậc" },
+        { name: "team", label: "Team" },
         { name: "work_form", label: "Hình thức làm việc", kind: "select", options: plain(a.choices.work_forms) },
         { name: "work_email", label: "Email công việc" },
         { name: "joined_on", label: "Ngày vào làm", kind: "date" },
         { name: "official_on", label: "Ngày chính thức", kind: "date" },
         { name: "left_on", label: "Ngày nghỉ việc", kind: "date" },
+        { name: "fingerprint_id", label: "Mã vân tay (máy chấm công)" },
+        { name: "fingerprint_on", label: "Ngày lấy vân tay", kind: "date" },
+        { name: "fingerprint_floor", label: "Tầng lấy vân tay" },
         { name: "leave_reason", label: "Lý do nghỉ", kind: "textarea" },
         { name: "note", label: "Ghi chú", kind: "textarea" },
       ],
@@ -591,6 +759,10 @@ export function HrProfileView({ userId, me = false }: { userId: string; me?: boo
         legal_entity_id: text(p.legal_entity_id),
         employment_status: p.employment_status,
         grade: text(p.work.grade),
+        team: text(p.work.team ?? null),
+        fingerprint_id: text(p.work.fingerprint_id ?? null),
+        fingerprint_on: text(p.work.fingerprint_on ?? null),
+        fingerprint_floor: text(p.work.fingerprint_floor ?? null),
         work_form: text(p.work.work_form),
         work_email: text(p.work.work_email),
         joined_on: text(p.work.joined_on),
@@ -619,6 +791,9 @@ export function HrProfileView({ userId, me = false }: { userId: string; me?: boo
         { name: "bank_name", label: "Ngân hàng" },
         { name: "bank_account", label: "Số tài khoản" },
         { name: "bank_holder", label: "Chủ tài khoản" },
+        { name: "bank2_name", label: "Ngân hàng 2" },
+        { name: "bank_account_2", label: "Số tài khoản 2" },
+        { name: "bank2_holder", label: "Chủ tài khoản 2" },
         { name: "permanent_address", label: "Hộ khẩu thường trú", kind: "textarea" },
         { name: "current_address", label: "Chỗ ở hiện tại", kind: "textarea" },
       ],
@@ -645,6 +820,7 @@ export function HrProfileView({ userId, me = false }: { userId: string; me?: boo
       title: "Bảo hiểm & thuế",
       fields: [
         { name: "social_insurance_no", label: "Số sổ BHXH" },
+        { name: "insurance_title", label: "Chức danh trên BHXH" },
         { name: "social_insurance_from", label: "Tham gia BHXH từ", kind: "date" },
         { name: "insurance_salary", label: "Mức lương đóng BH (đồng)", kind: "money" },
         { name: "health_insurance_no", label: "Số thẻ BHYT" },
@@ -744,6 +920,7 @@ export function HrProfileView({ userId, me = false }: { userId: string; me?: boo
                 ["Quản lý trực tiếp", p.departments.map((seat) => seat.manager).filter(Boolean).join(", ")],
                 ["Chức danh", p.job_title],
                 ["Cấp bậc", p.work.grade],
+                ["Team", p.work.team],
                 ["Chi nhánh", p.branch_label],
                 ["Pháp nhân", p.legal_entity_code],
                 ["Hình thức làm việc", p.work.work_form],
@@ -754,6 +931,13 @@ export function HrProfileView({ userId, me = false }: { userId: string; me?: boo
                 ["Trạng thái", p.employment_status_label],
                 ["Ngày nghỉ việc", formatDate(p.work.left_on)],
                 ["Lý do nghỉ", p.work.leave_reason],
+                ["Mã vân tay", p.work.fingerprint_id],
+                [
+                  "Lấy vân tay",
+                  [formatDate(p.work.fingerprint_on ?? null), p.work.fingerprint_floor ? `tầng ${p.work.fingerprint_floor}` : ""]
+                    .filter(Boolean)
+                    .join(" · ") || null,
+                ],
                 ["Ghi chú", p.work.note],
               ]}
             />
@@ -786,6 +970,9 @@ export function HrProfileView({ userId, me = false }: { userId: string; me?: boo
                 ["Ngân hàng", p.personal.bank_name],
                 ["Số tài khoản", p.personal.bank_account],
                 ["Chủ tài khoản", p.personal.bank_holder],
+                ["Ngân hàng 2", p.personal.bank2_name],
+                ["Số tài khoản 2", p.personal.bank_account_2],
+                ["Chủ tài khoản 2", p.personal.bank2_holder],
               ]}
             />
           </>
@@ -891,6 +1078,7 @@ export function HrProfileView({ userId, me = false }: { userId: string; me?: boo
             <InfoGrid
               rows={[
                 ["Số sổ BHXH", p.insurance.social_insurance_no],
+                ["Chức danh trên BHXH", p.insurance.insurance_title],
                 ["Tham gia BHXH từ", formatDate(p.insurance.social_insurance_from)],
                 ["Mức lương đóng BH", money(p.insurance.insurance_salary)],
                 ["Số thẻ BHYT", p.insurance.health_insurance_no],
@@ -903,6 +1091,7 @@ export function HrProfileView({ userId, me = false }: { userId: string; me?: boo
 
         {tab === "documents" && p.documents ? (
           <>
+            {p.papers ? <Papers profile={p} onChanged={(note) => refresh(note)} /> : null}
             <h2 className="text-base font-semibold">Tài liệu đính kèm</h2>
             <Documents profile={p} access={a} onChanged={() => refresh(null)} />
           </>

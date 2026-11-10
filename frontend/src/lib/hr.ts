@@ -111,8 +111,17 @@ export type HrProfile = HrRow & {
     leave_reason: string | null;
     work_email: string | null;
     note: string | null;
+    team?: string | null;
+    fingerprint_id?: string | null;
+    fingerprint_on?: string | null;
+    fingerprint_floor?: string | null;
   };
   can_edit: boolean;
+  /** 0097: the paper file HCNS keeps (sensitive viewers only). */
+  papers?: null | {
+    scan_link: string | null;
+    items: { code: string; label: string; handed: boolean; uploaded: boolean; required: boolean }[];
+  };
   personal: null | {
     gender: string | null;
     birth_date: string | null;
@@ -133,6 +142,9 @@ export type HrProfile = HrRow & {
     bank_name: string | null;
     bank_account: string | null;
     bank_holder: string | null;
+    bank2_name?: string | null;
+    bank_account_2?: string | null;
+    bank2_holder?: string | null;
     secret_unreadable: boolean;
   };
   pay: null | {
@@ -144,6 +156,7 @@ export type HrProfile = HrRow & {
   };
   insurance: null | {
     social_insurance_no: string | null;
+    insurance_title?: string | null;
     social_insurance_from: string | null;
     insurance_salary: number | null;
     health_insurance_no: string | null;

@@ -86,17 +86,42 @@ SALARY_TYPES: tuple[str, ...] = ("Lương tháng", "Lương ngày", "Lương gi�
 
 DOCUMENT_KINDS: Mapping[str, str] = MappingProxyType(
     {
-        "CCCD": "CCCD / CMND",
-        "CONTRACT": "Hợp đồng lao động",
-        "DEGREE": "Bằng cấp / chứng chỉ",
         "CV": "Sơ yếu lý lịch / CV",
+        "CCCD": "CCCD / CMND",
+        "BIRTH": "Giấy khai sinh",
+        "VSSID": "VSSID (quá trình đóng BHXH)",
+        "ETAX": "ETAX (thông tin thuế TNCN)",
+        "RESIDENCE": "Xác nhận cư trú / VNeID",
         "HEALTH": "Giấy khám sức khoẻ",
+        "DEGREE": "Bằng cấp",
+        "LICENSE": "Chứng chỉ hành nghề",
+        "CONTRACT": "Hợp đồng lao động",
         "PHOTO": "Ảnh thẻ",
         "OTHER": "Khác",
     }
 )
-#: What a complete file holds by default ("thiếu tài liệu" on the overview).
-DEFAULT_REQUIRED_DOCUMENTS: tuple[str, ...] = ("CCCD", "CONTRACT", "CV", "PHOTO")
+#: The paper file HCNS keeps per person (the master file's "HỒ SƠ NHÂN SỰ"
+#: ticks, 0097) - a kind counts as handed in when ticked or uploaded.
+PAPER_DOCUMENTS: tuple[str, ...] = (
+    "CV",
+    "CCCD",
+    "BIRTH",
+    "VSSID",
+    "ETAX",
+    "RESIDENCE",
+    "HEALTH",
+    "DEGREE",
+    "LICENSE",
+)
+#: What a complete file holds by default ("thiếu tài liệu"); editable on "Danh mục".
+DEFAULT_REQUIRED_DOCUMENTS: tuple[str, ...] = (
+    "CV",
+    "CCCD",
+    "BIRTH",
+    "RESIDENCE",
+    "HEALTH",
+    "DEGREE",
+)
 MAX_DOCUMENT_BYTES = 10 * 1024 * 1024
 
 #: Q13: what a person asks HCNS to change on their own profile.
@@ -220,6 +245,7 @@ __all__ = [
     "MARITAL",
     "MAX_DOCUMENT_BYTES",
     "MODULE_HR",
+    "PAPER_DOCUMENTS",
     "REQUEST_FIELDS",
     "REQUEST_STATUS_LABELS",
     "SALARY_TYPES",

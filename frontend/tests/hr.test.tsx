@@ -179,6 +179,47 @@ describe("Hồ sơ của tôi", () => {
   });
 });
 
+describe("Hồ sơ giấy (0097)", () => {
+  it("lists the paper file and HCNS ticks what was handed in", async () => {
+    const stub = stubFetch([
+      { match: "/api/hr/profiles/u1", method: "PATCH", body: {} },
+      { match: "/api/hr/access", body: ACCESS },
+      {
+        match: "/api/hr/profiles/u1",
+        body: {
+          ...PROFILE,
+          can_edit: true,
+          papers: {
+            scan_link: "https://drive.google.com/x",
+            items: [
+              { code: "CV", label: "Sơ yếu lý lịch / CV", handed: true, uploaded: false, required: true },
+              { code: "BIRTH", label: "Giấy khai sinh", handed: false, uploaded: false, required: true },
+            ],
+          },
+        },
+      },
+      { match: "/api/legal-entities", body: ENTITIES },
+    ]);
+    renderWithQuery(<HrProfileView userId="u1" />);
+    await screen.findByRole("heading", { name: "Phạm Thị Phương" });
+    await userEvent.click(screen.getByRole("tab", { name: "Tài liệu đính kèm" }));
+    const list = screen.getByRole("list", { name: "Danh mục hồ sơ giấy" });
+    expect(within(list).getByText("Giấy khai sinh").parentElement).toHaveTextContent("còn thiếu");
+    expect(screen.getByRole("link", { name: "Mở thư mục scan" })).toHaveAttribute("href", "https://drive.google.com/x");
+    await userEvent.click(screen.getByRole("button", { name: "Sửa hồ sơ giấy" }));
+    const dialog = screen.getByRole("dialog", { name: "Sửa hồ sơ giấy" });
+    await userEvent.click(within(dialog).getByRole("checkbox", { name: "Giấy khai sinh" }));
+    await userEvent.click(within(dialog).getByRole("button", { name: "Lưu" }));
+    await userEvent.click(document.querySelector<HTMLElement>("[data-confirm-accept]") as HTMLElement);
+    await waitFor(() => {
+      const sent = (stub as unknown as { calls: { url: string; method: string; body: unknown }[] }).calls.find(
+        (call) => call.url === "/api/hr/profiles/u1" && call.method === "PATCH",
+      );
+      expect(sent?.body).toEqual({ paper_documents: ["CV", "BIRTH"], scan_link: "https://drive.google.com/x" });
+    });
+  });
+});
+
 describe("Quản lý hồ sơ", () => {
   it("ticks rows and edits them together", async () => {
     const stub = stubFetch([
