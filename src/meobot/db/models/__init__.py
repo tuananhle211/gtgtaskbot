@@ -59,6 +59,13 @@ from meobot.db.models.hr import (
     OrganizationHoliday,
     WorkSchedule,
 )
+from meobot.db.models.hr_profile import (
+    HrChangeRequest,
+    HrContract,
+    HrContractType,
+    HrDocument,
+    HrProfile,
+)
 from meobot.db.models.invite import InviteCode
 from meobot.db.models.legal_entity import LegalEntity
 from meobot.db.models.notifications import (
@@ -250,6 +257,11 @@ __all__ = [
     "DepartmentPermission",
     "DriveFolder",
     "GroupMemberResponsePolicy",
+    "HrChangeRequest",
+    "HrContract",
+    "HrContractType",
+    "HrDocument",
+    "HrProfile",
     "HrRequest",
     "HrRequestEvent",
     "InviteCode",

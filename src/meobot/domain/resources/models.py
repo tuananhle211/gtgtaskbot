@@ -270,6 +270,10 @@ class EmploymentStatus(StrEnum):
     #: hold is due, like a leaver's, but they are still with the company.
     MOVED = "MOVED"
     LEFT = "LEFT"
+    #: 2026-11-10 (HR plan H4): on maternity leave / unpaid leave - still
+    #: with the company and still signs in.
+    MATERNITY = "MATERNITY"
+    UNPAID_LEAVE = "UNPAID_LEAVE"
 
 
 EMPLOYMENT_STATUS_LABELS: Mapping[EmploymentStatus, str] = MappingProxyType(
@@ -279,6 +283,8 @@ EMPLOYMENT_STATUS_LABELS: Mapping[EmploymentStatus, str] = MappingProxyType(
         EmploymentStatus.ON_LEAVE: "Tạm nghỉ",
         EmploymentStatus.MOVED: "Chuyển ban",
         EmploymentStatus.LEFT: "Đã nghỉ việc",
+        EmploymentStatus.MATERNITY: "Nghỉ thai sản",
+        EmploymentStatus.UNPAID_LEAVE: "Nghỉ không lương",
     }
 )
 

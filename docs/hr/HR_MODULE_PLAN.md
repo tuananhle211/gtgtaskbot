@@ -1,6 +1,6 @@
 # Module Hành chính nhân sự (kiểu MISA AMIS HRM, bản cơ bản) - kế hoạch
 
-> Trạng thái: **ĐỢT 1 ĐÃ CODE + CHẠY THỬ LOCAL (09/11/2026), CHƯA ĐƯA LÊN PROD.** Đợt 2-4 chờ. Chưa viết dòng code nào.
+> Trạng thái: **ĐỢT 1 ĐÃ LÊN PROD (09/11/2026 17:52)**: 33 phòng, 161 tài khoản mới. **Đợt 2 (hồ sơ) đã code + chạy local 10/11, chưa lên prod.** Đợt 3-4 chờ (đợt 4 cần file mẫu máy chấm công). Chưa viết dòng code nào.
 > Nguồn: Google Sheet "Sổ tay" (tab **Mã phòng ban**, **Nhân sự**, tham khảo **Thông tin cơ bản**, **Phân quyền**),
 > đối chiếu với dữ liệu prod đọc ngày 09/11/2026.
 > **[HỎI Qn]** / **[HỎI Dn]** = chờ anh quyết (mục 10 / mục 3.1). Không ghi dữ liệu cá nhân (CCCD, SĐT, ngày sinh…) vào tài liệu này.
@@ -17,6 +17,27 @@
 | Q6 | Xếp lại theo file; Mai Tùng Long ngồi cả Trưởng phòng `MEDIA` lẫn Trưởng phòng `MEDIA (TK)` |
 
 Sau khi anh sửa: **60** người khớp mã, **161** người tạo mới (đã bỏ dòng TEST), 9 tài khoản APM vẫn không có trong file (mục 3.1, D8).
+
+**Chốt cho đợt 2-4 (10/11/2026)**
+
+| # | Anh chốt |
+|---|---|
+| Q8 | Giờ vào/ra lấy từ **máy chấm công**: HCNS xuất file từ máy, nhập vào APM (cần: hãng máy + 1 file xuất mẫu, mỗi cơ sở một máy hay chung) |
+| Q9 | Phép năm **theo luật**: 12 ngày/năm, +1 ngày mỗi 5 năm làm việc, chia theo tháng; thử việc không có phép; phép thừa không cộng dồn |
+| Q10 | Đơn nghỉ / muộn / sớm: **Trưởng phòng duyệt, sau đó HCNS xác nhận** mới tính vào bảng công |
+| Q11 | Dữ liệu nhạy cảm (CCCD, SĐT, ngày sinh, email cá nhân): **chỉ HCNS + chủ sở hữu + chính người đó** |
+| Q12 | Ca làm việc: **HCNS tự cấu hình** (giờ vào/ra, ngày làm, số phút cho phép trễ) theo phòng / chi nhánh |
+| Q13 | Nhân viên **tự gửi yêu cầu sửa** SĐT / email của mình, **HCNS duyệt** rồi mới đổi |
+| Q14 | **APM là bản chính** sau lần nhập đầu; có nút xuất Excel |
+
+**Chốt hồ sơ nhân sự theo mẫu `QuanLyHoSoNhanSu.html` (10/11/2026)**
+
+| # | Anh chốt |
+|---|---|
+| H1 | **Có** tab Lương & phụ cấp + Bảo hiểm & thuế (chỉ lưu / xem, chưa tính lương), số liệu lương mã hoá; chỉ HCNS + chủ sở hữu + bản thân xem; quỹ lương trên Tổng quan chỉ HCNS + chủ |
+| H2 | Tab thêm đợt này: **Tài liệu đính kèm** (scan riêng tư). Gia đình, Trình độ, Khen thưởng - Kỷ luật, Bổ nhiệm - Điều chuyển, Lịch sử công tác: để sau |
+| H3 | Hàng loạt: **Sửa hàng loạt + gia hạn / thêm hợp đồng**. Trộn văn bản DOCX, Gửi email: để sau |
+| H4 | Thêm 2 trạng thái lao động: **Nghỉ thai sản**, **Nghỉ không lương** (vẫn đăng nhập được) |
 
 ## 1. Mục tiêu
 
@@ -174,23 +195,31 @@ báo cáo ai? Mặc định em để: Trưởng phòng của phòng (không phâ
   Nhập xong là bot nhận ra người đó: họ nhắn `/start` là dùng được bot cơ bản, và nhận thông báo Telegram.
 - Kiểm tra kỹ thuật: vài chỗ trong code giả định ai cũng có Telegram ID (bot, thông báo, phiên đăng nhập, mời). Đợt 1 rà và test hết.
 
-## 5. Hồ sơ nhân sự
+## 5. Hồ sơ nhân sự (đợt 2, theo mẫu `QuanLyHoSoNhanSu.html` 10/11)
 
-Bảng `hr_profiles` (1-1 với tài khoản), ô trống được phép:
+Mẫu là bản demo dữ liệu giả của phân hệ "Thông tin nhân sự" (giống MISA). APM làm theo bố cục đó, trên dữ liệu thật,
+quyền thật, giao diện Apexmed. Menu mới **"Nhân sự"**:
 
-| Nhóm | Trường (theo file) |
-|---|---|
-| Cơ bản | Mã NV, Họ và tên, Giới tính, Ngày sinh, Chi nhánh (VP Hà Nội / CS Hà Nội / CS Hà Nội 2 / CS Sài Gòn), Khối + Phòng ban (từ ghế), Chức danh nội bộ, Cấp bậc (G1-G4, T1-T3, CV, NV) |
-| Liên hệ | ĐT di động, Email cá nhân, Email nội bộ, Email drive |
-| Giấy tờ | Số CCCD, Ngày cấp, Nơi cấp |
-| Công việc | Ngày tham gia, Ngày chính thức, Trạng thái (dùng `employment_status` sẵn có), Pháp nhân đóng BHXH (GPI Tech / APEX / CMG PVC / APM SG) |
-| Hợp đồng (`hr_contracts`, nhiều dòng) | Loại (thử việc / chính thức), Số hợp đồng, Ngày ký, Đã ký (ô TRUE/FALSE) |
+| Màn hình | Nội dung (theo mẫu) | Ghi chú APM |
+|---|---|---|
+| **Tổng quan** | Tổng nhân sự / đang hoạt động / đã nghỉ, tỷ lệ nữ, tuổi trung bình, theo phòng ban, theo trạng thái, HĐ sắp hết hạn (≤ 60 ngày) + đã hết hạn, sinh nhật trong tháng, mới vào làm, yêu cầu chờ duyệt, hồ sơ thiếu tài liệu | Quỹ lương **[HỎI H1]** |
+| **Quản lý hồ sơ** | Bảng / thẻ, tìm theo mã - tên - email - SĐT - CCCD, lọc nâng cao, chọn cột, phân trang; thêm hồ sơ, sửa, nhập / xuất Excel; thao tác hàng loạt | Thao tác hàng loạt **[HỎI H3]** |
+| **Hồ sơ 1 người** (ngăn kéo, có In) | Tab: Thông tin cá nhân · Thông tin công việc · Hợp đồng lao động · Lương & phụ cấp · Bảo hiểm & thuế · Quan hệ gia đình · Trình độ - Bằng cấp · Khen thưởng - Kỷ luật · Bổ nhiệm - Điều chuyển · Tài liệu đính kèm · Lịch sử công tác; cảnh báo "HĐ hết hạn sau N ngày" | Tab nào làm đợt này **[HỎI H1, H2]** |
+| **Duyệt hồ sơ** | Nhân viên tự cập nhật trên trang cá nhân → HCNS duyệt / từ chối, xem trường, giá trị cũ → mới, "Duyệt tất cả" | Đúng Q13 |
+| **Sơ đồ tổ chức** | Cây phòng ban + người | Dựng từ 33 phòng (phòng cha) + trưởng phòng + người quản lý |
+| **Danh mục & thiết lập** | Phòng ban (trực thuộc, số NV), vị trí công việc + nhóm chức danh, loại hợp đồng + thời hạn tháng, trường mở rộng, tự động hoá (tự tính ngày hết HĐ theo loại, cảnh báo trước 30 ngày, nhân viên tự cập nhật cần duyệt) | Phòng ban dùng trang Phòng ban sẵn có; eKYC CCCD để sau |
 
-Thêm sau nếu cần (MISA có): địa chỉ, quê quán, MST cá nhân, số tài khoản ngân hàng, người phụ thuộc, ảnh.
+**Thông tin cá nhân**: mã NV, họ tên, giới tính, ngày sinh, nơi sinh, quốc tịch, dân tộc, tôn giáo, hôn nhân; CCCD + ngày cấp + nơi cấp;
+điện thoại, email công việc, email cá nhân, hộ khẩu, chỗ ở; ngân hàng, số TK, chủ TK.
+**Thông tin công việc**: phòng ban, vị trí, nhóm chức danh, quản lý trực tiếp, nơi làm việc (chi nhánh), hình thức làm việc, ngày vào,
+thâm niên (tự tính), trạng thái lao động, tài khoản đăng nhập (đã có), ngày + lý do nghỉ việc, cấp dưới.
+**Hợp đồng**: số, loại (thử việc / xác định 12, 36 tháng / không xác định / khoán / CTV), từ - đến (tự tính theo loại), lương, người ký,
+đang hiệu lực; gia hạn / thêm HĐ. Nhập từ cột HĐTV / HĐCT của Sheet.
+**Trạng thái lao động** của mẫu: Đang làm việc / Thử việc / Nghỉ thai sản / Nghỉ không lương / Đã nghỉ việc - APM đang có
+Đang làm / Thử việc / Tạm nghỉ / Chuyển ban / Đã nghỉ **[HỎI H4]**.
 
-- **Nhập từ Excel/Sheet** theo kiểu đã có (mẫu → xem trước lỗi từng dòng → xác nhận), khớp theo mã NV, chạy lại được nhiều lần để cập nhật. Có nút xuất Excel.
-- Màn hình: danh sách nhân viên (lọc khối / phòng / chi nhánh / trạng thái / pháp nhân, tìm theo mã hoặc tên), trang hồ sơ (tab Thông tin / Hợp đồng / Nghỉ phép / Chấm công), sửa hồ sơ.
-- **Dữ liệu nhạy cảm** (CCCD, SĐT, ngày sinh, email cá nhân): chỉ HCNS + OWNER + chính người đó xem **[HỎI Q11]**. Đề xuất mã hoá CCCD trong DB như token Pancake/AI. Mọi lần xem/sửa/xuất đều ghi nhật ký.
+Dữ liệu cũ: nhập phần còn lại của tab "Nhân sự" (giới tính, ngày sinh, CCCD, SĐT, email, ngày vào, ngày chính thức, cấp bậc, hợp đồng).
+CCCD và số tài khoản ngân hàng **mã hoá trong DB**; dữ liệu nhạy cảm chỉ HCNS + chủ + bản thân (Q11); mọi lần xem / sửa / xuất ghi nhật ký.
 
 ## 6. Nghỉ phép, đi muộn, về sớm
 

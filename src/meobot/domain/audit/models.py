@@ -500,6 +500,21 @@ class AuditAction(StrEnum):
     LEGAL_ENTITY_UPDATED = "legal_entity.updated"
     #: 0095: the HR sheet's org chart + staff loaded (counts only, no names).
     HR_ORG_IMPORTED = "hr.org.imported"
+    #: 0096 hồ sơ nhân sự. Field names only for sensitive changes - never the
+    #: ID number, bank account or pay.
+    HR_PROFILE_CREATED = "hr.profile.created"
+    HR_PROFILE_UPDATED = "hr.profile.updated"
+    HR_PROFILE_BULK_UPDATED = "hr.profile.bulk_updated"
+    HR_PROFILE_SENSITIVE_VIEWED = "hr.profile.sensitive_viewed"
+    HR_CONTRACT_SAVED = "hr.contract.saved"
+    HR_CONTRACT_DELETED = "hr.contract.deleted"
+    HR_DOCUMENT_UPLOADED = "hr.document.uploaded"
+    HR_DOCUMENT_DOWNLOADED = "hr.document.downloaded"
+    HR_DOCUMENT_DELETED = "hr.document.deleted"
+    HR_CHANGE_SUBMITTED = "hr.change_request.submitted"
+    HR_CHANGE_DECIDED = "hr.change_request.decided"
+    HR_EXPORTED = "hr.exported"
+    HR_SETTINGS_UPDATED = "hr.settings.updated"
     #: "Kết nối AI" (0064). Snapshots carry the key's last four characters,
     #: never the key; a test records whether it answered.
     AI_CONNECTION_CREATED = "ai.connection.created"

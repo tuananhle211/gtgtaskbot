@@ -129,7 +129,11 @@ REMOVED: tuple[str, ...] = ("KHAC", "CS")
 COPY_GRANTS: tuple[tuple[str, str], ...] = (("VPTCKT", "BOD"),)
 #: Seats an account keeps besides the sheet's one (Q6: Mai Tùng Long leads
 #: Media and still the Design team the order flow routes to him).
-KEEP_SEATS: dict[str, tuple[str, ...]] = {"E051LONG": ("MEDIA-TK",)}
+KEEP_SEATS: dict[str, tuple[str, ...]] = {
+    "E051LONG": ("MEDIA-TK",),
+    # 2026-11-09: in PR by the sheet, and kept in Biên tập too (the user's call).
+    "P053GIANG": ("MEDIA-BT",),
+}
 
 #: D5: a job title starting with one of these makes a head.
 _HEAD_TITLE = re.compile(

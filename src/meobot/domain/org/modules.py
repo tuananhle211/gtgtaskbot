@@ -56,6 +56,15 @@ from meobot.domain.cskh.permissions import (
     CskhPermission,
     cskh_allowed_scopes,
 )
+from meobot.domain.hr.profiles import (
+    HR_OWN_MEANING,
+    HR_OWNER_ONLY,
+    HR_PERMISSION_LABELS,
+    MODULE_HR,
+    HrPermission,
+    default_hr_grants,
+    hr_allowed_scopes,
+)
 from meobot.domain.identity.models import Role
 from meobot.domain.orders.permissions import (
     OWN_MEANING,
@@ -265,6 +274,16 @@ MODULES: Mapping[str, ModuleSpec] = MappingProxyType(
             own_meaning=MappingProxyType({}),
             scopes=cskh_allowed_scopes,
             owner_only=CSKH_OWNER_ONLY,
+        ),
+        MODULE_HR: ModuleSpec(
+            module=MODULE_HR,
+            label="Nhân sự",
+            permissions=HrPermission,
+            labels=HR_PERMISSION_LABELS,
+            own_meaning=HR_OWN_MEANING,
+            scopes=hr_allowed_scopes,
+            defaults=default_hr_grants,
+            owner_only=HR_OWNER_ONLY,
         ),
         MODULE_ASSISTANT: ModuleSpec(
             module=MODULE_ASSISTANT,

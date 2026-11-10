@@ -61,6 +61,29 @@ async def set_employment_status(
     target = await session.get(User, user_id)
     if target is None or target.deleted_at is not None:
         raise NotFoundError("Không tìm thấy.", details={"reason": "account_not_found"})
+    return await apply_employment_status(
+        session,
+        audit,
+        actor=actor,
+        request_id=request_id,
+        target=target,
+        status=status,
+        settings=settings,
+    )
+
+
+async def apply_employment_status(
+    session: AsyncSession,
+    audit: AuditService,
+    *,
+    actor: Actor,
+    request_id: uuid.UUID,
+    target: User,
+    status: EmploymentStatus,
+    settings: Settings,
+) -> User:
+    """Set ``target``'s status once the caller checked the right to (the
+    resources HR_STATUS holder, or the HR module's EDIT - 0096)."""
     if status is EmploymentStatus.LEFT and (
         target.id == actor.user_id or target.role is Role.OWNER
     ):
@@ -91,5 +114,6 @@ async def set_employment_status(
 __all__ = [
     "EmploymentLeftForbiddenError",
     "EmploymentStatusForbiddenError",
+    "apply_employment_status",
     "set_employment_status",
 ]

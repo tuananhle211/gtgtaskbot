@@ -45,6 +45,7 @@ from meobot.api.schemas.units import (
     DurationListResponse,
     DurationResponse,
     EffortGridResponse,
+    HrMenuResponse,
     LibraryLinkResponse,
     LibraryResponse,
     PlatformListResponse,
@@ -80,6 +81,8 @@ from meobot.application.agents.service import AgentChatService
 from meobot.application.assistant.access import may_chat_assistant
 from meobot.application.audit_service import AuditService
 from meobot.application.cskh.access import cskh_access
+from meobot.application.hr.access import hr_access
+from meobot.application.hr.files import HrFileService
 from meobot.application.orders.design_code_service import (
     DesignCodeService,
     has_birthday_orders,
@@ -296,6 +299,7 @@ async def my_units(
         assistant=AssistantAccessResponse(chat=may_chat_assistant(membership)),
         agents=await _agents_block(directory.session, membership),
         cskh=await _cskh_block(directory.session, membership),
+        hr=await _hr_block(directory.session, membership),
     )
 
 
@@ -310,6 +314,22 @@ async def _cskh_block(session: AsyncSession, membership: UnitMembership) -> Cskh
         .where(PancakeReply.status == ReplyStatus.SUGGESTED)
     )
     return CskhMenuResponse(reply=True, manage=access.manage, waiting=int(waiting or 0))
+
+
+async def _hr_block(session: AsyncSession, membership: UnitMembership) -> HrMenuResponse:
+    """ "Nhân sự" (0096): what the nav shows, and the requests badge."""
+    access = await hr_access(session, membership)
+    pending = 0
+    if access.edit:
+        pending = await HrFileService(session, AuditService(session)).pending_count()
+    return HrMenuResponse(
+        lists=access.lists,
+        overview=access.view_all,
+        edit=access.edit,
+        sensitive=access.sensitive,
+        export=access.export,
+        pending=pending,
+    )
 
 
 async def _agents_block(session: AsyncSession, membership: UnitMembership) -> AgentsAccessResponse:

@@ -3485,6 +3485,15 @@ export interface UnitsMe {
    * tab, `waiting` = suggestions waiting for a person (the badge). Optional.
    */
   cskh?: { reply: boolean; manage: boolean; waiting: number } | null;
+  /** "Nhân sự" (0096): what the nav shows; `pending` = change requests waiting (HCNS). */
+  hr?: {
+    lists: boolean;
+    overview: boolean;
+    edit: boolean;
+    sensitive: boolean;
+    export: boolean;
+    pending: number;
+  } | null;
   /**
    * May open other people's profile pages (`/people/<id>`, 2026-10-19): the
    * OWNER / ADMIN, or a head of some department. Names are drawn as links

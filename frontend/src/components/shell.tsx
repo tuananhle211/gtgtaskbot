@@ -84,6 +84,7 @@ type NavIcon =
   | "ads"
   | "agents"
   | "cskh"
+  | "hr"
   | "account";
 
 /** The screen every unit shares besides the order boards. */
@@ -223,6 +224,40 @@ function performanceBranch(me: UnitsMe | undefined): NavGroup {
       ...(me?.performance?.manage_coefficients
         ? [{ href: "/performance/coefficients", label: "Hệ số & định mức", icon: "settings" as NavIcon }]
         : []),
+    ],
+  };
+}
+
+/**
+ * "Nhân sự" (0096): everybody's own profile and the org chart; "Tổng quan"
+ * for HCNS (`hr.overview`), "Quản lý hồ sơ" for HCNS and the Trưởng phòng
+ * (`hr.lists`), "Duyệt hồ sơ" + "Danh mục" for HCNS (`hr.edit`, the badge =
+ * change requests waiting).
+ */
+function hrBranch(me: UnitsMe | undefined): NavGroup | null {
+  if (!me) return null;
+  const hr = me.hr;
+  return {
+    label: "Nhân sự",
+    icon: "hr",
+    children: [
+      ...(hr?.overview ? [{ href: "/hr", label: "Tổng quan", icon: "report" as NavIcon }] : []),
+      ...(hr?.lists
+        ? [{ href: "/hr/profiles", label: "Quản lý hồ sơ", icon: "people" as NavIcon }]
+        : []),
+      ...(hr?.edit
+        ? [
+            {
+              href: "/hr/requests",
+              label: "Duyệt hồ sơ",
+              icon: "request" as NavIcon,
+              badge: hr.pending || undefined,
+            },
+          ]
+        : []),
+      { href: "/hr/me", label: "Hồ sơ của tôi", icon: "mine" },
+      { href: "/hr/org", label: "Sơ đồ tổ chức", icon: "department" },
+      ...(hr?.edit ? [{ href: "/hr/settings", label: "Danh mục", icon: "settings" as NavIcon }] : []),
     ],
   };
 }
@@ -381,6 +416,7 @@ export function navFor(me: UnitsMe | undefined, sessionRole?: string): NavEntry[
   const library = libraryBranch(me);
   const resources = resourcesBranch(me);
   const ads = adsBranch(me, sessionRole);
+  const hr = hrBranch(me);
   // "Bảng order" follows the order module's permissions (an ORD seat or grant
   // gives the ADS entry), like every other branch; it stays while `me` loads.
   const orders = !me || seesAll || me.units.some((unit) => unit.code === "ADS");
@@ -389,6 +425,7 @@ export function navFor(me: UnitsMe | undefined, sessionRole?: string): NavEntry[
   return [
     DASHBOARD_NAV,
     performanceBranch(me),
+    ...(hr ? [hr] : []),
     ...(me?.agents?.chat ? [AGENTS_NAV] : []),
     ...cskhNav(me),
     ...(orders ? [orderBoards(me, sessionRole)] : []),
@@ -509,6 +546,14 @@ function Icon({ name }: { name: NavIcon }) {
         <path d="M3 10v4a1 1 0 0 0 1 1h3l6 4V5L7 9H4a1 1 0 0 0-1 1z" />
         <path d="M17 9a4 4 0 0 1 0 6" />
         <path d="M20 6.5a8 8 0 0 1 0 11" />
+      </>
+    ),
+    hr: (
+      <>
+        <rect x="3" y="5" width="18" height="14" rx="2" />
+        <circle cx="9" cy="11" r="2.2" />
+        <path d="M5.8 16.5a3.4 3.4 0 0 1 6.4 0" />
+        <path d="M14.5 10h4M14.5 13.5h3" />
       </>
     ),
     cskh: (

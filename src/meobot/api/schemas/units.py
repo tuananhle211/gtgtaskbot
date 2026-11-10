@@ -227,6 +227,20 @@ class AssistantAccessResponse(BaseModel):
     chat: bool = False
 
 
+class HrMenuResponse(BaseModel):
+    """ "Nhân sự" (0096): ``lists`` = "Quản lý hồ sơ" (beyond oneself),
+    ``overview`` = "Tổng quan", ``edit`` / ``sensitive`` / ``export`` as held,
+    ``pending`` = change requests waiting for HCNS (the badge, editors only).
+    Everybody has "Hồ sơ của tôi"."""
+
+    lists: bool = False
+    overview: bool = False
+    edit: bool = False
+    sensitive: bool = False
+    export: bool = False
+    pending: int = 0
+
+
 class CskhMenuResponse(BaseModel):
     """ "Chăm sóc khách hàng" (0094): ``reply`` = the nav item, ``manage`` = the
     pages tab, ``waiting`` = suggestions waiting for a person (the nav badge)."""
@@ -294,6 +308,7 @@ class UnitMeResponse(BaseModel):
     assistant: AssistantAccessResponse = AssistantAccessResponse()
     agents: AgentsAccessResponse = AgentsAccessResponse()
     cskh: CskhMenuResponse = CskhMenuResponse()
+    hr: HrMenuResponse = HrMenuResponse()
 
     @classmethod
     def from_domain(
@@ -313,6 +328,7 @@ class UnitMeResponse(BaseModel):
         assistant: AssistantAccessResponse | None = None,
         agents: AgentsAccessResponse | None = None,
         cskh: CskhMenuResponse | None = None,
+        hr: HrMenuResponse | None = None,
     ) -> UnitMeResponse:
         entries = sorted(entries, key=lambda entry: stream_rank(entry.code))
         heads = any(seat.position is Position.HEAD for seat in membership.seats)
@@ -344,6 +360,7 @@ class UnitMeResponse(BaseModel):
             assistant=assistant or AssistantAccessResponse(),
             agents=agents or AgentsAccessResponse(),
             cskh=cskh or CskhMenuResponse(),
+            hr=hr or HrMenuResponse(),
         )
 
 

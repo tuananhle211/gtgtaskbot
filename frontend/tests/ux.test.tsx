@@ -400,6 +400,7 @@ describe("the legal pages are reachable from the panel without crowding it", () 
     expect(destinations).toEqual([
       "/dashboard",
       "/performance/me", "/performance/timeline",
+      "/hr/me", "/hr/org",
       "/pr/content",
       "/pr/work",
       "/pr/tasks",
