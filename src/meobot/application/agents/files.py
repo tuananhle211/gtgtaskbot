@@ -9,9 +9,13 @@ request), so:
   with the question;
 * a skill - a ``SKILL.md``, or a ``.zip`` holding one - is read the same way
   and introduced as a skill: the agent uses it in this conversation, and
-  keeping it is the usual skill proposal Emma approves.
+  keeping it is the usual skill proposal Emma approves;
+* an SVG goes as its code (the browser also sends a PNG drawn from it, so the
+  agent sees it); an Illustrator ``.ai`` (saved PDF-compatible) and a PDF with
+  no words (a scan) are drawn here - page 1, ``pypdfium2`` - and kept as that
+  picture instead of the file.
 
-Everything else (video, audio, old ``.doc``, an SVG...) is refused with a
+Everything else (video, audio, old ``.doc``, HEIC...) is refused with a
 sentence saying what to send instead. Reading never trusts the file: zip
 members are size-checked before they are read, XML with a DTD is refused, and
 any failure of a parser becomes "Không đọc được tệp này".
@@ -25,6 +29,7 @@ import re
 import zipfile
 from dataclasses import dataclass
 from pathlib import PurePosixPath
+from typing import Any
 from xml.etree import ElementTree
 
 from meobot.domain.agents.errors import AgentFileInvalidError
@@ -50,7 +55,13 @@ _OLD_OFFICE = {".doc": ".docx", ".xls": ".xlsx", ".ppt": ".pptx"}
 _MEDIA_EXTENSIONS = frozenset(
     {".mp4", ".mov", ".avi", ".mkv", ".webm", ".m4v", ".mp3", ".wav", ".m4a", ".aac", ".ogg"}
 )
-_IMAGE_LIKE = frozenset({".heic", ".heif", ".bmp", ".tif", ".tiff", ".svg", ".avif"})
+_IMAGE_LIKE = frozenset({".heic", ".heif", ".bmp", ".tif", ".tiff", ".avif"})
+#: A page drawn for the agent is at most this wide / tall (what the models read well).
+RENDER_MAX_SIDE = 2048
+#: ...and smaller again while the PNG is over the picture limit.
+_RENDER_FALLBACK_SIDES = (1600, 1200)
+#: An embedded picture inside an SVG is noise to the agent: its base64 is cut out.
+_SVG_EMBEDDED = re.compile(r"(data:[\w/+.-]+;base64,)[A-Za-z0-9+/=\s]{200,}")
 
 _W = "{http://schemas.openxmlformats.org/wordprocessingml/2006/main}"
 _A = "{http://schemas.openxmlformats.org/drawingml/2006/main}"
@@ -70,6 +81,9 @@ class ReadFile:
     truncated: bool = False
     #: A short line shown under the file ("Skill: soat-hop-dong").
     note: str | None = None
+    #: What is kept instead of the upload (a page drawn as PNG), and its name.
+    data: bytes | None = None
+    name: str | None = None
 
 
 def image_type(data: bytes) -> str | None:
@@ -119,8 +133,12 @@ def read_upload(name: str, data: bytes) -> ReadFile:
             f"lưu lại dạng {_OLD_OFFICE[suffix]} rồi gửi."
         )
     try:
+        if suffix == ".ai":
+            return _illustrator(name, data)
+        if suffix == ".svg":
+            return _svg(data)
         if suffix == ".pdf" or data.startswith(b"%PDF-"):
-            return _pdf(data)
+            return _pdf(name, data)
         if suffix == ".zip":
             return _skill_zip(data)
         if suffix == ".docx":
@@ -143,8 +161,9 @@ def read_upload(name: str, data: bytes) -> ReadFile:
             "Không đọc được tệp này (tệp hỏng hoặc sai định dạng)."
         ) from exc
     raise AgentFileInvalidError(
-        "Chưa đọc được loại tệp này. Nhận: ảnh, PDF, Word (.docx), Excel (.xlsx), "
-        "PowerPoint (.pptx), tệp chữ (.txt, .md, .csv) và skill (SKILL.md hoặc .zip)."
+        "Chưa đọc được loại tệp này. Nhận: ảnh, SVG, Illustrator (.ai), PDF, Word (.docx), "
+        "Excel (.xlsx), PowerPoint (.pptx), tệp chữ (.txt, .md, .csv) "
+        "và skill (SKILL.md hoặc .zip)."
     )
 
 
@@ -185,7 +204,7 @@ def _table_text(text: str, delimiter: str) -> str:
     return "\n".join("\t".join(cell.strip() for cell in row) for row in rows if any(row))
 
 
-def _pdf(data: bytes) -> ReadFile:
+def _pdf(name: str, data: bytes) -> ReadFile:
     from pypdf import PdfReader
 
     reader = PdfReader(io.BytesIO(data))
@@ -201,12 +220,110 @@ def _pdf(data: bytes) -> ReadFile:
             size += len(words)
         if size > MAX_FILE_TEXT_CHARS:
             break
-    if not parts:
-        raise AgentFileInvalidError(
-            "PDF này là ảnh chụp / bản scan, không có chữ để đọc. "
-            "Chụp ảnh từng trang rồi gửi dạng ảnh."
-        )
+    if not parts:  # a scan: the agent looks at page 1 instead
+        note = "PDF không có chữ (bản scan): agent xem ảnh trang 1"
+        if pages > 1:
+            note += f"/{pages}. Trang khác gửi dạng ảnh"
+        return _page_picture(name, data, note=note)
     return _document("application/pdf", "\n\n".join(parts), pages=pages, note=f"{pages} trang")
+
+
+def _illustrator(name: str, data: bytes) -> ReadFile:
+    """An ``.ai`` saved PDF-compatible (Illustrator's default) is a PDF: draw its artboard."""
+    if not data.startswith(b"%PDF-"):
+        raise AgentFileInvalidError(
+            "Tệp .ai này không lưu kèm bản PDF nên chưa xem được. Trong Illustrator: "
+            "Save As bật 'Create PDF Compatible File', hoặc xuất SVG / PNG rồi gửi."
+        )
+    return _page_picture(name, data, note="Ảnh vẽ từ tệp Illustrator (.ai)")
+
+
+def _svg(data: bytes) -> ReadFile:
+    """An SVG is text: the agent reads its code (colours, shapes) and may put it in a page."""
+    text = _decode(data)
+    if "<svg" not in text[:20_000].lower():
+        raise AgentFileInvalidError("Tệp .svg này không có hình SVG nào.")
+    text = _SVG_EMBEDDED.sub(r"\1…(ảnh nhúng, đã lược)", text)
+    return _document("image/svg+xml", text, note="Mã SVG (vector)")
+
+
+def _page_picture(name: str, data: bytes, *, note: str) -> ReadFile:
+    """Page 1 of a PDF drawn as a PNG on white, kept in place of the file."""
+    import pypdfium2 as pdfium
+
+    try:
+        document = pdfium.PdfDocument(data)
+    except pdfium.PdfiumError as exc:
+        if "password" in str(exc).lower():
+            raise AgentFileInvalidError("Tệp có mật khẩu. Bỏ mật khẩu rồi gửi lại.") from exc
+        raise
+    try:
+        if len(document) == 0:
+            raise AgentFileInvalidError("Tệp không có trang nào.")
+        page = document[0]
+        width, height = page.get_size()
+        if width <= 0 or height <= 0:
+            raise AgentFileInvalidError("Không vẽ được trang đầu của tệp này.")
+        picture = b""
+        for side in (RENDER_MAX_SIDE, *_RENDER_FALLBACK_SIDES):
+            bitmap = page.render(
+                scale=side / max(width, height), fill_color=(255, 255, 255, 255), rev_byteorder=True
+            )
+            try:
+                picture = _png(
+                    bitmap.buffer, bitmap.width, bitmap.height, bitmap.stride, bitmap.mode
+                )
+            finally:
+                bitmap.close()
+            if len(picture) <= MAX_IMAGE_BYTES:
+                break
+        else:
+            raise AgentFileInvalidError("Trang đầu vẽ ra lớn quá. Chụp màn hình rồi gửi dạng ảnh.")
+        page.close()
+    finally:
+        document.close()
+    stem = PurePosixPath(name).stem or "trang"
+    return ReadFile(
+        AttachmentKind.IMAGE,
+        "image/png",
+        note=note,
+        data=picture,
+        name=clean_name(f"{stem} - trang 1.png"),
+    )
+
+
+def _png(buffer: Any, width: int, height: int, stride: int, mode: str) -> bytes:
+    """A PNG from raw RGB / RGBA rows (no Pillow: a filter byte per row, zlib, three chunks).
+    An opaque fill with ``rev_byteorder`` renders RGB."""
+    import struct
+    import zlib
+
+    channels = {"RGB": 3, "RGBA": 4}.get(mode)
+    if channels is None:
+        raise AgentFileInvalidError("Không vẽ được trang đầu của tệp này.")
+    raw = memoryview(buffer).cast("B")
+    row_bytes = width * channels
+    rows = bytearray()
+    for y in range(height):
+        rows.append(0)
+        rows += raw[y * stride : y * stride + row_bytes]
+    colour = 6 if channels == 4 else 2
+
+    def chunk(kind: bytes, body: bytes) -> bytes:
+        return (
+            struct.pack(">I", len(body))
+            + kind
+            + body
+            + struct.pack(">I", zlib.crc32(kind + body) & 0xFFFFFFFF)
+        )
+
+    header = struct.pack(">IIBBBBB", width, height, 8, colour, 0, 0, 0)
+    return (
+        b"\x89PNG\r\n\x1a\n"
+        + chunk(b"IHDR", header)
+        + chunk(b"IDAT", zlib.compress(bytes(rows), 6))
+        + chunk(b"IEND", b"")
+    )
 
 
 def _members(archive: zipfile.ZipFile) -> list[zipfile.ZipInfo]:

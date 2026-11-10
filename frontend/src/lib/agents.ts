@@ -157,12 +157,78 @@ export async function shrinkImage(file: File): Promise<{ blob: Blob; name: strin
   }
 }
 
+export function isSvg(file: File): boolean {
+  return file.type === "image/svg+xml" || /\.svg$/i.test(file.name);
+}
+
+/** Width / height of an SVG from its own attributes or viewBox (null when it names none). */
+export function svgSize(source: string): { width: number; height: number } | null {
+  const tag = /<svg\b[^>]*>/i.exec(source)?.[0] ?? "";
+  const number = (name: string) => {
+    const match = new RegExp(`\\s${name}\\s*=\\s*["']\\s*([\\d.]+)\\s*(px)?\\s*["']`, "i").exec(tag);
+    return match ? Number(match[1]) : NaN;
+  };
+  const width = number("width");
+  const height = number("height");
+  if (width > 0 && height > 0) return { width, height };
+  const box = /\sviewBox\s*=\s*["']([^"']+)["']/i.exec(tag)?.[1].trim().split(/[\s,]+/).map(Number);
+  if (box && box.length === 4 && box[2] > 0 && box[3] > 0) return { width: box[2], height: box[3] };
+  return null;
+}
+
+/**
+ * An SVG is sent as its code (the agent reads colours and shapes) and, so the
+ * agent also SEES it, as a PNG drawn here on white, IMAGE_MAX_SIDE on its long
+ * side. Null when it cannot be drawn (a test, a broken file): the code still goes.
+ */
+export async function svgToPng(file: File): Promise<File | null> {
+  if (typeof createImageBitmap !== "function" || typeof Image === "undefined") return null;
+  const url = URL.createObjectURL(file);
+  try {
+    const size = svgSize(await file.text());
+    const image = new Image();
+    await new Promise<void>((resolve, reject) => {
+      const timer = setTimeout(() => reject(new Error("timeout")), 5000);
+      image.onload = () => {
+        clearTimeout(timer);
+        resolve();
+      };
+      image.onerror = () => {
+        clearTimeout(timer);
+        reject(new Error("svg"));
+      };
+      image.src = url;
+    });
+    const width = size?.width || image.naturalWidth || 1024;
+    const height = size?.height || image.naturalHeight || 1024;
+    const scale = IMAGE_MAX_SIDE / Math.max(width, height);
+    const canvas = document.createElement("canvas");
+    canvas.width = Math.max(1, Math.round(width * scale));
+    canvas.height = Math.max(1, Math.round(height * scale));
+    const context = canvas.getContext("2d");
+    if (!context) return null;
+    context.fillStyle = "#ffffff";
+    context.fillRect(0, 0, canvas.width, canvas.height);
+    context.drawImage(image, 0, 0, canvas.width, canvas.height);
+    const blob = await new Promise<Blob | null>((resolve) => canvas.toBlob(resolve, "image/png"));
+    if (!blob) return null;
+    return new File([blob], file.name.replace(/\.svg$/i, "") + ".png", { type: "image/png" });
+  } catch {
+    return null;
+  } finally {
+    URL.revokeObjectURL(url);
+  }
+}
+
 /** What the file picker offers (the server decides; this only narrows the dialog). */
 export const ATTACH_ACCEPT = [
   "image/png",
   "image/jpeg",
   "image/webp",
   "image/gif",
+  "image/svg+xml",
+  ".svg",
+  ".ai",
   ".pdf",
   ".docx",
   ".xlsx",

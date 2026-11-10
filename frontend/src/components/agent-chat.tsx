@@ -19,8 +19,10 @@ import {
   answerError,
   fileSize,
   hideAnswerMedia,
+  isSvg,
   sendAgentMessage,
   shrinkImage,
+  svgToPng,
   uploadAgentAttachment,
   type AgentStreamEvent,
 } from "@/lib/agents";
@@ -513,8 +515,14 @@ function Chat({
     });
   };
 
-  const addFiles = (files: File[]) => {
-    if (!configured || files.length === 0) return;
+  const addFiles = async (picked: File[]) => {
+    if (!configured || picked.length === 0) return;
+    // An SVG also goes as a PNG drawn from it, so the agent sees it (the SVG itself = its code).
+    const files = (
+      await Promise.all(picked.map(async (file) => (isSvg(file) ? [file, await svgToPng(file)] : [file])))
+    )
+      .flat()
+      .filter((file): file is File => file !== null);
     const room = Math.max(0, maxFiles - pending.filter((item) => item.status !== "failed").length);
     if (files.length > room) {
       setFailure(new Error(`Mỗi tin nhắn gửi tối đa ${maxFiles} tệp.`));
@@ -639,7 +647,7 @@ function Chat({
         if (!configured) return;
         event.preventDefault();
         setDragging(false);
-        addFiles(Array.from(event.dataTransfer.files));
+        void addFiles(Array.from(event.dataTransfer.files));
       }}
     >
       {dragging ? (
@@ -769,7 +777,7 @@ function Chat({
           tabIndex={-1}
           data-testid="agent-file-input"
           onChange={(event) => {
-            addFiles(Array.from(event.target.files ?? []));
+            void addFiles(Array.from(event.target.files ?? []));
             event.target.value = "";
           }}
         />
@@ -801,7 +809,7 @@ function Chat({
               const files = Array.from(event.clipboardData?.files ?? []);
               if (files.length > 0) {
                 event.preventDefault();
-                addFiles(files);
+                void addFiles(files);
               }
             }}
             rows={Math.min(6, Math.max(1, draft.split("\n").length))}

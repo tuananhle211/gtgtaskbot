@@ -607,13 +607,37 @@ async def test_13_reading_every_kind_of_file() -> None:
     assert packed.kind == AttachmentKind.SKILL and packed.note == "Skill: soat-hop-dong · 2 tệp"
     assert "--- references/mau.md ---\nMẫu điều khoản" in (packed.text or "")
     assert "rác" not in (packed.text or "")
+    # 2026-11-10: a scan / an Illustrator file is drawn (page 1, PNG kept instead), an SVG is code.
+    scan = read_upload("scan.pdf", _pdf(None))
+    assert (scan.kind, scan.content_type, scan.name) == (
+        AttachmentKind.IMAGE,
+        "image/png",
+        "scan - trang 1.png",
+    )
+    assert (scan.data or b"").startswith(b"\x89PNG") and "bản scan" in (scan.note or "")
+    drawn = read_upload("Apexmed Logo.ai", _pdf("APEXMED"))  # the words do not matter for .ai
+    assert drawn.kind == AttachmentKind.IMAGE and drawn.name == "Apexmed Logo - trang 1.png"
+    assert drawn.note == "Ảnh vẽ từ tệp Illustrator (.ai)"
+    svg = read_upload(
+        "logo.svg",
+        b'<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 10 10"><path fill="#232C63"/>'
+        b'<image href="data:image/png;base64,' + b"A" * 400 + b'"/></svg>',
+    )
+    assert (svg.kind, svg.content_type, svg.note) == (
+        AttachmentKind.DOCUMENT,
+        "image/svg+xml",
+        "Mã SVG (vector)",
+    )
+    assert "#232C63" in (svg.text or "") and "A" * 400 not in (svg.text or "")
+    assert svg.data is None and svg.name is None
     # Refused, each with what to do instead.
     for name, data, says in [
         ("clip.mp4", b"\x00\x00\x00 ftypisom", "video"),
-        ("scan.pdf", _pdf(None), "bản scan"),
+        ("cu.ai", b"%!PS-Adobe-3.0 EPSF", "Create PDF Compatible File"),
+        ("rong.svg", b"<html>khong phai svg</html>", "không có hình SVG"),
+        ("anh.heic", b"\x00\x00\x00\x18ftypheic", "PNG"),
         ("cu.doc", b"\xd0\xcf\x11\xe0", ".docx"),
         ("tai-lieu.zip", _zip({"a.txt": "x"}), "SKILL.md"),
-        ("logo.svg", b"<svg/>", "PNG"),
         ("hong.docx", b"PK not a zip", "tệp hỏng"),
         ("bom.docx", _zip({"word/document.xml": '<!DOCTYPE x [<!ENTITY a "a">]><x/>'}), "hỏng"),
         ("trong.txt", b"", "trống"),
@@ -971,3 +995,38 @@ async def test_21_a_voice_the_agent_reads_plays_in_the_chat(world: World) -> Non
     got = world.client.get(file["url"])
     assert got.content == mp3 and got.headers["content-type"] == "audio/mpeg"
     assert got.headers["content-disposition"].startswith("inline;")
+
+
+async def test_22_a_logo_file_reaches_the_agent(world: World) -> None:
+    """2026-11-10: an Illustrator ``.ai`` is kept as page 1 drawn in PNG (a
+    picture part, opened inline); an SVG goes as its code in the question and
+    downloads as a file, never drawn in the app's own origin."""
+    relay = setup(world)
+    await seeded(world)
+    world.act_as(world.member)
+    conversation = open_conversation(world)
+    drawn = upload(world, conversation, "Apexmed Logo.ai", _pdf("APEXMED"))
+    assert drawn.status_code == 201, drawn.json()
+    assert (drawn.json()["kind"], drawn.json()["name"]) == ("IMAGE", "Apexmed Logo - trang 1.png")
+    svg_bytes = (
+        b'<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 10 10"><path fill="#232C63"/></svg>'
+    )
+    code = upload(world, conversation, "Apexmed Logo.svg", svg_bytes)
+    assert code.status_code == 201, code.json()
+    assert (code.json()["kind"], code.json()["note"]) == ("DOCUMENT", "Mã SVG (vector)")
+    ids = [drawn.json()["id"], code.json()["id"]]
+    sent = world.client.post(
+        f"/api/agents/conversations/{conversation}/messages",
+        json={"text": "Logo đây", "attachment_ids": ids},
+    )
+    assert sent.status_code == 200, sent.text
+    call = relay.calls[0]
+    assert len(call["images"]) == 1 and call["images"][0].startswith("data:image/png;base64,")
+    assert "[Ảnh đính kèm: Apexmed Logo - trang 1.png]" in call["text"]
+    assert "#232C63" in call["text"]
+    shown = world.client.get(f"/api/agents/attachments/{ids[0]}")
+    assert shown.headers["content-type"] == "image/png" and shown.content.startswith(b"\x89PNG")
+    got = world.client.get(f"/api/agents/attachments/{ids[1]}")
+    assert got.content == svg_bytes
+    assert got.headers["content-type"] == "application/octet-stream"
+    assert got.headers["content-disposition"].startswith("attachment;")

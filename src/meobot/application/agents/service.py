@@ -262,14 +262,15 @@ class AgentChatService:
             raise AgentFileInvalidError(f"Mỗi tin nhắn gửi tối đa {MAX_ATTACHMENTS} tệp.")
         name = clean_name(name)
         read = await asyncio.to_thread(read_upload, name, data)
+        kept = read.data if read.data is not None else data  # a page drawn as PNG replaces the file
         row = AgentAttachment(
             conversation_id=conversation.id,
             user_id=access.user_id,
-            name=name,
+            name=read.name or name,
             content_type=read.content_type,
             kind=read.kind,
-            size_bytes=len(data),
-            data=data,
+            size_bytes=len(kept),
+            data=kept,
             content=read.text,
             pages=read.pages,
             truncated=read.truncated,

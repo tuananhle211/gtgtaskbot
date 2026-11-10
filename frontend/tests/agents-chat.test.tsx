@@ -505,3 +505,17 @@ describe("Đội agent: APM data each agent reads (2026-11-09)", () => {
     expect(puts[0]).toEqual({ url: "/api/agents/admin/data/nhansu", body: { areas: ["PERFORMANCE", "ADS_REVENUE"] } });
   });
 });
+
+describe("Đội agent: logo files (2026-11-10)", () => {
+  it("takes SVG and Illustrator files and reads an SVG's size for its PNG", async () => {
+    const { ATTACH_ACCEPT, isSvg, svgSize, svgToPng } = await import("@/lib/agents");
+    expect(ATTACH_ACCEPT.split(",")).toEqual(expect.arrayContaining([".svg", ".ai", "image/svg+xml"]));
+    expect(isSvg(new File(["<svg/>"], "Apexmed Logo.SVG"))).toBe(true);
+    expect(isSvg(new File(["x"], "logo.ai"))).toBe(false);
+    expect(svgSize('<svg xmlns="http://www.w3.org/2000/svg" width="320px" height="80">')).toEqual({ width: 320, height: 80 });
+    expect(svgSize('<svg viewBox="0 0 595.28 841.89"><path/></svg>')).toEqual({ width: 595.28, height: 841.89 });
+    expect(svgSize('<svg width="100%" height="100%"><path/></svg>')).toBeNull();
+    // Nothing to draw with here (no canvas): the SVG still goes as its code.
+    expect(await svgToPng(new File(["<svg/>"], "logo.svg", { type: "image/svg+xml" }))).toBeNull();
+  });
+});
