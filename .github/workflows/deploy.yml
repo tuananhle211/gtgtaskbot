@@ -17,7 +17,8 @@ jobs:
         with:
           host: ${{ secrets.VPS_HOST }}
           username: ${{ secrets.VPS_USERNAME }}
-          password: ${{ secrets.VPS_PASSWORD }}
+          # Production refuses SSH passwords (2026-11-10): the deploy logs in with a key.
+          key: ${{ secrets.VPS_SSH_KEY }}
           port: ${{ secrets.VPS_PORT }}
           # Any failing line stops the deploy: the old code keeps running.
           script_stop: true
