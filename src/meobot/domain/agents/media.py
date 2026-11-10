@@ -18,6 +18,11 @@ Brand assets (2026-11-09): an agent hands a file from the company's brand
 library (``/srv/brain/tai-san`` on the VPS - logo SVG/PNG, the guideline PDF,
 fonts) the same way, ``MEDIA:/srv/brain/tai-san/logo/x.svg``. A picture is kept
 as a picture; any other file (:data:`FILE_TYPES`) as a document to download.
+
+Voice (2026-11-10): an agent with ElevenLabs speech (Hermes ``text_to_speech``)
+hands back ``MEDIA:/.../audio_cache/x.mp3`` (+ Hermes' ``[[audio_as_voice]]``
+marker, dropped here); the audio is kept like a document and plays in the chat
+(:data:`AUDIO_TYPES`).
 """
 
 from __future__ import annotations
@@ -44,9 +49,17 @@ FILE_TYPES: dict[str, str] = {
     "otf": "font/otf",
     "woff": "font/woff",
     "woff2": "font/woff2",
+    "mp3": "audio/mpeg",
+    "ogg": "audio/ogg",
+    "wav": "audio/wav",
+    "m4a": "audio/mp4",
 }
+#: The audio among :data:`FILE_TYPES` (played in the chat, served inline).
+AUDIO_TYPES = frozenset({"audio/mpeg", "audio/ogg", "audio/wav", "audio/mp4"})
+#: Hermes asks a chat platform for a voice bubble with this marker; APM has none.
+VOICE_MARKER = "[[audio_as_voice]]"
 
-_EXT = r"(?:png|jpe?g|webp|gif|svg|pdf|ai|eps|psd|zip|ttf|otf|woff2?)"
+_EXT = r"(?:png|jpe?g|webp|gif|svg|pdf|ai|eps|psd|zip|ttf|otf|woff2?|mp3|ogg|wav|m4a)"
 #: ``MEDIA:/path/x.png``, maybe wrapped in quotes or backticks.
 _MEDIA_TAG = re.compile(
     rf"[`'\"]?MEDIA:\s*(?P<path>/[^\s`'\"<>()\[\]]+?\.{_EXT})(?![A-Za-z0-9])[`'\"]?",
@@ -108,6 +121,10 @@ def file_type(extension: str, data: bytes) -> str | None:
         "otf": head.startswith(b"OTTO"),
         "woff": head.startswith(b"wOFF"),
         "woff2": head.startswith(b"wOF2"),
+        "mp3": head.startswith(b"ID3") or (len(head) > 1 and head[0] == 0xFF and head[1] >= 0xE0),
+        "ogg": head.startswith(b"OggS"),
+        "wav": head[:4] == b"RIFF" and head[8:12] == b"WAVE",
+        "m4a": head[4:8] == b"ftyp",
     }.get(ext, False)
     return FILE_TYPES[ext] if ok else None
 
@@ -179,15 +196,18 @@ def replace_media(text: str, replacements: dict[str, str]) -> str:
     """``text`` with each picture's raw text replaced (``""`` = taken out), blank runs folded."""
     for raw, new in replacements.items():
         text = text.replace(raw, new)
+    text = text.replace(VOICE_MARKER, "")
     return _BLANK_RUNS.sub("\n\n", text).strip()
 
 
 __all__ = [
+    "AUDIO_TYPES",
     "FILE_TYPES",
     "MAX_ANSWER_IMAGES",
     "MAX_ANSWER_IMAGE_BYTES",
     "MAX_ANSWER_PAGES",
     "MAX_ANSWER_PAGE_BYTES",
+    "VOICE_MARKER",
     "HtmlPage",
     "MediaRef",
     "file_type",

@@ -29,6 +29,7 @@ from meobot.application.agents.service import AnswerFile, PreparedTurn, finish_a
 from meobot.core.time import utcnow
 from meobot.db.models.agent_chat import AgentAttachment, AgentMessage
 from meobot.domain.agents.media import (
+    AUDIO_TYPES,
     MAX_ANSWER_IMAGE_BYTES,
     file_type,
     find_html_pages,
@@ -135,7 +136,7 @@ async def answer_files(relay: AgentRelay, slug: str, text: str) -> tuple[str, li
                     content_type=content_type,
                     data=data,
                     kind=AttachmentKind.DOCUMENT,
-                    note="Tệp agent gửi",
+                    note="Giọng đọc agent gửi" if content_type in AUDIO_TYPES else "Tệp agent gửi",
                 )
             )
         else:

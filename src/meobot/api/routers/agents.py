@@ -69,6 +69,7 @@ from meobot.domain.agents.errors import (
     AgentsNotConfiguredError,
     AttachmentNotFoundError,
 )
+from meobot.domain.agents.media import AUDIO_TYPES
 from meobot.domain.agents.models import MAX_FILE_BYTES, AttachmentKind
 from meobot.integrations.hermes.relay import AgentRelay, HttpAgentRelay
 
@@ -376,10 +377,11 @@ async def upload_attachment(
 async def open_attachment(
     attachment_id: uuid.UUID, session: SessionDep, membership: UnitMembershipDep
 ) -> Response:
-    """The file itself, for its owner: a picture shows, anything else downloads."""
+    """The file itself, for its owner: a picture shows and a voice plays (their own
+    type, inline), anything else downloads."""
     service, access = _context(session, membership)
     row = await service.attachment(access, attachment_id, with_data=True)
-    inline = row.kind == AttachmentKind.IMAGE
+    inline = row.kind == AttachmentKind.IMAGE or row.content_type in AUDIO_TYPES
     disposition = "inline" if inline else "attachment"
     return Response(
         content=row.data,

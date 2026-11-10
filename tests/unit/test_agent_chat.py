@@ -932,3 +932,42 @@ async def test_20_a_brand_asset_comes_as_a_file_to_download(world: World) -> Non
     assert got.content == svg
     assert got.headers["content-type"] == "application/octet-stream"
     assert got.headers["content-disposition"].startswith("attachment;")
+
+
+async def test_21_a_voice_the_agent_reads_plays_in_the_chat(world: World) -> None:
+    """2026-11-10: ElevenLabs speech (Hermes text_to_speech) -> an MP3 of the
+    answer, served inline with its own type so the chat can play it; Hermes'
+    voice-bubble marker leaves the text; a fake MP3 is refused."""
+    from meobot.integrations.hermes.relay import RelayMedia
+
+    voice = "/home/hermes/.hermes/profiles/mktads/audio_cache/tts_20261110.mp3"
+    fake = "/home/hermes/.hermes/profiles/mktads/audio_cache/gia.mp3"
+    mp3 = b"ID3\x04\x00\x00\x00\x00\x00\x00" + b"\xff\xfb" * 50
+    answer: list[RelayEvent] = [
+        RelayDelta(f"Dạ giọng đọc đây ạ:\n\n[[audio_as_voice]]\nMEDIA:{voice}\nMEDIA:{fake}\n"),
+    ]
+    media = {
+        voice: RelayMedia(data=mp3, content_type="audio/mpeg"),
+        fake: RelayMedia(data=b"<html>", content_type="audio/mpeg"),
+    }
+    setup(world, FakeAgentRelay([answer], media=media))
+    await seeded(world)
+    world.act_as(world.owner)
+    conversation = open_conversation(world, "mktads")
+    sent = world.client.post(
+        f"/api/agents/conversations/{conversation}/messages", json={"text": "Đọc kịch bản này"}
+    )
+    assert sent.status_code == 200, sent.text
+    done = events(sent.text)[-1][1]["message"]
+    assert "[[audio_as_voice]]" not in done["content"] and "MEDIA:" not in done["content"]
+    assert "(Không lấy được tệp gia.mp3)" in done["content"]
+    [file] = done["attachments"]
+    assert (file["name"], file["kind"], file["content_type"], file["note"]) == (
+        "tts_20261110.mp3",
+        "DOCUMENT",
+        "audio/mpeg",
+        "Giọng đọc agent gửi",
+    )
+    got = world.client.get(file["url"])
+    assert got.content == mp3 and got.headers["content-type"] == "audio/mpeg"
+    assert got.headers["content-disposition"].startswith("inline;")

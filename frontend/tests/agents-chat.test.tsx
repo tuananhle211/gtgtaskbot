@@ -307,11 +307,31 @@ describe("Đội agent: files and deleting", () => {
     expect(within(log).getByRole("link", { name: "Tải về" })).toHaveAttribute("download", "giao-dien-1.html");
   });
 
+  it("plays a voice the agent read, and offers it to download", async () => {
+    const voice = {
+      ...SENT_FILES[1],
+      id: "v1",
+      name: "tts_20261110.mp3",
+      content_type: "audio/mpeg",
+      note: "Giọng đọc agent gửi",
+      url: "/api/agents/attachments/v1",
+    };
+    backend({ saved: [QUESTION, { ...ANSWER, content: "Dạ giọng đọc đây ạ.", attachments: [voice] }] });
+    NAV.arriveAt("/agents?a=phapche&c=c1");
+    renderWithQuery(<AgentsWorkspace />);
+    const log = await screen.findByRole("log", { name: "Tin nhắn" });
+    const player = await within(log).findByLabelText("Nghe tts_20261110.mp3");
+    expect(player.tagName).toBe("AUDIO");
+    expect(player).toHaveAttribute("src", "/api/agents/attachments/v1");
+    expect(within(log).getByRole("link", { name: "Tải về" })).toHaveAttribute("download", "tts_20261110.mp3");
+  });
+
   it("hides a picture tag while the answer still streams", async () => {
     const { hideAnswerMedia } = await import("@/lib/agents");
     expect(hideAnswerMedia("Dạ:\n\nMEDIA:/a/b.png\n\nXong")).toEqual({ text: "Dạ:\n\nXong", pictures: 1 });
     expect(hideAnswerMedia("Đang gửi MEDIA:/home/her").pictures).toBe(1);
     expect(hideAnswerMedia("Logo: MEDIA:/srv/brain/tai-san/logo/a.svg").text).toBe("Logo: ");
+    expect(hideAnswerMedia("Giọng: [[audio_as_voice]]MEDIA:/a/tts.mp3").text).toBe("Giọng: ");
     expect(hideAnswerMedia("Ảnh ![image](data:image/png;base64,iVBOR").text).toBe("Ảnh ");
     expect(hideAnswerMedia("Không có ảnh")).toEqual({ text: "Không có ảnh", pictures: 0 });
     // A page still being written stays out of the bubble; a closed snippet stays.

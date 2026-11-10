@@ -927,6 +927,8 @@ function SentFiles({ files }: { files: AgentAttachment[] }) {
       {documents.map((file) =>
         file.content_type === "text/html" ? (
           <PageCard key={file.id} file={file} />
+        ) : file.content_type.startsWith("audio/") ? (
+          <AudioCard key={file.id} file={file} />
         ) : (
         <a
           key={file.id}
@@ -945,6 +947,32 @@ function SentFiles({ files }: { files: AgentAttachment[] }) {
         </a>
         ),
       )}
+    </div>
+  );
+}
+
+/** A voice the agent read (ElevenLabs): play it here, or download it. */
+function AudioCard({ file }: { file: AgentAttachment }) {
+  return (
+    <div className="space-y-1.5 rounded-lg border border-[var(--border)] bg-[var(--surface)] px-2.5 py-2 text-[var(--text)]">
+      <div className="flex items-center gap-2.5">
+        <FileBadge kind={file.kind} name={file.name} />
+        <span className="min-w-0 flex-1">
+          <span className="block truncate text-sm font-medium">{file.name}</span>
+          <span className="block truncate text-xs text-[var(--text-muted)]">
+            {[file.note, fileSize(file.size_bytes)].filter(Boolean).join(" · ")}
+          </span>
+        </span>
+        <a
+          href={file.url}
+          download={file.name}
+          className="inline-flex min-h-9 items-center rounded-md border border-[var(--border)] bg-[var(--surface)] px-3 text-xs hover:bg-[var(--surface-muted)]"
+          title={`Tải ${file.name}`}
+        >
+          Tải về
+        </a>
+      </div>
+      <audio controls preload="none" src={file.url} className="w-full" aria-label={`Nghe ${file.name}`} />
     </div>
   );
 }
@@ -1038,7 +1066,9 @@ function FileBadge({ kind, name }: { kind: AgentAttachment["kind"]; name: string
                   ? extension.toUpperCase()
                   : ["ttf", "otf", "woff", "woff2"].includes(extension)
                     ? "FONT"
-                    : "TXT";
+                    : ["mp3", "ogg", "wav", "m4a"].includes(extension)
+                      ? "AUDIO"
+                      : "TXT";
   const tone =
     kind === "SKILL"
       ? "bg-[var(--magenta-soft)] text-[var(--magenta)]"

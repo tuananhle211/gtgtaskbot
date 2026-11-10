@@ -189,7 +189,7 @@ export function fileSize(bytes: number): string {
  * it as the answer's file (a brand asset - SVG, PDF, font - as a file to
  * download). While the answer still streams, hide the raw tag.
  */
-const MEDIA_TAG = /[`'"]?MEDIA:\s*\/[^\s`'"<>()[\]]+\.(?:png|jpe?g|webp|gif|svg|pdf|ai|eps|psd|zip|ttf|otf|woff2?)(?![A-Za-z0-9])[`'"]?/gi;
+const MEDIA_TAG = /[`'"]?MEDIA:\s*\/[^\s`'"<>()[\]]+\.(?:png|jpe?g|webp|gif|svg|pdf|ai|eps|psd|zip|ttf|otf|woff2?|mp3|ogg|wav|m4a)(?![A-Za-z0-9])[`'"]?/gi;
 const DATA_IMAGE = /!\[[^\]\n]{0,200}\]\(data:image\/[^)]*\)?/g;
 /** A ```html page still being written (no closing fence yet): the code stays out of the bubble. */
 const HTML_PAGE_OPEN = /```[ \t]*html[^\n]*\n(?![\s\S]*```)[\s\S]*$/i;
@@ -203,6 +203,7 @@ export function hideAnswerMedia(text: string): { text: string; pictures: number 
     return "";
   };
   const out = text
+    .replace("[[audio_as_voice]]", "")
     .replace(MEDIA_TAG, count)
     .replace(DATA_IMAGE, count)
     .replace(MEDIA_TAIL, count)
