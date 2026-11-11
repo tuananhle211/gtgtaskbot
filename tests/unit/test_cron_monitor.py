@@ -494,3 +494,53 @@ async def test_15_the_owner_edits_a_jobs_alerts_on_the_screen(world: World) -> N
     assert world.client.get("/api/cron").json()["people"] == []
     denied = world.client.patch(f"/api/cron/jobs/{FREQUENT}", json={"notify": False})
     assert denied.status_code == 403
+
+
+async def test_13_the_host_backup_reports_and_alerts_at_its_first_failure(
+    session: AsyncSession, settings: Settings
+) -> None:
+    """The daily dump is a host cron script (plan SCALING_PLAN C2): it reports
+    here, never retries, and a failure tells the OWNER at once."""
+    from meobot.application.cron.host_job import record_host_run
+
+    settings = await owner_world(session, settings)
+    started = utcnow() - timedelta(minutes=4)
+    done = await record_host_run(
+        session,
+        settings,
+        key="host.db_backup",
+        ok=True,
+        message="63M, Drive 14 bản",
+        started_at=started,
+    )
+    assert done.alerted is False
+    job = await session.get(CronJob, "host.db_backup")
+    assert job is not None and job.last_status is CronRunStatus.SUCCESS
+    assert (job.retries, job.alert_after, job.notify) == (0, 1, True)
+
+    failed = await record_host_run(
+        session,
+        settings,
+        key="host.db_backup",
+        ok=False,
+        message="rclone: invalid_grant",
+        started_at=started,
+    )
+    assert failed.alerted is True and failed.retry_in_seconds is None
+    assert len(await alerts(session, "cron_job_failed")) == 1
+    try:
+        await record_host_run(
+            session, settings, key="khac", ok=True, message="", started_at=started
+        )
+    except ValueError:
+        pass
+    else:  # pragma: no cover
+        raise AssertionError("an unknown host job was accepted")
+
+
+async def test_14_a_host_job_is_never_re_run_from_the_web(world: World) -> None:
+    sender = FakeSender()
+    use_service(world, sender)
+    world.act_as(world.owner)
+    response = world.client.post("/api/cron/jobs/host.db_backup/run")
+    assert response.status_code == 422 and response.json()["code"] == "cron_host_job"

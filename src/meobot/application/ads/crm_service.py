@@ -16,6 +16,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import base64
 import binascii
 import io
@@ -486,7 +487,8 @@ class AdsCrmService:
         if len(raw) > MAX_IMPORT_BYTES:
             raise AdsCrmInvalidError("File lớn hơn 5 MB.", field_name="data")
         try:
-            book = load_workbook(io.BytesIO(raw), data_only=True, read_only=True)
+            # openpyxl is CPU work: read every tab off the event loop.
+            sheets = await asyncio.to_thread(_read_sheets, raw)
         except Exception as error:  # openpyxl raises several kinds
             raise AdsCrmInvalidError(
                 "File không phải Excel (.xlsx) hợp lệ.", field_name="data"
@@ -511,8 +513,7 @@ class AdsCrmService:
             ]
         ] = []
         found = False
-        for sheet in book.worksheets:
-            rows = sheet.iter_rows(values_only=True)
+        for title, rows in sheets:
             columns: dict[str, int] = {}
             for number, row in enumerate(rows, 1):
                 cells = list(row)
@@ -544,7 +545,7 @@ class AdsCrmService:
                 if raw_id in (None, ""):
                     continue
                 found = True
-                where = f"{sheet.title} dòng {number}"
+                where = f"{title} dòng {number}"
                 try:
                     crm_id = int(str(raw_id).strip().split(".")[0])
                 except ValueError:
@@ -655,6 +656,16 @@ class AdsCrmService:
             after_data={"rows": result.rows, "changed": result.changed, "created": result.created},
         )
         return result
+
+
+def _read_sheets(raw: bytes) -> list[tuple[str, list[tuple[Any, ...]]]]:
+    """Every tab of a workbook as (title, rows of cell values) - plain data,
+    so the caller can run it in a worker thread."""
+    book = load_workbook(io.BytesIO(raw), data_only=True, read_only=True)
+    try:
+        return [(sheet.title, list(sheet.iter_rows(values_only=True))) for sheet in book.worksheets]
+    finally:
+        book.close()
 
 
 __all__ = [

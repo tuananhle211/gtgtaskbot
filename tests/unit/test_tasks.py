@@ -9,6 +9,7 @@ from meobot.tasks.celery_app import (
     QUEUE_INTEGRATIONS,
     QUEUE_NOTIFICATIONS,
     QUEUE_REPORTS,
+    QUEUE_SYNC,
     celery_app,
 )
 from meobot.tasks.reports import generate_demo
@@ -22,7 +23,26 @@ def test_eager_mode_is_enabled_in_tests() -> None:
 
 def test_queues_are_declared() -> None:
     declared = {queue.name for queue in celery_app.conf.task_queues}
-    assert declared == {QUEUE_DEFAULT, QUEUE_INTEGRATIONS, QUEUE_REPORTS, QUEUE_NOTIFICATIONS}
+    assert declared == {
+        QUEUE_DEFAULT,
+        QUEUE_INTEGRATIONS,
+        QUEUE_REPORTS,
+        QUEUE_NOTIFICATIONS,
+        QUEUE_SYNC,
+    }
+
+
+def test_long_syncs_have_their_own_queue() -> None:
+    """Meta / CRM syncs (minutes long) never share the fast lane's slots
+    (plan docs/ops/SCALING_PLAN.md B): routed and scheduled on q_sync, which
+    only the ``worker-sync`` service consumes."""
+    routes = celery_app.conf.task_routes
+    assert routes["ads.*"]["queue"] == QUEUE_SYNC
+    assert routes["cskh.*"]["queue"] == QUEUE_INTEGRATIONS
+    schedule = celery_app.conf.beat_schedule
+    for key in ("ads-sync-spend", "ads-sync-charges", "ads-sync-crm-revenue"):
+        assert schedule[key]["options"]["queue"] == QUEUE_SYNC
+    assert schedule["cskh-poll-pancake"]["options"]["queue"] == QUEUE_INTEGRATIONS
 
 
 def test_beat_schedule_contains_the_heartbeat() -> None:

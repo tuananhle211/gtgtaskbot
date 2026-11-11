@@ -20,13 +20,16 @@ import { api, type UnitsMe } from "@/lib/api";
  * * **Kết nối AI** (`/admin/ai`, OWNER only) - the AI services the app calls
  *   (ChatGPT, Gemini, DeepSeek, 9router...) and which serves which purpose.
  *
+ * **Hiệu năng** (`/admin/performance`, OWNER / ADMIN) - how fast the API answers
+ *   and how long background tasks wait (plan docs/ops/SCALING_PLAN.md D).
+ *
  * "Tác vụ định kỳ" and "Kết nối BM" live in the Phòng Ads menu (27/10).
  *
  * The PR team's own "Thành viên & Phân quyền (PR)" stays in the PR menu, untouched.
  * Who sees which tab is a convenience; every route and write is checked again
  * on the server.
  */
-export type AdminTabKey = "departments" | "accounts" | "settings" | "ai" | "agents";
+export type AdminTabKey = "departments" | "accounts" | "settings" | "ai" | "agents" | "performance";
 
 export const ADMIN_TABS: ReadonlyArray<{ key: AdminTabKey; href: string; label: string }> = [
   { key: "departments", href: "/admin/departments", label: "Phòng ban" },
@@ -35,6 +38,8 @@ export const ADMIN_TABS: ReadonlyArray<{ key: AdminTabKey; href: string; label: 
   { key: "ai", href: "/admin/ai", label: "Kết nối AI" },
   // Đội agent (0091): who may chat with which Hermes agent (OWNER).
   { key: "agents", href: "/admin/agents", label: "Đội agent" },
+  // Hiệu năng (0103, plan docs/ops/SCALING_PLAN.md D): OWNER / ADMIN.
+  { key: "performance", href: "/admin/performance", label: "Hiệu năng" },
 ];
 
 /** Whether this person heads at least one department (a seat with position HEAD). */
@@ -55,6 +60,7 @@ export function adminTabsFor(
     settings: ordSettings,
     ai: sessionRole === "OWNER",
     agents: Boolean(me?.agents?.manage),
+    performance: manages,
   };
   return ADMIN_TABS.filter((tab) => shown[tab.key]);
 }

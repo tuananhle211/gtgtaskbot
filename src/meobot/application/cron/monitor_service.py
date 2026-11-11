@@ -21,6 +21,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from meobot.application.audit_service import AuditService
+from meobot.application.cron.host_job import HOST_JOB_KEYS
 from meobot.application.cron.recorder import CronRecorder
 from meobot.application.cron.schedule import ScheduledJob
 from meobot.core.config import Settings
@@ -62,6 +63,16 @@ class CronJobNotFoundError(NotFoundError):
 
     def __init__(self) -> None:
         super().__init__("Không tìm thấy tác vụ.", details={"reason": "cron_job_not_found"})
+
+
+class CronHostJobError(ValidationError):
+    code = "cron_host_job"
+
+    def __init__(self) -> None:
+        super().__init__(
+            "Tác vụ này chạy trên máy chủ, không chạy lại từ web được.",
+            details={"reason": "cron_host_job"},
+        )
 
 
 class CronJobRunningError(ConflictError):
@@ -240,6 +251,8 @@ class CronMonitorService:
         incident_id: uuid.UUID | None = None,
     ) -> RerunResult:
         self._require_view(actor)
+        if key in HOST_JOB_KEYS:
+            raise CronHostJobError()
         job = await self._session.get(CronJob, key)
         if job is None and key not in self._jobs:
             raise CronJobNotFoundError()

@@ -21,6 +21,8 @@ TEST_ENV: dict[str, str] = {
     "CELERY_BROKER_URL": "redis://localhost:6379/14",
     "CELERY_RESULT_BACKEND": "redis://localhost:6379/13",
     "CELERY_TASK_ALWAYS_EAGER": "true",
+    # The app's minute loop would write timings to DATABASE_URL on shutdown.
+    "PERF_STATS_ENABLED": "false",
     "TELEGRAM_BOT_TOKEN": "",
     "MEOBOT_OWNER_TELEGRAM_ID": "777000111",
     "LLM_PROVIDER": "fake",

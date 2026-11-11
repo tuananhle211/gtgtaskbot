@@ -128,6 +128,7 @@ from meobot.db.models.org_unit import (
     UnitPlatform,
     UnitVideoKind,
 )
+from meobot.db.models.perf_stat import PerfStatHourly
 from meobot.db.models.point_coefficient import UserPointCoefficient
 from meobot.db.models.pr import (
     PrApprovalEvent,
@@ -343,6 +344,7 @@ __all__ = [
     "OrganizationHoliday",
     "OutboundMessage",
     "PendingGuestAccessRequest",
+    "PerfStatHourly",
     "PrAction",
     "PrAiReview",
     "PrAiReviewRun",

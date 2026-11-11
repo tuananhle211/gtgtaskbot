@@ -15,11 +15,12 @@ Telegram message or API call that triggered it.
 
 from __future__ import annotations
 
+import time
 from typing import Any
 
 from celery import Celery, Task
 from celery.schedules import crontab
-from celery.signals import setup_logging, task_prerun
+from celery.signals import before_task_publish, setup_logging, task_prerun
 from kombu import Queue
 
 from meobot.core.config import get_settings
@@ -34,6 +35,10 @@ QUEUE_REPORTS = "q_reports"
 #: Outbound Telegram delivery. Its own queue so a Telegram outage cannot starve
 #: sheet syncs or reviews, and so delivery can be scaled independently.
 QUEUE_NOTIFICATIONS = "q_notifications"
+#: Long third-party syncs (Meta Ads: up to 14 minutes, the CRM month). Their own
+#: queue, consumed by the ``worker-sync`` service, so they never hold the slots
+#: that read Pancake every 20 s or send Telegram messages (plan SCALING_PLAN B).
+QUEUE_SYNC = "q_sync"
 
 #: Default retry policy for tasks that talk to flaky things.
 RETRY_KWARGS: dict[str, Any] = {
@@ -62,6 +67,7 @@ celery_app = Celery(
         "meobot.tasks.pr_channel_sync",
         "meobot.tasks.pr_work_recurring",
         "meobot.tasks.cron_monitor",
+        "meobot.tasks.perf_monitor",
         "meobot.tasks.ads",
         "meobot.tasks.cskh",
     ],
@@ -91,6 +97,7 @@ celery_app.conf.update(
         Queue(QUEUE_INTEGRATIONS),
         Queue(QUEUE_REPORTS),
         Queue(QUEUE_NOTIFICATIONS),
+        Queue(QUEUE_SYNC),
     ),
     task_routes={
         "system.*": {"queue": QUEUE_DEFAULT},
@@ -104,8 +111,8 @@ celery_app.conf.update(
         "scripts.*": {"queue": QUEUE_DEFAULT},
         "conversations.*": {"queue": QUEUE_DEFAULT},
         "cron.*": {"queue": QUEUE_DEFAULT},
-        # Phòng Ads talks to Meta: the third-party queue.
-        "ads.*": {"queue": QUEUE_INTEGRATIONS},
+        # Phòng Ads' Meta / CRM syncs run for minutes: their own queue and worker.
+        "ads.*": {"queue": QUEUE_SYNC},
         # Hộp chat CSKH (0102) talks to Pancake / POS Cake.
         "cskh.*": {"queue": QUEUE_INTEGRATIONS},
         "notifications.*": {"queue": QUEUE_NOTIFICATIONS},
@@ -308,20 +315,20 @@ celery_app.conf.update(
         "ads-sync-spend": {
             "task": "ads.sync_spend",
             "schedule": crontab(hour="1,16", minute="0"),
-            "options": {"queue": QUEUE_INTEGRATIONS, "expires": 3 * 3600},
+            "options": {"queue": QUEUE_SYNC, "expires": 3 * 3600},
         },
         # 08:05: billing charges over the last five days.
         "ads-sync-charges": {
             "task": "ads.sync_charges",
             "schedule": crontab(hour="1", minute="5"),
-            "options": {"queue": QUEUE_INTEGRATIONS, "expires": 3 * 3600},
+            "options": {"queue": QUEUE_SYNC, "expires": 3 * 3600},
         },
         # Thực thu from the CRM (0083): every hour at :10, 07:10-23:10 Vietnam
         # (00-16 UTC). A month is ~3 pages of 500: far below 60 calls a minute.
         "ads-sync-crm-revenue": {
             "task": "ads.sync_crm_revenue",
             "schedule": crontab(hour="0-16", minute="10"),
-            "options": {"queue": QUEUE_INTEGRATIONS, "expires": 3000},
+            "options": {"queue": QUEUE_SYNC, "expires": 3000},
         },
     },
 )
@@ -343,3 +350,11 @@ def _bind_request_id(task: Task[Any, Any] | None = None, **kwargs: object) -> No
     headers = getattr(getattr(task, "request", None), "headers", None) or {}
     request_id = headers.get("request_id") if isinstance(headers, dict) else None
     set_request_id(str(request_id) if request_id else new_request_id())
+
+
+@before_task_publish.connect
+def _stamp_sent_at(headers: dict[str, Any] | None = None, **_: object) -> None:
+    """Note when a task was sent (beat, API, a retry), so the worker can tell
+    how long it waited in the queue (``meobot.tasks.perf_monitor``)."""
+    if isinstance(headers, dict):
+        headers.setdefault("meobot_sent_at", time.time())

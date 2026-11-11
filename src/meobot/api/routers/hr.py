@@ -9,6 +9,7 @@ sensitive parts only for oneself and ``SENSITIVE`` holders. 403
 
 from __future__ import annotations
 
+import asyncio
 import io
 import uuid
 from datetime import date
@@ -325,21 +326,9 @@ async def org_chart(
     return {"departments": await service.org_chart()}
 
 
-@router.get("/export.xlsx")
-async def export(
-    actor: CurrentActorDep,
-    session: SessionDep,
-    settings: SettingsDep,
-    membership: UnitMembershipDep,
-    request_id: RequestIdDep,
-    include_left: bool = Query(default=False),
-) -> Response:
-    service, access = await _ctx(session, settings, membership)
-    if not access.export:
-        raise HrForbiddenError("Bạn không có quyền xuất Excel hồ sơ.")
-    rows = await service.rows(access=access, today=vn_today())
-    if not include_left:
-        rows = [row for row in rows if row["active"]]
+def _profiles_workbook(rows: list[dict[str, Any]], sensitive: bool) -> bytes:
+    """The "Hồ sơ nhân sự" sheet. Plain data in, bytes out: it runs in a
+    worker thread so a big export does not hold up everybody else."""
     book = Workbook()
     sheet = book.active
     assert sheet is not None
@@ -362,7 +351,7 @@ async def export(
         "Số HĐ",
         "HĐ hết hạn",
     ]
-    if access.sensitive:
+    if sensitive:
         head += ["Ngày sinh", "Điện thoại", "Email cá nhân"]
     sheet.append(head)
     for row in rows:
@@ -385,7 +374,7 @@ async def export(
             contract.get("number"),
             contract.get("end_on"),
         ]
-        if access.sensitive:
+        if sensitive:
             line += [row.get("birth_date"), row.get("phone"), row.get("personal_email")]
         sheet.append(line)
     bold = Font(bold=True)
@@ -393,6 +382,25 @@ async def export(
         cell.font = bold
     buffer = io.BytesIO()
     book.save(buffer)
+    return buffer.getvalue()
+
+
+@router.get("/export.xlsx")
+async def export(
+    actor: CurrentActorDep,
+    session: SessionDep,
+    settings: SettingsDep,
+    membership: UnitMembershipDep,
+    request_id: RequestIdDep,
+    include_left: bool = Query(default=False),
+) -> Response:
+    service, access = await _ctx(session, settings, membership)
+    if not access.export:
+        raise HrForbiddenError("Bạn không có quyền xuất Excel hồ sơ.")
+    rows = await service.rows(access=access, today=vn_today())
+    if not include_left:
+        rows = [row for row in rows if row["active"]]
+    content = await asyncio.to_thread(_profiles_workbook, rows, access.sensitive)
     await AuditService(session).record_action(
         request_id=request_id,
         actor=actor,
@@ -402,7 +410,7 @@ async def export(
         after_data={"rows": len(rows), "sensitive": access.sensitive},
     )
     return Response(
-        content=buffer.getvalue(),
+        content=content,
         media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
         headers={
             "Content-Disposition": f'attachment; filename="ho-so-nhan-su-{vn_today():%Y%m%d}.xlsx"',

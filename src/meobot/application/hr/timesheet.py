@@ -11,6 +11,7 @@ over the person's shift, the holidays, the punches and the approved requests.
 
 from __future__ import annotations
 
+import asyncio
 import io
 import uuid
 from collections.abc import Sequence
@@ -354,7 +355,8 @@ class HrTimesheetService:
             raise HrValidationError(
                 "hr_attendance_invalid", f"File lớn quá {MAX_IMPORT_BYTES // (1024 * 1024)} MB."
             )
-        parsed: ParsedFile = read_workbook(data)
+        # openpyxl over a 20 MB file is seconds of CPU: off the event loop.
+        parsed: ParsedFile = await asyncio.to_thread(read_workbook, data)
         codes = {normalise_member_code(row.code) for row in parsed.rows} - {None}
         users = (
             {
@@ -761,123 +763,129 @@ class HrTimesheetService:
         days = month_days(month)
         users = await self._people(access, days[0], days[-1], department_id, None, None)
         sheets = await self.compute(users, month, today)
-        book = Workbook()
-        grid = book.active
-        assert grid is not None
-        grid.title = "Bảng công"
-        totals_head = [
-            "Công chuẩn",
-            "Đi làm",
-            "Nghỉ có lương",
-            "Nghỉ không lương",
-            "Lễ",
-            "Vắng",
-            "Công tính lương",
-            "Muộn (lần)",
-            "Muộn (phút)",
-            "Sớm (lần)",
-            "Sớm (phút)",
-            "Thiếu chấm",
-        ]
-        grid.append([f"BẢNG CHẤM CÔNG THÁNG {month.month:02d}/{month.year}"])
-        grid.append(
-            ["Mã NV", "Họ tên", "Phòng ban", "Ca"]
-            + [f"{day.day}\n{WEEKDAY_SHORT[day.weekday()]}" for day in days]
-            + totals_head
-        )
-        bold = Font(bold=True)
-        for cell in grid[2]:
-            cell.font = bold
-            cell.alignment = Alignment(wrap_text=True, horizontal="center")
-        grid["A1"].font = Font(bold=True, size=13)
-        weekend = PatternFill("solid", fgColor="EEF2F8")
-        for sheet in sheets:
-            t = sheet.totals
-            grid.append(
-                [
-                    sheet.user.member_code,
-                    sheet.user.full_name,
-                    ", ".join(sheet.departments),
-                    sheet.shift_name,
-                ]
-                + [result.symbol for result in sheet.days]
-                + [
-                    float(t.standard),
-                    float(t.worked),
-                    float(t.paid_leave),
-                    float(t.unpaid_leave),
-                    float(t.holiday),
-                    float(t.absent),
-                    float(t.payable),
-                    t.late_count,
-                    t.late_minutes,
-                    t.early_count,
-                    t.early_minutes,
-                    t.missing,
-                ]
-            )
-        for index, day in enumerate(days):
-            if day.weekday() == 6:
-                for row in grid.iter_rows(min_row=2, min_col=5 + index, max_col=5 + index):
-                    for cell in row:
-                        cell.fill = weekend
-        grid.freeze_panes = "E3"
-        grid.column_dimensions["B"].width = 26
-        grid.column_dimensions["C"].width = 22
-        detail = book.create_sheet("Chi tiết")
-        detail.append(
-            [
-                "Mã NV",
-                "Họ tên",
-                "Ngày",
-                "Thứ",
-                "Vào",
-                "Ra",
-                "Ký hiệu",
-                "Công",
-                "Nghỉ",
+
+        def build() -> bytes:
+            # Plain data in, bytes out: runs in a worker thread so a big
+            # export does not hold up everybody else's requests.
+            book = Workbook()
+            grid = book.active
+            assert grid is not None
+            grid.title = "Bảng công"
+            totals_head = [
+                "Công chuẩn",
+                "Đi làm",
+                "Nghỉ có lương",
+                "Nghỉ không lương",
+                "Lễ",
+                "Vắng",
+                "Công tính lương",
+                "Muộn (lần)",
                 "Muộn (phút)",
+                "Sớm (lần)",
                 "Sớm (phút)",
                 "Thiếu chấm",
-                "Ghi chú",
             ]
-        )
-        for cell in detail[1]:
-            cell.font = bold
-        for sheet in sheets:
-            for result in sheet.days:
-                detail.append(
+            grid.append([f"BẢNG CHẤM CÔNG THÁNG {month.month:02d}/{month.year}"])
+            grid.append(
+                ["Mã NV", "Họ tên", "Phòng ban", "Ca"]
+                + [f"{day.day}\n{WEEKDAY_SHORT[day.weekday()]}" for day in days]
+                + totals_head
+            )
+            bold = Font(bold=True)
+            for cell in grid[2]:
+                cell.font = bold
+                cell.alignment = Alignment(wrap_text=True, horizontal="center")
+            grid["A1"].font = Font(bold=True, size=13)
+            weekend = PatternFill("solid", fgColor="EEF2F8")
+            for sheet in sheets:
+                t = sheet.totals
+                grid.append(
                     [
                         sheet.user.member_code,
                         sheet.user.full_name,
-                        result.day.strftime("%d/%m/%Y"),
-                        WEEKDAY_SHORT[result.day.weekday()],
-                        clock_text(result.check_in),
-                        clock_text(result.check_out),
-                        result.symbol,
-                        float(result.worked),
-                        ", ".join(result.leave_names),
-                        result.late_counted or None,
-                        result.early_counted or None,
-                        "Có" if result.missing else None,
-                        "; ".join(
-                            item
-                            for item in (
-                                "Giải trình đã duyệt" if result.explained else None,
-                                result.note,
-                            )
-                            if item
-                        )
-                        or None,
+                        ", ".join(sheet.departments),
+                        sheet.shift_name,
+                    ]
+                    + [result.symbol for result in sheet.days]
+                    + [
+                        float(t.standard),
+                        float(t.worked),
+                        float(t.paid_leave),
+                        float(t.unpaid_leave),
+                        float(t.holiday),
+                        float(t.absent),
+                        float(t.payable),
+                        t.late_count,
+                        t.late_minutes,
+                        t.early_count,
+                        t.early_minutes,
+                        t.missing,
                     ]
                 )
-        legend = book.create_sheet("Ký hiệu")
-        legend.append(["Ký hiệu", "Ý nghĩa"])
-        for key, label in SYMBOL_LABELS.items():
-            legend.append([key, label])
-        buffer = io.BytesIO()
-        book.save(buffer)
-        return buffer.getvalue()
+            for index, day in enumerate(days):
+                if day.weekday() == 6:
+                    for row in grid.iter_rows(min_row=2, min_col=5 + index, max_col=5 + index):
+                        for cell in row:
+                            cell.fill = weekend
+            grid.freeze_panes = "E3"
+            grid.column_dimensions["B"].width = 26
+            grid.column_dimensions["C"].width = 22
+            detail = book.create_sheet("Chi tiết")
+            detail.append(
+                [
+                    "Mã NV",
+                    "Họ tên",
+                    "Ngày",
+                    "Thứ",
+                    "Vào",
+                    "Ra",
+                    "Ký hiệu",
+                    "Công",
+                    "Nghỉ",
+                    "Muộn (phút)",
+                    "Sớm (phút)",
+                    "Thiếu chấm",
+                    "Ghi chú",
+                ]
+            )
+            for cell in detail[1]:
+                cell.font = bold
+            for sheet in sheets:
+                for result in sheet.days:
+                    detail.append(
+                        [
+                            sheet.user.member_code,
+                            sheet.user.full_name,
+                            result.day.strftime("%d/%m/%Y"),
+                            WEEKDAY_SHORT[result.day.weekday()],
+                            clock_text(result.check_in),
+                            clock_text(result.check_out),
+                            result.symbol,
+                            float(result.worked),
+                            ", ".join(result.leave_names),
+                            result.late_counted or None,
+                            result.early_counted or None,
+                            "Có" if result.missing else None,
+                            "; ".join(
+                                item
+                                for item in (
+                                    "Giải trình đã duyệt" if result.explained else None,
+                                    result.note,
+                                )
+                                if item
+                            )
+                            or None,
+                        ]
+                    )
+            legend = book.create_sheet("Ký hiệu")
+            legend.append(["Ký hiệu", "Ý nghĩa"])
+            for key, label in SYMBOL_LABELS.items():
+                legend.append([key, label])
+            buffer = io.BytesIO()
+            book.save(buffer)
+            return buffer.getvalue()
+
+        return await asyncio.to_thread(build)
 
     async def _record(
         self, actor: Actor, request_id: uuid.UUID, action: AuditAction, after: dict[str, Any]

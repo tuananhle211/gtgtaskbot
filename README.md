@@ -13,20 +13,23 @@ và giao diện web, cùng mang tên TasksBot (trước đây là MeoBot / MeoCh
 
 ## Cơ sở dữ liệu
 
-Schema được quản lý bằng Alembic. Alembic head hiện tại là **`0087`**.
-Có **87 migration** sẵn trong `alembic/versions/`. Cả hai job deploy
+Schema được quản lý bằng Alembic. Alembic head hiện tại là **`0103`**.
+Có **103 migration** sẵn trong `alembic/versions/`. Cả hai job deploy
 (`dev`, `master` trong `.github/workflows/deploy.yml`) tự `pg_dump` rồi chạy
 `alembic upgrade head` trước khi khởi động code mới; chạy tay thì theo
 `docs/handover/11_DEPLOYMENT_AND_OPERATIONS.md`.
 
 ## Worker và hàng đợi
 
-Worker Celery chạy bốn hàng đợi: `q_default,q_integrations,q_reports,q_notifications`.
+Service `worker` chạy bốn hàng đợi: `q_default,q_integrations,q_reports,q_notifications`.
 
 - `q_default`: việc trên cơ sở dữ liệu (chiếu KPI, việc lặp, nhắc việc).
-- `q_integrations`: gọi dịch vụ ngoài (AI review, đồng bộ số liệu kênh).
+- `q_integrations`: gọi dịch vụ ngoài (AI review, đồng bộ số liệu kênh, Pancake mỗi 20 giây).
 - `q_reports`: báo cáo.
 - `q_notifications`: gửi tin Telegram từ outbox.
+
+Service `worker-sync` chỉ chạy `q_sync`: các lần đồng bộ dài của Phòng Ads (Meta, CRM),
+để chúng không giữ chỗ của các việc trên (`docs/ops/SCALING_PLAN.md`, mục B).
 
 Tin Telegram đi qua outbox và được giao **ít nhất một lần**: một tin có thể
 được gửi lại nếu lần giao trước không xác nhận được, nên mọi tin đều có khoá

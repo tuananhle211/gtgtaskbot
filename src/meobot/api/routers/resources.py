@@ -8,6 +8,7 @@ a write they may not make a 403 ``resource_forbidden``.
 
 from __future__ import annotations
 
+import asyncio
 import uuid
 from datetime import date
 from typing import Annotated
@@ -324,7 +325,7 @@ async def export(
         offset=0,
     )
     page = await service.list_resources(access, filters)
-    content = export_rows(page.rows, tz=app_settings.timezone)
+    content = await asyncio.to_thread(export_rows, page.rows, tz=app_settings.timezone)
     name = f"tai-nguyen-{date.today().isoformat()}.xlsx"  # noqa: DTZ011 - a file name
     return Response(
         content=content,
@@ -396,7 +397,8 @@ async def import_template(access: ResourceAccessDep, service: ResourceServiceDep
     chú), drop-downs from the current pick-lists. For whoever may import."""
     access.require("import_excel")
     await service.ensure_seed_options()
-    content = template_workbook(await service.catalog())
+    catalog = await service.catalog()
+    content = await asyncio.to_thread(template_workbook, catalog)
     return Response(
         content=content,
         media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",

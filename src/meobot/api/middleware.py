@@ -1,4 +1,4 @@
-"""ASGI middleware: correlation ids and access logging."""
+"""ASGI middleware: correlation ids, access logging and the hourly timings."""
 
 from __future__ import annotations
 
@@ -10,8 +10,10 @@ from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.requests import Request
 from starlette.responses import Response
 
+from meobot.application.ops.perf_stats import PerfCollector
 from meobot.core.context import new_request_id, request_context
 from meobot.core.logging import get_logger
+from meobot.domain.ops.perf_stats import PerfKind
 
 logger = get_logger(__name__)
 
@@ -38,6 +40,7 @@ class RequestContextMiddleware(BaseHTTPMiddleware):
             response = await call_next(request)
             duration_ms = round((time.perf_counter() - started) * 1000, 2)
             response.headers[REQUEST_ID_HEADER] = request_id
+            _count(request, duration_ms, response.status_code)
             logger.info(
                 "http_request",
                 extra={
@@ -48,6 +51,24 @@ class RequestContextMiddleware(BaseHTTPMiddleware):
                 },
             )
             return response
+
+
+def _count(request: Request, duration_ms: float, status_code: int) -> None:
+    """Add the request to the hourly timings (plan SCALING_PLAN D), named by
+    its route template - never the real path - so no id or query is kept.
+    A path no route matched (a scanner, a typo) is not counted."""
+    collector = getattr(request.app.state, "perf_collector", None)
+    route = request.scope.get("route")
+    template = getattr(route, "path", None)
+    if not isinstance(collector, PerfCollector) or not isinstance(template, str):
+        return
+    collector.record(
+        PerfKind.HTTP,
+        template,
+        duration_ms,
+        method=request.method,
+        failed=status_code >= 500,
+    )
 
 
 def _coerce_uuid(value: str | None) -> str | None:

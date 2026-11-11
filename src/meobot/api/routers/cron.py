@@ -1,5 +1,7 @@
 """ "Tác vụ định kỳ" (0077): how every scheduled job is doing, and "Chạy lại".
 
+Also ``/performance`` - the hourly timings (plan SCALING_PLAN D).
+
 Read + re-run: the OWNER and an ADMIN; policy edits: the OWNER
 (403 ``cron_forbidden``). A re-run of a job still running is 409
 ``cron_job_running``.
@@ -7,7 +9,7 @@ Read + re-run: the OWNER and an ADMIN; policy edits: the OWNER
 
 from __future__ import annotations
 
-from typing import Annotated
+from typing import Annotated, Any
 
 from fastapi import APIRouter, Depends, Query
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -24,6 +26,7 @@ from meobot.api.schemas.cron import (
 )
 from meobot.application.cron.monitor_service import CronMonitorService
 from meobot.application.cron.schedule import beat_jobs
+from meobot.application.ops.perf_stats import PerfReportService
 from meobot.core.time import utcnow
 from meobot.domain.identity.models import Role
 
@@ -48,6 +51,17 @@ async def overview(actor: CurrentActorDep, service: ServiceDep) -> CronOverviewR
         can_manage=actor.role is Role.OWNER,
         people=await service.people(actor=actor),
     )
+
+
+@router.get("/performance")
+async def performance(
+    actor: CurrentActorDep,
+    session: Annotated[AsyncSession, Depends(get_session)],
+    days: int = Query(default=1, ge=1, le=30),
+) -> dict[str, Any]:
+    """ "Hiệu năng" (plan SCALING_PLAN D): API response times by route and how
+    long background tasks waited, over the last ``days`` (OWNER / ADMIN)."""
+    return await PerfReportService(session).report(actor=actor, days=days)
 
 
 @router.get("/jobs/{key}", response_model=CronJobHistoryResponse)

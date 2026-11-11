@@ -14,6 +14,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import uuid
 from collections.abc import Iterable
 from dataclasses import fields, replace
@@ -332,7 +333,9 @@ async def export_report(
     departments = await service.department_names(
         {row.department_id for row, _ in details if row.department_id is not None}
     )
-    content = report_workbook(
+    # Building the workbook is CPU work: off the event loop.
+    content = await asyncio.to_thread(
+        report_workbook,
         month=period.label,
         team=team,
         details=details,

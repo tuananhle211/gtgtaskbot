@@ -36,6 +36,13 @@ JOB_LABELS: dict[str, JobLabel] = {
     "system.periodic_heartbeat": JobLabel(
         "Nhịp tim hệ thống", GROUP_SYSTEM, "Kiểm tra worker và hàng đợi còn chạy."
     ),
+    # A host cron script, not a Celery task (application/cron/host_job.py).
+    "host.db_backup": JobLabel(
+        "Sao lưu dữ liệu hằng ngày",
+        GROUP_SYSTEM,
+        "02:30 trên máy chủ: sao lưu database rồi chép lên Google Drive.",
+        notify=True,
+    ),
     "conversations.cleanup_expired": JobLabel(
         "Dọn hội thoại hết hạn", GROUP_SYSTEM, "Xoá trạng thái hội thoại bot đã quá hạn."
     ),

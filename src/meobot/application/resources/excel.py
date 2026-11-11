@@ -28,6 +28,7 @@ only when no row has an error (section 6 of the requirement):
 
 from __future__ import annotations
 
+import asyncio
 import base64
 import binascii
 import io
@@ -926,9 +927,11 @@ class ResourceImportService:
     ) -> ImportPreview:
         access.require("import_excel")
         await self._service.ensure_seed_options()
-        return parse_workbook(
-            decode_upload(data), await self.context(create_options=create_options)
-        )
+        raw = decode_upload(data)
+        context = await self.context(create_options=create_options)
+        # Reading the workbook is CPU work: off the event loop (it only reads
+        # what `context` already loaded, never the session).
+        return await asyncio.to_thread(parse_workbook, raw, context)
 
     async def commit(
         self,
@@ -945,7 +948,8 @@ class ResourceImportService:
         access.require("import_excel")
         raw = decode_upload(data)
         await self._service.ensure_seed_options()
-        preview = parse_workbook(raw, await self.context(create_options=create_options))
+        context = await self.context(create_options=create_options)
+        preview = await asyncio.to_thread(parse_workbook, raw, context)
         if preview.error_count or not preview.rows:
             raise ResourceValidationError(
                 "File còn dòng lỗi (hoặc không có dòng nào). Sửa trong file rồi tải lại."
@@ -964,7 +968,8 @@ class ResourceImportService:
                 )
                 created_options += 1
         if created_options:
-            preview = parse_workbook(raw, await self.context())
+            context = await self.context()
+            preview = await asyncio.to_thread(parse_workbook, raw, context)
             if preview.error_count:
                 raise ResourceValidationError(
                     "File còn dòng lỗi sau khi tạo lựa chọn. Tải lại để xem.",

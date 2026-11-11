@@ -60,6 +60,7 @@ from meobot.api.schemas.common import ErrorResponse
 from meobot.api.schemas.pr import ErrorBody, ErrorEnvelope
 from meobot.application.ai.routing import build_ai_provider
 from meobot.application.health_service import HealthService
+from meobot.application.ops.perf_stats import PerfCollector, PerfFlusher
 from meobot.core.config import Settings, get_settings
 from meobot.core.context import get_request_id
 from meobot.core.errors import (
@@ -324,10 +325,17 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         drive=drive_client,
     )
 
+    # Plan SCALING_PLAN D: the timings the middleware collects, saved every minute.
+    perf_flusher = PerfFlusher(app.state.perf_collector, database)
+    if settings.perf_stats_enabled:
+        perf_flusher.start()
+
     logger.info("api_started", extra={"app_env": settings.app_env, "version": __version__})
     try:
         yield
     finally:
+        if settings.perf_stats_enabled:
+            await perf_flusher.stop()
         for client in (sheets_client, drive_client, llm_provider):
             closer = getattr(client, "aclose", None)
             if callable(closer):
@@ -369,6 +377,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         openapi_url="/openapi.json" if docs_enabled else None,
     )
     app.state.settings = resolved
+    app.state.perf_collector = PerfCollector()
     app.add_middleware(RequestContextMiddleware)
 
     origins = _web_origins(resolved)

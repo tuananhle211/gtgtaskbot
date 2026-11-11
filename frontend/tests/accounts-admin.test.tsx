@@ -464,6 +464,7 @@ describe("Quản lý tài khoản for a department head", () => {
       "/admin/accounts",
       "/admin/settings",
       "/admin/ai",
+      "/admin/performance",
     ]);
     renderWithQuery(<UnitsAdminPage />);
     expect(replace).toHaveBeenCalledWith("/admin/accounts");

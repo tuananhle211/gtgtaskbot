@@ -6136,6 +6136,36 @@ export interface PasswordResetResult {
 
 // --- The calls --------------------------------------------------------------
 
+/** One route (HTTP) or one background task (QUEUE) over the period. */
+export type PerfLine = {
+  method: string;
+  name: string;
+  count: number;
+  average_ms: number | null;
+  p95_ms: number | null;
+  max_ms: number;
+  slow: number;
+  failed: number;
+  dropped: number;
+};
+
+export type PerfVerdict = { level: "good" | "warn" | "bad" | "none"; message: string };
+
+/** `GET /api/cron/performance` - plan docs/ops/SCALING_PLAN.md D. */
+export type PerfReport = {
+  days: number;
+  since: string;
+  api: PerfLine & {
+    peak_p95_ms: number | null;
+    peak_count: number;
+    limit_ms: number;
+    verdict: PerfVerdict;
+  };
+  routes: PerfLine[];
+  queue: PerfLine[];
+  queue_verdict: PerfVerdict;
+};
+
 export const api = {
   session: () => get<Session>("/api/auth/session"),
   logout: () => post<void>("/api/auth/logout"),
@@ -6293,6 +6323,8 @@ export const api = {
   // "Tác vụ định kỳ" (0077): OWNER / ADMIN read and re-run (403 `cron_forbidden`);
   // policy edits: the OWNER.
   cronOverview: () => get<CronOverview>("/api/cron"),
+  /** Quản trị › Hiệu năng (0103): OWNER / ADMIN, else 403 `perf_forbidden`. */
+  perfReport: (days: number) => get<PerfReport>(`/api/cron/performance?days=${days}`),
   cronJob: (key: string) => get<CronJobHistory>(`/api/cron/jobs/${encodeURIComponent(key)}`),
   /** 202: queued the way the schedule would. 409 `cron_job_running` while it runs. */
   rerunCronJob: (key: string) =>
