@@ -24,6 +24,7 @@ Tokens and keys travel in the query string as both ask; the log filter
 
 from __future__ import annotations
 
+import asyncio
 from dataclasses import dataclass, field
 from typing import Any, Protocol
 
@@ -32,6 +33,9 @@ import httpx
 from meobot.domain.cskh.models import PANCAKE_API_BASE, POS_API_BASE, CskhUpstreamError
 
 TIMEOUT_SECONDS = 30.0
+#: Pancake limits the account-level calls (page list, page token): a 429 there is
+#: waited out this many times, these seconds apart.
+RATE_LIMIT_BACKOFF: tuple[float, ...] = (5.0, 15.0, 30.0)
 #: Customer pictures are read (QR codes) only from Pancake's / Facebook's hosts.
 IMAGE_HOSTS: tuple[str, ...] = (
     "pancake.vn",
@@ -85,11 +89,12 @@ def _check(response: httpx.Response, what: str) -> Any:
             payload.get("message") or payload.get("message_code") or payload.get("error_code") or ""
         )[:200]
         lowered = message.lower()
-        code = (
-            f"{what}_token_invalid"
-            if "token" in lowered or "api_key" in lowered
-            else f"{what}_failed"
-        )
+        if any(word in lowered for word in ("rate", "too many", "limit", "giới hạn")):
+            code = f"{what}_rate_limited"
+        elif "token" in lowered or "api_key" in lowered:
+            code = f"{what}_token_invalid"
+        else:
+            code = f"{what}_failed"
         raise CskhUpstreamError(code, f"{_name(what)}: {message or 'lỗi không rõ'}")
     return payload
 
@@ -146,10 +151,15 @@ class PosClient(Protocol):
 
 class HttpPancakeClient:
     def __init__(
-        self, base_url: str = PANCAKE_API_BASE, *, timeout: float = TIMEOUT_SECONDS
+        self,
+        base_url: str = PANCAKE_API_BASE,
+        *,
+        timeout: float = TIMEOUT_SECONDS,
+        backoff: tuple[float, ...] = RATE_LIMIT_BACKOFF,
     ) -> None:
         self._base = base_url.rstrip("/")
         self._timeout = timeout
+        self._backoff = backoff
 
     async def _call(
         self,
@@ -157,18 +167,31 @@ class HttpPancakeClient:
         path: str,
         params: dict[str, str],
         body: dict[str, Any] | None = None,
+        *,
+        patient: bool = False,
     ) -> Any:
-        try:
-            async with httpx.AsyncClient(timeout=self._timeout) as client:
-                response = await client.request(
-                    method, f"{self._base}/{path}", params=params, json=body
-                )
-        except httpx.HTTPError as error:
-            raise CskhUpstreamError("pancake_unreachable", "Không kết nối được Pancake.") from error
-        return _check(response, "pancake")
+        """``patient``: a 429 is waited out (``backoff``) - the account-level calls
+        (page list, page token), which Pancake limits per user token."""
+        waits = list(self._backoff) if patient else []
+        while True:
+            try:
+                async with httpx.AsyncClient(timeout=self._timeout) as client:
+                    response = await client.request(
+                        method, f"{self._base}/{path}", params=params, json=body
+                    )
+            except httpx.HTTPError as error:
+                raise CskhUpstreamError(
+                    "pancake_unreachable", "Không kết nối được Pancake."
+                ) from error
+            try:
+                return _check(response, "pancake")
+            except CskhUpstreamError as error:
+                if error.code != "pancake_rate_limited" or not waits:
+                    raise
+                await asyncio.sleep(waits.pop(0))
 
     async def list_pages(self, user_token: str) -> list[PancakePageInfo]:
-        payload = await self._call("GET", "v1/pages", {"access_token": user_token})
+        payload = await self._call("GET", "v1/pages", {"access_token": user_token}, patient=True)
         categorized = payload.get("categorized") if isinstance(payload, dict) else None
         out: list[PancakePageInfo] = []
         for status in ("activated", "inactivated"):
@@ -190,6 +213,7 @@ class HttpPancakeClient:
             "POST",
             f"v1/pages/{page_id}/generate_page_access_token",
             {"access_token": user_token, "page_id": page_id},
+            patient=True,
         )
         token = str((payload or {}).get("page_access_token") or "")
         if not token:

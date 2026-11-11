@@ -740,7 +740,7 @@ async def connect_pages(
     request_id: RequestIdDep,
     sender: SenderDep,
 ) -> dict[str, Any]:
-    ids = await _config(session, clients).begin_connect(
+    ids, pages = await _config(session, clients).begin_connect(
         cskh_access(membership), body.page_ids, _actor(actor, request_id)
     )
     await session.commit()
@@ -748,6 +748,7 @@ async def connect_pages(
         "cskh.connect_pages",
         {
             "page_ids": ids,
+            "pages": pages,
             "label_ids": [str(x) for x in body.label_ids],
             "members": [{"user_id": str(m.user_id), "role": m.role.value} for m in body.members],
             "import_history": body.import_history,

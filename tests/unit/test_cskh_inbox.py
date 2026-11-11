@@ -191,7 +191,7 @@ class Kit:
         assert started.status_code == 202, started.json()
         name, kwargs = self.sent_tasks[-1]
         assert name == "cskh.connect_pages"
-        await self.sync().connect(kwargs["page_ids"], import_history=True)
+        await self.sync().connect(kwargs["page_ids"], pages=kwargs["pages"], import_history=True)
 
 
 async def no_work_hours(world: World) -> None:
@@ -834,3 +834,38 @@ async def test_11_reads_a_real_qr_screenshot() -> None:
     buffer = io.BytesIO()
     canvas.convert("RGB").resize((540, 1000)).save(buffer, "JPEG", quality=60)
     assert decode_qr(buffer.getvalue()) == ["https://zalo.me/0911222333"]
+
+
+async def test_12_pancake_rate_limit_is_not_hit_twice(world: World) -> None:
+    """11/11 on prod: "Thêm tài khoản" -> "Đồng bộ toàn bộ page" -> the job asked Pancake's
+    page list three times in a minute, got 429, and called all 84 pages "not on the account".
+    Now the list is kept 5 minutes and handed to the job; a refusal is said once."""
+    from meobot.application.cskh.sync import pancake_pages
+    from meobot.domain.cskh.models import CskhUpstreamError
+
+    kit = Kit(world)
+    calls: list[str] = []
+    real = kit.pancake.list_pages
+
+    async def counted(token: str) -> list[PancakePageInfo]:
+        calls.append(token)
+        if len(calls) > 1:
+            raise CskhUpstreamError("pancake_rate_limited", "Pancake đang giới hạn số lần gọi.")
+        return await real(token)
+
+    kit.pancake.list_pages = counted  # type: ignore[method-assign]
+    await kit.connect(PAGE, PAGE_B)
+    assert len(calls) == 1  # the account's add; connect + job reused it
+    _name, kwargs = kit.sent_tasks[-1]
+    assert {p["id"] for p in kwargs["pages"]} == {PAGE, PAGE_B}
+    assert (await world.session.get(CskhPage, PAGE_B)) is not None
+    # Rate-limited with a list older than 5 minutes: the last list (≤ 12 h) is used.
+    listed = await pancake_pages(world.session, kit.clients, max_age=timedelta(0))
+    assert {info.id for info, _ in listed} >= {PAGE, PAGE_B}
+    account = await world.session.scalar(select(CskhPancakeAccount))
+    assert account is not None and account.last_error == "Pancake đang giới hạn số lần gọi."
+    # No list at all and Pancake refuses: the job stops with one clear line.
+    await write_state(world.session, "cskh_pancake_pages", {})
+    job = await kit.sync().connect(["123"])
+    assert job["running"] is False and len(job["errors"]) == 1
+    assert "giới hạn số lần gọi" in job["errors"][0]

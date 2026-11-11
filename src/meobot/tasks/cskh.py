@@ -88,9 +88,10 @@ def refresh_meta() -> dict[str, Any]:
     return run_async(run)
 
 
-@shared_task(name="cskh.connect_pages", soft_time_limit=1700, time_limit=1800)
+@shared_task(name="cskh.connect_pages", soft_time_limit=3300, time_limit=3600)
 def connect_pages(
     page_ids: list[str],
+    pages: list[dict[str, str]] | None = None,
     label_ids: list[str] | None = None,
     members: list[dict[str, str]] | None = None,
     import_history: bool = True,
@@ -98,6 +99,7 @@ def connect_pages(
     async def run(context: TaskContext) -> dict[str, Any]:
         job = await _sync(context).connect(
             page_ids,
+            pages=pages or [],
             label_ids=[uuid.UUID(x) for x in label_ids or []],
             members=[
                 (uuid.UUID(m["user_id"]), MemberRole(m.get("role") or "STAFF"))

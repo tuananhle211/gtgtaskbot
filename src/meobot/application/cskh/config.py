@@ -41,6 +41,7 @@ from meobot.application.cskh.sync import (
     job_running,
     load_pos_shops,
     pancake_pages,
+    remember_listing,
     start_job,
 )
 from meobot.core.time import utcnow
@@ -285,6 +286,7 @@ class CskhConfig:
                 )
         self._session.add(row)
         await self._session.flush()
+        await remember_listing(self._session, row.id, listed)
         await self._audit_it(
             actor,
             AuditAction.CSKH_PANCAKE_ACCOUNT_SAVED,
@@ -312,9 +314,10 @@ class CskhConfig:
                 data.get("token"), "token", "Dán API Access Token của tài khoản Pancake."
             )
             try:
-                await self._clients.pancake.list_pages(token)
+                listed = await self._clients.pancake.list_pages(token)
             except CskhUpstreamError as error:
                 raise CskhUpstreamRefusedError(error.code, error.message) from error
+            await remember_listing(self._session, row.id, listed)
             row.token_encrypted = self._clients.box().encrypt(token, aad=account_aad(row.id))
             row.token_hint = token_hint(token)
             row.last_error = None
@@ -428,8 +431,9 @@ class CskhConfig:
 
     async def begin_connect(
         self, access: CskhAccess, page_ids: Sequence[str] | None, actor: Actor
-    ) -> list[str]:
-        """The pages to connect (all activated, not skipped, when none named); job state set."""
+    ) -> tuple[list[str], list[dict[str, str]]]:
+        """The pages to connect (all activated, not skipped, when none named) and what
+        Pancake said of them (handed to the job so it does not ask again); job state set."""
         access.require_manage()
         if not await self._session.scalar(select(func.count()).select_from(CskhPancakeAccount)):
             raise CskhInvalidError("cskh_pancake_missing", "Chưa có token tài khoản Pancake.")
@@ -437,9 +441,9 @@ class CskhConfig:
             raise CskhConflictError(
                 "cskh_job_running", "Đang có một lượt kết nối chạy, chờ xong rồi thử lại."
             )
+        listed = await pancake_pages(self._session, self._clients)
         if page_ids is None:
             settings = await load_settings(self._session)
-            listed = await pancake_pages(self._session, self._clients)
             ids = [
                 info.id
                 for info, _ in listed
@@ -451,6 +455,18 @@ class CskhConfig:
             label = "Tạo kết nối page"
         if not ids:
             raise CskhInvalidError("cskh_no_pages", "Chưa chọn page nào.")
+        wanted = set(ids)
+        pages = [
+            {
+                "id": info.id,
+                "name": info.name,
+                "username": info.username,
+                "status": info.status,
+                "account_id": str(account.id),
+            }
+            for info, account in listed
+            if info.id in wanted
+        ]
         await start_job(self._session, label=label, total=len(ids), user_id=actor.user_id)
         await self._audit_it(
             actor,
@@ -459,7 +475,7 @@ class CskhConfig:
             ",".join(ids)[:200],
             {"pages": len(ids), "label": label},
         )
-        return ids
+        return ids, pages
 
     async def update_pages(
         self, access: CskhAccess, page_ids: Sequence[str], data: dict[str, Any], actor: Actor
