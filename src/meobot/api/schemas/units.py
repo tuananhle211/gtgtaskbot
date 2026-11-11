@@ -248,12 +248,15 @@ class HrMenuResponse(BaseModel):
 
 
 class CskhMenuResponse(BaseModel):
-    """ "Chăm sóc khách hàng" (0094): ``reply`` = the nav item, ``manage`` = the
-    pages tab, ``waiting`` = suggestions waiting for a person (the nav badge)."""
+    """ "Chăm sóc khách hàng" (0102): ``inbox`` = Hộp chat page, ``zalo`` = Hộp chat
+    Zalo, ``manage`` = Kết nối / câu mẫu / cài đặt; ``unread`` / ``zalo_unread`` =
+    the badges (unread customer messages in what the caller sees)."""
 
-    reply: bool = False
+    inbox: bool = False
+    zalo: bool = False
     manage: bool = False
-    waiting: int = 0
+    unread: int = 0
+    zalo_unread: int = 0
 
 
 class AgentsAccessResponse(BaseModel):

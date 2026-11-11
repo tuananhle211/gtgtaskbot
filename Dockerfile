@@ -19,6 +19,14 @@ ENV UV_COMPILE_BYTECODE=1 \
 
 WORKDIR /app
 
+# zxing-cpp (Hộp chat CSKH QR codes, 0102) ships Linux wheels for x86_64 only:
+# on an ARM host (a Mac's Docker) it is compiled here. The tools stay in this
+# stage; the runtime image only gets the built venv.
+RUN if [ "$(uname -m)" != "x86_64" ]; then \
+      apt-get update && apt-get install -y --no-install-recommends cmake g++ make \
+      && rm -rf /var/lib/apt/lists/*; \
+    fi
+
 # Dependencies first: this layer is cached until pyproject.toml/uv.lock change.
 COPY pyproject.toml uv.lock README.md ./
 RUN --mount=type=cache,target=/root/.cache/uv \

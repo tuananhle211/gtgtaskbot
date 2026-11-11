@@ -14,52 +14,46 @@ class CskhForbiddenError(AuthorizationError):
         super().__init__(message, details={"reason": self.code})
 
 
-class CskhPageNotFoundError(NotFoundError):
-    code = "cskh_page_not_found"
+class CskhNotFoundError(NotFoundError):
+    """A page / conversation / thread / row the caller may not see is "not found" too."""
 
-    def __init__(self) -> None:
-        super().__init__("Không tìm thấy page.", details={"reason": self.code})
-
-
-class CskhReplyNotFoundError(NotFoundError):
-    code = "cskh_reply_not_found"
-
-    def __init__(self) -> None:
-        super().__init__("Không tìm thấy tin trả lời.", details={"reason": self.code})
+    def __init__(self, reason: str = "cskh_not_found", message: str = "Không tìm thấy.") -> None:
+        super().__init__(message, details={"reason": reason})
 
 
 class CskhInvalidError(ValidationError):
     """A refused value: ``reason`` names it, ``field`` the form field."""
 
-    def __init__(self, reason: str, message: str, *, field: str | None = None) -> None:
-        details: dict[str, Any] = {"reason": reason}
+    def __init__(
+        self,
+        reason: str,
+        message: str,
+        *,
+        field: str | None = None,
+        extra: dict[str, Any] | None = None,
+    ) -> None:
+        details: dict[str, Any] = {"reason": reason, **(extra or {})}
         if field:
             details["field"] = field
         super().__init__(message, details=details)
 
 
-class CskhReplyDecidedError(ConflictError):
-    code = "cskh_reply_decided"
-
-    def __init__(self) -> None:
-        super().__init__(
-            "Tin này đã được xử lý (gửi, bỏ qua hoặc không còn chờ duyệt).",
-            details={"reason": self.code},
-        )
+class CskhConflictError(ConflictError):
+    def __init__(self, reason: str, message: str, *, extra: dict[str, Any] | None = None) -> None:
+        super().__init__(message, details={"reason": reason, **(extra or {})})
 
 
-class CskhPancakeError(ValidationError):
-    """Pancake refused (token, 24 h window...): the message says what to do."""
+class CskhUpstreamRefusedError(ValidationError):
+    """Pancake / POS / the Zalo bridge refused: the message says what to do."""
 
     def __init__(self, code: str, message: str) -> None:
         super().__init__(message, details={"reason": code})
 
 
 __all__ = [
+    "CskhConflictError",
     "CskhForbiddenError",
     "CskhInvalidError",
-    "CskhPageNotFoundError",
-    "CskhPancakeError",
-    "CskhReplyDecidedError",
-    "CskhReplyNotFoundError",
+    "CskhNotFoundError",
+    "CskhUpstreamRefusedError",
 ]

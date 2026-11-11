@@ -1,0 +1,9 @@
+{
+  "name": "apexmed-zalo-bridge",
+  "private": true,
+  "type": "module",
+  "description": "Ket noi nick Zalo ca nhan bang QR (zca-js) - CHI NGHE tin, day ve hop chat Apexmed",
+  "dependencies": {
+    "zca-js": "2.2.0"
+  }
+}

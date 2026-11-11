@@ -30,6 +30,7 @@ GROUP_NOTIFICATIONS = "Thông báo"
 GROUP_PR = "PR"
 GROUP_GOOGLE = "Google Sheets / Drive"
 GROUP_ADS = "Phòng Ads"
+GROUP_CSKH = "Chăm sóc khách hàng"
 
 JOB_LABELS: dict[str, JobLabel] = {
     "system.periodic_heartbeat": JobLabel(
@@ -107,6 +108,19 @@ JOB_LABELS: dict[str, JobLabel] = {
         "Thực thu theo tài khoản marketing từ CRM aicrmtech.vn (mỗi giờ, 07:10-23:10).",
         notify=True,
         notify_department="ADS",
+    ),
+    "cskh.poll_pancake": JobLabel(
+        "Đọc tin page (Pancake)",
+        GROUP_CSKH,
+        "Kéo tin nhắn mới của các page đã nối, mỗi 20 giây.",
+    ),
+    "cskh.refresh_meta": JobLabel(
+        "Đồng bộ thẻ, nhân viên, cửa hàng POS",
+        GROUP_CSKH,
+        "Thẻ và nhân viên Pancake của từng page, page mới chưa nối, cửa hàng POS Cake (10 phút).",
+    ),
+    "cskh.connect_pages": JobLabel(
+        "Kết nối page Pancake", GROUP_CSKH, "Chạy khi bấm Đồng bộ / Tạo kết nối page."
     ),
     "pr.refresh_policy_sources": JobLabel(
         "Cập nhật chính sách nền tảng", GROUP_PR, "Tải lại chính sách TikTok / Meta / YouTube."

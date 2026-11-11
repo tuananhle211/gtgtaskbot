@@ -80,7 +80,7 @@ from meobot.application.agents.access import agent_access
 from meobot.application.agents.service import AgentChatService
 from meobot.application.assistant.access import may_chat_assistant
 from meobot.application.audit_service import AuditService
-from meobot.application.cskh.access import cskh_access
+from meobot.application.cskh.access import cskh_access, page_scope, zalo_scope
 from meobot.application.hr.absences import HrAbsenceService
 from meobot.application.hr.access import hr_access
 from meobot.application.hr.files import HrFileService
@@ -115,12 +115,11 @@ from meobot.application.units.admin import ROLES_BY_UNIT, UnitAdminService
 from meobot.application.units.directory import NOT_VISIBLE, UnitDirectoryService
 from meobot.core.config import get_settings
 from meobot.core.errors import ValidationError
-from meobot.db.models.pancake import PancakeReply
+from meobot.db.models.cskh import CskhConversation, CskhZaloThread
 from meobot.domain.identity.labels import role_label
 from meobot.domain.identity.models import Actor
 from meobot.domain.orders.models import OrderNodeType
 from meobot.domain.orders.task_codes import DEFAULT_FORM, TASK_PHASES
-from meobot.domain.pancake.models import ReplyStatus
 from meobot.domain.units.errors import UnitAccessDeniedError, UnitNotFoundError, UnitValidationError
 from meobot.domain.units.labels import (
     LEAD_ROLE_LABELS,
@@ -306,16 +305,30 @@ async def my_units(
 
 
 async def _cskh_block(session: AsyncSession, membership: UnitMembership) -> CskhMenuResponse:
-    """ "Chăm sóc khách hàng" (0094): the nav item + its badge."""
+    """ "Chăm sóc khách hàng" (0102): the nav items + their badges."""
     access = cskh_access(membership)
     if not access.sees:
         return CskhMenuResponse()
-    waiting = await session.scalar(
-        select(func.count())
-        .select_from(PancakeReply)
-        .where(PancakeReply.status == ReplyStatus.SUGGESTED)
+    unread = zalo_unread = 0
+    if access.sees_inbox:
+        pages = await page_scope(session, access)
+        query = select(func.coalesce(func.sum(CskhConversation.unread), 0))
+        if pages is not None:
+            query = query.where(CskhConversation.page_id.in_(pages))
+        unread = int(await session.scalar(query) or 0)
+    if access.sees_zalo:
+        nicks = await zalo_scope(session, access)
+        zquery = select(func.coalesce(func.sum(CskhZaloThread.unread), 0))
+        if nicks is not None:
+            zquery = zquery.where(CskhZaloThread.account_id.in_(nicks))
+        zalo_unread = int(await session.scalar(zquery) or 0)
+    return CskhMenuResponse(
+        inbox=access.sees_inbox,
+        zalo=access.sees_zalo,
+        manage=access.manage,
+        unread=unread,
+        zalo_unread=zalo_unread,
     )
-    return CskhMenuResponse(reply=True, manage=access.manage, waiting=int(waiting or 0))
 
 
 async def _hr_block(

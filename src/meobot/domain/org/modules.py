@@ -50,11 +50,14 @@ from meobot.domain.assistant.reports import (
     assistant_allowed_scopes,
 )
 from meobot.domain.cskh.permissions import (
+    CSKH_OWN_MEANING,
     CSKH_OWNER_ONLY,
     CSKH_PERMISSION_LABELS,
+    CSKH_SCOPE_LABELS,
     MODULE_CSKH,
     CskhPermission,
     cskh_allowed_scopes,
+    default_cskh_grants,
 )
 from meobot.domain.hr.profiles import (
     HR_OWN_MEANING,
@@ -271,8 +274,10 @@ MODULES: Mapping[str, ModuleSpec] = MappingProxyType(
             label="Chăm sóc khách hàng",
             permissions=CskhPermission,
             labels=CSKH_PERMISSION_LABELS,
-            own_meaning=MappingProxyType({}),
+            own_meaning=CSKH_OWN_MEANING,
             scopes=cskh_allowed_scopes,
+            defaults=default_cskh_grants,
+            scope_labels=CSKH_SCOPE_LABELS,
             owner_only=CSKH_OWNER_ONLY,
         ),
         MODULE_HR: ModuleSpec(

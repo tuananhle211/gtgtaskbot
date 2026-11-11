@@ -93,18 +93,42 @@ const DASHBOARD_NAV: NavItem = { href: "/dashboard", label: "Dashboard", icon: "
 /** "Đội agent" (0091): for whoever has at least one Hermes agent to talk to. */
 const AGENTS_NAV: NavItem = { href: "/agents", label: "Đội agent", icon: "agents" };
 
-/** "Chăm sóc khách hàng" (0094): CSKH REPLY holders; the badge = suggestions
- * waiting for a person to send or dismiss. */
-function cskhNav(me: UnitsMe | undefined): NavItem[] {
-  if (!me?.cskh?.reply) return [];
-  return [
-    {
-      href: "/cskh",
-      label: "Chăm sóc khách hàng",
-      icon: "cskh",
-      badge: me.cskh.waiting || undefined,
-    },
-  ];
+/**
+ * "Chăm sóc khách hàng" (0102): Hộp chat page (CSKH INBOX, badge = unread
+ * customer messages), Hộp chat Zalo (ZALO, badge = unread Zalo messages),
+ * Kết nối Zalo (ZALO or MANAGE), Kết nối page + Nhãn & câu mẫu (MANAGE).
+ */
+function cskhBranch(me: UnitsMe | undefined): NavGroup | null {
+  const cskh = me?.cskh;
+  if (!cskh || !(cskh.inbox || cskh.zalo || cskh.manage)) return null;
+  return {
+    label: "Chăm sóc khách hàng",
+    icon: "cskh",
+    children: [
+      ...(cskh.inbox
+        ? [{ href: "/cskh", label: "Hộp chat page", icon: "cskh" as NavIcon, badge: cskh.unread || undefined }]
+        : []),
+      ...(cskh.zalo
+        ? [
+            {
+              href: "/cskh/zalo",
+              label: "Hộp chat Zalo",
+              icon: "agents" as NavIcon,
+              badge: cskh.zalo_unread || undefined,
+            },
+          ]
+        : []),
+      ...(cskh.zalo || cskh.manage
+        ? [{ href: "/cskh/zalo/accounts", label: "Kết nối Zalo", icon: "people" as NavIcon }]
+        : []),
+      ...(cskh.manage
+        ? [
+            { href: "/cskh/pages", label: "Kết nối page", icon: "settings" as NavIcon },
+            { href: "/cskh/replies", label: "Nhãn & câu mẫu", icon: "library" as NavIcon },
+          ]
+        : []),
+    ],
+  };
 }
 
 /**
@@ -431,6 +455,7 @@ export function navFor(me: UnitsMe | undefined, sessionRole?: string): NavEntry[
   const resources = resourcesBranch(me);
   const ads = adsBranch(me, sessionRole);
   const hr = hrBranch(me);
+  const cskh = cskhBranch(me);
   // "Bảng order" follows the order module's permissions (an ORD seat or grant
   // gives the ADS entry), like every other branch; it stays while `me` loads.
   const orders = !me || seesAll || me.units.some((unit) => unit.code === "ADS");
@@ -441,7 +466,7 @@ export function navFor(me: UnitsMe | undefined, sessionRole?: string): NavEntry[
     performanceBranch(me),
     ...(hr ? [hr] : []),
     ...(me?.agents?.chat ? [AGENTS_NAV] : []),
-    ...cskhNav(me),
+    ...(cskh ? [cskh] : []),
     ...(orders ? [orderBoards(me, sessionRole)] : []),
     ...(effort ? EFFORT_NAV : []),
     ...(ads ? [ads] : []),

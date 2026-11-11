@@ -3498,7 +3498,14 @@ export interface UnitsMe {
    * "Chăm sóc khách hàng" (0094): `reply` = the nav item, `manage` = the pages
    * tab, `waiting` = suggestions waiting for a person (the badge). Optional.
    */
-  cskh?: { reply: boolean; manage: boolean; waiting: number } | null;
+  /** "Chăm sóc khách hàng" (0102): the nav items and their badges. */
+  cskh?: {
+    inbox: boolean;
+    zalo: boolean;
+    manage: boolean;
+    unread: number;
+    zalo_unread: number;
+  } | null;
   /** "Nhân sự" (0096): what the nav shows; `pending` = change requests waiting (HCNS). */
   hr?: {
     lists: boolean;

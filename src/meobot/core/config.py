@@ -326,6 +326,13 @@ class Settings(BaseSettings):
     #: says "chưa cấu hình" and calls nothing.
     hermes_relay_url: str | None = None
     hermes_relay_token: OptionalSecret = None
+    # --- Hộp chat CSKH (0102): the Zalo bridge (deploy/zalo-bridge) ----------
+    #: The bridge inside the compose network, e.g. ``http://zalo-bridge:8091``.
+    #: Unset = "Kết nối Zalo" says the service is not configured.
+    zalo_bridge_url: str | None = None
+    #: Shared both ways: APM -> bridge (``x-bridge-secret``) and the bridge's
+    #: pushes to ``/api/cskh/zalo/bridge``. Unset = the push door is closed (404).
+    zalo_bridge_secret: OptionalSecret = None
     #: The door the agents read APM figures through (``/api/agents/gateway``,
     #: 2026-11-09): brain-mcp on the agents' VPS presents this token. Unset =
     #: the door is closed (404).

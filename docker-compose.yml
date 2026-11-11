@@ -49,6 +49,9 @@ x-app-env: &app-env
   # Đội agent (0091): the relay in front of the Hermes agents, through an SSH
   # tunnel (ssh -N -L 8650:127.0.0.1:8650 secondbrain). Empty = not configured.
   HERMES_RELAY_URL: ${HERMES_RELAY_URL:-}
+  # Hộp chat CSKH (0102): the Zalo bridge below; the secret works both ways.
+  ZALO_BRIDGE_URL: ${ZALO_BRIDGE_URL:-http://zalo-bridge:8091}
+  ZALO_BRIDGE_SECRET: ${ZALO_BRIDGE_SECRET:-}
   HERMES_RELAY_TOKEN: ${HERMES_RELAY_TOKEN:-}
   AGENT_GATEWAY_TOKEN: ${AGENT_GATEWAY_TOKEN:-}
   AGENT_GATEWAY_ALLOWED_IPS: ${AGENT_GATEWAY_ALLOWED_IPS:-}
@@ -355,6 +358,30 @@ services:
         limits:
           memory: 128M
 
+  # Hộp chat CSKH (0102): company Zalo nicks linked by QR (zca-js, unofficial,
+  # READ ONLY - it never sends a Zalo message). Pushes to the API with the
+  # shared ZALO_BRIDGE_SECRET; without it the container idles. Sessions are
+  # kept encrypted in the volume. Not published: only the API reaches it.
+  zalo-bridge:
+    build:
+      context: ./deploy/zalo-bridge
+    image: meobot-zalo-bridge:0.1.0
+    restart: unless-stopped
+    environment:
+      BRIDGE_SECRET: ${ZALO_BRIDGE_SECRET:-}
+      PUSH_URL: http://api:8000/api/cskh/zalo/bridge
+      TZ: ${APP_TIMEZONE:-Asia/Ho_Chi_Minh}
+    volumes:
+      - meobot_zalo_sessions:/data/sessions
+    depends_on:
+      api:
+        condition: service_healthy
+    logging: *default-logging
+    deploy:
+      resources:
+        limits:
+          memory: 256M
+
   # Đội agent (0091): an SSH tunnel to the relay in front of the Hermes agents
   # (VPS `secondbrain`, /opt/apexmed/agent-relay.py on 127.0.0.1:8650). The API
   # reaches it as http://agent-tunnel:8650 (HERMES_RELAY_URL). The key
@@ -395,6 +422,7 @@ services:
           memory: 64M
 
 volumes:
+  meobot_zalo_sessions:
   meobot_postgres_data:
   meobot_redis_data:
   meobot_beat_data:

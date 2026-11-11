@@ -82,7 +82,29 @@ const TIKTOK_IMAGE_HOSTS = [
  */
 const TIKTOK_IMAGE_PATH = "/pr/channels";
 
-function contentSecurityPolicy(nonce: string, isSecure: boolean, { tiktokImages = false } = {}): string {
+/**
+ * Hộp chat CSKH (0102): customers' pictures, videos, voice notes and the ads
+ * that brought them are served by Pancake and Facebook's CDNs (links in the
+ * messages Pancake returns). Allowed for `img-src` / `media-src` under `/cskh`
+ * only, for the same reason as TikTok's above.
+ */
+const CSKH_MEDIA_HOSTS = [
+  "https://*.pancake.vn",
+  "https://*.pages.fm",
+  "https://*.fbcdn.net",
+  "https://*.fbsbx.com",
+  "https://*.facebook.com",
+  "https://*.zadn.vn",
+  "https://*.zdn.vn",
+].join(" ");
+const CSKH_PATH = "/cskh";
+
+function contentSecurityPolicy(
+  nonce: string,
+  isSecure: boolean,
+  { tiktokImages = false, cskhMedia = false } = {},
+): string {
+  const extraImages = `${tiktokImages ? ` ${TIKTOK_IMAGE_HOSTS}` : ""}${cskhMedia ? ` ${CSKH_MEDIA_HOSTS}` : ""}`;
   const directives = [
     "default-src 'self'",
     // No 'unsafe-inline', no 'unsafe-eval'. 'strict-dynamic' lets a nonced
@@ -90,7 +112,8 @@ function contentSecurityPolicy(nonce: string, isSecure: boolean, { tiktokImages 
     `script-src 'self' 'nonce-${nonce}' 'strict-dynamic'`,
     // The documented limitation - see the module comment.
     "style-src 'self' 'unsafe-inline'",
-    `img-src 'self' data: blob:${tiktokImages ? ` ${TIKTOK_IMAGE_HOSTS}` : ""}`,
+    `img-src 'self' data: blob:${extraImages}`,
+    ...(cskhMedia ? [`media-src 'self' blob: ${CSKH_MEDIA_HOSTS}`] : []),
     "font-src 'self' data:",
     // The panel only ever talks to its own origin: Next proxies /api to the
     // FastAPI service server-side, so the browser makes no cross-origin request.
@@ -130,6 +153,7 @@ export function middleware(request: NextRequest): NextResponse {
     // `startsWith` rather than an exact match, so `/pr/channels?channel=…` -
     // which is where the OAuth callback lands - is covered too.
     tiktokImages: request.nextUrl.pathname.startsWith(TIKTOK_IMAGE_PATH),
+    cskhMedia: request.nextUrl.pathname.startsWith(CSKH_PATH),
   });
 
   // Next reads these off the *request* to stamp its own script tags.

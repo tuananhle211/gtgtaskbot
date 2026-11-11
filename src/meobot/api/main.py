@@ -133,6 +133,7 @@ _ENVELOPE_PREFIXES = (
     "/api/tasks",
     "/api/account",
     "/api/agents",
+    "/api/cskh",
     "/auth/",
 )
 
@@ -263,8 +264,8 @@ def _include_web_facing_routers(app: FastAPI) -> None:
     # APM figures for the agents (2026-11-09): /gateway/* behind its own token
     # + IP list (no web session), /admin/data* for the OWNER.
     app.include_router(agent_gateway.router)
-    # Chăm sóc khách hàng (0094): Pancake's webhook (key in the address, no
-    # session) + the inbox (CSKH REPLY) + the pages (CSKH MANAGE).
+    # Hộp chat CSKH (0102): page inbox (CSKH INBOX), Zalo telesale (ZALO), the
+    # connections (MANAGE); the Zalo bridge's push has no session (its secret header).
     app.include_router(cskh.router)
     app.include_router(agent_rooms.router)
     app.include_router(agents.router)

@@ -276,14 +276,14 @@ def test_03_the_default_surface_serves_no_synthetic_owner_route_at_all() -> None
     # signing in with a password (0045), which is how a session is made, and
     # "Quên mật khẩu?" (0046), which is for somebody who cannot sign in and
     # only ever sends a temporary password to that account's own Telegram.
-    # Pancake's webhook (0094) is a machine, not a browser: the secret key in
-    # its address picks the page (unknown = 404) and it only queues a customer
-    # message for the agent - every answer still goes through the page's rules.
+    # The Zalo bridge's push (0102) is a machine on the compose network, not a
+    # browser: it presents the shared ZALO_BRIDGE_SECRET header (unset = 404)
+    # and only saves the messages the nicks received.
     sessionless = {
         "/api/auth/logout",
         "/api/auth/password-login",
         "/api/auth/password-reset",
-        "/api/cskh/pancake/webhook/{key}",
+        "/api/cskh/zalo/bridge",
         # The agents' door to APM figures (2026-11-09): brain-mcp presents its own
         # token + agent name (+ the VPS's IP); read-only reports, every read audited.
         "/api/agents/gateway/reports/{area}",

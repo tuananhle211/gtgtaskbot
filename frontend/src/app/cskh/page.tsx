@@ -1,14 +1,17 @@
 "use client";
 
 import { Suspense } from "react";
-import { CskhWorkspace } from "@/components/cskh";
+import { CskhGate } from "@/components/cskh-common";
+import { CskhInbox } from "@/components/cskh-inbox";
 import { Loading } from "@/components/states";
 
-/** "Chăm sóc khách hàng" (0094): Pancake pages answered by a Hermes agent. */
+/** "Hộp chat page" (0102): the Pancake pages' conversations in one inbox. */
 export default function CskhPage() {
   return (
     <Suspense fallback={<Loading label="Đang tải…" />}>
-      <CskhWorkspace />
+      <CskhGate allowed={(menu) => menu.inbox}>
+        <CskhInbox />
+      </CskhGate>
     </Suspense>
   );
 }

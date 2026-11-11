@@ -1,16 +1,17 @@
-"""Chăm sóc khách hàng ("CSKH", 0094, 2026-11-09): its own permission module.
+"""Chăm sóc khách hàng ("CSKH"): its permission module (rewritten 0102, 2026-11-11).
 
-The module answers customers who write to the company's pages (Pancake first;
-other channels later) with a Hermes agent's help - see
-:mod:`meobot.domain.pancake.models`.
+The module is the company inbox of the Facebook pages managed in Pancake plus
+the telesales' Zalo nicks (see :mod:`meobot.domain.cskh.models`):
 
-* ``REPLY`` (NONE / ALL): open "Chăm sóc khách hàng", read the agent's
-  suggested answers, edit and send them, or dismiss them - ticked per person or
-  per department (Kinh doanh - CSKH) by the OWNER;
-* ``MANAGE`` (``owner_only``): wire pages, their tokens, the agent and the mode
-  (gợi ý / tự động).
+* ``INBOX`` - "Hộp chat page": ``OWN`` = the pages one is a member of (Chủ page
+  / Nhân viên trực, set on "Kết nối page"), ``ALL`` = every page;
+* ``ZALO`` - "Hộp chat Zalo": ``OWN`` = the nicks handed to one, ``ALL`` = every
+  nick (a manager);
+* ``MANAGE`` - "Kết nối page / Zalo", labels and quick replies, the inbox
+  settings, Pancake and POS keys; may also change a locked marketer.
 
-The OWNER holds both by role, an ADMIN ``REPLY`` only.
+OWNER and ADMIN hold everything by role. 0102 gives the old ``REPLY`` holders
+``INBOX ALL`` and seeds the Tư vấn online / Telesales departments.
 """
 
 from __future__ import annotations
@@ -19,34 +20,64 @@ from collections.abc import Mapping
 from enum import StrEnum
 from types import MappingProxyType
 
+from meobot.domain.org.models import DepartmentFunction, Position
+
 MODULE_CSKH = "CSKH"
 
 
 class CskhPermission(StrEnum):
-    #: Read the suggested answers, send (as is or edited) or dismiss them.
-    REPLY = "REPLY"
-    #: The channels: pages, tokens, agent, mode.
+    INBOX = "INBOX"
+    ZALO = "ZALO"
     MANAGE = "MANAGE"
 
 
 CSKH_PERMISSION_LABELS: Mapping[CskhPermission, str] = MappingProxyType(
     {
-        CskhPermission.REPLY: "Duyệt và gửi câu trả lời cho khách",
-        CskhPermission.MANAGE: "Cấu hình kênh (Pancake) và agent trả lời",
+        CskhPermission.INBOX: "Hộp chat page: đọc và trả lời khách, xác nhận SĐT / QR",
+        CskhPermission.ZALO: "Hộp chat Zalo telesale: xem và ghép hội thoại",
+        CskhPermission.MANAGE: "Kết nối page / Zalo, câu mẫu, nhãn và cài đặt hộp chat",
     }
 )
 
-CSKH_OWNER_ONLY: frozenset[str] = frozenset({CskhPermission.MANAGE.value})
+CSKH_OWN_MEANING: Mapping[CskhPermission, str] = MappingProxyType(
+    {
+        CskhPermission.INBOX: "Các page mình là chủ page hoặc nhân viên trực",
+        CskhPermission.ZALO: "Các nick Zalo được giao cho mình",
+    }
+)
+
+CSKH_SCOPE_LABELS: Mapping[CskhPermission, Mapping[str, str]] = MappingProxyType(
+    {
+        CskhPermission.INBOX: MappingProxyType(
+            {"NONE": "Không", "OWN": "Page được giao", "ALL": "Mọi page"}
+        ),
+        CskhPermission.ZALO: MappingProxyType(
+            {"NONE": "Không", "OWN": "Nick của mình", "ALL": "Mọi nick"}
+        ),
+    }
+)
+
+CSKH_OWNER_ONLY: frozenset[str] = frozenset()
 
 
-def cskh_allowed_scopes(_permission: CskhPermission) -> tuple[str, ...]:
-    return ("NONE", "ALL")
+def cskh_allowed_scopes(permission: CskhPermission) -> tuple[str, ...]:
+    if permission is CskhPermission.MANAGE:
+        return ("NONE", "ALL")
+    return ("NONE", "OWN", "ALL")
+
+
+def default_cskh_grants(_function: DepartmentFunction) -> dict[Position, dict[str, str]]:
+    """New departments start with nothing here (0102 seeds TVOL / TELE by code)."""
+    return {}
 
 
 __all__ = [
     "CSKH_OWNER_ONLY",
+    "CSKH_OWN_MEANING",
     "CSKH_PERMISSION_LABELS",
+    "CSKH_SCOPE_LABELS",
     "MODULE_CSKH",
     "CskhPermission",
     "cskh_allowed_scopes",
+    "default_cskh_grants",
 ]

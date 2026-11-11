@@ -63,6 +63,7 @@ celery_app = Celery(
         "meobot.tasks.pr_work_recurring",
         "meobot.tasks.cron_monitor",
         "meobot.tasks.ads",
+        "meobot.tasks.cskh",
     ],
 )
 
@@ -105,6 +106,8 @@ celery_app.conf.update(
         "cron.*": {"queue": QUEUE_DEFAULT},
         # Phòng Ads talks to Meta: the third-party queue.
         "ads.*": {"queue": QUEUE_INTEGRATIONS},
+        # Hộp chat CSKH (0102) talks to Pancake / POS Cake.
+        "cskh.*": {"queue": QUEUE_INTEGRATIONS},
         "notifications.*": {"queue": QUEUE_NOTIFICATIONS},
         # PR AI review is a third-party call, so it shares the queue that
         # exists to keep a slow provider from starving everything else.
@@ -140,6 +143,18 @@ celery_app.conf.update(
             "task": "notifications.drain_outbox",
             "schedule": 20.0,
             "options": {"queue": QUEUE_NOTIFICATIONS, "expires": 15},
+        },
+        # Hộp chat CSKH (0102): Pancake read every 20 s (one run at a time, an
+        # advisory lock), its tags / staff / POS shops every 10 minutes.
+        "cskh-poll-pancake": {
+            "task": "cskh.poll_pancake",
+            "schedule": 20.0,
+            "options": {"queue": QUEUE_INTEGRATIONS, "expires": 18},
+        },
+        "cskh-refresh-meta": {
+            "task": "cskh.refresh_meta",
+            "schedule": 600.0,
+            "options": {"queue": QUEUE_INTEGRATIONS, "expires": 540},
         },
         # Returns messages stranded by a worker that died mid-delivery.
         # M3. Frequent and cheap, like the outbox drain above: it claims a

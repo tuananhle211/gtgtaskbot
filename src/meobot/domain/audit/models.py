@@ -583,13 +583,21 @@ class AuditAction(StrEnum):
     AGENT_DATA_AREAS_UPDATED = "agent.data.areas_updated"
     AGENT_DATA_READ = "agent.data.read"
 
-    # Chăm sóc khách hàng (0094): a Pancake page wired / changed / removed, a
-    # suggested answer sent or dismissed by a person (never the customer's words).
+    # Hộp chat CSKH (0102): connections, settings, what staff did. Never a token,
+    # a customer's words nor a phone number.
     CSKH_PAGE_CREATED = "cskh.page.created"
     CSKH_PAGE_UPDATED = "cskh.page.updated"
     CSKH_PAGE_DELETED = "cskh.page.deleted"
-    CSKH_REPLY_SENT = "cskh.reply.sent"
-    CSKH_REPLY_DISMISSED = "cskh.reply.dismissed"
+    CSKH_PANCAKE_ACCOUNT_SAVED = "cskh.pancake_account.saved"
+    CSKH_PANCAKE_ACCOUNT_REMOVED = "cskh.pancake_account.removed"
+    CSKH_POS_KEY_SAVED = "cskh.pos_key.saved"
+    CSKH_POS_KEY_REMOVED = "cskh.pos_key.removed"
+    CSKH_SETTINGS_UPDATED = "cskh.settings.updated"
+    CSKH_MESSAGE_SENT = "cskh.message.sent"
+    CSKH_ORDER_CONFIRMED = "cskh.order.confirmed"
+    CSKH_ZALO_ACCOUNT_UPDATED = "cskh.zalo.account.updated"
+    CSKH_ZALO_ACCOUNT_LOGOUT = "cskh.zalo.account.logout"
+    CSKH_ZALO_LINKED = "cskh.zalo.linked"
 
     # Resources ("Quản lý tài nguyên", 0065).
     RESOURCE_CREATED = "resource.created"

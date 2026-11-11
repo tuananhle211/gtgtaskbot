@@ -41,6 +41,25 @@ from meobot.db.models.conversation import (
 )
 from meobot.db.models.conversation_state import ConversationState
 from meobot.db.models.cron import CronJob, CronJobIncident, CronJobRun
+from meobot.db.models.cskh import (
+    CskhAd,
+    CskhConversation,
+    CskhLabel,
+    CskhMessage,
+    CskhOrder,
+    CskhPage,
+    CskhPageLabel,
+    CskhPageMember,
+    CskhPancakeAccount,
+    CskhPancakeTag,
+    CskhPancakeUser,
+    CskhPosKey,
+    CskhPosShop,
+    CskhQuickReply,
+    CskhZaloAccount,
+    CskhZaloMessage,
+    CskhZaloThread,
+)
 from meobot.db.models.deferred import DeferredGuestMessage
 from meobot.db.models.department import Department, DepartmentMember, DepartmentPermission
 from meobot.db.models.dispatch import (
@@ -109,7 +128,6 @@ from meobot.db.models.org_unit import (
     UnitPlatform,
     UnitVideoKind,
 )
-from meobot.db.models.pancake import PancakeConversation, PancakePage, PancakeReply
 from meobot.db.models.point_coefficient import UserPointCoefficient
 from meobot.db.models.pr import (
     PrApprovalEvent,
@@ -259,6 +277,23 @@ __all__ = [
     "CronJob",
     "CronJobIncident",
     "CronJobRun",
+    "CskhAd",
+    "CskhConversation",
+    "CskhLabel",
+    "CskhMessage",
+    "CskhOrder",
+    "CskhPage",
+    "CskhPageLabel",
+    "CskhPageMember",
+    "CskhPancakeAccount",
+    "CskhPancakeTag",
+    "CskhPancakeUser",
+    "CskhPosKey",
+    "CskhPosShop",
+    "CskhQuickReply",
+    "CskhZaloAccount",
+    "CskhZaloMessage",
+    "CskhZaloThread",
     "DailyAiUsage",
     "DeferredGuestMessage",
     "DeliveryAttempt",
@@ -307,9 +342,6 @@ __all__ = [
     "OrgUnitMember",
     "OrganizationHoliday",
     "OutboundMessage",
-    "PancakeConversation",
-    "PancakePage",
-    "PancakeReply",
     "PendingGuestAccessRequest",
     "PrAction",
     "PrAiReview",
