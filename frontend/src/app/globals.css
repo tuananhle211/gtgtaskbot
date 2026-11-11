@@ -612,6 +612,18 @@ textarea {
 .table-scroll-x::-webkit-scrollbar {
   height: 10px;
 }
+
+/*
+ * Screen-reader-only text is `position: absolute` with no offsets, so it sits
+ * where it would have been - but it is clipped by its containing block, not by
+ * the sideways scroller around it. In a wide table (or the sidebar list) that
+ * left it far to the right of the page and made every phone screen scroll
+ * sideways. Pinning it to the left edge of that block keeps it in the page;
+ * its vertical place (where focus scrolls to) is unchanged.
+ */
+.sr-only {
+  left: 0;
+}
 .table-scroll-x::-webkit-scrollbar-thumb {
   background: var(--border);
   border-radius: 999px;

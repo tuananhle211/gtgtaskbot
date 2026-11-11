@@ -94,7 +94,7 @@ export default function ImportPage() {
           type="file"
           accept=".xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
           onChange={(event) => pick(event.target.files?.[0] ?? null)}
-          className="block text-sm"
+          className="block w-full min-w-0 max-w-full text-sm"
         />
         <div className="flex flex-wrap gap-4 text-sm">
           <label className="inline-flex items-center gap-2">

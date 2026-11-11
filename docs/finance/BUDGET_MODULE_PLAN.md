@@ -1,6 +1,6 @@
 # Module Tài chính (BudgetOS trong APM) - kế hoạch thiết kế
 
-> Trạng thái: **BẢN NHÁP v2 CHỜ DUYỆT** (09/11/2026). Chưa viết dòng code nào.
+> Trạng thái: **BẢN NHÁP v2 CHỜ DUYỆT** (09/11/2026), **đối chiếu lại 11/11/2026 (mục 13)**. Chưa viết dòng code nào.
 > Nguồn: `APEXMED_BudgetOS_AI_v6_Quy_trinh_thong_nhat_07_11_bản_12_11pm.html` (prototype BGĐ chốt)
 > + `APEXMED_BudgetOS_AI_v6_Tai_lieu_ban_giao_IT.docx` (đặc tả bàn giao IT).
 > Mọi chỗ ghi **[HỎI …]** là chưa quyết, chờ anh trả lời (mục 9).
@@ -254,3 +254,125 @@ Migration đổi mã phòng ban trên prod sẽ chạy khi deploy - em mô tả 
 - **B8.** MFA (mã OTP) cho CFO/BGĐ/Kế toán: trước go-live hay để sau?
 - **B9.** File ngân sách tháng 11-12/2026 để nhập đầu kỳ, hay bắt đầu từ kế hoạch lập mới?
 - **B10.** Xác nhận "đã chi": Kế toán tải bằng chứng chuyển khoản rồi bấm, hay CFO bấm như demo?
+
+## 13. Đối chiếu lại 11/11/2026 (sau Nhân sự đợt 1-4)
+
+**Đã tự có lời đáp** (Nhân sự đợt 1, 0095, đã lên prod 09/11 theo Sổ tay):
+- A1: `TCKT`→`KT`, `SALE`→`TELE`, `CSKH`→`QHKH`, `CS` bỏ. Cơ cấu chính thức = **33 phòng của Sổ tay**, không phải 28 phòng BudgetOS
+  (không có `HN1/HN2/SG1/SG2`, `BTL`, `SEO`, `KSNB`; có thêm `CNTT`, `VPNS`, `TT` + 6 bộ phận con). Q15 coi như đã chốt theo Sổ tay.
+- A2: `MEDIA` là phòng cha của `MEDIA-TK/BT/QD`, trưởng phòng Mai Tùng Long; ORD giữ nguyên.
+- A6: mã phòng đã chuẩn hoá (`MEDIA-TK`, `DT-TTNB`).
+- Pháp nhân: bảng `legal_entities` có **6** (APEXMED, APM, CMG, GPI, HKD-AP, HKD-APN), kế hoạch cũ ghi 4.
+- Dùng lại được: chuỗi duyệt Trưởng phòng → Giám đốc khối (trưởng phòng `VP…` cùng khối) → Ban giám đốc của đơn từ (0100), tải ảnh/chứng từ có kiểm magic bytes (0101).
+
+**Mâu thuẫn mới**: tab **"Phân quyền"** của Sổ tay là ma trận duyệt **theo từng mã ngân sách** (CO.01…CO.09), khác tuyến R01-R06 của demo (đã chốt #7):
+
+| | Demo v6 (R01-R06) | Sổ tay "Phân quyền" |
+|---|---|---|
+| Chia tuyến theo | loại hồ sơ + ngưỡng tiền (50 triệu) | từng mã chi, không có ngưỡng tiền |
+| Duyệt đề nghị | head → finance → cfo (→ ceo → chair ngoài KH) | Trưởng phòng/GĐ trung tâm → GĐ khối → Phòng Tài chính → PTGĐ/CEO (tick theo mã) |
+| Mua sắm | PO / nghiệm thu | "Bộ phận thực hiện mua sắm" theo mã (HCMS, Kế toán kho VP, Lái xe, Ban thư ký…) |
+| Duyệt thanh toán | accountant → cfo | Trưởng phòng → GĐ khối → **kế toán phụ trách theo mã** (kho VP, tiền lương, mkt, đối soát, thanh toán, tổng hợp, thuế, TSCĐ) → Kế toán trưởng → PTGĐ/CEO → **Quỹ cơ sở / Thủ quỹ VP** chi |
+| Chứng từ | cờ "ký giấy" | 8 loại chứng từ bắt buộc theo mã |
+| Chức danh | Chủ tịch, CEO, CFO, BGĐ, TC kiểm soát, Kế toán TT | không có Chủ tịch / CFO |
+
+Câu hỏi mới C1-C9 ở phần trả lời 11/11 (chờ anh chốt).
+
+## 14. Doanh thu theo đơn vị từ CRM (đề xuất 11/11/2026, chờ chốt)
+
+Nguồn hiện tại: file kế toán "KÉO DỮ LIỆU KẾ TOÁN" (tab BCLT, Trang tính13, Tổng hợp, GHI CHÚ, các tab "Kết xuất PM …" dán tay từ CRM).
+API CRM (tài liệu v1.2) đã có đủ phần lớn đầu vào của BCLT:
+
+| Tab file kế toán | API CRM | APM đang có? |
+|---|---|---|
+| Kết xuất PM đã thu (thực thu, phương thức, chi nhánh, telesale / MKT / CSKH / carepage, nguồn) | `/raw-data/order-payments` | Có đồng bộ (0083) nhưng chỉ giữ MKT, chi nhánh, loại, mã khách - **chưa giữ telesale / CSKH / carepage / người lên đơn / dịch vụ** |
+| Kết xuất PM đơn hàng, Chi tiết SP (doanh số, còn nợ, SP/DV) | `/raw-data/orders` | Chưa |
+| Kết xuất PM chia DT (bác sĩ phẫu / tiêm / khác, TVV, KTV, y tá) | `/raw-data/shared-revenues` (theo phòng CRM, loại chia 0-4) | Chưa |
+| Kết xuất tour (công tua) | `/raw-data/tour-history` | Chưa |
+| Phí quẹt, HH giới thiệu, CP xe, viện phí/giá cost (cột "Điền tay") | không có | Kế toán nhập trên APM |
+| Trang tính13 (dòng hoá đơn VAT, thuế suất, tình trạng xuất HĐ, **có CCCD**) | không có | Nguồn khác (HĐĐT / MISA) |
+
+Đề xuất: một lớp **"Doanh thu"** dùng chung (Phòng Ads đang đọc phần thực thu), tự đồng bộ các API trên, kế toán chỉ nhập phần phí;
+BCLT + Tổng hợp thành báo cáo trên APM (ngày / tháng, theo cơ sở, theo phòng, theo người, so KPI) và đổ vào báo cáo quản trị
+của module Tài chính (doanh thu - chi phí theo đơn vị). Câu hỏi D1-D8 ở phần trả lời 11/11.
+
+## 15. Danh sách câu hỏi gộp + đề xuất (11/11/2026)
+
+Thay cho A1-A11, B1-B10, C1-C9, D1-D8 ở trên (các câu đã có lời đáp không nhắc lại). Trang tính13 (dòng hoá đơn) bỏ qua theo anh 11/11.
+CRM gọi được toàn bộ dữ liệu thô (anh xác nhận 11/11).
+
+### Kiến trúc đề xuất
+
+1. **Lớp Doanh thu (CRM)** - dùng chung cho Tài chính, Phòng Ads, báo cáo BGĐ: đồng bộ `orders`, `order-payments`, `shared-revenues`,
+   `tour-history`, danh mục CRM (chi nhánh, nhân viên, dịch vụ) vào bảng `crm_*`; bảng gắn người CRM ↔ tài khoản APM; kế toán nhập phí.
+   Báo cáo BCLT / Tổng hợp trên APM. Phòng Ads chuyển sang đọc lớp này (bỏ đồng bộ riêng).
+2. **Lõi Tài chính**: danh mục mã chi + **ma trận duyệt theo mã (Sổ tay)** + vai trò tài chính gán theo người + ngân sách / ledger + hồ sơ CH → mua sắm → TT → chi.
+3. **Báo cáo quản trị**: thu (lớp 1) − chi (lớp 2) theo pháp nhân / cơ sở / phòng / tháng, so KPI và ngân sách.
+
+Thứ tự đề xuất: lớp Doanh thu trước (không phụ thuộc quy trình duyệt, dùng được ngay), rồi lõi Tài chính, rồi báo cáo.
+
+### Câu hỏi (→ đề xuất)
+
+**I. Lớp Doanh thu (CRM)**
+
+| # | Câu hỏi | Đề xuất |
+|---|---|---|
+| R1 | "Đơn vị" nhận doanh thu là gì? | Lưu đủ 3 chiều trên mỗi khoản thu: **cơ sở** (chi nhánh CRM → chi nhánh APM → pháp nhân), **đội MKT** (như Phòng Ads), **người** (telesale, carepage, CSKH, MKT, bác sĩ, TVV…) → phòng ban APM của họ. Báo cáo xoay theo chiều nào cũng được |
+| R2 | Chi nhánh CRM nào thuộc pháp nhân nào? | Bảng gắn chi nhánh → pháp nhân, kế toán sửa được |
+| R3 | Doanh thu tính bằng số nào? | Lưu cả doanh số, thực thu, thực thu sau phí. Mặc định báo cáo = **thực thu** (khớp Phòng Ads); báo cáo lãi lỗ = thực thu sau phí (÷1,08 − phí) |
+| R4 | 4 khoản phí (quẹt thẻ, HH giới thiệu, xe, viện phí/giá cost) | Tự tính theo quy tắc khi có (phí quẹt % theo phương thức, giá cost theo bảng dịch vụ), kế toán sửa tay từng đơn; cần anh cho tỷ lệ / bảng giá |
+| R5 | Gắn người CRM ↔ tài khoản APM | Một bảng gắn cho mọi nhân viên CRM (mở rộng "Gắn mã" của MKT): tự khớp theo tên + chi nhánh, nhập Excel, sửa tay; danh sách "chưa gắn" |
+| R6 | Chia doanh thu bác sĩ / TVV / KTV / y tá, công tua | Đợt này chỉ lưu + báo cáo; tính hoa hồng / công tua (bảng giá GHI CHÚ) để đợt lương |
+| R7 | KPI doanh thu theo đơn vị nhập ở đâu? | Nhập trên APM theo cơ sở / đội / tháng (như KPI Ads); khi có kế hoạch ngân sách phần thu thì lấy từ đó |
+| R8 | Lưu tên khách? | Chỉ lưu **mã khách + mã đơn**; tên / SĐT đọc trực tiếp CRM khi mở một đơn (Ads đang làm vậy) |
+| R9 | Lịch đồng bộ | Mỗi giờ 07-23h cho hôm nay; 02h đêm đồng bộ lại 3 ngày trước (CRM sửa lùi) |
+| R10 | Công nợ (nợ > 45 ngày), hoàn tiền | Có báo cáo công nợ từ `orders` |
+| R11 | Google Sheet "KÉO DỮ LIỆU KẾ TOÁN" | Chạy song song 1 tháng để đối chiếu, rồi bỏ; APM không ghi ngược vào sheet; có xuất Excel cùng bố cục BCLT |
+
+**II. Quy trình duyệt chi**
+
+| # | Câu hỏi | Đề xuất |
+|---|---|---|
+| F1 | Tuyến duyệt theo Sổ tay (từng mã) hay R01-R06 demo? | **Theo Sổ tay**: mỗi mã có danh sách bước duyệt mua sắm + duyệt thanh toán + chứng từ; Kế toán trưởng / người có quyền sửa trên APM, lưu phiên bản |
+| F2 | Có ngưỡng tiền không? | Thêm 1 lớp ngưỡng tuỳ chọn: vượt X triệu thì thêm PTGĐ/CEO dù mã không tick (mặc định tắt) |
+| F3 | "Bộ phận thực hiện mua sắm" | Là **bước thực hiện** (nhận việc, ghi báo giá / PO / bàn giao), không phải bước duyệt |
+| F4 | Mã không có tuyến (thuê nhà VP, phí NH, thuế, CO.05) | Kế toán **ghi nhận trực tiếp** (không qua duyệt), vẫn trừ ngân sách |
+| F5 | Chứng từ theo mã (báo giá 3 NCC, QĐ BGĐ, HĐ, biên bản, hoá đơn…) | **Chặn chi** khi thiếu chứng từ bắt buộc; mỗi loại = tải scan **hoặc** kế toán tick "đã nhận bản giấy" (như hồ sơ giấy HR) |
+| F6 | Người lập = người duyệt | Bỏ qua bước đó (đã chốt); bước cuối thì lên cấp kế tiếp trong thang Trưởng phòng → GĐ khối → Phòng Tài chính → Kế toán trưởng → PTGĐ/CEO; PTGĐ/CEO tự lập ở bước cuối → một thành viên BGĐ khác, không có thì OWNER |
+| F7 | Vị trí có nhiều người | Bất kỳ một người bấm là xong bước |
+| F8 | Nhắc quá hạn | Nhắc người đến lượt sau 24 giờ làm việc, tóm tắt mỗi sáng |
+
+**III. Vai trò & người**
+
+| # | Câu hỏi | Đề xuất |
+|---|---|---|
+| P1 | Vai trò tài chính đặt ở đâu? | **Vai trò gán theo người** (bảng riêng của Tài chính), **không** thêm vị trí ở phòng ban → ORD / PR / HR không bị ảnh hưởng (thay quyết định #2) |
+| P2 | Danh sách vai trò | Theo Sổ tay: Trưởng phòng / GĐ trung tâm (trưởng phòng hiện có), GĐ khối (trưởng `VP…`, dùng lại của HR), Phòng Tài chính, Kế toán trưởng, PTGĐ/CEO, 8 loại kế toán (kho VP, tiền lương, mkt, đối soát, thanh toán, tổng hợp, thuế, TSCĐ), Quỹ cơ sở (theo chi nhánh), Thủ quỹ VP |
+| P3 | Chủ tịch, CFO (có trong demo, không có trong Sổ tay) | Bỏ; cần thì thêm vai trò sau |
+| P4 | Ai ngồi từng vai trò? | Anh / Kế toán trưởng cho danh sách tên (Phòng TC hiện chưa có ai; BOD chỉ có Phó TGĐ) |
+| P5 | OWNER / ADMIN mặc định | Xem toàn bộ, **không** tự duyệt nếu không được gán vai trò (đúng tài liệu IT) |
+| P6 | Quyền module (lập, xem, mã chi, ngân sách, MISA, báo cáo, xuất) | Như mục 5; Trưởng phòng mặc định lập + xem phòng mình; kế toán, Kế toán trưởng xem toàn bộ |
+
+**IV. Ngân sách**
+
+| # | Câu hỏi | Đề xuất |
+|---|---|---|
+| B1 | Đơn vị ngân sách | Pháp nhân × phòng ban × mã chi × tháng (đã chốt) **+ chi nhánh** cho các phòng khối vận hành (cơ sở HN1, HN2, SG…) |
+| B2 | Phòng có phòng con (MEDIA, TT) | Ngân sách ở phòng cha, phòng con cộng dồn vào; muốn chi tiết thì lập ở phòng con |
+| B3 | 6 pháp nhân (thêm 2 hộ kinh doanh) | Dùng đủ 6, hộ kinh doanh chỉ hiện khi có số |
+| B4 | Ngân sách đầu kỳ 11-12/2026 | Nhập từ file Excel mẫu APM xuất ra |
+| B5 | "Đã thực hiện" tính khi nào | Theo nghiệm thu với khoản mua sắm; theo lúc chi với lương, thuế, phí |
+| B6 | Chi phí Ads (Meta / Google / TikTok) | Hiện "thực hiện tạm tính" từ số APM đã đồng bộ, số chính thức là MISA; brand Ads ↔ pháp nhân cần anh cho bảng gắn |
+| B7 | Đề xuất tài nguyên (DX) | Bước "Duyệt chi" của DX tự tạo hồ sơ chi mã CO.02.01.04 |
+
+**V. Tiền, chứng từ, khác**
+
+| # | Câu hỏi | Đề xuất |
+|---|---|---|
+| M1 | Ai bấm "đã chi" | Quỹ cơ sở / Thủ quỹ VP (theo Sổ tay), kèm ảnh chứng từ chuyển khoản / phiếu chi |
+| M2 | Lưu scan | Trong Postgres, ≤ 10 MB / tệp, sha256; giữ 10 năm (chứng từ kế toán); tải: người lập, người duyệt, kế toán |
+| M3 | Phiếu A4 | In từ trình duyệt (Lưu PDF) |
+| M4 | MISA | Nhập theo từng pháp nhân; cần anh 1 file mẫu thật đã xoá dữ liệu nhạy cảm |
+| M5 | Mã OTP cho người duyệt chi | Sau go-live (đợt 4), trước khi bật chi tiền trên APM |
+| M6 | Nhập tiền nhanh | `15tr`, `1,5tr`, `500k`, `2ty` |
+| M7 | Tên menu | "Tài chính" (+ "Doanh thu" là một mục con) |

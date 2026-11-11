@@ -74,7 +74,7 @@ export default function DepartmentsPage() {
           Chỉ chủ sở hữu chỉnh phòng ban.
         </p>
       )}
-      <div className="grid gap-4 lg:grid-cols-[18rem_minmax(0,1fr)]">
+      <div className="grid grid-cols-[minmax(0,1fr)] gap-4 lg:grid-cols-[18rem_minmax(0,1fr)]">
         <div className="space-y-3">
           <nav
             aria-label="Danh sách phòng ban"

@@ -61,6 +61,13 @@ export function LogoMark({
 }
 
 /**
+ * The line under "APM Management" wherever the product names itself (sidebar,
+ * top bar, sign-in). The app runs the whole company - HR, orders, Ads, CSKH,
+ * resources, performance - so it no longer says "Creative Ops".
+ */
+export const PRODUCT_SUBTITLE = "Quản trị vận hành";
+
+/**
  * The mark with the "APM Management" wordmark and an optional subtitle line.
  *
  * The wordmark uses `var(--text)`, so it follows the light/dark theme while the

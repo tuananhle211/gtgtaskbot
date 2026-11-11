@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 import { useState } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { api, ApiError } from "@/lib/api";
-import { LogoMark } from "@/components/logo";
+import { LogoMark, PRODUCT_SUBTITLE } from "@/components/logo";
 
 const FIELD =
   "min-h-11 w-full rounded-lg border border-[var(--border)] bg-[var(--surface)] px-3 text-[var(--text)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-[var(--accent)]";
@@ -32,15 +32,16 @@ export default function LoginPage() {
   const [forgot, setForgot] = useState(false);
   const [username, setUsername] = useState("");
   return (
-    <main className="grid min-h-screen lg:grid-cols-[minmax(0,1.05fr)_minmax(0,1fr)]">
+    <main className="grid min-h-dvh lg:grid-cols-[minmax(0,1.05fr)_minmax(0,1fr)]">
       <BrandHero />
-      <div className="flex items-center justify-center px-4 py-10 sm:px-8">
+      <div className="flex flex-col items-center justify-center px-4 py-8 sm:px-8 sm:py-10">
         <div className="w-full max-w-sm">
-          <div className="panel p-6 sm:p-8">
+          <PhoneIntro />
+          <div className="panel p-5 sm:p-8">
             <div className="flex items-center gap-3">
               <LogoMark size={44} className="shrink-0" />
               <div className="min-w-0 leading-tight">
-                <p className="brand-eyebrow">Creative Ops</p>
+                <p className="brand-eyebrow">Apexmed · {PRODUCT_SUBTITLE}</p>
                 <h1 className="mt-0.5 text-xl font-semibold tracking-tight">
                   {forgot ? "Quên mật khẩu" : "Đăng nhập APM Management"}
                 </h1>
@@ -69,17 +70,27 @@ export default function LoginPage() {
                 <code className="rounded bg-[var(--surface-muted)] px-1.5 py-0.5 text-[var(--text)]">/web</code>{" "}
                 cho bot để nhận link
               </p>
-              <p className="mt-2 text-xs">
-                Mã nhân viên do phòng Hành chính nhân sự cấp. ID Telegram là dãy số của
-                tài khoản Telegram (không phải @username).
-              </p>
+              <ul className="mt-3 space-y-1.5 text-xs leading-relaxed">
+                <li>
+                  <span className="font-medium text-[var(--text)]">Mã nhân viên</span> do phòng Hành
+                  chính nhân sự (HCNS) cấp, ví dụ M001DUNG.
+                </li>
+                <li>
+                  <span className="font-medium text-[var(--text)]">Lần đầu đăng nhập:</span> dùng mật
+                  khẩu tạm HCNS gửi, hệ thống sẽ yêu cầu đặt mật khẩu mới.
+                </li>
+                <li>
+                  <span className="font-medium text-[var(--text)]">ID Telegram</span> là dãy số của tài
+                  khoản Telegram (không phải @username).
+                </li>
+              </ul>
             </div>
           </div>
-          <nav aria-label="Thông tin pháp lý" className="mt-4 flex justify-center gap-4 text-xs text-[var(--text-muted)]">
-            <Link href="/terms" className="hover:underline">
+          <nav aria-label="Thông tin pháp lý" className="mt-3 flex flex-wrap justify-center gap-x-4 text-xs text-[var(--text-muted)]">
+            <Link href="/terms" className="inline-flex min-h-11 items-center hover:underline">
               Điều khoản sử dụng
             </Link>
-            <Link href="/privacy" className="hover:underline">
+            <Link href="/privacy" className="inline-flex min-h-11 items-center hover:underline">
               Chính sách quyền riêng tư
             </Link>
           </nav>
@@ -89,13 +100,33 @@ export default function LoginPage() {
   );
 }
 
-/** The guideline's five words for what every piece of work should feel like. */
-const BRAND_VALUES = ["Sạch", "Cao cấp", "Đồng bộ", "Tin cậy", "Chuẩn y khoa"];
+/** What the company runs in APM Management, in the order of the menu. */
+const MODULES = [
+  "Nhân sự & chấm công",
+  "Hiệu suất",
+  "Bảng order",
+  "Phòng Ads",
+  "Chăm sóc khách hàng",
+  "Tài nguyên",
+  "Đội agent AI",
+];
+
+/**
+ * On a phone the navy band is left out; one line above the form says what the
+ * system is, so the page is not just a bare form.
+ */
+function PhoneIntro() {
+  return (
+    <p className="mb-4 text-center text-sm text-[var(--text-muted)] lg:hidden">
+      Hệ thống quản trị nội bộ của <span className="font-semibold text-[var(--text)]">Apexmed</span>
+    </p>
+  );
+}
 
 /**
  * The navy band beside the form on wide screens: the brand's "A" peak with the
- * medical cross at its heart, and the guideline's values. Decoration only - on
- * a phone it is left out and the form is the whole page.
+ * medical cross at its heart, what the system is and what it holds.
+ * Decoration only - on a phone it is left out and the form is the whole page.
  */
 function BrandHero() {
   return (
@@ -105,7 +136,10 @@ function BrandHero() {
     >
       <div className="flex items-center gap-3">
         <LogoMark size={40} className="shrink-0" />
-        <span className="font-display text-lg font-semibold tracking-tight">APM Management</span>
+        <span className="leading-tight">
+          <span className="block font-display text-lg font-semibold tracking-tight">APM Management</span>
+          <span className="block text-xs text-[var(--text-muted)]">{PRODUCT_SUBTITLE} · Apexmed</span>
+        </span>
       </div>
 
       <svg
@@ -124,27 +158,27 @@ function BrandHero() {
       </svg>
 
       <div className="relative max-w-md">
-        <p className="brand-eyebrow !text-[var(--brand-pastel)]">Luồng PR · Luồng Order</p>
+        <p className="brand-eyebrow !text-[var(--brand-pastel)]">Hệ thống quản trị nội bộ Apexmed</p>
         <p className="mt-4 font-display text-4xl font-bold leading-[1.1] tracking-tight xl:text-5xl">
-          Một bảng việc,
+          Một nền tảng,
           <br />
           <span className="bg-gradient-to-r from-[#afe8ff] via-[#88afea] to-[#fa9ae1] bg-clip-text text-transparent">
-            chuẩn mực đỉnh cao.
+            vận hành cả công ty.
           </span>
         </p>
         <p className="mt-5 text-base leading-relaxed text-[var(--text-muted)]">
-          Order, duyệt, sản xuất và báo cáo của cả đội Creative Ops - nhất quán, chuyên nghiệp,
-          dễ theo dõi.
+          Nhân sự, order sản xuất, quảng cáo, chăm sóc khách hàng và tài nguyên của mọi phòng
+          ban trên cùng một hệ thống - số liệu thống nhất, phân quyền rõ ràng.
         </p>
       </div>
 
       <ul className="relative flex flex-wrap gap-2">
-        {BRAND_VALUES.map((value) => (
+        {MODULES.map((name) => (
           <li
-            key={value}
+            key={name}
             className="rounded-full border border-white/15 bg-white/[0.06] px-3.5 py-1.5 text-xs font-medium text-white/85 backdrop-blur"
           >
-            {value}
+            {name}
           </li>
         ))}
       </ul>
@@ -252,7 +286,7 @@ function LoginForm({
       {!hint && failure ? (
         <p
           role="alert"
-          className="rounded-lg border border-red-500/40 bg-red-500/10 px-3 py-2 text-sm font-medium"
+          className="rounded-lg border border-[var(--bad)]/40 bg-[var(--bad-soft)] px-3 py-2 text-sm font-medium text-[var(--text)]"
         >
           {failure}
         </p>
@@ -318,6 +352,10 @@ function ForgotPasswordForm({
         Nhập ID Telegram của bạn. APM Management sẽ gửi mật khẩu tạm vào tin nhắn riêng trên Telegram; đăng
         nhập bằng mật khẩu đó rồi đổi mật khẩu mới.
       </p>
+      <p className="text-xs text-[var(--text-muted)]">
+        Tài khoản chưa liên kết Telegram: liên hệ phòng Hành chính nhân sự (HCNS) hoặc quản trị viên để
+        được cấp lại mật khẩu.
+      </p>
       <label className="block text-sm font-medium">
         ID Telegram
         <input
@@ -342,7 +380,7 @@ function ForgotPasswordForm({
       {!hint && failure ? (
         <p
           role="alert"
-          className="rounded-lg border border-red-500/40 bg-red-500/10 px-3 py-2 text-sm font-medium"
+          className="rounded-lg border border-[var(--bad)]/40 bg-[var(--bad-soft)] px-3 py-2 text-sm font-medium text-[var(--text)]"
         >
           {failure}
         </p>
@@ -350,7 +388,7 @@ function ForgotPasswordForm({
       {reset.isSuccess && reset.data?.message ? (
         <p
           role="status"
-          className="rounded-lg border border-emerald-500/40 bg-emerald-500/10 px-3 py-2 text-sm"
+          className="rounded-lg border border-[var(--good)]/40 bg-[var(--good-soft)] px-3 py-2 text-sm text-[var(--text)]"
         >
           {reset.data.message}
         </p>

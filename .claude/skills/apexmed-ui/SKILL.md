@@ -7,7 +7,7 @@ description: Apexmed brand design system for the APM Management web app (fronten
 
 The web app (Next.js 15 + Tailwind v4, `frontend/`) wears the **Apexmed Brand Guideline (GTG 05/2026)**:
 *y tế cao cấp · công nghệ hiện đại · sang trọng tối giản · chuyên nghiệp tin cậy*.
-Product name on screen: **APM Management** (subtitle "Creative Ops"). UI text is Vietnamese.
+Product name on screen: **APM Management** (subtitle "Quản trị vận hành" = `PRODUCT_SUBTITLE` in `components/logo.tsx`). UI text is Vietnamese.
 
 Everything lives in one place: tokens + brand layer in `frontend/src/app/globals.css`, fonts in
 `frontend/src/app/fonts.ts`, mark in `frontend/src/components/logo.tsx` (+ `app/icon.svg`,
@@ -129,7 +129,7 @@ Then Read the PNGs. Logs in as local test account `1000/12345` (`scripts/seed_te
 Playwright MCP (`.mcp.json`) you can also drive the page live (log in at `/login`, flip the theme switch).
 
 Checklist: both themes legible · no literal colours added · text contrast ≥ 4.5:1 (muted on surface too)
-· primary action obvious and single · phone width (390px) has no sideways scroll · Vietnamese diacritics
+· primary action obvious and single · phone width (390px) has no sideways scroll (below `lg` the nav is the ☰ drawer; give phone grids `grid-cols-[minmax(0,1fr)]`) · Vietnamese diacritics
 render in all three fonts · `cd frontend && npm run typecheck && npx vitest run` green (known failure:
 `security.test.ts` #37). Several tests scan source (`logo.test.tsx`, `status-colors.test.ts`, `ux.test.tsx`,
 `content-views.test.tsx` select-option colours) — keep them in step.

@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { Logo } from "@/components/logo";
+import { Logo, PRODUCT_SUBTITLE } from "@/components/logo";
 
 /**
  * Where a failed or spent login link lands, and where sign-out goes.
@@ -19,7 +19,7 @@ import { Logo } from "@/components/logo";
 export default function LoginFailed() {
   return (
     <div className="mx-auto max-w-lg p-6 sm:p-8">
-      <Logo size={36} subtitle="Creative Ops" className="mb-5" />
+      <Logo size={36} subtitle={PRODUCT_SUBTITLE} className="mb-5" />
       <h1 className="text-lg font-semibold">Chưa đăng nhập được</h1>
       <p className="mt-3 text-sm text-[var(--text-muted)]">
         Liên kết đăng nhập này không dùng được nữa. Thường là vì một trong hai lý do:

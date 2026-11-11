@@ -155,7 +155,8 @@ function barTitle(bar: TimelineBar): string {
     .join("\n");
 }
 
-const LEFT = "w-64 shrink-0 sm:w-80";
+// On a phone the sticky name column leaves most of the width to the days.
+const LEFT = "w-44 shrink-0 sm:w-80";
 
 export function Gantt({
   month,
@@ -319,7 +320,7 @@ export function Gantt({
                       const line = bar.status === "UPCOMING" ? "dotted" : bar.done_at ? "solid" : "dashed";
                       return (
                         <div key={`${bar.node_id}-${bar.status}`} className="flex border-t border-[var(--border)]">
-                          <div className={`${LEFT} sticky left-0 z-10 border-r border-[var(--border)] bg-[var(--surface)] py-2 pl-12 pr-3`}>
+                          <div className={`${LEFT} sticky left-0 z-10 border-r border-[var(--border)] bg-[var(--surface)] py-2 pl-6 pr-2 sm:pl-12 sm:pr-3`}>
                             <p className="truncate text-sm" title={bar.order_title}>
                               {bar.order_code ? (
                                 <BarBox

@@ -252,7 +252,19 @@ describe("the nav follows the person's units", () => {
       const hrefs = within(primary)
         .getAllByRole("link")
         .map((link) => link.getAttribute("href"));
-      expect(hrefs).toEqual(["/dashboard", "/performance/me", "/performance/timeline", "/tasks", "/tasks/task-codes"]);
+      // Nhân sự (0100) is everybody's; no PR screen for an Ads-only person.
+      expect(hrefs).toEqual([
+        "/dashboard",
+        "/performance/me",
+        "/performance/timeline",
+        "/hr/me",
+        "/hr/leave",
+        "/hr/timesheet",
+        "/hr/org",
+        "/tasks",
+        "/tasks/task-codes",
+        "/tasks/effort",
+      ]);
     });
     expect(
       screen.queryByRole("navigation", { name: "Chọn luồng" }),
@@ -276,13 +288,11 @@ describe("the nav follows the person's units", () => {
       expect(hrefs).toContain("/admin");
       expect(hrefs).toContain("/pr/channels");
     });
-    // A long label wraps inside the sidebar (from lg) instead of running out of it.
+    // A long label wraps inside the sidebar / phone drawer instead of running out of it.
     const long = screen.getByRole("link", { name: "Thành viên & Phân quyền" });
-    // The label span (not the icon wrapper) is the one that wraps from `lg`.
-    expect(long.querySelector("span.whitespace-nowrap")).toHaveClass(
-      "lg:whitespace-normal",
-      "min-w-0",
-    );
+    const label = long.querySelector("span.leading-snug");
+    expect(label).toHaveClass("min-w-0");
+    expect(label).not.toHaveClass("whitespace-nowrap");
     // The unit switch moved beside the page title; the top bar has none.
     expect(
       screen.queryByRole("navigation", { name: "Chọn luồng" }),

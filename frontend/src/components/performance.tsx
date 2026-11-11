@@ -691,7 +691,7 @@ export function PerformancePanel({ userId, month }: { userId: string; month: str
   return (
     <div className="space-y-4">
       <Tiles label="Điểm trong tháng" tiles={figureTiles(data.figures, data.quota)} />
-      <div className="grid gap-4 lg:grid-cols-[2fr_1fr]">
+      <div className="grid grid-cols-[minmax(0,1fr)] gap-4 lg:grid-cols-[2fr_1fr]">
         <ColumnChart
           title="Điểm theo tuần"
           data={weeks.map((label, index) => ({

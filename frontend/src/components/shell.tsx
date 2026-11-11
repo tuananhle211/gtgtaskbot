@@ -15,7 +15,7 @@ import { NotificationBell } from "@/components/notifications";
 import { ThemeToggle } from "@/components/theme-toggle";
 import { Avatar } from "@/components/avatar";
 import { DepartmentTags } from "@/components/department-tags";
-import { Logo, LogoMark } from "@/components/logo";
+import { Logo, LogoMark, PRODUCT_SUBTITLE } from "@/components/logo";
 import { LibraryIcon, isLibraryUrl } from "@/components/library-icon";
 
 type NavItem = {
@@ -715,7 +715,26 @@ function Icon({ name }: { name: NavIcon }) {
 export function Shell({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
   const router = useRouter();
+  // Below `lg` the sidebar is a drawer that slides in from the left (the ☰
+  // button). It closes on its own when the screen changes, on Escape and on a
+  // tap outside it; while open the page behind does not scroll.
   const [menuOpen, setMenuOpen] = useState(false);
+  useEffect(() => {
+    setMenuOpen(false);
+  }, [pathname]);
+  useEffect(() => {
+    if (!menuOpen) return;
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setMenuOpen(false);
+    };
+    const before = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    document.addEventListener("keydown", onKey);
+    return () => {
+      document.body.style.overflow = before;
+      document.removeEventListener("keydown", onKey);
+    };
+  }, [menuOpen]);
   // The sidebar folds to icons on lg+. Held in a module-level value, not in
   // browser storage (the security suite forbids any in src/): it survives
   // moving between screens, whose layouts each mount their own Shell, and
@@ -749,10 +768,12 @@ export function Shell({ children }: { children: React.ReactNode }) {
   const [openNow, setOpenNow] = useState<Record<string, boolean>>(() => ({
     ...openBranches,
   }));
-  const toggleBranch = (label: string) =>
+  // `shown` = what the heading shows now, which in the phone drawer may be
+  // the current page's branch opened without a press (below).
+  const toggleBranch = (label: string, shown: boolean) =>
     setOpenNow((was) => {
-      openBranches[label] = !was[label];
-      return { ...was, [label]: !was[label] };
+      openBranches[label] = !shown;
+      return { ...was, [label]: !shown };
     });
   const nav = navFor(me.data, session.data?.role);
   const links = navLinks(nav);
@@ -789,10 +810,10 @@ export function Shell({ children }: { children: React.ReactNode }) {
           <span aria-hidden="true" className="absolute -right-1 -top-1 hidden h-2 w-2 rounded-full bg-[var(--brand-magenta)] lg:block" />
         ) : null}
       </span>
-      {/* One line in the phone strip; from `lg` a long label ("Thành viên &
-          Phân quyền (PR)") wraps inside the sidebar instead of running out of it. */}
+      {/* A long label ("Thành viên & Phân quyền (PR)") wraps inside the
+          sidebar / drawer instead of running out of it. */}
       <span
-        className={`min-w-0 whitespace-nowrap ${collapsed ? "lg:sr-only" : "lg:whitespace-normal lg:py-1.5 lg:leading-snug"}`}
+        className={`min-w-0 py-1.5 leading-snug ${collapsed ? "lg:sr-only" : ""}`}
       >
         {item.label}
       </span>
@@ -815,10 +836,10 @@ export function Shell({ children }: { children: React.ReactNode }) {
       target="_blank"
       rel="noopener noreferrer"
       title={collapsed ? link.name : undefined}
-      className={`${linkClass(false)} max-w-[16rem] lg:max-w-none`}
+      className={linkClass(false)}
     >
       <LibraryIcon name={link.name} icon={link.icon} />
-      <span className={`truncate whitespace-nowrap ${collapsed ? "lg:sr-only" : ""}`}>
+      <span className={`min-w-0 truncate whitespace-nowrap ${collapsed ? "lg:sr-only" : ""}`}>
         {link.name}
       </span>
     </a>
@@ -826,49 +847,75 @@ export function Shell({ children }: { children: React.ReactNode }) {
 
   return (
     <div className="min-h-screen lg:flex">
+      {menuOpen ? (
+        // The drawer's backdrop (phones and tablets): a tap outside closes it.
+        <div
+          aria-hidden="true"
+          onClick={() => setMenuOpen(false)}
+          className="fixed inset-0 z-40 bg-[var(--brand-navy)]/55 backdrop-blur-[2px] lg:hidden"
+        />
+      ) : null}
       <aside
+        id="app-sidebar"
         data-collapsed={collapsed ? "true" : undefined}
+        data-open={menuOpen ? "true" : undefined}
         // `brand-rail` (globals.css): the navy Apexmed rail, in both schemes.
-        className={`brand-rail border-b border-[var(--border)] bg-[var(--surface)] transition-[width] duration-150 lg:sticky lg:top-0 lg:flex lg:h-screen lg:shrink-0 lg:flex-col lg:border-b-0 lg:border-r ${
-          collapsed ? "lg:w-[4.5rem]" : "lg:w-60"
-        }`}
+        // Below `lg` it is a drawer off the left edge (invisible while shut,
+        // so its links are not tabbed into); from `lg` the sticky sidebar.
+        className={`brand-rail fixed inset-y-0 left-0 z-50 flex w-[min(19rem,86vw)] flex-col border-r border-[var(--border)] bg-[var(--surface)] shadow-[var(--shadow-pop)] transition-[transform,width] duration-200 ease-out lg:sticky lg:top-0 lg:z-auto lg:h-screen lg:shrink-0 lg:translate-x-0 lg:shadow-none ${
+          menuOpen ? "translate-x-0" : "-translate-x-full max-lg:invisible"
+        } ${collapsed ? "lg:w-[4.5rem]" : "lg:w-60"}`}
       >
-        <div className={`hidden items-center gap-2.5 pb-4 pt-5 lg:flex ${collapsed ? "justify-center px-2" : "px-4"}`}>
-          <Logo size={34} subtitle="Creative Ops" textClassName={collapsed ? "lg:hidden" : ""} />
+        <div className={`flex items-center gap-2.5 pb-4 pt-5 ${collapsed ? "px-4 lg:justify-center lg:px-2" : "px-4"}`}>
+          <Logo size={34} subtitle={PRODUCT_SUBTITLE} className={`min-w-0 flex-1 ${collapsed ? "lg:flex-none" : ""}`} textClassName={collapsed ? "lg:hidden" : ""} />
+          <button
+            type="button"
+            onClick={() => setMenuOpen(false)}
+            aria-label="Đóng menu"
+            className="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-lg text-[var(--text-muted)] hover:bg-[var(--surface-muted)] hover:text-[var(--text)] lg:hidden"
+          >
+            <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden="true">
+              <path d="M6 6l12 12M18 6 6 18" />
+            </svg>
+          </button>
         </div>
         <nav
           aria-label="Điều hướng chính"
-          // From `lg` the list scrolls inside the sidebar: with a library of
-          // up to 30 links it can be taller than the screen.
-          className="flex gap-1 overflow-x-auto px-3 py-2 [scrollbar-width:none] lg:min-h-0 lg:flex-1 lg:flex-col lg:overflow-y-auto lg:overflow-x-hidden lg:px-3 lg:py-1"
+          // The list scrolls inside the sidebar / drawer: with a library of up
+          // to 30 links it can be taller than the screen. `relative` keeps the
+          // badges' absolutely placed screen-reader text inside it.
+          className="relative flex min-h-0 flex-1 flex-col gap-1 overflow-y-auto overflow-x-hidden overscroll-contain px-3 py-1"
         >
           {nav.map((entry) => {
             if (!isGroup(entry)) return navLink(entry);
-            const folded = !openNow[entry.label];
             const section = entry.variant === "section";
             const holdsCurrent = entry.children.some((child) => isActive(child.href));
-            // A branch. On a phone the strip is one row, so the heading is
-            // dropped and what it holds sits in the row like any other entry;
-            // from `lg` it is a heading that folds. With the sidebar folded to
-            // icons there is no heading to press, so its entries always show.
+            // Every branch starts folded on the sidebar; in the phone drawer the
+            // branch holding the current screen opens until someone folds it.
+            const folded =
+              entry.label in openNow
+                ? !openNow[entry.label]
+                : !(menuOpen && holdsCurrent);
+            // A branch: a heading that folds. With the sidebar folded to icons
+            // (lg only) there is no heading to press, so its entries always show.
             return (
               <div
                 key={entry.label}
                 role="group"
                 aria-label={entry.label}
-                className={`contents lg:flex lg:flex-col lg:gap-1 ${
-                  section ? "lg:mt-3 lg:border-t lg:border-[var(--border)] lg:pt-3" : ""
+                className={`flex flex-col gap-1 ${
+                  section ? "mt-3 border-t border-[var(--border)] pt-3" : ""
                 }`}
               >
                 <button
                   type="button"
-                  onClick={() => toggleBranch(entry.label)}
+                  onClick={() => toggleBranch(entry.label, !folded)}
                   aria-expanded={!folded}
-                  className={`hidden items-center rounded-lg px-3 text-left transition-colors hover:bg-[var(--surface-muted)] hover:text-[var(--text)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--accent)] ${
+                  className={`flex items-center rounded-lg px-3 text-left transition-colors hover:bg-[var(--surface-muted)] hover:text-[var(--text)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--accent)] ${
                     section
                       ? "min-h-9 gap-1.5 text-[11px] font-semibold uppercase tracking-wider"
                       : "min-h-11 gap-2.5 text-sm"
-                  } ${collapsed ? "" : "lg:flex"} ${
+                  } ${collapsed ? "lg:hidden" : ""} ${
                     folded && holdsCurrent
                       ? "font-semibold text-[var(--accent-strong)]"
                       : "text-[var(--text-muted)]"
@@ -894,13 +941,9 @@ export function Shell({ children }: { children: React.ReactNode }) {
                   </svg>
                 </button>
                 <div
-                  className={`contents lg:flex-col lg:gap-1 ${
-                    collapsed
-                      ? "lg:flex"
-                      : `${
-                          section ? "" : "lg:ml-4 lg:border-l lg:border-[var(--border)] lg:pl-2"
-                        } ${folded ? "lg:hidden" : "lg:flex"}`
-                  }`}
+                  className={`flex-col gap-1 ${folded ? "hidden" : "flex"} ${
+                    section ? "" : "ml-4 border-l border-[var(--border)] pl-2"
+                  } ${collapsed ? "lg:ml-0 lg:flex lg:border-l-0 lg:pl-0" : ""}`}
                 >
                   {(entry.external ?? []).map(libraryLink)}
                   {entry.children.map(navLink)}
@@ -910,7 +953,22 @@ export function Shell({ children }: { children: React.ReactNode }) {
           })}
         </nav>
         {session.data ? (
-          <div className={`mt-auto hidden border-t border-[var(--border)] px-4 py-4 ${collapsed ? "" : "lg:block"}`}>
+          <div className={`mt-auto border-t border-[var(--border)] px-4 py-4 ${collapsed ? "lg:hidden" : ""}`}>
+            {/* In the phone drawer: who is signed in, and the way to the account
+                screen (sign out lives there). The top bar has room for it from `sm`;
+                drawn only while the drawer is open. */}
+{menuOpen ? (
+            <Link
+              href="/account"
+              className="mb-3 flex min-h-11 items-center gap-2.5 rounded-lg border border-[var(--border)] px-2.5 text-sm hover:bg-[var(--surface-muted)] sm:hidden"
+            >
+              <Avatar name={session.data.full_name} src={session.data.avatar_url} size={28} />
+              <span className="min-w-0 flex-1 leading-tight">
+                <span className="block truncate font-medium">{session.data.full_name}</span>
+                <span className="block text-xs text-[var(--text-muted)]">Tài khoản · Đăng xuất</span>
+              </span>
+            </Link>
+            ) : null}
             <p className="text-xs text-[var(--text-muted)]">Phòng ban của bạn</p>
             <div className="mt-1.5 flex flex-wrap gap-1.5">
               {me.isSuccess ? (
@@ -947,10 +1005,22 @@ export function Shell({ children }: { children: React.ReactNode }) {
                 <path d={collapsed ? "M13 10l2 2-2 2" : "M16 10l-2 2 2 2"} />
               </svg>
             </button>
-            <LogoMark size={28} className="shrink-0 lg:hidden" />
+            <button
+              type="button"
+              aria-label="Menu"
+              aria-controls="app-sidebar"
+              aria-expanded={menuOpen}
+              onClick={() => setMenuOpen((open) => !open)}
+              className="-ml-1 inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-lg border border-[var(--border)] bg-[var(--surface)] text-[var(--text)] hover:bg-[var(--surface-muted)] lg:hidden"
+            >
+              <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden="true">
+                <path d="M4 7h16M4 12h16M4 17h16" />
+              </svg>
+            </button>
+            <LogoMark size={28} className="hidden shrink-0 sm:block lg:hidden" />
             <div className="min-w-0 leading-tight">
               <p className="truncate font-display text-sm font-semibold tracking-tight">
-                APM Management<span className="hidden sm:inline"> <span className="text-[var(--accent)]">·</span> Creative Ops</span>
+                APM Management<span className="hidden sm:inline"> <span className="text-[var(--accent)]">·</span> {PRODUCT_SUBTITLE}</span>
               </p>
               {session.data ? (
                 <p className="truncate text-xs text-[var(--text-muted)]">
@@ -963,15 +1033,6 @@ export function Shell({ children }: { children: React.ReactNode }) {
             <div className="flex shrink-0 items-center gap-2">
               <ThemeToggle />
               {mustChangePassword ? null : <NotificationBell />}
-              <button
-                type="button"
-                aria-label="Menu"
-                aria-expanded={menuOpen}
-                onClick={() => setMenuOpen((open) => !open)}
-                className="flex h-10 w-10 items-center justify-center rounded-lg border border-[var(--border)] bg-[var(--surface)] text-lg sm:hidden"
-              >
-                {menuOpen ? "✕" : "☰"}
-              </button>
               <Link
                 href="/account"
                 aria-label="Tài khoản"
@@ -989,22 +1050,6 @@ export function Shell({ children }: { children: React.ReactNode }) {
             </div>
           ) : null}
         </header>
-
-        {menuOpen && session.data ? (
-          <div className="border-b border-[var(--border)] bg-[var(--surface)] p-3 sm:hidden">
-            <p className="flex items-center gap-2 text-xs text-[var(--text-muted)]">
-              <Avatar name={session.data.full_name} src={session.data.avatar_url} size={24} />
-              Đang đăng nhập: {session.data.full_name}
-            </p>
-            <Link
-              href="/account"
-              onClick={() => setMenuOpen(false)}
-              className="mt-2 flex min-h-11 w-full items-center justify-center rounded-lg border border-[var(--border)] px-3 text-sm hover:bg-[var(--surface-muted)]"
-            >
-              Tài khoản · Đăng xuất
-            </Link>
-          </div>
-        ) : null}
 
         <div className="flex-1 px-4 py-5 sm:px-6 xl:px-8">
           {session.isPending ? (
