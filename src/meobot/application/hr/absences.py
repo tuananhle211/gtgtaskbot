@@ -26,6 +26,7 @@ approved requests of an ``annual`` leave type and HCNS's adjustments.
 
 from __future__ import annotations
 
+import hashlib
 import uuid
 from collections.abc import Iterable, Sequence
 from dataclasses import dataclass
@@ -35,10 +36,12 @@ from typing import Any
 
 from sqlalchemy import Text, cast, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import undefer
 
 from meobot.application.audit_service import AuditService
 from meobot.application.hr.absence_notifications import AbsenceNotifier
 from meobot.application.hr.access import HrAccess, HrForbiddenError, HrNotFoundError
+from meobot.application.hr.files import sniff
 from meobot.application.hr.profiles import HrValidationError
 from meobot.application.hr.shifts import ShiftBook, holidays_between, load_shift_book, require_open
 from meobot.application.org.access import load_access
@@ -48,6 +51,7 @@ from meobot.core.errors import ConflictError
 from meobot.core.time import utcnow
 from meobot.db.models.department import Department, DepartmentMember, DepartmentPermission
 from meobot.db.models.hr_attendance import (
+    HrAbsenceFile,
     HrAbsenceRequest,
     HrAbsenceStep,
     HrLeaveAdjustment,
@@ -61,6 +65,8 @@ from meobot.domain.audit.models import AuditAction, AuditResult
 from meobot.domain.hr.attendance import (
     KIND_LABELS,
     LEVEL_LABELS,
+    MAX_EVIDENCE_BYTES,
+    MAX_EVIDENCE_FILES,
     PART_LABELS,
     STATUS_LABELS,
     STEP_STATUS_LABELS,
@@ -316,6 +322,9 @@ class HrAbsenceService:
         at_time: time | None,
         reason: str,
         today: date,
+        check_in: time | None = None,
+        check_out: time | None = None,
+        file_ids: Sequence[uuid.UUID] = (),
     ) -> HrAbsenceRequest:
         assert actor.user_id is not None
         user_id = actor.user_id
@@ -329,6 +338,7 @@ class HrAbsenceService:
         type_row: HrLeaveType | None = None
         minutes: int | None = None
         days: Decimal | None = None
+        files: list[HrAbsenceFile] = []
         if kind is AbsenceKind.LEAVE:
             type_row = await self._session.scalar(
                 select(HrLeaveType).where(
@@ -361,6 +371,32 @@ class HrAbsenceService:
             end_on = end
             at_time = None
             await self._refuse_overlap(user_id, kind, start_on, end, part)
+        elif kind is AbsenceKind.EXPLAIN:
+            end_on = start_on
+            part = DayPart.FULL
+            at_time = None
+            if start_on > today:
+                raise HrValidationError(
+                    "hr_absence_time_invalid",
+                    "Chỉ giải trình được ngày đã qua hoặc hôm nay.",
+                    field="start_on",
+                )
+            if not shift.sessions(start_on):
+                raise HrValidationError(
+                    "hr_absence_no_shift", "Ngày này bạn không có ca làm việc.", field="start_on"
+                )
+            if check_in is None and check_out is None:
+                raise HrValidationError(
+                    "hr_absence_invalid",
+                    "Nhập giờ vào hoặc giờ ra thực tế bạn quên chấm.",
+                    field="check_in",
+                )
+            if check_in is not None and check_out is not None and check_out <= check_in:
+                raise HrValidationError(
+                    "hr_absence_time_invalid", "Giờ ra phải sau giờ vào.", field="check_out"
+                )
+            files = await self._own_waiting_files(user_id, file_ids)
+            await self._refuse_overlap(user_id, kind, start_on, start_on, part)
         else:
             end_on = start_on
             part = DayPart.FULL
@@ -407,9 +443,15 @@ class HrAbsenceService:
             days=days,
             reason=text,
             status=AbsenceStatus.PENDING.value,
+            check_in=check_in if kind is AbsenceKind.EXPLAIN else None,
+            check_out=check_out if kind is AbsenceKind.EXPLAIN else None,
         )
         self._session.add(row)
         await self._session.flush()
+        if kind is AbsenceKind.EXPLAIN:
+            for item in files:
+                item.request_id = row.id
+            await self._session.flush()
         chain = await self.chain_for(user_id)
         for position, level in enumerate(plan_levels(kind, chain, user_id)):
             self._session.add(
@@ -427,7 +469,12 @@ class HrAbsenceService:
             request_id,
             AuditAction.HR_ABSENCE_SUBMITTED,
             row,
-            {"kind": row.kind, "leave_type": row.leave_type_code, "days": _num(row.days)},
+            {
+                "kind": row.kind,
+                "leave_type": row.leave_type_code,
+                "days": _num(row.days),
+                "files": len(file_ids) if kind is AbsenceKind.EXPLAIN else 0,
+            },
         )
         await self._advance(row, actor=actor)
         return row
@@ -626,6 +673,8 @@ class HrAbsenceService:
                 else f" ({PART_LABELS[DayPart(row.part)].lower()})"
             )
             what = f"{leave or 'Nghỉ'} {when}{part}, {_days_text(row.days)} ngày"
+        elif kind is AbsenceKind.EXPLAIN:
+            what = f"{KIND_LABELS[kind]} {_fmt_day(row.start_on)}: {_declared(row)}"
         else:
             verb = "đến lúc" if kind is AbsenceKind.LATE else "về lúc"
             at = row.at_time.strftime("%H:%M") if row.at_time else ""
@@ -783,8 +832,26 @@ class HrAbsenceService:
         people = await self._people(ids)
         types = {item.code: item for item in await self.leave_types(include_inactive=True)}
         seats = await load_seats(self._session, [row.user_id for row in rows])
-        return [
-            self._view(
+        files_of: dict[uuid.UUID, list[dict[str, Any]]] = {}
+        for request, file_id, name, content_type, size in (
+            await self._session.execute(
+                select(
+                    HrAbsenceFile.request_id,
+                    HrAbsenceFile.id,
+                    HrAbsenceFile.name,
+                    HrAbsenceFile.content_type,
+                    HrAbsenceFile.size_bytes,
+                )
+                .where(HrAbsenceFile.request_id.in_([row.id for row in rows]))
+                .order_by(HrAbsenceFile.created_at)
+            )
+        ).all():
+            files_of.setdefault(request, []).append(
+                {"id": str(file_id), "name": name, "content_type": content_type, "size": size}
+            )
+        views = []
+        for row in rows:
+            view = self._view(
                 row,
                 steps_of.get(row.id, []),
                 people,
@@ -793,8 +860,9 @@ class HrAbsenceService:
                 actor,
                 access,
             )
-            for row in rows
-        ]
+            view["files"] = files_of.get(row.id, [])
+            views.append(view)
+        return views
 
     def _view(
         self,
@@ -861,6 +929,8 @@ class HrAbsenceService:
                 }
                 for step in steps
             ],
+            "check_in": None if row.check_in is None else row.check_in.strftime("%H:%M"),
+            "check_out": None if row.check_out is None else row.check_out.strftime("%H:%M"),
             "own": own,
             "can_decide": current is not None
             and not own
@@ -882,6 +952,113 @@ class HrAbsenceService:
             balance = await self.balance(row.user_id, row.start_on.year, today)
             view["balance"] = balance.as_dict()
         return view
+
+    # --- evidence pictures ("Giải trình chấm công") ---------------------------------------
+
+    async def upload_file(self, *, actor: Actor, name: str, data: bytes) -> HrAbsenceFile:
+        """A picture waiting to be attached to the uploader's next request."""
+        assert actor.user_id is not None
+        if not data:
+            raise HrValidationError("hr_absence_file_invalid", "Tệp rỗng.")
+        if len(data) > MAX_EVIDENCE_BYTES:
+            raise HrValidationError(
+                "hr_absence_file_invalid",
+                f"Ảnh lớn quá {MAX_EVIDENCE_BYTES // (1024 * 1024)} MB.",
+            )
+        content_type = sniff(data)
+        if content_type is None or not content_type.startswith("image/"):
+            raise HrValidationError("hr_absence_file_invalid", "Chỉ nhận ảnh JPEG, PNG hoặc WebP.")
+        stale = utcnow() - timedelta(hours=24)
+        for old in (
+            await self._session.scalars(
+                select(HrAbsenceFile).where(
+                    HrAbsenceFile.uploaded_by_user_id == actor.user_id,
+                    HrAbsenceFile.request_id.is_(None),
+                    HrAbsenceFile.created_at < stale,
+                )
+            )
+        ).all():
+            await self._session.delete(old)
+        waiting = await self._session.scalar(
+            select(func.count())
+            .select_from(HrAbsenceFile)
+            .where(
+                HrAbsenceFile.uploaded_by_user_id == actor.user_id,
+                HrAbsenceFile.request_id.is_(None),
+            )
+        )
+        if (waiting or 0) >= MAX_EVIDENCE_FILES * 3:
+            raise HrValidationError(
+                "hr_absence_file_invalid", "Bạn đã tải lên quá nhiều ảnh chưa gửi; gửi đơn trước."
+            )
+        clean = "".join(ch for ch in (name or "anh").strip() if ch.isprintable())[:255] or "anh"
+        row = HrAbsenceFile(
+            uploaded_by_user_id=actor.user_id,
+            name=clean,
+            content_type=content_type,
+            size_bytes=len(data),
+            sha256=hashlib.sha256(data).hexdigest(),
+            data=data,
+        )
+        self._session.add(row)
+        await self._session.flush()
+        return row
+
+    async def _own_waiting_files(
+        self, user_id: uuid.UUID, file_ids: Sequence[uuid.UUID]
+    ) -> list[HrAbsenceFile]:
+        wanted = list(dict.fromkeys(file_ids))
+        if not wanted:
+            raise HrValidationError(
+                "hr_absence_files_required",
+                "Gửi kèm ít nhất một ảnh xác minh "
+                "(ví dụ ảnh lịch sử duyệt web, tin nhắn công việc).",
+                field="files",
+            )
+        if len(wanted) > MAX_EVIDENCE_FILES:
+            raise HrValidationError(
+                "hr_absence_file_invalid",
+                f"Tối đa {MAX_EVIDENCE_FILES} ảnh mỗi đơn.",
+                field="files",
+            )
+        rows = list(
+            (
+                await self._session.scalars(
+                    select(HrAbsenceFile).where(
+                        HrAbsenceFile.id.in_(wanted),
+                        HrAbsenceFile.uploaded_by_user_id == user_id,
+                        HrAbsenceFile.request_id.is_(None),
+                    )
+                )
+            ).all()
+        )
+        if len(rows) != len(wanted):
+            raise HrValidationError(
+                "hr_absence_file_invalid", "Ảnh không còn, tải lên lại.", field="files"
+            )
+        return rows
+
+    async def file(self, *, actor: Actor, access: HrAccess, file_id: uuid.UUID) -> HrAbsenceFile:
+        row = await self._session.scalar(
+            select(HrAbsenceFile)
+            .options(undefer(HrAbsenceFile.data))
+            .where(HrAbsenceFile.id == file_id)
+        )
+        if row is None:
+            raise HrNotFoundError("Không tìm thấy ảnh.")
+        if row.request_id is None:
+            if row.uploaded_by_user_id != actor.user_id:
+                raise HrNotFoundError("Không tìm thấy ảnh.")
+            return row
+        await self._visible(row.request_id, actor, access)
+        return row
+
+    async def drop_file(self, *, actor: Actor, file_id: uuid.UUID) -> None:
+        row = await self._session.get(HrAbsenceFile, file_id)
+        if row is None or row.uploaded_by_user_id != actor.user_id or row.request_id is not None:
+            raise HrNotFoundError("Không tìm thấy ảnh.")
+        await self._session.delete(row)
+        await self._session.flush()
 
     # --- leave types -------------------------------------------------------------------
 
@@ -1191,6 +1368,16 @@ class HrAbsenceService:
             entity_id=None if row is None else str(row.id),
             after_data=after,
         )
+
+
+def _declared(row: HrAbsenceRequest) -> str:
+    """ "vào 08:00, ra 17:30" from a "Giải trình chấm công"."""
+    parts = []
+    if row.check_in is not None:
+        parts.append(f"vào {row.check_in:%H:%M}")
+    if row.check_out is not None:
+        parts.append(f"ra {row.check_out:%H:%M}")
+    return ", ".join(parts)
 
 
 def _num(value: Decimal | None) -> float | None:

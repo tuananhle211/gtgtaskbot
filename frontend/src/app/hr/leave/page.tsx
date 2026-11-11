@@ -65,7 +65,11 @@ function Rows({ items, tab }: { items: Absence[]; tab: Tab }) {
                 </Link>
               </td>
               <td className="whitespace-nowrap tabular-nums">
-                {item.kind === "LEAVE" ? `${days(item.days)} ngày` : `${item.minutes} phút`}
+                {item.kind === "LEAVE"
+                  ? `${days(item.days)} ngày`
+                  : item.kind === "EXPLAIN"
+                    ? `${item.files?.length ?? 0} ảnh`
+                    : `${item.minutes} phút`}
               </td>
               <td className="max-w-[18rem] text-sm">{item.reason}</td>
               <td className="whitespace-nowrap text-xs">{formatDateTime(item.created_at)}</td>
@@ -162,7 +166,12 @@ function LeaveScreen() {
       ) : (
         <Rows items={list.data.items} tab={tab} />
       )}
-      <AbsenceDialog open={open} onClose={() => setOpen(false)} />
+      <AbsenceDialog
+        open={open}
+        onClose={() => setOpen(false)}
+        initialKind={params.get("kind") === "EXPLAIN" ? "EXPLAIN" : "LEAVE"}
+        initialDay={params.get("day") ?? ""}
+      />
     </div>
   );
 }

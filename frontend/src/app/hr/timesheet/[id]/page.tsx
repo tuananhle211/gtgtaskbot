@@ -12,7 +12,7 @@ import { Suspense, use, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { attendanceApi, days, monthOf, shiftMonth, type DayDetail } from "@/lib/hr-attendance";
 import { formatDate } from "@/lib/datetime";
-import { symbolTone, useMonthLabel } from "@/components/hr-attendance";
+import { DayMark, MonthCalendar, useMonthLabel } from "@/components/hr-attendance";
 import { ConfirmButton } from "@/components/confirm";
 import { Modal, ModalBody, ModalFooter } from "@/components/modal";
 import { PageHeader, SecondaryButton } from "@/components/pr";
@@ -137,6 +137,7 @@ function PersonScreen({ id }: { id: string }) {
           </div>
         ))}
       </dl>
+      <MonthCalendar days={data.days} />
       <div className="panel table-scroll-x">
         <table className="table-dense min-w-[48rem]">
           <thead>
@@ -159,9 +160,7 @@ function PersonScreen({ id }: { id: string }) {
                   {formatDate(day.day).slice(0, 5)} <span className="text-xs text-[var(--text-muted)]">{day.weekday}</span>
                 </td>
                 <td>
-                  <span className={`inline-block min-w-8 rounded px-1 text-center text-xs ${symbolTone(day)}`}>
-                    {day.symbol || " "}
-                  </span>
+                  <DayMark cell={day} />
                 </td>
                 <td className="tabular-nums">{day.in ?? "—"}</td>
                 <td className="tabular-nums">{day.out ?? "—"}</td>
@@ -177,10 +176,26 @@ function PersonScreen({ id }: { id: string }) {
                       sớm {day.early_raw}′{day.early_excused ? ` (có đơn ${day.early_excused}′)` : ""}
                     </span>
                   ) : null}
-                  {day.missing ? <span className="text-[var(--bad)]">thiếu giờ vào / ra</span> : null}
+                  {day.missing ? (
+                    <span className="text-[var(--bad)]">
+                      thiếu giờ vào / ra
+                      {id === "me" && !data.locked ? (
+                        <>
+                          {" · "}
+                          <Link
+                            href={`/hr/leave?new=1&kind=EXPLAIN&day=${day.day}`}
+                            className="font-medium text-[var(--accent)] hover:underline"
+                          >
+                            Giải trình
+                          </Link>
+                        </>
+                      ) : null}
+                    </span>
+                  ) : null}
                 </td>
                 <td className="text-xs">{day.leave_names.join(", ")}</td>
                 <td className="text-xs text-[var(--text-muted)]">
+                  {day.explained ? "Giải trình đã duyệt. " : ""}
                   {day.edited ? "Sửa tay. " : ""}
                   {day.note}
                 </td>

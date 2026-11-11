@@ -60,6 +60,7 @@ from meobot.db.models.hr import (
     WorkSchedule,
 )
 from meobot.db.models.hr_attendance import (
+    HrAbsenceFile,
     HrAbsenceRequest,
     HrAbsenceStep,
     HrAttendanceDay,
@@ -266,6 +267,7 @@ __all__ = [
     "DepartmentPermission",
     "DriveFolder",
     "GroupMemberResponsePolicy",
+    "HrAbsenceFile",
     "HrAbsenceRequest",
     "HrAbsenceStep",
     "HrAttendanceDay",

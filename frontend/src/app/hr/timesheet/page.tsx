@@ -23,7 +23,14 @@ import {
 } from "@/lib/hr-attendance";
 import { hrApi } from "@/lib/hr";
 import { formatDate } from "@/lib/datetime";
-import { symbolTone, useMonthLabel } from "@/components/hr-attendance";
+import {
+  DayMark,
+  MarkLegend,
+  dayTipLines,
+  symbolTone,
+  useDayTip,
+  useMonthLabel,
+} from "@/components/hr-attendance";
 import { ConfirmButton } from "@/components/confirm";
 import { Modal, ModalBody, ModalFooter } from "@/components/modal";
 import { PageHeader, PrimaryButton, SecondaryButton, Select } from "@/components/pr";
@@ -180,9 +187,11 @@ function TimesheetScreen() {
     mutationFn: (locked: boolean) => attendanceApi.lock(month, locked),
     onSuccess: () => void queryClient.invalidateQueries({ queryKey: ["hr-attendance"] }),
   });
+  const tip = useDayTip();
   const go = (value: string) => router.replace(`/hr/timesheet?month=${value}`);
   if (lists === false) return <Loading />;
   const data = sheet.data;
+  const weekdayOf = new Map((data?.days ?? []).map((day) => [day.day, day.weekday]));
   return (
     <div className="space-y-4">
       <PageHeader
@@ -253,7 +262,7 @@ function TimesheetScreen() {
       ) : data ? (
         <>
           <div className="panel table-scroll-x" data-testid="timesheet-grid">
-            <table className="table-dense text-xs [&_td]:px-1 [&_th]:px-1">
+            <table className="table-dense text-xs [&_td]:px-1 [&_th]:px-1" {...tip.bind}>
               <thead>
                 <tr>
                   <th className="sticky left-0 z-10 min-w-48 bg-[var(--surface)] text-left">Nhân viên</th>
@@ -294,17 +303,10 @@ function TimesheetScreen() {
                     {person.days.map((cell) => (
                       <td
                         key={cell.day}
-                        className={`text-center ${symbolTone(cell)}`}
-                        title={[
-                          cell.in || cell.out ? `${cell.in ?? "--"} → ${cell.out ?? "--"}` : "",
-                          cell.late ? `muộn ${cell.late}′` : "",
-                          cell.early ? `sớm ${cell.early}′` : "",
-                          cell.edited ? "đã sửa tay" : "",
-                        ]
-                          .filter(Boolean)
-                          .join(" · ")}
+                        className={`cursor-default text-center ${symbolTone(cell)}`}
+                        data-tip={[person.name, ...dayTipLines(cell, weekdayOf.get(cell.day))].join("\n")}
                       >
-                        {cell.symbol}
+                        <DayMark cell={cell} />
                       </td>
                     ))}
                     <td className="text-right tabular-nums">{days(person.totals.standard)}</td>
@@ -330,17 +332,10 @@ function TimesheetScreen() {
               </tbody>
             </table>
           </div>
-          <p className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-[var(--text-muted)]">
-            {data.symbols
-              .filter((item) => item.symbol !== "")
-              .map((item) => (
-                <span key={item.symbol}>
-                  <strong className="text-[var(--text)]">{item.symbol}</strong> {item.label}
-                </span>
-              ))}
-          </p>
+          <MarkLegend symbols={data.symbols} />
         </>
       ) : null}
+      {tip.card}
       {importing ? <ImportDialog onClose={() => setImporting(false)} /> : null}
     </div>
   );

@@ -7,15 +7,20 @@
  */
 
 import Link from "next/link";
-import { useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
+import { createPortal } from "react-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
+  absenceFileUrl,
   attendanceApi,
   days,
+  dropAbsenceFile,
+  uploadAbsenceFile,
   describeAbsence,
   statusTone,
   type Absence,
   type AbsenceBody,
+  type AbsenceFile,
   type AnnualBalance,
   type DayCell,
 } from "@/lib/hr-attendance";
@@ -80,23 +85,119 @@ const KINDS: { code: Kind; label: string; hint: string }[] = [
   { code: "LEAVE", label: "Xin nghỉ", hint: "Cả ngày, nửa ngày hoặc nhiều ngày" },
   { code: "LATE", label: "Đi muộn", hint: "Đến muộn hơn giờ vào ca" },
   { code: "EARLY", label: "Về sớm", hint: "Về trước giờ hết ca" },
+  { code: "EXPLAIN", label: "Giải trình", hint: "Quên chấm vào / ra, kèm ảnh xác minh" },
 ];
 
-export function AbsenceDialog({ open, onClose }: { open: boolean; onClose: () => void }) {
+const MAX_PICTURES = 5;
+
+/** 0101: the pictures proving a "Giải trình chấm công" - uploaded as picked. */
+function EvidencePicker({
+  files,
+  onChange,
+  onBusy,
+}: {
+  files: AbsenceFile[];
+  onChange: (files: AbsenceFile[]) => void;
+  onBusy: (busy: boolean) => void;
+}) {
+  const [error, setError] = useState<string | null>(null);
+  const [uploading, setUploading] = useState(0);
+  const add = async (picked: FileList | null) => {
+    if (!picked?.length) return;
+    setError(null);
+    const room = MAX_PICTURES - files.length;
+    const chosen = Array.from(picked).slice(0, Math.max(0, room));
+    if (picked.length > room) setError(`Tối đa ${MAX_PICTURES} ảnh mỗi đơn.`);
+    setUploading(chosen.length);
+    onBusy(true);
+    const done: AbsenceFile[] = [];
+    for (const file of chosen) {
+      try {
+        done.push(await uploadAbsenceFile(file));
+      } catch (problem) {
+        setError(problem instanceof Error ? problem.message : "Không tải ảnh lên được.");
+      }
+    }
+    setUploading(0);
+    onBusy(false);
+    onChange([...files, ...done]);
+  };
+  const remove = (item: AbsenceFile) => {
+    onChange(files.filter((file) => file.id !== item.id));
+    void dropAbsenceFile(item.id).catch(() => undefined);
+  };
+  return (
+    <fieldset className="space-y-2" data-testid="evidence-picker">
+      <legend className="text-xs font-medium text-[var(--text-muted)]">
+        Ảnh xác minh (bắt buộc, tối đa {MAX_PICTURES}): ảnh lịch sử duyệt web, tin nhắn, email công việc lúc đó…
+      </legend>
+      <div className="flex flex-wrap gap-2">
+        {files.map((item) => (
+          <figure key={item.id} className="relative h-20 w-20 overflow-hidden rounded-lg border border-[var(--border)]">
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img src={absenceFileUrl(item.id)} alt={item.name} className="h-full w-full object-cover" />
+            <button
+              type="button"
+              onClick={() => remove(item)}
+              aria-label={`Bỏ ảnh ${item.name}`}
+              className="absolute right-1 top-1 h-6 w-6 rounded-full bg-[var(--surface)] text-xs shadow"
+            >
+              ×
+            </button>
+          </figure>
+        ))}
+        {files.length < MAX_PICTURES ? (
+          <label className="flex h-20 w-20 cursor-pointer flex-col items-center justify-center rounded-lg border border-dashed border-[var(--border)] text-xs text-[var(--text-muted)] hover:bg-[var(--surface-muted)]">
+            {uploading ? "Đang tải…" : "+ Thêm ảnh"}
+            <input
+              type="file"
+              accept="image/png,image/jpeg,image/webp"
+              multiple
+              className="sr-only"
+              aria-label="Chọn ảnh xác minh"
+              onChange={(event) => {
+                void add(event.target.files);
+                event.target.value = "";
+              }}
+            />
+          </label>
+        ) : null}
+      </div>
+      {error ? <p className="text-xs text-[var(--bad)]">{error}</p> : null}
+    </fieldset>
+  );
+}
+
+export function AbsenceDialog({
+  open,
+  onClose,
+  initialKind = "LEAVE",
+  initialDay = "",
+}: {
+  open: boolean;
+  onClose: () => void;
+  /** Opened from a "!" day of the timesheet: "Giải trình" that day. */
+  initialKind?: Kind;
+  initialDay?: string;
+}) {
   const queryClient = useQueryClient();
   const form = useQuery({
     queryKey: ["hr-attendance", "form"],
     queryFn: attendanceApi.form,
     enabled: open,
   });
-  const [kind, setKind] = useState<Kind>("LEAVE");
+  const [kind, setKind] = useState<Kind>(initialKind);
   const [leaveType, setLeaveType] = useState("ANNUAL");
-  const [start, setStart] = useState("");
+  const [start, setStart] = useState(initialDay);
   const [end, setEnd] = useState("");
   const [part, setPart] = useState<AbsenceBody["part"]>("FULL");
   const [at, setAt] = useState("");
   const [reason, setReason] = useState("");
   const [sent, setSent] = useState<Absence | null>(null);
+  const [checkIn, setCheckIn] = useState("");
+  const [checkOut, setCheckOut] = useState("");
+  const [files, setFiles] = useState<AbsenceFile[]>([]);
+  const [uploading, setUploading] = useState(false);
 
   const reset = () => {
     setKind("LEAVE");
@@ -106,6 +207,9 @@ export function AbsenceDialog({ open, onClose }: { open: boolean; onClose: () =>
     setAt("");
     setReason("");
     setSent(null);
+    setCheckIn("");
+    setCheckOut("");
+    setFiles([]);
   };
   const close = () => {
     reset();
@@ -120,8 +224,15 @@ export function AbsenceDialog({ open, onClose }: { open: boolean; onClose: () =>
         start_on: start,
         end_on: kind === "LEAVE" ? end || start : null,
         part: kind === "LEAVE" && (!end || end === start) ? part : "FULL",
-        at_time: kind === "LEAVE" ? null : at,
+        at_time: kind === "LATE" || kind === "EARLY" ? at : null,
         reason: reason.trim(),
+        ...(kind === "EXPLAIN"
+          ? {
+              check_in: checkIn || null,
+              check_out: checkOut || null,
+              file_ids: files.map((item) => item.id),
+            }
+          : {}),
       }),
     onSuccess: (row) => {
       setSent(row);
@@ -135,7 +246,15 @@ export function AbsenceDialog({ open, onClose }: { open: boolean; onClose: () =>
   const ready =
     Boolean(start) &&
     Boolean(reason.trim()) &&
-    (kind === "LEAVE" ? Boolean(leaveType) && (!end || end >= start) : CLOCK.test(at));
+    (kind === "LEAVE"
+      ? Boolean(leaveType) && (!end || end >= start)
+      : kind === "EXPLAIN"
+        ? (Boolean(checkIn) || Boolean(checkOut)) &&
+          (!checkIn || CLOCK.test(checkIn)) &&
+          (!checkOut || CLOCK.test(checkOut)) &&
+          files.length > 0 &&
+          !uploading
+        : CLOCK.test(at));
 
   return (
     <Modal open={open} onClose={close} title={sent ? "Đã gửi đơn" : "Tạo đơn"} size="lg" busy={submit.isPending}>
@@ -170,7 +289,7 @@ export function AbsenceDialog({ open, onClose }: { open: boolean; onClose: () =>
             {form.isError ? <ErrorBox error={form.error} onRetry={() => form.refetch()} /> : null}
             <fieldset>
               <legend className="text-xs font-medium text-[var(--text-muted)]">Loại đơn</legend>
-              <div role="radiogroup" aria-label="Loại đơn" className="mt-1 grid grid-cols-3 gap-2">
+              <div role="radiogroup" aria-label="Loại đơn" className="mt-1 grid grid-cols-2 gap-2 sm:grid-cols-4">
                 {KINDS.map((item) => (
                   <button
                     key={item.code}
@@ -254,6 +373,41 @@ export function AbsenceDialog({ open, onClose }: { open: boolean; onClose: () =>
                   </div>
                 ) : null}
               </>
+            ) : kind === "EXPLAIN" ? (
+              <>
+                <div className="grid gap-3 sm:grid-cols-3">
+                  <label className="block text-xs font-medium text-[var(--text-muted)]">
+                    Ngày quên chấm
+                    <DateInput value={start} onChange={(event) => setStart(event.target.value)} className="mt-1" aria-label="Ngày quên chấm" />
+                  </label>
+                  <label className="block text-xs font-medium text-[var(--text-muted)]">
+                    Giờ vào thực tế
+                    <input
+                      value={checkIn}
+                      onChange={(event) => setCheckIn(event.target.value)}
+                      placeholder="08:00"
+                      inputMode="numeric"
+                      className={`${FIELD} mt-1`}
+                      aria-invalid={Boolean(checkIn) && !CLOCK.test(checkIn)}
+                    />
+                  </label>
+                  <label className="block text-xs font-medium text-[var(--text-muted)]">
+                    Giờ ra thực tế
+                    <input
+                      value={checkOut}
+                      onChange={(event) => setCheckOut(event.target.value)}
+                      placeholder="17:30"
+                      inputMode="numeric"
+                      className={`${FIELD} mt-1`}
+                      aria-invalid={Boolean(checkOut) && !CLOCK.test(checkOut)}
+                    />
+                  </label>
+                </div>
+                <p className="text-xs text-[var(--text-muted)]">
+                  Nhập giờ bạn quên chấm (vào, ra hoặc cả hai). Duyệt xong, bảng công tính theo giờ này.
+                </p>
+                <EvidencePicker files={files} onChange={setFiles} onBusy={setUploading} />
+              </>
             ) : (
               <div className="grid gap-3 sm:grid-cols-2">
                 <label className="block text-xs font-medium text-[var(--text-muted)]">
@@ -314,6 +468,29 @@ export function AbsenceDialog({ open, onClose }: { open: boolean; onClose: () =>
         </form>
       )}
     </Modal>
+  );
+}
+
+/** 0101: the pictures of a "Giải trình chấm công", each opening full size. */
+export function EvidenceGallery({ files }: { files: AbsenceFile[] }) {
+  if (!files.length) return null;
+  return (
+    <ul className="flex flex-wrap gap-2" aria-label="Ảnh xác minh">
+      {files.map((item) => (
+        <li key={item.id}>
+          <a
+            href={absenceFileUrl(item.id)}
+            target="_blank"
+            rel="noreferrer"
+            className="block h-28 w-28 overflow-hidden rounded-lg border border-[var(--border)] hover:opacity-90"
+            title={item.name}
+          >
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img src={absenceFileUrl(item.id)} alt={item.name} className="h-full w-full object-cover" />
+          </a>
+        </li>
+      ))}
+    </ul>
   );
 }
 
@@ -473,16 +650,290 @@ export function CancelButton({ item, own }: { item: Absence; own: boolean }) {
 
 // --- the timesheet's cells -----------------------------------------------------------------
 
-/** The colour of a day's symbol: worked, leave, holiday, absent, missing. */
+/** A soft cell tint behind a day's mark: bad days red, holidays blue. */
 export function symbolTone(cell: Pick<DayCell, "symbol" | "missing" | "late" | "early">): string {
-  if (cell.missing || cell.symbol === "!") return "bg-[var(--bad-soft)] text-[var(--bad)] font-semibold";
-  if (cell.symbol === "V") return "bg-[var(--bad-soft)] text-[var(--bad)]";
-  if (cell.symbol === "L") return "bg-[var(--accent-soft)] text-[var(--accent-strong)]";
-  if (cell.symbol === "X" || cell.symbol === "X/2") {
-    return cell.late || cell.early ? "bg-[var(--warn-soft)] text-[var(--text)]" : "text-[var(--good)]";
+  if (cell.missing || cell.symbol === "!" || cell.symbol === "V" || cell.symbol.endsWith("/V")) {
+    return "bg-[var(--bad-soft)]";
   }
-  if (cell.symbol === "-" || cell.symbol === "") return "text-[var(--text-muted)]";
-  return "bg-[var(--magenta-soft)] text-[var(--magenta)]";
+  if (cell.symbol === "L") return "bg-[var(--accent-soft)]";
+  // Late / early: the amber clock says it; a tint would cover most of the sheet.
+  return "";
+}
+
+type MarkKind = "work" | "half" | "late" | "absent" | "missing" | "holiday" | "off" | "leave" | "none";
+
+function markKind(cell: Pick<DayCell, "symbol" | "missing" | "late" | "early">): MarkKind {
+  const symbol = cell.symbol;
+  if (cell.missing || symbol === "!") return "missing";
+  if (symbol === "") return "none";
+  if (symbol === "-") return "off";
+  if (symbol === "L") return "holiday";
+  if (symbol === "V") return "absent";
+  if (symbol === "X" || symbol === "X/2") {
+    if (cell.late || cell.early) return "late";
+    return symbol === "X" ? "work" : "half";
+  }
+  return "leave";
+}
+
+const MARK_COLOR: Record<MarkKind, string> = {
+  work: "text-[var(--good)]",
+  half: "text-[var(--good)]",
+  late: "text-[var(--warn)]",
+  absent: "text-[var(--bad)]",
+  missing: "text-[var(--bad)]",
+  holiday: "text-[var(--accent)]",
+  off: "text-[var(--text-muted)]",
+  leave: "text-[var(--magenta)]",
+  none: "text-[var(--text-muted)]",
+};
+
+/** The picture of each kind of day: 20-grid strokes, `currentColor`. */
+function MarkIcon({ kind }: { kind: MarkKind }) {
+  const common = {
+    width: 18,
+    height: 18,
+    viewBox: "0 0 20 20",
+    fill: "none",
+    stroke: "currentColor",
+    strokeWidth: 1.8,
+    strokeLinecap: "round" as const,
+    strokeLinejoin: "round" as const,
+    "aria-hidden": true,
+  };
+  switch (kind) {
+    case "work":
+      return (
+        <svg {...common}>
+          <circle cx="10" cy="10" r="7.5" fill="currentColor" fillOpacity="0.15" />
+          <path d="m6.5 10.2 2.3 2.3 4.7-4.9" />
+        </svg>
+      );
+    case "half":
+      return (
+        <svg {...common}>
+          <circle cx="10" cy="10" r="7.5" />
+          <path d="M10 2.5a7.5 7.5 0 0 1 0 15Z" fill="currentColor" stroke="none" />
+        </svg>
+      );
+    case "late":
+      return (
+        <svg {...common}>
+          <circle cx="10" cy="10" r="7.5" fill="currentColor" fillOpacity="0.15" />
+          <path d="M10 6v4.2l2.8 1.8" />
+        </svg>
+      );
+    case "absent":
+      return (
+        <svg {...common}>
+          <circle cx="10" cy="10" r="7.5" fill="currentColor" fillOpacity="0.15" />
+          <path d="m7.3 7.3 5.4 5.4m0-5.4-5.4 5.4" />
+        </svg>
+      );
+    case "missing":
+      return (
+        <svg {...common}>
+          <path d="M10 2.8 18 16.5H2Z" fill="currentColor" fillOpacity="0.15" />
+          <path d="M10 8v3.8m0 2.4v.1" />
+        </svg>
+      );
+    case "holiday":
+      return (
+        <svg {...common}>
+          <path d="m10 2.8 2.2 4.5 5 .7-3.6 3.5.9 5-4.5-2.4-4.5 2.4.9-5L2.8 8l5-.7Z" fill="currentColor" fillOpacity="0.2" />
+        </svg>
+      );
+    case "off":
+      return (
+        <svg {...common}>
+          <path d="M7 10h6" />
+        </svg>
+      );
+    default:
+      return null;
+  }
+}
+
+/**
+ * A day of the timesheet as a coloured mark: ✓ đi làm (green), half circle
+ * nửa ngày, clock đi muộn / về sớm (amber), ✕ vắng (red), ⚠ thiếu giờ (red),
+ * ★ lễ (blue), – không có ca; a leave keeps its letter (P, KL, Ô…) in a
+ * magenta pill. The letter stays for screen readers and the Excel file.
+ */
+export function DayMark({
+  cell,
+  label,
+}: {
+  cell: Pick<DayCell, "symbol" | "missing" | "late" | "early">;
+  label?: string;
+}) {
+  const kind = markKind(cell);
+  if (kind === "none") return <span className="sr-only">{label ?? ""}</span>;
+  const text =
+    label ?? (kind === "late" ? "Đi làm, có đi muộn / về sớm" : (SYMBOL_TEXT[cell.symbol] ?? cell.symbol));
+  if (kind === "leave") {
+    const letter = cell.symbol.split("/")[0];
+    return (
+      <span
+        className="inline-flex min-w-6 items-center justify-center rounded-full bg-[var(--magenta-soft)] px-1.5 py-0.5 text-[10px] font-semibold leading-none text-[var(--magenta)]"
+        aria-label={text}
+      >
+        {letter}
+        {cell.symbol.includes("/") ? <span className="ml-0.5 opacity-70">½</span> : null}
+        <span className="sr-only">{cell.symbol}</span>
+      </span>
+    );
+  }
+  return (
+    <span className={`inline-flex items-center justify-center ${MARK_COLOR[kind]}`} aria-label={text}>
+      <MarkIcon kind={kind} />
+      <span className="sr-only">{cell.symbol}</span>
+    </span>
+  );
+}
+
+const SYMBOL_TEXT: Record<string, string> = {
+  X: "Đi làm đủ",
+  "X/2": "Đi làm nửa ngày",
+  L: "Nghỉ lễ",
+  V: "Vắng không phép",
+  "!": "Thiếu giờ vào / ra",
+  "-": "Không có ca",
+};
+
+/** One line of the legend: the mark and its meaning. */
+export function MarkLegend({ symbols }: { symbols: { symbol: string; label: string }[] }) {
+  const extra = [{ symbol: "X", label: "Đi muộn / về sớm", late: 1 }];
+  return (
+    <p className="flex flex-wrap items-center gap-x-4 gap-y-2 text-xs text-[var(--text-muted)]" data-testid="mark-legend">
+      {symbols
+        .filter((item) => item.symbol !== "")
+        .map((item) => (
+          <span key={item.symbol} className="inline-flex items-center gap-1">
+            <DayMark cell={{ symbol: item.symbol, missing: false, late: 0, early: 0 }} label={item.label} />
+            {item.label}
+          </span>
+        ))}
+      {extra.map((item) => (
+        <span key={item.label} className="inline-flex items-center gap-1">
+          <DayMark cell={{ symbol: item.symbol, missing: false, late: item.late, early: 0 }} label={item.label} />
+          {item.label}
+        </span>
+      ))}
+    </p>
+  );
+}
+
+/** The lines a day's hover card shows: when, the punches, late / early, notes. */
+export function dayTipLines(cell: DayCell & { weekday?: string; leave_names?: string[] }, weekday?: string): string[] {
+  const date = `${cell.day.slice(8, 10)}/${cell.day.slice(5, 7)}/${cell.day.slice(0, 4)}`;
+  const lines = [`${weekday ?? cell.weekday ?? ""} ${date}`.trim()];
+  if (cell.in || cell.out) {
+    lines.push(`Check in: ${cell.in ?? "chưa chấm"}`);
+    lines.push(`Check out: ${cell.out ?? "chưa chấm"}`);
+  } else {
+    lines.push("Không có giờ chấm công");
+  }
+  if (cell.late) lines.push(`Đi muộn ${cell.late} phút`);
+  if (cell.early) lines.push(`Về sớm ${cell.early} phút`);
+  if (cell.missing) lines.push("Thiếu giờ vào / ra");
+  if (cell.leave_names?.length) lines.push(cell.leave_names.join(", "));
+  if (cell.explained) lines.push("Giải trình đã duyệt");
+  if (cell.edited) lines.push("HCNS đã sửa tay");
+  return lines;
+}
+
+type Tip = { lines: string[]; x: number; top: number; bottom: number };
+
+/**
+ * One hover card for a whole grid: cells carry `data-tip` (lines joined by
+ * "\n"); the card is portalled with `position: fixed`, so a scrolling table
+ * never clips it, and sits above the cell (below when there is no room).
+ */
+export function useDayTip() {
+  const [tip, setTip] = useState<Tip | null>(null);
+  const show = useCallback((event: React.SyntheticEvent) => {
+    const cell = (event.target as HTMLElement).closest<HTMLElement>("[data-tip]");
+    if (!cell) return setTip(null);
+    const rect = cell.getBoundingClientRect();
+    setTip({
+      lines: (cell.dataset.tip ?? "").split("\n"),
+      x: rect.left + rect.width / 2,
+      top: rect.top,
+      bottom: rect.bottom,
+    });
+  }, []);
+  const hide = useCallback(() => setTip(null), []);
+  useEffect(() => {
+    if (!tip) return;
+    window.addEventListener("scroll", hide, true);
+    return () => window.removeEventListener("scroll", hide, true);
+  }, [tip, hide]);
+  const above = tip ? tip.top > 140 : true;
+  const card =
+    tip && typeof document !== "undefined"
+      ? createPortal(
+          <div
+            role="tooltip"
+            data-testid="day-tip"
+            className="pointer-events-none fixed z-[130] min-w-40 rounded-lg border border-[var(--border)] bg-[var(--surface)] px-3 py-2 text-xs text-[var(--text)] shadow-[var(--shadow-pop)]"
+            style={{
+              left: Math.min(Math.max(tip.x, 90), window.innerWidth - 90),
+              top: above ? tip.top - 8 : tip.bottom + 8,
+              transform: `translate(-50%, ${above ? "-100%" : "0"})`,
+            }}
+          >
+            <p className="font-semibold">{tip.lines[0]}</p>
+            {tip.lines.slice(1).map((line) => (
+              <p key={line} className={line.startsWith("Check") ? "tabular-nums" : "text-[var(--text-muted)]"}>
+                {line}
+              </p>
+            ))}
+          </div>,
+          document.body,
+        )
+      : null;
+  return { bind: { onMouseOver: show, onMouseLeave: hide, onFocus: show, onBlur: hide }, card };
+}
+
+/** "Bảng công của tôi" as a month calendar (Monday first), each day with its hover card. */
+export function MonthCalendar({ days: cells }: { days: (DayCell & { weekday: string; leave_names?: string[] })[] }) {
+  const { bind, card } = useDayTip();
+  if (!cells.length) return null;
+  const first = new Date(`${cells[0].day}T00:00:00`);
+  const lead = (first.getDay() + 6) % 7;
+  return (
+    <section className="panel p-4" data-testid="month-calendar">
+      <div className="grid grid-cols-7 gap-1 text-center text-xs" {...bind}>
+        {["T2", "T3", "T4", "T5", "T6", "T7", "CN"].map((name) => (
+          <span key={name} className="py-1 font-medium text-[var(--text-muted)]">
+            {name}
+          </span>
+        ))}
+        {Array.from({ length: lead }, (_, index) => (
+          <span key={`lead-${index}`} />
+        ))}
+        {cells.map((cell) => (
+          <div
+            key={cell.day}
+            tabIndex={0}
+            data-tip={dayTipLines(cell).join("\n")}
+            aria-label={dayTipLines(cell).join(", ")}
+            className={`flex min-h-14 flex-col items-center justify-center rounded-lg border border-[var(--border)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-[var(--accent)] ${symbolTone(cell)}`}
+          >
+            <span className="text-[11px] text-[var(--text-muted)]">{Number(cell.day.slice(8))}</span>
+            <DayMark cell={cell} />
+            {cell.in || cell.out ? (
+              <span className="hidden text-[10px] tabular-nums text-[var(--text-muted)] sm:block">
+                {cell.in ?? "--"}–{cell.out ?? "--"}
+              </span>
+            ) : null}
+          </div>
+        ))}
+      </div>
+      {card}
+    </section>
+  );
 }
 
 export function useMonthLabel(month: string): string {

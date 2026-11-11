@@ -161,6 +161,81 @@ describe("Đơn từ", () => {
   });
 });
 
+describe("Giải trình chấm công", () => {
+  it("opens on the forgotten day, uploads a picture and sends the real time", async () => {
+    params.value = new URLSearchParams("new=1&kind=EXPLAIN&day=2026-11-04");
+    const stub = stubFetch([
+      { match: "/api/hr/attendance/access", body: ACCESS },
+      { match: "/api/hr/leave/me", body: { balance: BALANCE, adjustments: [] } },
+      { match: "/api/hr/absences/form", body: { ...FORM, chain: { ...FORM.chain, EXPLAIN: FORM.chain.LATE } } },
+      {
+        match: "/api/hr/absences",
+        method: "POST",
+        body: {
+          ...REQUEST,
+          kind: "EXPLAIN",
+          kind_label: "Giải trình chấm công",
+          start_on: "2026-11-04",
+          end_on: "2026-11-04",
+          check_in: null,
+          check_out: "17:35",
+          files: [{ id: "f1", name: "lich-su.png", content_type: "image/png", size: 10 }],
+          own: true,
+          can_decide: false,
+        },
+      },
+      { match: "/api/hr/absences?tab=mine", body: { items: [], awaiting: 0 } },
+    ]);
+    const stubbed = globalThis.fetch;
+    const uploads: string[] = [];
+    vi.stubGlobal("fetch", ((input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      if (url.startsWith("/api/hr/absence-files") && init?.method === "POST") {
+        uploads.push(url);
+        return Promise.resolve(
+          new Response(JSON.stringify({ id: "f1", name: "lich-su.png", content_type: "image/png", size: 10 }), {
+            status: 201,
+          }),
+        );
+      }
+      return stubbed(input, init);
+    }) as typeof fetch);
+    renderWithQuery(<LeavePage />);
+    const dialog = await screen.findByRole("dialog", { name: "Tạo đơn" });
+    expect(within(dialog).getByRole("radio", { name: /Giải trình/ })).toHaveAttribute("aria-checked", "true");
+    expect(within(dialog).getByLabelText("Ngày quên chấm")).toHaveValue("04/11/2026");
+    await userEvent.type(within(dialog).getByLabelText("Giờ ra thực tế"), "17:35");
+    await userEvent.type(within(dialog).getByLabelText("Lý do"), "Quên chấm ra");
+    const send = within(dialog).getByRole("button", { name: "Gửi đơn" });
+    expect(send).toBeDisabled(); // no picture yet
+    await userEvent.upload(
+      within(dialog).getByLabelText("Chọn ảnh xác minh"),
+      new File([new Uint8Array([137, 80, 78, 71])], "lich-su.png", { type: "image/png" }),
+    );
+    expect(await within(dialog).findByRole("img", { name: "lich-su.png" })).toHaveAttribute(
+      "src",
+      "/api/hr/absence-files/f1",
+    );
+    expect(uploads).toEqual(["/api/hr/absence-files?name=lich-su.png"]);
+    await waitFor(() => expect(send).toBeEnabled());
+    await userEvent.click(send);
+    await waitFor(() =>
+      expect(sent(stub, "POST", "/api/hr/absences")[0]?.body).toEqual({
+        kind: "EXPLAIN",
+        leave_type: null,
+        start_on: "2026-11-04",
+        end_on: null,
+        part: "FULL",
+        at_time: null,
+        reason: "Quên chấm ra",
+        check_in: null,
+        check_out: "17:35",
+        file_ids: ["f1"],
+      }),
+    );
+  });
+});
+
 describe("Bảng công", () => {
   it("draws the month and previews the time clock's file", async () => {
     params.value = new URLSearchParams("month=2026-10");
@@ -212,6 +287,21 @@ describe("Bảng công", () => {
     const row = await screen.findByTestId("timesheet-row");
     expect(row).toHaveTextContent("Phạm Hồng Sơn");
     expect(row).toHaveTextContent("1 (13′)");
+    // Days are coloured marks, not bare letters.
+    expect(within(row).getByLabelText("Đi làm, có đi muộn / về sớm")).toBeInTheDocument();
+    expect(within(row).getByLabelText("Thiếu giờ vào / ra")).toBeInTheDocument();
+    expect(screen.getByTestId("mark-legend")).toHaveTextContent("Đi làm đủ");
+    // Hovering a day shows its check in / check out.
+    await userEvent.hover(within(row).getByText("X"));
+    const tip = await screen.findByRole("tooltip");
+    expect(tip).toHaveTextContent("Phạm Hồng Sơn");
+    expect(tip).toHaveTextContent("Check in: 08:13");
+    expect(tip).toHaveTextContent("Check out: 18:00");
+    expect(tip).toHaveTextContent("Đi muộn 13 phút");
+    await userEvent.hover(within(row).getByText("!"));
+    expect(await screen.findByRole("tooltip")).toHaveTextContent("Check out: chưa chấm");
+    await userEvent.unhover(within(row).getByText("!"));
+    await waitFor(() => expect(screen.queryByRole("tooltip")).not.toBeInTheDocument());
     expect(screen.getByRole("link", { name: "Xuất Excel" })).toHaveAttribute(
       "href",
       "/api/hr/timesheet/export.xlsx?month=2026-10",

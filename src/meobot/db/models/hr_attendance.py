@@ -22,19 +22,22 @@ from decimal import Decimal
 
 from sqlalchemy import (
     Boolean,
+    CheckConstraint,
     Date,
     DateTime,
     ForeignKey,
     Index,
     Integer,
+    LargeBinary,
     Numeric,
     String,
     Text,
     Time,
     UniqueConstraint,
+    func,
     text,
 )
-from sqlalchemy.orm import Mapped, mapped_column
+from sqlalchemy.orm import Mapped, deferred, mapped_column
 
 from meobot.db.base import Base, JSONColumn, TimestampMixin, UUIDPrimaryKeyMixin
 from meobot.db.models.pr import RESTRICT, USERS_TABLE
@@ -42,6 +45,7 @@ from meobot.db.models.pr import RESTRICT, USERS_TABLE
 LEAVE_TYPES = "hr_leave_types"
 ABSENCES = "hr_absence_requests"
 STEPS = "hr_absence_steps"
+ABSENCE_FILES = "hr_absence_files"
 SHIFTS = "hr_shifts"
 ATTENDANCE = "hr_attendance_days"
 ADJUSTMENTS = "hr_leave_adjustments"
@@ -83,6 +87,9 @@ class HrAbsenceRequest(Base, UUIDPrimaryKeyMixin, TimestampMixin):
     part: Mapped[str] = mapped_column(String(10), nullable=False, server_default=text("'FULL'"))
     #: Late: the time one arrives; early: the time one leaves.
     at_time: Mapped[time | None] = mapped_column(Time, nullable=True)
+    #: 0101 "Giải trình chấm công": the real times the person declares.
+    check_in: Mapped[time | None] = mapped_column(Time, nullable=True)
+    check_out: Mapped[time | None] = mapped_column(Time, nullable=True)
     #: Late / early minutes against the shift.
     minutes: Mapped[int | None] = mapped_column(Integer, nullable=True)
     #: Working days a leave takes, worked out when sent.
@@ -95,6 +102,29 @@ class HrAbsenceRequest(Base, UUIDPrimaryKeyMixin, TimestampMixin):
         ForeignKey(f"{USERS_TABLE}.id", ondelete="SET NULL"), nullable=True
     )
     cancel_note: Mapped[str | None] = mapped_column(Text, nullable=True)
+
+
+class HrAbsenceFile(Base, UUIDPrimaryKeyMixin):
+    """0101: a picture proving a "Giải trình chấm công". Uploaded first
+    (``request_id`` NULL, its uploader's), attached when the request is sent."""
+
+    __tablename__ = ABSENCE_FILES
+    __table_args__ = (CheckConstraint("size_bytes > 0", name="size_positive"),)
+
+    request_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey(f"{ABSENCES}.id", ondelete="CASCADE"), nullable=True, index=True
+    )
+    uploaded_by_user_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey(f"{USERS_TABLE}.id", ondelete=RESTRICT), nullable=False, index=True
+    )
+    name: Mapped[str] = mapped_column(String(255), nullable=False)
+    content_type: Mapped[str] = mapped_column(String(100), nullable=False)
+    size_bytes: Mapped[int] = mapped_column(Integer, nullable=False)
+    sha256: Mapped[str] = mapped_column(String(64), nullable=False)
+    data: Mapped[bytes] = deferred(mapped_column(LargeBinary, nullable=False))
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
 
 
 class HrAbsenceStep(Base, UUIDPrimaryKeyMixin, TimestampMixin):
@@ -181,11 +211,13 @@ class HrLeaveAdjustment(Base, UUIDPrimaryKeyMixin, TimestampMixin):
 
 __all__ = [
     "ABSENCES",
+    "ABSENCE_FILES",
     "ADJUSTMENTS",
     "ATTENDANCE",
     "LEAVE_TYPES",
     "SHIFTS",
     "STEPS",
+    "HrAbsenceFile",
     "HrAbsenceRequest",
     "HrAbsenceStep",
     "HrAttendanceDay",

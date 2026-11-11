@@ -115,6 +115,10 @@ async def test_01_tables_seeds_and_grants(dsn: str, database: Database) -> None:
             item
             for item in compare_metadata(context, Base.metadata)
             if any(table in repr(item) for table in TABLES)
+            # 0101 adds these after this revision.
+            and "hr_absence_files" not in repr(item)
+            and "check_in" not in repr(item)
+            and "check_out" not in repr(item)
         ]
 
     async with database.engine.begin() as connection:

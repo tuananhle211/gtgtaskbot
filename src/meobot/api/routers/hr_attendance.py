@@ -40,6 +40,7 @@ from meobot.core.config import Settings
 from meobot.domain.hr.attendance import (
     KIND_LABELS,
     LEVEL_LABELS,
+    MAX_EVIDENCE_BYTES,
     PART_LABELS,
     STATUS_LABELS,
     WEEKDAY_LABELS,
@@ -87,6 +88,10 @@ class AbsenceBody(BaseModel):
     part: DayPart = DayPart.FULL
     at_time: time | None = None
     reason: str = Field(min_length=1, max_length=1000)
+    #: 0101 "Giải trình chấm công": the real times + the uploaded pictures.
+    check_in: time | None = None
+    check_out: time | None = None
+    file_ids: list[uuid.UUID] = Field(default_factory=list, max_length=10)
 
 
 class DecideBody(BaseModel):
@@ -236,8 +241,76 @@ async def submit_absence(
         at_time=body.at_time,
         reason=body.reason,
         today=vn_today(),
+        check_in=body.check_in,
+        check_out=body.check_out,
+        file_ids=body.file_ids,
     )
     return (await absences.views([row], actor=actor, access=access))[0]
+
+
+@router.post("/absence-files", status_code=status.HTTP_201_CREATED)
+async def upload_absence_file(
+    request: Request,
+    session: SessionDep,
+    settings: SettingsDep,
+    membership: UnitMembershipDep,
+    actor: CurrentActorDep,
+    name: str = Query(min_length=1, max_length=255),
+) -> dict[str, Any]:
+    """0101: one picture for a "Giải trình chấm công" (raw bytes, ≤ 5 MB),
+    attached when the request is sent with its id."""
+    absences, _sheet, _access = await _ctx(session, settings, membership)
+    data = bytearray()
+    async for chunk in request.stream():
+        data.extend(chunk)
+        if len(data) > MAX_EVIDENCE_BYTES:
+            raise HrValidationError(
+                "hr_absence_file_invalid",
+                f"Ảnh lớn quá {MAX_EVIDENCE_BYTES // (1024 * 1024)} MB.",
+            )
+    row = await absences.upload_file(actor=actor, name=name, data=bytes(data))
+    return {
+        "id": str(row.id),
+        "name": row.name,
+        "content_type": row.content_type,
+        "size": row.size_bytes,
+    }
+
+
+@router.get("/absence-files/{file_id}")
+async def get_absence_file(
+    file_id: uuid.UUID,
+    session: SessionDep,
+    settings: SettingsDep,
+    membership: UnitMembershipDep,
+    actor: CurrentActorDep,
+) -> Response:
+    absences, _sheet, access = await _ctx(session, settings, membership)
+    row = await absences.file(actor=actor, access=access, file_id=file_id)
+    return Response(
+        content=row.data,
+        media_type=row.content_type,
+        headers={
+            "Content-Disposition": "inline",
+            "X-Content-Type-Options": "nosniff",
+            "Content-Security-Policy": "sandbox",
+            "Cache-Control": "private, max-age=3600",
+        },
+    )
+
+
+@router.delete("/absence-files/{file_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def drop_absence_file(
+    file_id: uuid.UUID,
+    session: SessionDep,
+    settings: SettingsDep,
+    membership: UnitMembershipDep,
+    actor: CurrentActorDep,
+) -> Response:
+    """An uploaded picture not sent yet."""
+    absences, _sheet, _access = await _ctx(session, settings, membership)
+    await absences.drop_file(actor=actor, file_id=file_id)
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
 @router.get("/absences/{absence_id}")

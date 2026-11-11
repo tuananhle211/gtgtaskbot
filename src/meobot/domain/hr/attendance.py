@@ -37,6 +37,9 @@ class AbsenceKind(StrEnum):
     LEAVE = "LEAVE"
     LATE = "LATE"
     EARLY = "EARLY"
+    #: 0101 "Giải trình chấm công": forgot to punch in / out - the real times,
+    #: with pictures as proof (screenshots of a web history, a chat…).
+    EXPLAIN = "EXPLAIN"
 
 
 KIND_LABELS: Mapping[AbsenceKind, str] = MappingProxyType(
@@ -44,8 +47,13 @@ KIND_LABELS: Mapping[AbsenceKind, str] = MappingProxyType(
         AbsenceKind.LEAVE: "Nghỉ",
         AbsenceKind.LATE: "Đi muộn",
         AbsenceKind.EARLY: "Về sớm",
+        AbsenceKind.EXPLAIN: "Giải trình chấm công",
     }
 )
+
+#: 0101: a "Giải trình chấm công" carries 1 to 5 pictures, each at most 5 MB.
+MAX_EVIDENCE_FILES = 5
+MAX_EVIDENCE_BYTES = 5 * 1024 * 1024
 
 
 class DayPart(StrEnum):
@@ -495,6 +503,8 @@ class DayResult:
     leave_names: tuple[str, ...] = ()
     edited: bool = False
     note: str | None = None
+    #: 0101: an approved "Giải trình chấm công" supplied the times.
+    explained: bool = False
 
     @property
     def late_counted(self) -> int:
@@ -522,6 +532,7 @@ def evaluate_day(
     future: bool = False,
     edited: bool = False,
     note: str | None = None,
+    explained: bool = False,
 ) -> DayResult:
     """One person's one day. ``late_allowance`` / ``early_allowance`` = the
     minutes approved "đi muộn" / "về sớm" requests cover."""
@@ -535,6 +546,7 @@ def evaluate_day(
         "check_out": check_out,
         "edited": edited,
         "note": note,
+        "explained": explained,
     }
     if not sessions:
         # No shift that day (punches, if any, stay on the sheet, not counted).
@@ -751,6 +763,8 @@ __all__ = [
     "LEAVE_TYPE_SEED",
     "LEVEL_LABELS",
     "MANAGEMENT_LEVELS",
+    "MAX_EVIDENCE_BYTES",
+    "MAX_EVIDENCE_FILES",
     "PART_LABELS",
     "SESSIONS",
     "STATUS_LABELS",

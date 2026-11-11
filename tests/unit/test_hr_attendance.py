@@ -576,3 +576,63 @@ async def test_06_an_approved_leave_shows_on_the_timesheet(world: World) -> None
     assert day["early"] == 0
     # Days after today are blank, not absent.
     assert next(item for item in sheet["days"] if item["day"] == "2026-11-20")["symbol"] == ""
+
+
+PNG = b"\x89PNG\r\n\x1a\n" + b"\x00" * 64
+
+
+async def test_07_a_forgotten_punch_is_explained_with_pictures(world: World) -> None:
+    people = await _company(world)
+    staff = as_(world, people["staff"])
+    world.session.add(
+        HrAttendanceDay(user_id=people["staff"].id, day=date(2026, 11, 4), check_in=time(8, 0))
+    )
+    await world.session.flush()
+    before = staff.get("/api/hr/timesheet/people/me?month=2026-11").json()
+    assert next(d for d in before["days"] if d["day"] == "2026-11-04")["symbol"] == "!"
+
+    # Only pictures; another person never sees a picture not sent yet.
+    refused = staff.post("/api/hr/absence-files?name=x.pdf", content=b"%PDF-1.4 x")
+    assert refused.json()["error"]["details"]["reason"] == "hr_absence_file_invalid"
+    picture = staff.post("/api/hr/absence-files?name=lich-su-web.png", content=PNG).json()
+    assert picture["content_type"] == "image/png"
+    assert (
+        as_(world, people["head"]).get(f"/api/hr/absence-files/{picture['id']}").status_code == 404
+    )
+
+    body = {
+        "kind": "EXPLAIN",
+        "start_on": "2026-11-04",
+        "check_out": "17:35",
+        "reason": "Quên chấm ra, có lịch sử duyệt web đến 17:35",
+    }
+    no_picture = staff.post("/api/hr/absences", json=body)
+    assert no_picture.json()["error"]["details"]["reason"] == "hr_absence_files_required"
+    future = staff.post(
+        "/api/hr/absences", json=body | {"start_on": "2026-11-09", "file_ids": [picture["id"]]}
+    )
+    assert future.json()["error"]["details"]["reason"] == "hr_absence_time_invalid"
+    sent = staff.post("/api/hr/absences", json=body | {"file_ids": [picture["id"]]})
+    assert sent.status_code == 201, sent.json()
+    request = sent.json()
+    assert request["kind_label"] == "Giải trình chấm công" and request["check_out"] == "17:35"
+    assert [step["level"] for step in request["steps"]] == ["MANAGER", "HR"]
+    assert [item["name"] for item in request["files"]] == ["lich-su-web.png"]
+    # The approvers open the picture; it is no longer the uploader's to drop.
+    shown = as_(world, people["head"]).get(f"/api/hr/absence-files/{picture['id']}")
+    assert shown.status_code == 200 and shown.content == PNG
+    assert shown.headers["content-security-policy"] == "sandbox"
+    assert staff.delete(f"/api/hr/absence-files/{picture['id']}").status_code == 404
+    assert (
+        as_(world, people["staff2"]).get(f"/api/hr/absence-files/{picture['id']}").status_code
+        == 404
+    )
+
+    for key in ("head", "hr"):
+        as_(world, people[key]).post(
+            f"/api/hr/absences/{request['id']}/decide", json={"approve": True}
+        )
+    after = staff.get("/api/hr/timesheet/people/me?month=2026-11").json()
+    day = next(d for d in after["days"] if d["day"] == "2026-11-04")
+    assert day["symbol"] == "X" and day["explained"] and day["out"] == "17:35"
+    assert not day["missing"]

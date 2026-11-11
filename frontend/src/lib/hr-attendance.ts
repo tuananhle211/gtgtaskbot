@@ -5,6 +5,9 @@
 import { http } from "@/lib/api";
 
 export type Choice = { code: string; label: string };
+/** 0101: EXPLAIN = "Giải trình chấm công" (quên chấm vào / ra). */
+export type AbsenceKind = "LEAVE" | "LATE" | "EARLY" | "EXPLAIN";
+export type AbsenceFile = { id: string; name: string; content_type: string; size: number };
 export type PersonRef = { id: string; name: string; member_code?: string | null };
 
 export type AttendanceAccess = {
@@ -52,7 +55,7 @@ export type ShiftWeek = Record<string, { morning?: [string, string]; afternoon?:
 
 export type AbsenceForm = {
   leave_types: LeaveType[];
-  chain: Record<"LEAVE" | "LATE" | "EARLY", ChainStep[]>;
+  chain: Record<AbsenceKind, ChainStep[]>;
   balance: AnnualBalance;
   shift: { name: string; grace_minutes: number; week: ShiftWeek };
 };
@@ -74,7 +77,7 @@ export type Absence = {
   id: string;
   user: PersonRef | null;
   departments: string[];
-  kind: "LEAVE" | "LATE" | "EARLY";
+  kind: AbsenceKind;
   kind_label: string;
   leave_type: LeaveType | null;
   start_on: string;
@@ -97,6 +100,10 @@ export type Absence = {
   waiting_on: PersonRef[];
   steps: AbsenceStep[];
   /** The caller sent it. */
+  /** 0101 "Giải trình chấm công": the declared real times + the pictures. */
+  check_in?: string | null;
+  check_out?: string | null;
+  files?: AbsenceFile[];
   own: boolean;
   can_decide: boolean;
   can_cancel: boolean;
@@ -142,6 +149,8 @@ export type DayCell = {
   early: number;
   missing: boolean;
   edited: boolean;
+  /** 0101: an approved "Giải trình chấm công" supplied the times. */
+  explained?: boolean;
 };
 
 export type DayDetail = DayCell & {
@@ -224,13 +233,16 @@ export type ImportReport = {
 };
 
 export type AbsenceBody = {
-  kind: "LEAVE" | "LATE" | "EARLY";
+  kind: AbsenceKind;
   leave_type?: string | null;
   start_on: string;
   end_on?: string | null;
   part?: "FULL" | "MORNING" | "AFTERNOON";
   at_time?: string | null;
   reason: string;
+  check_in?: string | null;
+  check_out?: string | null;
+  file_ids?: string[];
 };
 
 function query(params: Record<string, string | number | null | undefined>): string {
@@ -295,6 +307,24 @@ export const timesheetExportUrl = (month: string, departmentId?: string) =>
   `/api/hr/timesheet/export.xlsx${query({ month, department_id: departmentId })}`;
 
 /** Preview (`commit` false) or load the time clock's workbook: the raw bytes are the body. */
+/** 0101: one picture for a "Giải trình chấm công", sent before the request. */
+export async function uploadAbsenceFile(file: File): Promise<AbsenceFile> {
+  const response = await fetch(`/api/hr/absence-files?name=${encodeURIComponent(file.name)}`, {
+    method: "POST",
+    credentials: "same-origin",
+    headers: { "content-type": "application/octet-stream" },
+    body: file,
+  });
+  const body = (await response.json().catch(() => ({}))) as Partial<AbsenceFile> & {
+    error?: { message?: string };
+  };
+  if (!response.ok) throw new Error(body.error?.message ?? "Không tải ảnh lên được.");
+  return body as AbsenceFile;
+}
+
+export const dropAbsenceFile = (id: string) => http.del<void>(`/api/hr/absence-files/${id}`);
+export const absenceFileUrl = (id: string) => `/api/hr/absence-files/${id}`;
+
 export async function importAttendance(file: File, commit: boolean): Promise<ImportReport> {
   const response = await fetch(`/api/hr/attendance/import?commit=${commit ? "true" : "false"}`, {
     method: "POST",
@@ -342,6 +372,12 @@ export function describeAbsence(item: Absence): string {
     const when = item.start_on === item.end_on ? day(item.start_on) : `${day(item.start_on)} - ${day(item.end_on)}`;
     const part = item.part === "FULL" ? "" : ` (${item.part_label.toLowerCase()})`;
     return `${item.leave_type?.name ?? "Nghỉ"} ${when}${part}`;
+  }
+  if (item.kind === "EXPLAIN") {
+    const times = [item.check_in ? `vào ${item.check_in}` : "", item.check_out ? `ra ${item.check_out}` : ""]
+      .filter(Boolean)
+      .join(", ");
+    return `${item.kind_label} ${day(item.start_on)}: ${times}`;
   }
   const verb = item.kind === "LATE" ? "đến" : "về";
   return `${item.kind_label} ${day(item.start_on)}, ${verb} ${item.at_time ?? ""} (${item.minutes ?? 0} phút)`;

@@ -90,6 +90,7 @@ def _day_view(result: DayResult, *, full: bool) -> dict[str, Any]:
         "early": result.early_counted,
         "missing": result.missing,
         "edited": result.edited,
+        "explained": result.explained,
     }
     if full:
         view |= {
@@ -609,6 +610,8 @@ class HrTimesheetService:
         leaves: dict[tuple[uuid.UUID, date], list[LeaveCover]] = {}
         late: dict[tuple[uuid.UUID, date], int] = {}
         early: dict[tuple[uuid.UUID, date], int] = {}
+        #: 0101: approved "Giải trình chấm công" = the declared times win.
+        declared: dict[tuple[uuid.UUID, date], tuple[time | None, time | None]] = {}
         for request in requests:
             kind = AbsenceKind(request.kind)
             if kind is AbsenceKind.LEAVE:
@@ -629,6 +632,11 @@ class HrTimesheetService:
                         )
                     )
                     day += timedelta(days=1)
+            elif kind is AbsenceKind.EXPLAIN:
+                declared[(request.user_id, request.start_on)] = (
+                    request.check_in,
+                    request.check_out,
+                )
             else:
                 target = late if kind is AbsenceKind.LATE else early
                 key = (request.user_id, request.start_on)
@@ -642,12 +650,19 @@ class HrTimesheetService:
             results: list[DayResult] = []
             for day in days:
                 punch = punches.get((user.id, day))
+                check_in = None if punch is None else punch.check_in
+                check_out = None if punch is None else punch.check_out
+                explained = declared.get((user.id, day))
+                if explained is not None:
+                    check_in = explained[0] or check_in
+                    check_out = explained[1] or check_out
                 result = evaluate_day(
                     day=day,
                     shift=shift,
                     holiday=day in holidays,
-                    check_in=None if punch is None else punch.check_in,
-                    check_out=None if punch is None else punch.check_out,
+                    check_in=check_in,
+                    check_out=check_out,
+                    explained=explained is not None,
                     leaves=leaves.get((user.id, day), ()),
                     late_allowance=late.get((user.id, day), 0),
                     early_allowance=early.get((user.id, day), 0),
@@ -845,7 +860,15 @@ class HrTimesheetService:
                         result.late_counted or None,
                         result.early_counted or None,
                         "Có" if result.missing else None,
-                        result.note,
+                        "; ".join(
+                            item
+                            for item in (
+                                "Giải trình đã duyệt" if result.explained else None,
+                                result.note,
+                            )
+                            if item
+                        )
+                        or None,
                     ]
                 )
         legend = book.create_sheet("Ký hiệu")

@@ -7,7 +7,14 @@ import { use } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { attendanceApi, days, describeAbsence } from "@/lib/hr-attendance";
 import { formatDateTime } from "@/lib/datetime";
-import { BalanceCard, CancelButton, DecideButtons, StatusCell, StepStrip } from "@/components/hr-attendance";
+import {
+  BalanceCard,
+  CancelButton,
+  DecideButtons,
+  EvidenceGallery,
+  StatusCell,
+  StepStrip,
+} from "@/components/hr-attendance";
 import { PageHeader } from "@/components/pr";
 import { ErrorBox, Loading } from "@/components/states";
 
@@ -38,9 +45,15 @@ export default function AbsencePage({ params }: { params: Promise<{ id: string }
             ) : null}
           </div>
           <div>
-            <dt className="text-xs text-[var(--text-muted)]">{row.kind === "LEAVE" ? "Số ngày công" : "Số phút"}</dt>
+            <dt className="text-xs text-[var(--text-muted)]">
+              {row.kind === "LEAVE" ? "Số ngày công" : row.kind === "EXPLAIN" ? "Giờ khai" : "Số phút"}
+            </dt>
             <dd className="text-2xl font-semibold tabular-nums">
-              {row.kind === "LEAVE" ? days(row.days) : row.minutes}
+              {row.kind === "LEAVE"
+                ? days(row.days)
+                : row.kind === "EXPLAIN"
+                  ? `${row.check_in ?? "--"} → ${row.check_out ?? "--"}`
+                  : row.minutes}
             </dd>
           </div>
           <div>
@@ -54,6 +67,12 @@ export default function AbsencePage({ params }: { params: Promise<{ id: string }
           <p className="text-xs text-[var(--text-muted)]">Lý do</p>
           <p className="text-sm">{row.reason}</p>
         </div>
+        {row.files?.length ? (
+          <div className="space-y-1">
+            <p className="text-xs text-[var(--text-muted)]">Ảnh xác minh (bấm để xem cỡ lớn)</p>
+            <EvidenceGallery files={row.files} />
+          </div>
+        ) : null}
         {row.cancel_note ? (
           <p className="text-sm text-[var(--text-muted)]">
             Huỷ bởi {row.cancelled_by?.name}: “{row.cancel_note}”
