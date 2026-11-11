@@ -66,8 +66,9 @@ Status badges: `.st .st-<colour>` from `lib/status-colors.ts` (waiting = amber, 
 | Body/UI | Be Vietnam Pro — `--font-sans` (default) | UTM Mobifone KT (web) | everything else |
 | Label | Jura — `--font-label` | Jura (guideline body) | small uppercase eyebrows, table headers (`.brand-eyebrow`, `.table-dense th`, `.uppercase` on h2/h3/p/span) |
 
-Conthrax / UTM are commercial: never add them by URL. Fonts load via `next/font/google` (self-hosted, CSP
-`font-src 'self'` stays). Under vitest `next/font/google` is aliased to `tests/next-font-stub.ts` — add any new
+Conthrax / UTM are commercial: never add them by URL. Fonts load via `next/font/local` from the woff2 files in
+`frontend/src/fonts/` (google/fonts OFL originals cut to Latin + Vietnamese; the build never calls Google; CSP
+`font-src 'self'` stays). Under vitest `next/font/local` (and `next/font/google`) is aliased to `tests/next-font-stub.ts` — add any new
 family there too. Script fonts (Motherland/SloopScript): not on screen; at most 1–3 words in a hero.
 
 Scale: page title `text-xl sm:text-2xl font-semibold tracking-tight`; section title `text-base font-semibold`;

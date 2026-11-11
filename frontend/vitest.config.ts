@@ -11,6 +11,7 @@ export default defineConfig({
       "@": path.resolve(__dirname, "./src"),
       // Brand fonts (src/app/fonts.ts) are a Next build feature; see the stub.
       "next/font/google": path.resolve(__dirname, "./tests/next-font-stub.ts"),
+      "next/font/local": path.resolve(__dirname, "./tests/next-font-stub.ts"),
     },
   },
   test: {

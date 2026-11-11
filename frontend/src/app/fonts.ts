@@ -1,4 +1,4 @@
-import { Be_Vietnam_Pro, Exo_2, Jura } from "next/font/google";
+import localFont from "next/font/local";
 
 /**
  * The Apexmed brand type, as web fonts the panel may serve itself.
@@ -13,26 +13,35 @@ import { Be_Vietnam_Pro, Exo_2, Jura } from "next/font/google";
  * - `--font-accent`: Jura - the guideline's own face, kept for small uppercase
  *   labels and table headings where its character shows.
  *
- * `next/font` downloads them at build time and serves them from /_next, so the
+ * The files live in `src/fonts` (2026-11-11): the build used to download them
+ * from Google Fonts (`next/font/google`) and a deploy failed when Google sent a
+ * bad answer. Each is the google/fonts OFL original (licences beside them),
+ * cut to Latin + Vietnamese with fontTools and saved as woff2 - the same
+ * characters Google served. `next/font/local` serves them from /_next, so the
  * CSP (`font-src 'self'`) needs nothing new and no page asks Google for anything.
  */
-export const bodyFont = Be_Vietnam_Pro({
-  subsets: ["latin", "vietnamese"],
-  weight: ["400", "500", "600", "700"],
+export const bodyFont = localFont({
+  src: [
+    { path: "../fonts/be-vietnam-pro-400.woff2", weight: "400", style: "normal" },
+    { path: "../fonts/be-vietnam-pro-500.woff2", weight: "500", style: "normal" },
+    { path: "../fonts/be-vietnam-pro-600.woff2", weight: "600", style: "normal" },
+    { path: "../fonts/be-vietnam-pro-700.woff2", weight: "700", style: "normal" },
+  ],
   variable: "--font-body",
   display: "swap",
 });
 
-export const headingFont = Exo_2({
-  subsets: ["latin", "vietnamese"],
-  weight: ["500", "600", "700"],
+/** A variable font: every weight from one file (the panel uses 500-700). */
+export const headingFont = localFont({
+  src: "../fonts/exo-2-variable.woff2",
+  weight: "100 900",
   variable: "--font-heading",
   display: "swap",
 });
 
-export const accentFont = Jura({
-  subsets: ["latin", "vietnamese"],
-  weight: ["500", "600", "700"],
+export const accentFont = localFont({
+  src: "../fonts/jura-variable.woff2",
+  weight: "300 700",
   variable: "--font-accent",
   display: "swap",
 });
