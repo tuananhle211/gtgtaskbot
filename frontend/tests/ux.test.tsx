@@ -400,13 +400,13 @@ describe("the legal pages are reachable from the panel without crowding it", () 
     expect(destinations).toEqual([
       "/dashboard",
       "/performance/me", "/performance/timeline",
-      "/hr/me", "/hr/leave", "/hr/timesheet", "/hr/org",
       "/pr/content",
       "/pr/work",
       "/pr/tasks",
       "/pr/channels",
       "/pr/permissions",
       "/pr/reports",
+      "/hr/me", "/hr/leave", "/hr/timesheet", "/hr/org",
     ]);
     for (const href of ["/terms", "/privacy"]) {
       expect(destinations).not.toContain(href);

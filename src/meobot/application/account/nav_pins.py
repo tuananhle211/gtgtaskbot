@@ -1,7 +1,7 @@
 """Ghim menu: the nav branches a person pinned (2026-11-12, no migration).
 
 A pinned branch ("Phòng PR", "Nhân sự"...) is drawn at the top of the sidebar,
-outside "Phòng Media", and always open. The list is the person's own, kept on
+outside "Phòng Marketing", and always open. The list is the person's own, kept on
 the server so it follows them from one device to another (the web app keeps
 nothing in browser storage): one ``system_settings`` row per person, key
 ``nav_pins:<user id>``, value ``{"pins": [...]}`` in pin order.

@@ -550,11 +550,19 @@ async def order_matrix(
     """The order flow's permission matrix as the settings page shows it, read
     from the departments' grants (0061); the Admin column from ``stored``."""
     matrix = normalise_matrix(stored)
+    # Each department looked up once and every grant read in one query (the
+    # columns share departments: ADS twice, the production ones twice).
+    departments: dict[str | None, list[Department]] = {}
+    for code, _position in MATRIX_SEATS.values():
+        if code not in departments:
+            departments[code] = await _matrix_departments(session, code)
+    table = await load_grants(
+        session, MODULE_ORDER, [found[0].id for found in departments.values() if found]
+    )
     for column, (code, position) in MATRIX_SEATS.items():
-        found = await _matrix_departments(session, code)
+        found = departments[code]
         if not found:
             continue
-        table = await load_grants(session, MODULE_ORDER, [found[0].id])
         cells = dict(table.get((found[0].id, position.value), ()))
         matrix[column] = {
             permission.value: cells.get(permission.value, "NONE") for permission in AdsPermission

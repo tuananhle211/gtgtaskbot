@@ -257,13 +257,13 @@ describe("the nav follows the person's units", () => {
         "/dashboard",
         "/performance/me",
         "/performance/timeline",
+        "/tasks",
+        "/tasks/task-codes",
+        "/tasks/effort",
         "/hr/me",
         "/hr/leave",
         "/hr/timesheet",
         "/hr/org",
-        "/tasks",
-        "/tasks/task-codes",
-        "/tasks/effort",
       ]);
     });
     expect(

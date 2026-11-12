@@ -357,7 +357,7 @@ describe("Hệ số điểm", () => {
 });
 
 describe("the order of the nav", () => {
-  it("is Dashboard, Hiệu suất, Nhân sự, Bảng order, Phòng PR, Phòng Tài nguyên, then Quản trị last", () => {
+  it("is Dashboard, Hiệu suất, Bảng order, Phòng PR, Nhân sự, Phòng Tài nguyên, then Quản trị last", () => {
     const me = {
       ...UNITS_ME,
       can_view_all: true,
@@ -367,9 +367,9 @@ describe("the order of the nav", () => {
     expect(labels.filter((label) => label !== "Effort")).toEqual([
       "Dashboard",
       "Hiệu suất",
-      "Nhân sự",
       "Bảng order",
       "Phòng PR",
+      "Nhân sự",
       "Phòng Tài nguyên",
       "Quản trị",
     ]);

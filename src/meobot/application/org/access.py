@@ -30,9 +30,11 @@ import uuid
 from collections.abc import Iterable, Sequence
 from dataclasses import dataclass, field, replace
 from datetime import date
+from typing import Any
 
-from sqlalchemy import or_, select
+from sqlalchemy import event, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import ORMExecuteState, Session
 
 from meobot.application.org.seats import load_seats
 from meobot.core.time import utcnow
@@ -239,6 +241,47 @@ async def load_personal_grants(
     )
 
 
+#: ``session.info`` key of the per-session memos (:func:`request_memo`).
+_MEMO = "meobot.org.access_memo"
+
+
+def request_memo(session: AsyncSession, name: str) -> dict[Any, Any]:
+    """A dict that lives as long as the session (one request) and is emptied
+    whenever the session writes: flush, commit, rollback or a bulk INSERT /
+    UPDATE / DELETE. For answers about *who may do what* that several parts of
+    one request ask again (12/11/2026: ``/api/units/me`` loaded the viewer's
+    access twice and the ORD matrix four times). Keep only frozen values."""
+    memos: dict[str, dict[Any, Any]] = session.info.setdefault(_MEMO, {})
+    return memos.setdefault(name, {})
+
+
+def _forget(session: Session) -> None:
+    session.info.pop(_MEMO, None)
+
+
+@event.listens_for(Session, "after_flush")
+def _forget_after_flush(session: Session, _flush_context: object) -> None:
+    _forget(session)
+
+
+@event.listens_for(Session, "after_commit")
+def _forget_after_commit(session: Session) -> None:
+    _forget(session)
+
+
+@event.listens_for(Session, "after_soft_rollback")
+def _forget_after_rollback(session: Session, _previous: object) -> None:
+    _forget(session)
+
+
+@event.listens_for(Session, "do_orm_execute")
+def _forget_on_write(state: ORMExecuteState) -> None:
+    # A bulk INSERT / UPDATE / DELETE (``session.execute(delete(...))``) never
+    # flushes; it may still change seats or grants.
+    if state.is_insert or state.is_update or state.is_delete:
+        _forget(state.session)
+
+
 async def load_access(
     session: AsyncSession,
     *,
@@ -247,9 +290,33 @@ async def load_access(
     seats: Sequence[Seat] | None = None,
     on: date | None = None,
 ) -> Access:
-    """Everything one person holds, from their seats and their personal grants."""
+    """Everything one person holds, from their seats and their personal grants.
+
+    Remembered for the rest of the session (one request) until it writes
+    anything: a request used to load the viewer's access once per block of
+    ``/api/units/me`` (8 ``departments`` reads, 12/11/2026). Any flush,
+    commit, rollback or bulk write forgets it. ``Access`` is frozen, so the
+    same answer is safe to share. Not remembered when ``seats`` is given."""
     if user_id is None:
         return Access(user_id=None, role=role)
+    if seats is not None:
+        return await _load_access(session, user_id=user_id, role=role, seats=seats, on=on)
+    memo = request_memo(session, "access")
+    key = (user_id, role, on)
+    if key not in memo:
+        memo[key] = await _load_access(session, user_id=user_id, role=role, seats=None, on=on)
+    found: Access = memo[key]
+    return found
+
+
+async def _load_access(
+    session: AsyncSession,
+    *,
+    user_id: uuid.UUID,
+    role: Role,
+    seats: Sequence[Seat] | None,
+    on: date | None,
+) -> Access:
     held = (
         tuple(seats)
         if seats is not None

@@ -70,3 +70,38 @@ async def test_03_board_totals_equal_the_pages_totals(world: World) -> None:
                 viewer.full_name,
                 unit,
             )
+
+
+async def test_04_a_request_remembers_access_until_it_writes(world: World) -> None:
+    """``load_access`` / ``membership_for`` are remembered per session
+    (``request_memo``) - and forgotten on any write, so a change made in the
+    request is what the rest of it reads."""
+    from sqlalchemy import delete
+
+    from meobot.application.org.access import load_access
+    from meobot.db.models.user_permission import UserPermission
+
+    session, member = world.session, world.member
+    first = await load_access(session, user_id=member.id, role=member.role)
+    assert await load_access(session, user_id=member.id, role=member.role) is first
+    assert first.scope("RESOURCES", "REPORT") == "NONE"
+
+    # A flushed personal grant: read at once.
+    session.add(
+        UserPermission(user_id=member.id, module="RESOURCES", permission="REPORT", scope="ALL")
+    )
+    await session.flush()
+    granted = await load_access(session, user_id=member.id, role=member.role)
+    assert granted is not first and granted.scope("RESOURCES", "REPORT") == "ALL"
+
+    # A bulk delete never flushes; it still forgets.
+    await session.execute(delete(UserPermission).where(UserPermission.user_id == member.id))
+    again = await load_access(session, user_id=member.id, role=member.role)
+    assert again.scope("RESOURCES", "REPORT") == "NONE"
+
+    directory = UnitDirectoryService(session)
+    actor = world.actor(member)
+    seen = await directory.membership_for(actor)
+    assert await directory.membership_for(actor) is seen
+    await session.commit()
+    assert await directory.membership_for(actor) is not seen

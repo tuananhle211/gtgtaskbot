@@ -1,5 +1,5 @@
 /**
- * "Phòng Media" + "Ghim menu" (2026-11-12): Bảng order (+ Effort), Phòng Ads and
+ * "Phòng Marketing" + "Ghim menu" (2026-11-12): Bảng order (+ Effort), Phòng Ads and
  * Phòng PR sit under one heading; a pinned branch goes first, out of it, open.
  */
 import { describe, expect, it, vi } from "vitest";
@@ -28,12 +28,12 @@ const ME = {
 
 const labels = (entries: DisplayEntry[]) => entries.map((entry) => entry.label);
 
-describe("Phòng Media", () => {
+describe("Phòng Marketing", () => {
   it("gathers the order boards, Phòng Ads and Phòng PR under one heading, in place", () => {
     const nav = navFor(ME, "OWNER");
     const { pinned, rest } = arrangeNav(nav);
     expect(pinned).toEqual([]);
-    const media = rest.find((entry) => entry.label === "Phòng Media");
+    const media = rest.find((entry) => entry.label === "Phòng Marketing");
     expect(media && isFolder(media)).toBe(true);
     if (!media || !isFolder(media)) return;
     // Effort (the ORD token grid) belongs with the order boards.
@@ -45,7 +45,7 @@ describe("Phòng Media", () => {
     ]);
     // It sits where "Bảng order" was, and nothing else moved.
     expect(labels(rest)).not.toContain("Phòng PR");
-    expect(labels(rest).indexOf("Phòng Media")).toBe(
+    expect(labels(rest).indexOf("Phòng Marketing")).toBe(
       nav.findIndex((entry) => entry.label === "Bảng order"),
     );
   });
@@ -54,23 +54,23 @@ describe("Phòng Media", () => {
     const ordersOnly = { ...ME, units: [{ code: "ADS" }], can_view_all: false, ads: null } as unknown as UnitsMe;
     const { rest } = arrangeNav(navFor(ordersOnly, "EMPLOYEE"));
     expect(labels(rest)).toContain("Bảng order");
-    expect(labels(rest)).not.toContain("Phòng Media");
+    expect(labels(rest)).not.toContain("Phòng Marketing");
   });
 
-  it("puts pinned branches first in pin order, out of Phòng Media, and ignores unknown pins", () => {
+  it("puts pinned branches first in pin order, out of Phòng Marketing, and ignores unknown pins", () => {
     const nav = navFor(ME, "OWNER");
     const { pinned, rest } = arrangeNav(nav, ["pr", "khong-co", "hr"]);
     expect(labels(pinned)).toEqual(["Phòng PR", "Nhân sự"]);
     expect(labels(rest)).not.toContain("Nhân sự");
-    const media = rest.find((entry) => entry.label === "Phòng Media");
+    const media = rest.find((entry) => entry.label === "Phòng Marketing");
     expect(media && isFolder(media) && media.entries.map((entry) => entry.label)).toEqual([
       "Bảng order",
       "Effort",
       "Phòng Ads",
     ]);
     const whole = arrangeNav(nav, [MEDIA_KEY]);
-    expect(labels(whole.pinned)).toEqual(["Phòng Media"]);
-    expect(labels(whole.rest)).not.toContain("Phòng Media");
+    expect(labels(whole.pinned)).toEqual(["Phòng Marketing"]);
+    expect(labels(whole.rest)).not.toContain("Phòng Marketing");
   });
 });
 
@@ -92,10 +92,10 @@ describe("Ghim menu in the sidebar", () => {
       "aria-pressed",
       "true",
     );
-    // The rest: Phòng Media holds Bảng order and Phòng Ads, folded.
+    // The rest: Phòng Marketing holds Bảng order and Phòng Ads, folded.
     const primary = screen.getByRole("navigation", { name: "Điều hướng chính" });
-    const media = within(primary).getByRole("group", { name: "Phòng Media" });
-    expect(within(media).getByRole("button", { name: "Phòng Media" })).toHaveAttribute(
+    const media = within(primary).getByRole("group", { name: "Phòng Marketing" });
+    expect(within(media).getByRole("button", { name: "Phòng Marketing" })).toHaveAttribute(
       "aria-expanded",
       "false",
     );

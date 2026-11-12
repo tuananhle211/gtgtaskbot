@@ -470,18 +470,19 @@ export function navFor(me: UnitsMe | undefined, sessionRole?: string): NavEntry[
   // "Bảng order" follows the order module's permissions (an ORD seat or grant
   // gives the ADS entry), like every other branch; it stays while `me` loads.
   const orders = !me || seesAll || me.units.some((unit) => unit.code === "ADS");
-  // The order (2026-10-26): Dashboard, Hiệu suất, Bảng order (+ Effort),
-  // Phòng Ads (0078), Phòng PR, Phòng Tài nguyên, Thư viện - and Quản trị last.
+  // The order (2026-11-12): Dashboard, Hiệu suất, then the media branches
+  // (Bảng order + Effort, Phòng Ads, Phòng PR = "Phòng Marketing"), Nhân sự,
+  // Đội agent, CSKH, Phòng Tài nguyên, Thư viện - and Quản trị last.
   return [
     DASHBOARD_NAV,
     performanceBranch(me),
-    ...(hr ? [hr] : []),
-    ...(me?.agents?.chat ? [AGENTS_NAV] : []),
-    ...(cskh ? [cskh] : []),
     ...(orders ? [orderBoards(me, sessionRole)] : []),
     ...(effort ? EFFORT_NAV : []),
     ...(ads ? [ads] : []),
     ...(pr ? [prBranch(me)] : []),
+    ...(hr ? [hr] : []),
+    ...(me?.agents?.chat ? [AGENTS_NAV] : []),
+    ...(cskh ? [cskh] : []),
     ...(resources ? [resources] : []),
     ...(library ? [library] : []),
     ...(admin ? [ADMIN_NAV] : []),
@@ -489,7 +490,7 @@ export function navFor(me: UnitsMe | undefined, sessionRole?: string): NavEntry[
 }
 
 /**
- * "Phòng Media" (2026-11-12): a heading over the media branches - "Bảng order"
+ * "Phòng Marketing" (2026-11-12): a heading over the media branches - "Bảng order"
  * (+ Effort), "Phòng Ads", "Phòng PR" - drawn where the first of them was.
  * Only when the person has two or more of them: a single one sits on its own.
  */
@@ -498,15 +499,15 @@ export type DisplayEntry = NavEntry | NavFolder;
 export const isFolder = (entry: DisplayEntry): entry is NavFolder => "entries" in entry;
 
 export const MEDIA_KEY = "media";
-const MEDIA_LABEL = "Phòng Media";
+const MEDIA_LABEL = "Phòng Marketing";
 const MEDIA_BRANCHES = new Set(["orders", "ads", "pr"]);
 const inMedia = (entry: NavEntry): boolean =>
   isGroup(entry) ? MEDIA_BRANCHES.has(entry.key) : entry.href === "/tasks/effort";
 
 /**
  * The menu as drawn: "Ghim menu" (2026-11-12) puts the pinned branches first,
- * in pin order, out of "Phòng Media" and always open; the rest keeps
- * `navFor`'s order with the media branches gathered under "Phòng Media". A pin
+ * in pin order, out of "Phòng Marketing" and always open; the rest keeps
+ * `navFor`'s order with the media branches gathered under "Phòng Marketing". A pin
  * the menu does not have (a branch this person cannot see) is ignored.
  */
 export function arrangeNav(
@@ -1035,7 +1036,7 @@ export function Shell({ children }: { children: React.ReactNode }) {
   };
   // Every branch starts folded on the sidebar; in the phone drawer the branch
   // holding the current screen opens until someone folds it. A pinned branch
-  // (or one inside a pinned "Phòng Media") is always open.
+  // (or one inside a pinned "Phòng Marketing") is always open.
   const foldedOf = (label: string, holdsCurrent: boolean, open: boolean) =>
     open ? false : label in openNow ? !openNow[label] : !(menuOpen && holdsCurrent);
   const renderGroup = (entry: NavGroup, open: boolean, isPinned: boolean) => {

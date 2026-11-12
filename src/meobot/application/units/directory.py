@@ -23,8 +23,8 @@ from dataclasses import dataclass
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from meobot.application.org.access import Access, capped, load_access
-from meobot.application.org.seats import builtin_order_grants, load_seats
+from meobot.application.org.access import Access, capped, load_access, request_memo
+from meobot.application.org.seats import builtin_order_grants
 from meobot.db.models.org_unit import OrgUnit, OrgUnitMember
 from meobot.db.models.user import User
 from meobot.domain.identity.models import Actor, Role
@@ -101,7 +101,18 @@ class UnitDirectoryService:
     # --- membership ---------------------------------------------------------
 
     async def membership_for(self, actor: Actor) -> UnitMembership:
-        """Everything the gate and the scopes need to know about ``actor``."""
+        """Everything the gate and the scopes need to know about ``actor``.
+
+        Remembered for the request until the session writes (``request_memo``):
+        the dependency and the screens asked for it again and again."""
+        memo = request_memo(self._session, "membership")
+        key = (actor.user_id, actor.role)
+        if key not in memo:
+            memo[key] = await self._membership_for(actor)
+        found: UnitMembership = memo[key]
+        return found
+
+    async def _membership_for(self, actor: Actor) -> UnitMembership:
         is_owner = actor.role is Role.OWNER
         is_admin = actor.role is Role.ADMIN
         if actor.user_id is None:
@@ -128,11 +139,10 @@ class UnitDirectoryService:
             for member, code in rows
             if member.left_at is None
         )
-        seats = (await load_seats(self._session, [actor.user_id])).get(actor.user_id, ())
-        # 0066: one load for every module - seats, their grants, personal grants.
-        access = await load_access(
-            self._session, user_id=actor.user_id, role=actor.role, seats=seats
-        )
+        # 0066: one load for every module - seats, their grants, personal grants;
+        # the same (remembered) load every other part of the request asks for.
+        access = await load_access(self._session, user_id=actor.user_id, role=actor.role)
+        seats = access.seats
         grants = order_grants(access) if seats else None
         return UnitMembership(
             user_id=actor.user_id,
