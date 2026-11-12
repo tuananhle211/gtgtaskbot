@@ -28,18 +28,19 @@ from __future__ import annotations
 
 import hashlib
 import uuid
-from collections.abc import Iterable, Sequence
+from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass
 from datetime import date, datetime, time, timedelta
 from decimal import Decimal
 from typing import Any
+from zoneinfo import ZoneInfo
 
 from sqlalchemy import Text, cast, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import undefer
 
 from meobot.application.audit_service import AuditService
-from meobot.application.hr.absence_notifications import AbsenceNotifier
+from meobot.application.hr.absence_notifications import AbsenceNotifier, Notice
 from meobot.application.hr.access import HrAccess, HrForbiddenError, HrNotFoundError
 from meobot.application.hr.files import sniff
 from meobot.application.hr.profiles import HrValidationError
@@ -117,6 +118,57 @@ def _days_text(value: Decimal | None) -> str:
         return ""
     text = f"{value.normalize():f}".replace(".", ",")
     return text
+
+
+_VN = ZoneInfo("Asia/Ho_Chi_Minh")
+#: How each step reads in the Telegram copy's list of steps.
+STEP_MARKS: dict[StepStatus, str] = {
+    StepStatus.APPROVED: "✅",
+    StepStatus.REJECTED: "❌",
+    StepStatus.PENDING: "⏳",
+    StepStatus.WAITING: "▫️",
+    StepStatus.SKIPPED: "↷",
+    StepStatus.CLOSED: "⏹",
+}
+
+
+def _names(
+    ids: Iterable[uuid.UUID | str], people: Mapping[uuid.UUID, Person], most: int = 3
+) -> str:
+    """ "A, B, C và 2 người khác" - who sits on a step."""
+    names = [
+        people[key].name if (key := uuid.UUID(str(item))) in people else "Không tên"
+        for item in dict.fromkeys(ids)
+    ]
+    if not names:
+        return "chưa có ai"
+    shown = ", ".join(names[:most])
+    return f"{shown} và {len(names) - most} người khác" if len(names) > most else shown
+
+
+def _chain_text(
+    row: HrAbsenceRequest, steps: Sequence[HrAbsenceStep], people: Mapping[uuid.UUID, Person]
+) -> str:
+    """Every step of the chain, one line each, with who did what and when."""
+    lines = [f"Trạng thái: {STATUS_LABELS[AbsenceStatus(row.status)]}", "Các bước duyệt:"]
+    for step in steps:
+        status = StepStatus(step.status)
+        label = LEVEL_LABELS[StepLevel(step.level)]
+        if status in (StepStatus.APPROVED, StepStatus.REJECTED):
+            who = people.get(step.decided_by_user_id) if step.decided_by_user_id else None
+            at = step.decided_at.astimezone(_VN).strftime("%d/%m %H:%M") if step.decided_at else ""
+            verb = "duyệt" if status is StepStatus.APPROVED else "không duyệt"
+            line = f"{label}: {who.name if who else 'Không rõ'} {verb} {at}".rstrip()
+            if step.note:
+                line += f" - {step.note}"
+        elif status is StepStatus.PENDING:
+            line = f"{label}: đang chờ {_names(step.approver_ids, people)}"
+        elif status is StepStatus.WAITING:
+            line = f"{label}: {_names(step.approver_ids, people)} (chưa tới lượt)"
+        else:
+            line = f"{label}: {STEP_STATUS_LABELS[status].lower()}"
+        lines.append(f"{STEP_MARKS[status]} {line}")
+    return "\n".join(lines)
 
 
 class HrAbsenceService:
@@ -476,7 +528,8 @@ class HrAbsenceService:
                 "files": len(file_ids) if kind is AbsenceKind.EXPLAIN else 0,
             },
         )
-        await self._advance(row, actor=actor)
+        await self._advance(row)
+        await self._announce(row, change="submit", actor=actor)
         return row
 
     async def _refuse_overlap(
@@ -526,8 +579,9 @@ class HrAbsenceService:
             ).all()
         )
 
-    async def _advance(self, row: HrAbsenceRequest, *, actor: Actor) -> None:
-        """Open the next step that is not skipped, else approve the request."""
+    async def _advance(self, row: HrAbsenceRequest) -> HrAbsenceStep | None:
+        """Open the next step that is not skipped (returned), else approve the
+        request (``None``). Telling people is the caller's :meth:`_announce`."""
         steps = await self._steps(row.id)
         deciders = [
             step.decided_by_user_id
@@ -543,12 +597,11 @@ class HrAbsenceService:
                 continue
             step.status = StepStatus.PENDING.value
             await self._session.flush()
-            await self._notify_step(row, step, sender=actor.user_id)
-            return
+            return step
         row.status = AbsenceStatus.APPROVED.value
         row.decided_at = utcnow()
         await self._session.flush()
-        await self._notify_requester(row, NotificationEvent.HR_ABSENCE_APPROVED, None, actor)
+        return None
 
     def _may_decide(self, step: HrAbsenceStep, actor: Actor, access: HrAccess) -> bool:
         if actor.user_id is None:
@@ -601,7 +654,10 @@ class HrAbsenceService:
         )
         if approve:
             await self._session.flush()
-            await self._advance(row, actor=actor)
+            opened = await self._advance(row)
+            await self._announce(
+                row, change="step" if opened else "approved", actor=actor, decided=step
+            )
         else:
             for other in steps:
                 if other.status in OPEN_STEPS:
@@ -609,7 +665,7 @@ class HrAbsenceService:
             row.status = AbsenceStatus.REJECTED.value
             row.decided_at = utcnow()
             await self._session.flush()
-            await self._notify_requester(row, NotificationEvent.HR_ABSENCE_REJECTED, text, actor)
+            await self._announce(row, change="rejected", actor=actor, decided=step, note=text)
         return row
 
     async def cancel(
@@ -641,7 +697,10 @@ class HrAbsenceService:
         if not own and not text:
             raise HrValidationError("hr_absence_note_required", "Nhập lý do huỷ.", field="note")
         await require_open(self._session, [row.start_on, row.end_on])
+        waiting: list[uuid.UUID] = []
         for step in await self._steps(row.id):
+            if step.status == StepStatus.PENDING.value:
+                waiting = [uuid.UUID(item) for item in step.approver_ids]
             if step.status in OPEN_STEPS:
                 step.status = StepStatus.CLOSED.value
         row.status = AbsenceStatus.CANCELLED.value
@@ -650,6 +709,7 @@ class HrAbsenceService:
         row.decided_at = utcnow()
         await self._session.flush()
         await self._record(actor, request_id, AuditAction.HR_ABSENCE_CANCELLED, row, {"own": own})
+        await self._announce(row, change="cancel", actor=actor, waiting=waiting, note=text)
         return row
 
     # --- notifications ------------------------------------------------------------------
@@ -681,42 +741,180 @@ class HrAbsenceService:
             what = f"{KIND_LABELS[kind]} {_fmt_day(row.start_on)}, {verb} {at} ({row.minutes} phút)"
         return name, what
 
-    async def _notify_step(
-        self, row: HrAbsenceRequest, step: HrAbsenceStep, *, sender: uuid.UUID | None
-    ) -> None:
-        name, what = await self._describe(row)
-        recipients = [uuid.UUID(item) for item in step.approver_ids]
-        await AbsenceNotifier(self._session, self._settings).tell(
-            recipients=recipients,
-            event=NotificationEvent.HR_ABSENCE_AWAITING,
-            title=f"{name}: {what}",
-            body=f"{name} xin {what.lower()[:1] + what[1:]}. Đang chờ bạn duyệt "
-            f"({LEVEL_LABELS[StepLevel(step.level)]}).",
-            request_id=row.id,
-            key=f"step{step.position}",
-            sender=sender,
-        )
-
-    async def _notify_requester(
+    async def _announce(
         self,
         row: HrAbsenceRequest,
-        event: NotificationEvent,
-        note: str | None,
+        *,
+        change: str,
         actor: Actor,
+        decided: HrAbsenceStep | None = None,
+        waiting: Sequence[uuid.UUID] = (),
+        note: str | None = None,
     ) -> None:
-        _name, what = await self._describe(row)
-        body = (
-            f"Đơn {what[:1].lower() + what[1:]} đã được duyệt."
-            if event is NotificationEvent.HR_ABSENCE_APPROVED
-            else f"Đơn {what[:1].lower() + what[1:]} không được duyệt. Lý do: {note}"
+        """Tell everybody a change concerns (user 12/11/2026), one message each.
+
+        ``change``: ``submit`` (sent; the first open step, else approved at
+        once), ``step`` (``decided`` approved, another step opened),
+        ``approved`` (``decided`` was the last step), ``rejected``
+        (``decided`` refused it), ``cancel`` (``waiting`` = who the open step
+        waited on). Nobody hears about their own action, except the requester
+        getting the receipt of what they sent. HCNS (the ``TIMESHEET``
+        holders) hears when a request is sent and when it ends - not each step.
+        """
+        steps = await self._steps(row.id)
+        pending = next((step for step in steps if step.status == StepStatus.PENDING.value), None)
+        awaited = [uuid.UUID(item) for item in pending.approver_ids] if pending else []
+        hr = (
+            await self.timesheet_holders()
+            if change in ("submit", "approved", "rejected", "cancel")
+            else []
         )
-        await AbsenceNotifier(self._session, self._settings).tell(
-            recipients=[row.user_id],
-            event=event,
-            title=what,
-            body=body,
+        earlier = [
+            step.decided_by_user_id
+            for step in steps
+            if step.status == StepStatus.APPROVED.value
+            and step.decided_by_user_id
+            and (decided is None or step.id != decided.id)
+        ]
+        peers = [uuid.UUID(item) for item in decided.approver_ids] if decided else []
+        people = await self._people(
+            [row.user_id, actor.user_id, *awaited, *earlier, *peers, *waiting, *hr]
+            + [item for step in steps for item in step.approver_ids]
+            + [step.decided_by_user_id for step in steps]
+        )
+        name, what = await self._describe(row)
+        what = what[:1].lower() + what[1:]
+        doer = people.get(actor.user_id) if actor.user_id else None
+        by = doer.name if doer else "Hệ thống"
+        level = f" ({LEVEL_LABELS[StepLevel(decided.level)]})" if decided else ""
+        next_up = (
+            f"Đang chờ {_names(awaited, people)} ({LEVEL_LABELS[StepLevel(pending.level)]}) duyệt."
+            if pending
+            else ""
+        )
+        reason = f" Lý do: {note}" if note else ""
+        mine = f"Đơn {what}"
+        theirs = f"Đơn {what} của {name}"
+        notices: list[Notice] = []
+
+        def tell(
+            people_ids: Iterable[uuid.UUID], event: NotificationEvent, heading: str, body: str
+        ) -> None:
+            notices.extend(Notice(item, event, heading, body) for item in people_ids)
+
+        requester = [row.user_id]
+        event = NotificationEvent
+        if change == "submit":
+            tell(
+                awaited,
+                event.HR_ABSENCE_AWAITING,
+                "Có đơn từ chờ bạn duyệt",
+                f"{name} xin {what}. Đang chờ bạn duyệt "
+                f"({LEVEL_LABELS[StepLevel(pending.level)] if pending else ''}).",
+            )
+            if pending:
+                tell(
+                    requester, event.HR_ABSENCE_SUBMITTED, "Đã gửi đơn", f"{mine} đã gửi. {next_up}"
+                )
+                tell(
+                    hr,
+                    event.HR_ABSENCE_SUBMITTED,
+                    "Có đơn từ mới",
+                    f"{name} gửi đơn {what}. {next_up}",
+                )
+            else:
+                done = "không có cấp nào cần duyệt, đơn được duyệt ngay."
+                tell(
+                    requester,
+                    event.HR_ABSENCE_APPROVED,
+                    "Đơn của bạn đã được duyệt",
+                    f"{mine}: {done}",
+                )
+                tell(hr, event.HR_ABSENCE_APPROVED, "Đơn từ đã duyệt xong", f"{theirs}: {done}")
+        elif change == "step":
+            tell(
+                awaited,
+                event.HR_ABSENCE_AWAITING,
+                "Có đơn từ chờ bạn duyệt",
+                f"{name} xin {what}. {by}{level} đã duyệt, giờ chờ bạn duyệt "
+                f"({LEVEL_LABELS[StepLevel(pending.level)] if pending else ''}).",
+            )
+            tell(
+                requester,
+                event.HR_ABSENCE_STEP_APPROVED,
+                "Đơn của bạn đã qua một bước duyệt",
+                f"{by}{level} đã duyệt đơn {what}. {next_up}",
+            )
+            tell(
+                peers,
+                event.HR_ABSENCE_STEP_APPROVED,
+                "Đơn từ đã có người duyệt",
+                f"{by} đã duyệt bước{level} đơn {what} của {name}, "
+                f"bạn không cần duyệt nữa. {next_up}",
+            )
+            tell(
+                earlier,
+                event.HR_ABSENCE_STEP_APPROVED,
+                "Đơn từ bạn đã duyệt có cập nhật",
+                f"{by}{level} đã duyệt đơn {what} của {name}. {next_up}",
+            )
+        elif change == "approved":
+            tell(
+                requester,
+                event.HR_ABSENCE_APPROVED,
+                "Đơn của bạn đã được duyệt",
+                f"{mine} đã được duyệt xong ({by}{level} duyệt bước cuối).",
+            )
+            body = f"{theirs} đã được duyệt xong ({by}{level} duyệt bước cuối)."
+            tell(
+                peers,
+                event.HR_ABSENCE_APPROVED,
+                "Đơn từ đã duyệt xong",
+                f"{body} Bạn không cần duyệt nữa.",
+            )
+            tell([*earlier, *hr], event.HR_ABSENCE_APPROVED, "Đơn từ đã duyệt xong", body)
+        elif change == "rejected":
+            tell(
+                requester,
+                event.HR_ABSENCE_REJECTED,
+                "Đơn của bạn không được duyệt",
+                f"{mine} không được duyệt: {by}{level} từ chối.{reason}",
+            )
+            tell(
+                [*peers, *earlier, *hr],
+                event.HR_ABSENCE_REJECTED,
+                "Đơn từ không được duyệt",
+                f"{by}{level} không duyệt đơn {what} của {name}.{reason}",
+            )
+        elif change == "cancel":
+            own = actor.user_id == row.user_id
+            tell(
+                requester,
+                event.HR_ABSENCE_CANCELLED,
+                "Đơn của bạn đã bị huỷ",
+                f"{by} đã huỷ đơn {what}.{reason}",
+            )
+            said = f"{name} đã rút đơn {what}" if own else f"{by} đã huỷ đơn {what} của {name}"
+            tell(
+                waiting,
+                event.HR_ABSENCE_CANCELLED,
+                "Đơn từ đã huỷ",
+                f"{said}, bạn không cần duyệt nữa.{reason}",
+            )
+            tell([*earlier, *hr], event.HR_ABSENCE_CANCELLED, "Đơn từ đã huỷ", f"{said}.{reason}")
+        receipt = change == "submit"
+        notices = [
+            notice
+            for notice in notices
+            if notice.recipient != actor.user_id or (receipt and notice.recipient == row.user_id)
+        ]
+        key = f"step{decided.position}" if change == "step" and decided else change
+        await AbsenceNotifier(self._session, self._settings).send(
+            notices,
+            title=f"{name}: {what}",
+            chain=_chain_text(row, steps, people),
             request_id=row.id,
-            key="final",
+            key=key,
             sender=actor.user_id,
         )
 

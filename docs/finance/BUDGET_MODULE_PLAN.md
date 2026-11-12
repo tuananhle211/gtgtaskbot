@@ -376,3 +376,77 @@ Thứ tự đề xuất: lớp Doanh thu trước (không phụ thuộc quy trì
 | M5 | Mã OTP cho người duyệt chi | Sau go-live (đợt 4), trước khi bật chi tiền trên APM |
 | M6 | Nhập tiền nhanh | `15tr`, `1,5tr`, `500k`, `2ty` |
 | M7 | Tên menu | "Tài chính" (+ "Doanh thu" là một mục con) |
+
+## 16. Kết quả họp chốt 12/11/2026 (phiếu https://claude.ai/artifact/HsYKmBmLy7Y6a5sP3BVyD5)
+
+Đã chốt 39/39 câu. Ký hiệu: A = theo đề xuất, còn lại ghi nguyên ý của buổi họp.
+
+**Doanh thu CRM**
+- R1 A: mỗi khoản thu ghi đủ 3 chiều cơ sở / đội Marketing / người.
+- R2 A: bảng chi nhánh -> pháp nhân, kế toán tự sửa (không có ngày hiệu lực).
+- R3 khác: lưu 3 số như A, với cách gọi: **Doanh số** = giá trị đơn; **Doanh thu = Doanh số − VAT**; **Tiền về = Thực thu** = số tiền thu về (cả VAT).
+- R4 khác: "Bỏ phí ra khỏi Thực thu" (chưa rõ, xem câu hỏi tiếp).
+- R5 B: gắn nhân viên CRM -> tài khoản APM bằng tay trên APM.
+- R6 **B: tính hoa hồng và công tua ngay đợt này** (cần quy tắc).
+- R7 A: KPI doanh thu nhập trên APM theo cơ sở / đội / tháng.
+- R8 khác: lưu mã khách + mã đơn **+ tên khách hàng** (không SĐT).
+- R9 khác: đồng bộ 4 lần/ngày lúc 0h, 5h, 12h, 18h.
+- R10 khác: có báo cáo công nợ, cảnh báo theo các mốc ngày **cài đặt được**.
+- R11 A: chạy song song sheet "KÉO DỮ LIỆU KẾ TOÁN" 1 tháng rồi bỏ.
+
+**Duyệt chi**
+- F1 A: tuyến duyệt theo bảng "Phân quyền" của Sổ tay, sửa được trên APM, có lịch sử.
+- F2 A: ngưỡng tiền là tuỳ chọn, mặc định tắt.
+- F3 A: bộ phận mua sắm là bước thực hiện, không duyệt.
+- F4 khác: **chỉ phí ngân hàng** không cần duyệt; thuê nhà VP, thuế, phẫu thuật thuê ngoài… vẫn duyệt theo phân quyền.
+- F5 B: thiếu chứng từ vẫn cho chi, cảnh báo, bổ sung sau.
+- F6 A: người lập trùng người duyệt -> chuyển lên cấp kế tiếp.
+- F7 khác: **mỗi bước chỉ một người duyệt**, chọn theo điều kiện của hồ sơ.
+- F8 A: nhắc sau 24 giờ làm việc + tóm tắt mỗi sáng.
+
+**Vai trò**
+- P1 A: vai trò tài chính gán thẳng cho người trong module, không thêm chức vụ vào phòng ban.
+- P2 A: đủ vai trò theo Sổ tay (8 loại kế toán tách riêng, Quỹ cơ sở theo chi nhánh).
+- P3 khác: **không có Chủ tịch, có CFO**.
+- P4 B: danh sách người giữ vai trò gửi sau họp.
+- P5 A: OWNER/ADMIN xem toàn bộ, chỉ duyệt khi được gán vai trò.
+- P6 B: mọi nhân viên lập được đề nghị, Trưởng phòng duyệt bước đầu.
+
+**Ngân sách**
+- B1 **B: pháp nhân × phòng ban × mã chi × tháng, không chia chi nhánh.**
+- B2 A, B3 A, B4 A (file Excel mẫu), B5 A, B6 A.
+- B7 khác: "Duyệt chi" của Đề xuất tài nguyên chuyển sang Tài chính - Kế toán, trạng thái vẫn hiện bên Tài nguyên.
+
+**Khác**
+- M1 A: Quỹ cơ sở / Thủ quỹ VP xác nhận đã chi kèm ảnh chứng từ.
+- M2 khác: **upload qua APM, lưu trên Google Drive, database giữ link.**
+- M3 A, M4 A.
+- M5 **C: không dùng OTP.**
+- M6 khác: gõ số đầy đủ, có gợi ý nhập nhanh.
+- M7 A: một menu "Tài chính" có mục "Doanh thu".
+
+**Trả lời câu hỏi lại (12/11)**
+- R3 VAT: thuế suất là **cấu hình** (mặc định 8% theo pháp nhân, hộ kinh doanh 0%), sửa được.
+- R3 lãi lỗ: dùng **Thực thu − VAT − phí**; Doanh thu (Doanh số − VAT) xem cạnh bên.
+- R4: **Thực thu = tiền về**, 4 khoản phí ghi riêng (chỉ trừ ở báo cáo lãi lỗ). Cách nhập phí chưa nói lại -> giữ đề xuất A (tự tính theo quy tắc, kế toán sửa tay từng đơn).
+- R6: hoa hồng / công tua **lấy thẳng từ API CRM** (CRM đã chia), APM không tự tính công thức.
+- R8: tên khách chỉ kế toán, Phòng Tài chính, Ban giám đốc xem; báo cáo khác chỉ mã khách.
+- R9: lần 5h lấy lại 3 ngày gần nhất. Phòng Ads giữ lịch mỗi giờ như hiện tại (không đổi phần đang chạy).
+- R10: các mốc công nợ và người nhận cảnh báo đều **cấu hình** (mặc định 30/45/60 ngày, kế toán đối soát + Kế toán trưởng).
+- F4: làm sẵn người duyệt theo Sổ tay cho mọi mã chi; mã nào trống hoặc cần đổi thì **cấu hình bổ sung / đổi người** trên APM.
+- F5: hạn bổ sung chứng từ 7 ngày, quá hạn nhắc người lập + kế toán, gắn cờ "thiếu chứng từ".
+- F7: mỗi vai trò chọn một người theo điều kiện hồ sơ (kế toán thanh toán theo pháp nhân, Quỹ cơ sở theo chi nhánh…), mỗi vai trò khai sẵn một **người duyệt thay** khi vắng.
+- P3: **CFO thay vai trò "Phòng Tài chính"** trong tuyến duyệt.
+- B1: khoản chi thực tế vẫn ghi chi nhánh (báo cáo lãi lỗ theo cơ sở được, ngân sách không chia cơ sở).
+- B7: trong lúc module Tài chính chưa chạy, Phòng Tài nguyên vẫn duyệt chi như hiện nay; "Mua & nhập kho" vẫn của Phòng Tài nguyên.
+- M2: thư mục Google Drive lưu chứng từ là **cấu hình**; Drive riêng tư (Shared Drive + tài khoản dịch vụ), chỉ mở file qua APM theo quyền, giữ 10 năm.
+- M6: gõ `15` -> gợi ý 15.000 / 150.000 / 1.500.000 / 15.000.000 để bấm chọn.
+
+**Còn chờ tài liệu:** người giữ từng vai trò (P4), bảng chi nhánh -> pháp nhân, bảng brand quảng cáo -> pháp nhân, tỷ lệ phí quẹt thẻ + bảng giá cost, KPI doanh thu, file ngân sách 11-12/2026, 1 file MISA mẫu, Shared Drive cho chứng từ. Kiểm tra API CRM có trả phần chia hoa hồng / công tua (R6) trước khi làm.
+
+**Nhập sau trên APM (user 12/11):** mọi bảng trên được nhập / sửa trực tiếp trên APM sau khi module lên, không chờ file trước. Mỗi màn cấu hình để trống được và báo rõ phần nào chưa đủ số: chi nhánh chưa gắn pháp nhân -> doanh thu vào "Chưa gắn pháp nhân"; chưa có tỷ lệ phí / giá cost -> phí = 0, đánh dấu "chưa có quy tắc", kế toán nhập tay được; chưa có KPI / ngân sách -> cột so sánh để "—"; chưa gắn vai trò -> hồ sơ chi dừng ở bước đó, báo "chưa có người giữ vai trò"; chưa cấu hình Drive -> chỉ tick "đã nhận bản giấy", nút tải scan ẩn. Riêng đối soát MISA chỉ làm được khi có 1 file mẫu thật (cần biết cột) -> làm sau cùng.
+
+**Màn gắn chi nhánh CRM (user 12/11):** mỗi chi nhánh bên CRM gắn với một **pháp nhân của APM** (`legal_entities`, 0095) trên một màn cấu hình. Danh sách chi nhánh lấy tự động từ CRM (`/raw-data/filters/orders`, đã dùng cho Phòng Ads) mỗi lần đồng bộ; chi nhánh mới hiện "Chưa gắn". Đề xuất cùng dòng gắn luôn cơ sở APM (`BRANCHES` VP_HN / CS_HN / CS_HN2 / CS_SG) cho chiều "cơ sở" của R1. Không có ngày hiệu lực (R2 A): đổi gắn = tính lại cả số cũ.
+
+**File MISA mẫu (12/11):** user gửi `F01_dnn_bang_can_doi_tai_khoan.xlsx` = mẫu F01-DNN "Bảng cân đối tài khoản" (chế độ TT133), 1 sheet, dòng 1 tiêu đề, dòng 2 "Tháng MM năm YYYY", dòng 3-4 tiêu đề 2 tầng (Số hiệu TK, Tên TK, Số dư đầu kỳ Nợ/Có, Phát sinh trong kỳ Nợ/Có, Số dư cuối kỳ Nợ/Có), mỗi dòng 1 tài khoản (cấp 3-5 chữ số, cha + con cùng có), dòng cuối "Cộng". **Không có tên pháp nhân** trong file (chọn khi nhập). Đủ cho đối chiếu **tổng tháng** theo pháp nhân: thu (511, trừ 5114 giảm giá) vs doanh thu CRM; chi (632, 642 = 6421/6422/6425, 811) vs chi đã thực hiện trên APM. **Không đủ** cho đối chiếu từng khoản, theo phòng ban / mã chi, hay tách chi phí quảng cáo (B6) -> cần thêm "Sổ chi tiết tài khoản" / "Sổ nhật ký chung" (có số chứng từ, diễn giải, đối tượng, khoản mục chi phí) nếu muốn.
+- **Chốt 12/11: chỉ đối chiếu tổng tháng** bằng file F01-DNN (mỗi pháp nhân một file / tháng, pháp nhân chọn khi nhập). Không đối chiếu từng khoản. B6 đổi: chi phí quảng cáo chỉ dùng số trên APM (không lấy từ MISA).

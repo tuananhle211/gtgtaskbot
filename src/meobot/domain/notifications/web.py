@@ -82,6 +82,9 @@ WEB_TITLES: Mapping[NotificationEvent, str] = MappingProxyType(
         NotificationEvent.HR_ABSENCE_AWAITING: "Có đơn từ chờ bạn duyệt",
         NotificationEvent.HR_ABSENCE_APPROVED: "Đơn của bạn đã được duyệt",
         NotificationEvent.HR_ABSENCE_REJECTED: "Đơn của bạn không được duyệt",
+        NotificationEvent.HR_ABSENCE_SUBMITTED: "Có đơn từ mới",
+        NotificationEvent.HR_ABSENCE_STEP_APPROVED: "Đơn từ đã qua một bước duyệt",
+        NotificationEvent.HR_ABSENCE_CANCELLED: "Đơn từ đã huỷ",
     }
 )
 

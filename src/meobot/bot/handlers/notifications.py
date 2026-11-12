@@ -379,6 +379,12 @@ def _event_label(event_type: str) -> str:
         "resource_request_completed": "Đề xuất tài nguyên hoàn thành",
         "pr_points_review_requested": "Mã task PR chờ duyệt",
         "seeding_review_requested": "Báo cáo công việc chờ duyệt",
+        "hr_absence_submitted": "Đơn từ mới",
+        "hr_absence_awaiting": "Đơn từ chờ duyệt",
+        "hr_absence_step_approved": "Đơn từ qua một bước duyệt",
+        "hr_absence_approved": "Đơn từ đã duyệt xong",
+        "hr_absence_rejected": "Đơn từ không được duyệt",
+        "hr_absence_cancelled": "Đơn từ đã huỷ",
     }.get(event_type, "Tin nhắn")
 
 

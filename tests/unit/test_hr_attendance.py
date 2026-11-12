@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import io
+import uuid
 from datetime import date, time
 from decimal import Decimal
 from typing import Any
@@ -636,3 +637,136 @@ async def test_07_a_forgotten_punch_is_explained_with_pictures(world: World) -> 
     day = next(d for d in after["days"] if d["day"] == "2026-11-04")
     assert day["symbol"] == "X" and day["explained"] and day["out"] == "17:35"
     assert not day["missing"]
+
+
+async def test_08_every_change_is_told_to_whom_it_concerns(world: World) -> None:
+    """User 12/11: each change of a request reaches the requester, the step's
+    approvers, the other approvers of a step just decided and who approved
+    before; HCNS hears when it is sent and when it ends. Nobody hears about
+    their own action but the requester's receipt."""
+    from meobot.application.hr.absences import Person, _chain_text
+    from meobot.db.models.hr_attendance import HrAbsenceStep
+
+    people = await _company(world)
+    session = world.session
+    care = await session.scalar(select(Department).where(Department.code == "QHKH"))
+    hcns = await session.scalar(select(Department).where(Department.code == "HCNS"))
+    assert care is not None and hcns is not None
+    for key, name, code in (("head2", "Vũ Minh Khang", "Q003KHANG"), ("hr2", "Lý Thu", "H006THU")):
+        user = User(full_name=name, role=Role.EMPLOYEE, member_code=code)
+        session.add(user)
+        people[key] = user
+    await session.flush()
+    await seat_person(session, care.id, people["head2"].id, Position.HEAD)
+    await seat_person(session, hcns.id, people["hr2"].id, Position.MEMBER)
+    await session.flush()
+
+    async def told(key: str) -> list[tuple[str, str]]:
+        rows = (
+            await session.execute(
+                select(UserNotification.event_type, UserNotification.title, UserNotification.body)
+                .where(
+                    UserNotification.recipient_user_id == people[key].id,
+                    UserNotification.target_kind == "hr_absence",
+                )
+                .order_by(UserNotification.created_at, UserNotification.event_type)
+            )
+        ).all()
+        return [(row.event_type, row.title) for row in rows]
+
+    staff = as_(world, people["staff"])
+    late = staff.post(
+        "/api/hr/absences",
+        json={"kind": "LATE", "start_on": "2026-11-09", "at_time": "09:00", "reason": "Kẹt xe"},
+    ).json()
+    assert [step["level"] for step in late["steps"]] == ["MANAGER", "HR"]
+    # Sent: the receipt, both heads asked, HCNS told; nobody else.
+    assert await told("staff") == [("hr_absence_submitted", "Đã gửi đơn")]
+    for key in ("head", "head2"):
+        assert await told(key) == [("hr_absence_awaiting", "Có đơn từ chờ bạn duyệt")]
+    for key in ("hr", "hr2"):
+        assert await told(key) == [("hr_absence_submitted", "Có đơn từ mới")]
+    for key in ("block", "director", "staff2"):
+        assert await told(key) == []
+
+    # The first head approves: the requester, the other head, then HCNS asked.
+    as_(world, people["head"]).post(f"/api/hr/absences/{late['id']}/decide", json={"approve": True})
+    assert (
+        "hr_absence_step_approved",
+        "Đơn của bạn đã qua một bước duyệt",
+    ) in await told("staff")
+    assert ("hr_absence_step_approved", "Đơn từ đã có người duyệt") in await told("head2")
+    assert len(await told("head")) == 1
+    for key in ("hr", "hr2"):
+        assert ("hr_absence_awaiting", "Có đơn từ chờ bạn duyệt") in await told(key)
+
+    # HCNS approves the last step: everybody it concerned hears the end once.
+    as_(world, people["hr"]).post(
+        f"/api/hr/absences/{late['id']}/decide", json={"approve": True, "note": "OK"}
+    )
+    assert ("hr_absence_approved", "Đơn của bạn đã được duyệt") in await told("staff")
+    for key in ("head", "hr2"):
+        assert ("hr_absence_approved", "Đơn từ đã duyệt xong") in await told(key)
+    assert len(await told("hr")) == 2  # submitted + awaiting, not their own approval
+    assert len(await told("head2")) == 2  # awaiting + somebody approved; not the end
+
+    # HCNS cancels the approved request with a reason.
+    as_(world, people["hr2"]).post(
+        f"/api/hr/absences/{late['id']}/cancel", json={"note": "Nhập nhầm ngày"}
+    )
+    assert ("hr_absence_cancelled", "Đơn của bạn đã bị huỷ") in await told("staff")
+    for key in ("head", "hr"):
+        assert ("hr_absence_cancelled", "Đơn từ đã huỷ") in await told(key)
+    bodies = (
+        await session.scalars(
+            select(UserNotification.body).where(
+                UserNotification.recipient_user_id == people["staff"].id,
+                UserNotification.event_type == "hr_absence_cancelled",
+            )
+        )
+    ).all()
+    assert bodies == [
+        "Lý Thu đã huỷ đơn đi muộn 09/11/2026, đến lúc 09:00 (60 phút). Lý do: Nhập nhầm ngày"
+    ]
+
+    # A request withdrawn while the heads hold it: they need not decide any more.
+    early = staff.post(
+        "/api/hr/absences",
+        json={"kind": "EARLY", "start_on": "2026-11-11", "at_time": "16:30", "reason": "Đón con"},
+    ).json()
+    staff.post(f"/api/hr/absences/{early['id']}/cancel", json={})
+    for key in ("head", "head2"):
+        assert ("hr_absence_cancelled", "Đơn từ đã huỷ") in await told(key)
+    withdrawn = await session.scalar(
+        select(UserNotification.body).where(
+            UserNotification.recipient_user_id == people["head2"].id,
+            UserNotification.event_type == "hr_absence_cancelled",
+        )
+    )
+    assert withdrawn is not None and withdrawn.startswith("Phạm Hồng Sơn đã rút đơn về sớm")
+    assert withdrawn.endswith("bạn không cần duyệt nữa.")
+    assert ("hr_absence_cancelled", "Đơn từ đã huỷ") in await told("hr")
+    # The requester heard of the cancel by HCNS only, not of their own withdrawal.
+    assert [item for item in await told("staff") if item[0] == "hr_absence_cancelled"] == [
+        ("hr_absence_cancelled", "Đơn của bạn đã bị huỷ")
+    ]
+
+    # The Telegram copy lists every step with who did what.
+    row = await session.get(HrAbsenceRequest, uuid.UUID(late["id"]))
+    assert row is not None
+    steps = (
+        await session.scalars(
+            select(HrAbsenceStep)
+            .where(HrAbsenceStep.request_id == row.id)
+            .order_by(HrAbsenceStep.position)
+        )
+    ).all()
+    names = {
+        user.id: Person(user.id, user.full_name or "", user.member_code) for user in people.values()
+    }
+    lines = _chain_text(row, steps, names).splitlines()
+    assert lines[0] == "Trạng thái: Đã huỷ"
+    assert lines[1] == "Các bước duyệt:"
+    assert lines[2].startswith("✅ Trưởng phòng: Đỗ Thị Chinh duyệt ")
+    assert lines[3].startswith("✅ HCNS xác nhận: Ngô Tuyết Nhung duyệt ")
+    assert lines[3].endswith(" - OK")

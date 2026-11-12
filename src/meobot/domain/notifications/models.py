@@ -257,10 +257,19 @@ class NotificationEvent(StrEnum):
     # --- Đơn từ (0100) ------------------------------------------------------
     #: A leave / late / early request reached a step the recipient decides.
     HR_ABSENCE_AWAITING = "hr_absence_awaiting"
-    #: The whole chain approved it: to the requester.
+    #: The whole chain approved it: to the requester, the last step's other
+    #: approvers, who approved before and HCNS.
     HR_ABSENCE_APPROVED = "hr_absence_approved"
-    #: A step refused it: to the requester.
+    #: A step refused it: to the requester, the step's other approvers, who
+    #: approved before and HCNS.
     HR_ABSENCE_REJECTED = "hr_absence_rejected"
+    #: Sent (12/11): to the requester and HCNS.
+    HR_ABSENCE_SUBMITTED = "hr_absence_submitted"
+    #: One step approved, more to go (12/11): to the requester, the step's
+    #: other approvers and who approved before.
+    HR_ABSENCE_STEP_APPROVED = "hr_absence_step_approved"
+    #: Withdrawn or cancelled by HCNS (12/11): to everybody it concerned.
+    HR_ABSENCE_CANCELLED = "hr_absence_cancelled"
     #: A Guest's held-back first question, answered after approval.
     GUEST_REPLY = "guest_reply"
     #: One firing of a user-defined reminder.
