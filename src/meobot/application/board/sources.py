@@ -310,6 +310,10 @@ class BoardSource(Protocol):
 
     async def rows(self, actor: Actor, query: BoardQuery) -> BoardPage: ...
 
+    async def count(self, actor: Actor, query: BoardQuery) -> int:
+        """``rows(actor, query).total`` without drawing a row."""
+        ...
+
     async def count_by_phase(self, actor: Actor, query: BoardQuery) -> dict[Phase, int]: ...
 
 
@@ -456,6 +460,17 @@ class PrBoardSource:
         else:
             total = page.total
         return BoardPage(rows=tuple(rows), total=total, limit=query.limit, offset=query.offset)
+
+    async def count(self, actor: Actor, query: BoardQuery) -> int:
+        # A phase / urgency / overdue filter narrows the drawn rows in memory
+        # (see ``rows``): only ``rows`` knows that total. The others are the
+        # query's own total - no "awaiting" pass, no names, no row.
+        if query.phase is not None or query.urgent or query.overdue:
+            return (await self.rows(actor, query)).total
+        page = await self._queries.content_page(
+            actor=actor, query=self._content_query(query, limit=1, offset=0), with_counts=False
+        )
+        return page.total
 
     async def count_by_phase(self, actor: Actor, query: BoardQuery) -> dict[Phase, int]:
         page = await self._queries.content_page(
@@ -907,6 +922,11 @@ class AdsBoardSource:
             condition,
             (OrderNode.node_type == OrderNodeType.GAN_LINK) & Order.video_type.in_(processes),
         )
+
+    async def count(self, actor: Actor, query: BoardQuery) -> int:
+        """The same count ``rows`` starts with, and nothing after it."""
+        counted = select(func.count()).select_from(self._statement(query, utcnow()).subquery())
+        return int(await self._session.scalar(counted) or 0)
 
     async def rows(self, actor: Actor, query: BoardQuery) -> BoardPage:
         now = utcnow()

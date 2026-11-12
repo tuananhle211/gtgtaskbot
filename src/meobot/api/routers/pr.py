@@ -614,18 +614,18 @@ async def list_people(
     # Everybody stays (names on old work are drawn from this list); the
     # pickers that hand work out offer only ``pr_staff`` (2026-10-30).
     staff = await function_staff(session, DepartmentFunction.PR)
-    people = []
-    for row in rows:
-        people.append(
-            PersonResponse(
-                user_id=row.id,
-                full_name=row.full_name,
-                role=row.role.value,
-                can_manage_permissions=await services.capabilities.manages(actor, row),
-                pr_staff=row.id in staff,
-            )
+    # One query for everybody's seats, not one permission load per person.
+    manages = await services.capabilities.manages_many(actor, rows)
+    return [
+        PersonResponse(
+            user_id=row.id,
+            full_name=row.full_name,
+            role=row.role.value,
+            can_manage_permissions=manages[row.id],
+            pr_staff=row.id in staff,
         )
-    return people
+        for row in rows
+    ]
 
 
 @router.get("/brands", response_model=list[BrandResponse], summary="Brands you may choose")

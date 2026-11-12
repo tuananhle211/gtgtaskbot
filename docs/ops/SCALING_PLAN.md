@@ -69,6 +69,8 @@ sớm.
    - chạy thử một lần bằng tay, xem log `/var/log/meobot-db-backup.log` và dòng "Sao lưu dữ liệu hằng ngày" trong Tác vụ định kỳ;
    - chạy `sh /root/gtgtask/deploy/backup/restore-check.sh` (tạo DB tạm, khôi phục, so số dòng, xoá DB tạm) và ghi kết quả vào đây.
 
+**Sau 1 ngày trên prod (12/11):** giờ cao điểm trung bình 204 ms (ngoài giờ 30 ms), 3,9% yêu cầu trên 1 s; máy nhàn (load < 0,4), không câu SQL nào > 500 ms. Hai route chiếm ~1/3 thời gian API: `/api/pr/people` (1,3 s, 727 câu SQL một lượt) và `/api/board/counts` (0,78 s, dựng 5 trang bảng task để lấy 5 con số). Đã tối ưu (12/11, chưa deploy): 727 -> 14 câu (local 200 ms -> 12 ms) và ADS 102 -> 12 câu (local tới 173 ms -> 12-37 ms), câu trả lời giống hệt. Đo lại 2-3 ngày sau deploy rồi mới quyết đợt 2. Excel: luồng phụ chưa đủ (GIL - xuất bảng công vẫn làm người khác chậm ~0,4 s); cần tiến trình riêng, chưa làm.
+
 **Chưa làm / bỏ khỏi đợt 1:** cảnh báo khi cron sao lưu **không chạy** (chỉ báo khi chạy mà lỗi); sheets/drive/PR channel sync vẫn ở `q_integrations` (chưa thấy chậm, số liệu D sẽ cho biết).
 
 

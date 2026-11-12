@@ -11,6 +11,7 @@ documented as such - the per-unit tabs are the precise view.
 from __future__ import annotations
 
 import heapq
+from collections.abc import Sequence
 from dataclasses import replace
 
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -44,9 +45,15 @@ class TaskBoardService:
         self._settings = settings
         self._directory = directory
         self._pr = pr
+        # One per request (``get_board``) and read-only: who the viewer is
+        # does not change mid-request, so it is loaded once, not per page.
+        self._memberships: dict[tuple[object, object], UnitMembership] = {}
 
     async def membership(self, actor: Actor) -> UnitMembership:
-        return await self._directory.membership_for(actor)
+        key = (actor.user_id, actor.role)
+        if key not in self._memberships:
+            self._memberships[key] = await self._directory.membership_for(actor)
+        return self._memberships[key]
 
     async def resolve_units(self, actor: Actor, unit: str | None) -> tuple[UnitCode, ...]:
         """Which units a request for ``unit`` may read. Outside → 404."""
@@ -129,6 +136,25 @@ class TaskBoardService:
             limit=query.limit,
             offset=query.offset,
         )
+
+    async def totals(
+        self, actor: Actor, *, unit: str | None, queries: Sequence[BoardQuery]
+    ) -> list[int]:
+        """Only how many rows each query would list - the quick filters'
+        numbers ("Task của tôi (8)"). Each unit's source is built once and asked
+        to count; no row is drawn (``/api/board/counts`` drew one per filter,
+        loading orders, steps, names... for nothing - 12/11/2026)."""
+        units = await self.resolve_units(actor, unit)
+        sources: dict[UnitCode, BoardSource] = {}
+        found: list[int] = []
+        for query in queries:
+            total = 0
+            for code in self._narrow(units, query):
+                if code not in sources:
+                    sources[code] = await self.source_for(actor, code)
+                total += await sources[code].count(actor, query)
+            found.append(total)
+        return found
 
     async def count_by_phase(
         self, actor: Actor, *, unit: str | None, query: BoardQuery

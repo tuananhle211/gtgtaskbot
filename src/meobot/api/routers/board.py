@@ -212,18 +212,20 @@ async def board_counts(
     """The numbers behind the task table's quick filters - "Task của tôi (8)":
     each is the total that filter alone would list in this unit, on the board
     of this ``category`` (as on ``/tasks``)."""
-    await board.resolve_units(actor, unit)
     chosen = _category(category)
-
-    async def count(query: BoardQuery) -> int:
-        return (await board.page(actor, unit=unit, query=query)).total
-
+    mine, awaiting_me, priority, urgent, overdue = await board.totals(
+        actor,
+        unit=unit,
+        queries=[
+            BoardQuery(mine=True, limit=1, category=chosen),
+            BoardQuery(awaiting_me=True, limit=1, category=chosen),
+            BoardQuery(priority=True, limit=1, category=chosen),
+            BoardQuery(urgent=True, limit=1, category=chosen),
+            BoardQuery(overdue=True, limit=1, category=chosen),
+        ],
+    )
     return BoardCountsResponse(
-        mine=await count(BoardQuery(mine=True, limit=1, category=chosen)),
-        awaiting_me=await count(BoardQuery(awaiting_me=True, limit=1, category=chosen)),
-        priority=await count(BoardQuery(priority=True, limit=1, category=chosen)),
-        urgent=await count(BoardQuery(urgent=True, limit=1, category=chosen)),
-        overdue=await count(BoardQuery(overdue=True, limit=1, category=chosen)),
+        mine=mine, awaiting_me=awaiting_me, priority=priority, urgent=urgent, overdue=overdue
     )
 
 

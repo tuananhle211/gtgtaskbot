@@ -59,6 +59,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from meobot.application.audit_service import AuditService
 from meobot.application.org.access import Access, AccessCache
+from meobot.application.org.seats import load_seats
 from meobot.application.pr_support import record_pr_event
 from meobot.core.logging import get_logger
 from meobot.core.time import utcnow
@@ -191,6 +192,23 @@ class PrCapabilityService:
         mine = await self.access_of(actor)
         theirs = await self._access.for_user(user.id, user.role)
         return mine.manages(MODULE_PR, theirs)
+
+    async def manages_many(self, actor: Actor, users: Sequence[User]) -> dict[uuid.UUID, bool]:
+        """:meth:`manages` for a whole list (the people picker), in one query.
+
+        ``Access.manages`` reads only the target's id, system role and seats,
+        so those are all that is loaded - every person's seats at once - not
+        each person's full permissions (that was 3-5 queries a person: 727
+        queries for ``/api/pr/people`` on 12/11/2026)."""
+        mine = await self.access_of(actor)
+        seats = await load_seats(self._session, [user.id for user in users]) if users else {}
+        return {
+            user.id: mine.manages(
+                MODULE_PR,
+                Access(user_id=user.id, role=user.role, seats=seats.get(user.id, ())),
+            )
+            for user in users
+        }
 
     async def _require_administers(self, actor: Actor, user_id: uuid.UUID) -> None:
         target = await self._session.get(User, user_id)
