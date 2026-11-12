@@ -271,6 +271,7 @@ export function SearchableSelect({
         ? createPortal(
             <div
               ref={panel}
+              data-select-panel=""
               onKeyDown={onPanelKey}
               className="fixed z-[120] flex max-h-[360px] flex-col overflow-hidden rounded-xl border border-[var(--border)] bg-[var(--surface)] shadow-[var(--shadow-pop)]"
               style={{

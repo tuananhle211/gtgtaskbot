@@ -44,6 +44,7 @@ from meobot.db.models.cron import CronJob, CronJobIncident, CronJobRun
 from meobot.db.models.cskh import (
     CskhAd,
     CskhConversation,
+    CskhConversationCode,
     CskhLabel,
     CskhMessage,
     CskhOrder,
@@ -280,6 +281,7 @@ __all__ = [
     "CronJobRun",
     "CskhAd",
     "CskhConversation",
+    "CskhConversationCode",
     "CskhLabel",
     "CskhMessage",
     "CskhOrder",

@@ -25,7 +25,12 @@ export type InboxPage = {
   pos_shop_id: string | null;
   pancake_tags: PancakeTag[];
   pancake_users: PancakeUser[];
+  /** The short coloured label on the inbox (set on "Kết nối page"); "" = none. */
+  short_name?: string;
+  color?: string;
 };
+
+export type Stage = "NEW" | "CONSULTING" | "CALLBACK" | "CLOSED";
 
 export type Label = { id: string; name: string; color: string; pages?: number };
 export type QuickReply = {
@@ -46,6 +51,11 @@ export type InboxState = {
   work_now: boolean;
   auto_reply_enabled: boolean;
   unread_total: number;
+  /** "Chờ gọi lại" conversations on the caller's pages. */
+  callback_total?: number;
+  /** A customer waiting this long (minutes) turns red on the list. */
+  wait_alert_minutes?: number;
+  stages?: { id: Stage; label: string }[];
   /** Active accounts + their departments' codes (the confirmation's pickers). */
   people?: InboxPerson[];
 };
@@ -70,10 +80,25 @@ export type ConversationRow = {
   pancake_tags: string[];
   assignee_ids: string[];
   zalo_linked: boolean;
+  /** 0104: Mới / Đang tư vấn / Chờ gọi lại / Đã chốt. */
+  stage?: Stage;
+  /** Customer codes: the confirmed orders' first, then Pancake notes'. */
+  codes?: string[];
+  page_short?: string;
+  page_color?: string;
+  last_in_at?: string | null;
   match?: { why: string; snippet: string };
 };
 
-export type ConversationList = { conversations: ConversationRow[]; next_before: string | null };
+export type ConversationList = {
+  conversations: ConversationRow[];
+  next_before: string | null;
+  /** "Chờ lâu nhất" pages by offset. */
+  next_offset?: number | null;
+};
+
+/** A Pancake customer note (the care team writes "KH1426035 - …" there). */
+export type PancakeNote = { id: string; text: string; by: string; at: string | null };
 
 export type Attachment = {
   kind: "image" | "sticker" | "video" | "audio" | "file" | "card" | "ad" | "address" | "link";
@@ -131,7 +156,12 @@ export type Order = {
 };
 
 export type ConversationDetail = {
-  conversation: ConversationRow & { qrs: QrItem[]; ads: AdInfo[]; last_in_at: string | null };
+  conversation: ConversationRow & {
+    qrs: QrItem[];
+    ads: AdInfo[];
+    last_in_at: string | null;
+    notes?: PancakeNote[];
+  };
   page: {
     id: string;
     name: string;
@@ -141,6 +171,8 @@ export type ConversationDetail = {
     marketer_name: string | null;
     pos_shop_id: string | null;
     pos_shop_name: string | null;
+    short_name?: string;
+    color?: string;
   };
   messages: Message[];
   orders: Order[];
@@ -253,6 +285,7 @@ export type ZaloMessage = {
 export type ZaloForConversation = {
   threads: ZaloThread[];
   codes: string[];
+  notes?: PancakeNote[];
   suggest: ZaloThread[];
   may_link: boolean;
 };
@@ -317,6 +350,8 @@ export type InboxSettings = {
   mkt_lock_days: number;
   skip_keywords: string[];
   pos_dup_skip_keywords: string[];
+  /** Minutes a customer may wait before turning red on the list (1-240). */
+  wait_alert_minutes?: number;
 };
 
 export type ConnectionPage = {
@@ -339,6 +374,8 @@ export type ConnectionPage = {
   polled_at: string | null;
   poll_error: string | null;
   meta_at: string | null;
+  short_name?: string;
+  color?: string;
 };
 
 export type ConnectJob = {
@@ -414,9 +451,14 @@ export type ConversationFilters = {
   tab?: "all" | "unread" | "callback" | "phone";
   q?: string;
   before?: string;
+  stage?: Stage;
+  mine?: boolean;
+  /** "wait" = Chờ lâu nhất (default on screen), "recent" = Mới nhất. */
+  sort?: "wait" | "recent";
+  offset?: number;
 };
 
-function query(params: Record<string, string | undefined | null | boolean>): string {
+function query(params: Record<string, string | number | undefined | null | boolean>): string {
   const search = new URLSearchParams();
   for (const [key, value] of Object.entries(params)) {
     if (value === undefined || value === null || value === "" || value === false) continue;
@@ -438,6 +480,8 @@ export const cskhApi = {
   send: (id: string, text: string, clearCallback = false) =>
     http.post<Message>(`${C}/conversations/${id}/messages`, { text, clear_callback: clearCallback }),
   setCallback: (id: string, on: boolean) => http.post<void>(`${C}/conversations/${id}/callback`, { on }),
+  setStage: (id: string, stage: Stage) =>
+    http.post<{ stage: Stage }>(`${C}/conversations/${id}/stage`, { stage }),
   markUnread: (id: string) => http.post<void>(`${C}/conversations/${id}/unread`),
   pancakeTag: (id: string, tagId: string, add: boolean) =>
     http.post<{ pancake_tags: string[] }>(`${C}/conversations/${id}/pancake-tags`, { tag_id: tagId, add }),
@@ -500,6 +544,8 @@ export const cskhApi = {
     member_mode?: "set" | "add" | "remove";
     label_ids?: string[];
     label_mode?: "set" | "add" | "remove";
+    short_name?: string;
+    color?: string;
   }) => http.post<{ changed: number }>(`${C}/pages/update`, body),
   disconnectPage: (id: string) => http.post<void>(`${C}/pages/${encodeURIComponent(id)}/disconnect`),
   labels: () => http.get<{ labels: Label[] }>(`${C}/labels`),
@@ -540,6 +586,91 @@ export const LABEL_TONES: Record<string, string> = {
   purple: "var(--brand-magenta-pastel)",
   gray: "var(--text-muted)",
 };
+
+export const STAGES: { id: Stage; label: string }[] = [
+  { id: "NEW", label: "Mới" },
+  { id: "CONSULTING", label: "Đang tư vấn" },
+  { id: "CALLBACK", label: "Chờ gọi lại" },
+  { id: "CLOSED", label: "Đã chốt" },
+];
+
+/** A page label's tint: [fill, ink] as tokens (both themes). */
+export const PAGE_TONES: Record<string, [string, string]> = {
+  blue: ["var(--accent-soft)", "var(--accent-strong)"],
+  pink: ["var(--magenta-soft)", "var(--magenta)"],
+  green: ["var(--good-soft)", "var(--good)"],
+  purple: ["var(--purple-soft)", "var(--purple)"],
+  amber: ["var(--warn-soft)", "var(--warn)"],
+  teal: ["var(--teal-soft)", "var(--teal)"],
+  slate: ["var(--surface-muted)", "var(--text-muted)"],
+};
+export const PAGE_COLOR_NAMES: Record<string, string> = {
+  blue: "Xanh",
+  pink: "Hồng",
+  green: "Xanh lá",
+  purple: "Tím",
+  amber: "Cam",
+  teal: "Xanh ngọc",
+  slate: "Xám",
+};
+const TONE_ORDER = ["blue", "pink", "green", "purple", "amber", "teal"];
+
+function hash(text: string): number {
+  let value = 0;
+  for (const ch of text) value = (value * 31 + ch.charCodeAt(0)) >>> 0;
+  return value;
+}
+
+/** The page's own colour, else one picked from its id (stable). */
+export function pageTone(pageId: string, color?: string | null): [string, string] {
+  return PAGE_TONES[color || ""] ?? PAGE_TONES[TONE_ORDER[hash(pageId) % TONE_ORDER.length]];
+}
+
+/** A customer's avatar tint from their name. */
+export function nameTone(name: string): [string, string] {
+  return PAGE_TONES[TONE_ORDER[hash(name) % 5]];
+}
+
+/** The page's short label: what the admin set, else its name cut after the first " - ". */
+export function pageShort(name: string, short?: string | null): string {
+  if (short) return short;
+  const tail = name.split(/\s+[-–]\s+/).pop() ?? name;
+  return tail.length > 22 ? `${tail.slice(0, 21)}…` : tail;
+}
+
+/**
+ * How long the customer has waited: minutes since their last message when the page
+ * has not answered (null = nobody waits; older than a day = no longer "waiting").
+ */
+export function waitMinutes(row: Pick<ConversationRow, "last_out" | "last_at">, now: number): number | null {
+  if (row.last_out || !row.last_at) return null;
+  const minutes = Math.floor((now - Date.parse(row.last_at)) / 60000);
+  if (Number.isNaN(minutes) || minutes > 24 * 60) return null;
+  return Math.max(0, minutes);
+}
+
+export function waitLabel(minutes: number): string {
+  if (minutes < 60) return `${minutes} phút`;
+  const hours = Math.floor(minutes / 60);
+  return `${hours} giờ${minutes % 60 ? ` ${minutes % 60}p` : ""}`;
+}
+
+/** Vietnamese phone numbers inside a message, as written ("032 593 7871", "+84 912…"). */
+const PHONE_IN_TEXT = /(?<![\d])(?:\+?84|0)(?:[\s.-]?\d){8,10}(?![\d])/g;
+
+export function splitPhones(text: string): { text: string; phone?: string }[] {
+  const out: { text: string; phone?: string }[] = [];
+  let last = 0;
+  for (const match of text.matchAll(PHONE_IN_TEXT)) {
+    const digits = match[0].replace(/\D/g, "").replace(/^84/, "0");
+    if (digits.length < 10 || digits.length > 11) continue;
+    if (match.index! > last) out.push({ text: text.slice(last, match.index) });
+    out.push({ text: match[0], phone: digits });
+    last = match.index! + match[0].length;
+  }
+  if (last < text.length) out.push({ text: text.slice(last) });
+  return out;
+}
 
 /** A quick reply's text with `{ten}` replaced by the customer's name. */
 export function fillReply(text: string, customerName: string): string {

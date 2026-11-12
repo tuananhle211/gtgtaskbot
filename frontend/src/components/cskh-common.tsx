@@ -11,6 +11,7 @@ import {
   ATTACHMENT_LABELS,
   LABEL_TONES,
   safeUrl,
+  splitPhones,
   type Attachment,
   type Label,
   type Message,
@@ -207,21 +208,66 @@ const KIND_LABELS: Record<Message["kind"], string> = {
   auto: "Tự động ngoài giờ",
 };
 
-/** One page message: customer on the left, the page on the right. */
-export function MessageBubble({ message }: { message: Message }) {
+/**
+ * One page message: customer on the left (white, bordered), the page on the right
+ * (navy). A phone number the customer typed is bold, with "Xác nhận số" (when
+ * `onConfirmPhone`) and "Chép" right in the bubble.
+ */
+export function MessageBubble({
+  message,
+  onConfirmPhone,
+}: {
+  message: Message;
+  onConfirmPhone?: (phone: string) => void;
+}) {
   const out = message.direction === "out";
   const failed = message.status && message.status !== "ok" && !message.status.startsWith("ok");
+  const parts = !out && message.text ? splitPhones(message.text) : null;
+  const phones = parts?.filter((part) => part.phone).map((part) => part.phone!) ?? [];
   return (
     <div className={`flex ${out ? "justify-end" : "justify-start"}`} data-testid="cskh-message">
       <div className={`max-w-[85%] space-y-1 ${out ? "items-end text-right" : ""}`}>
         <div
-          className={`inline-block whitespace-pre-wrap break-words rounded-2xl px-3 py-2 text-left text-sm ${
+          className={`inline-block whitespace-pre-wrap break-words rounded-2xl px-3.5 py-2.5 text-left text-sm leading-relaxed ${
             out
-              ? "bg-[var(--accent-soft)] text-[var(--accent-strong)]"
-              : "border border-[var(--border)] bg-[var(--surface)] text-[var(--text)]"
+              ? "rounded-br-md bg-[var(--accent-strong)] text-[var(--surface)]"
+              : "rounded-bl-md border border-[var(--border)] bg-[var(--surface)] text-[var(--text)]"
           }`}
         >
-          {message.text ? <p>{message.text}</p> : null}
+          {parts ? (
+            <p>
+              {parts.map((part, index) =>
+                part.phone ? (
+                  <strong key={index} className="font-semibold tabular-nums">
+                    {part.text}
+                  </strong>
+                ) : (
+                  <span key={index}>{part.text}</span>
+                ),
+              )}
+            </p>
+          ) : message.text ? (
+            <p>{message.text}</p>
+          ) : null}
+          {phones.length ? (
+            <span className="mt-2 flex flex-wrap gap-1.5" data-testid="cskh-phone-actions">
+              {[...new Set(phones)].map((phone) => (
+                <span key={phone} className="inline-flex flex-wrap items-center gap-1.5">
+                  {onConfirmPhone ? (
+                    <button
+                      type="button"
+                      onClick={() => onConfirmPhone(phone)}
+                      className="inline-flex min-h-8 items-center rounded-md bg-[var(--accent-strong)] px-2.5 text-xs font-semibold text-[var(--surface)] hover:opacity-90"
+                      aria-label={`Xác nhận số ${phone}`}
+                    >
+                      Xác nhận số
+                    </button>
+                  ) : null}
+                  <CopyChip text={phone} display="Chép" title={`Chép số ${phone}`} />
+                </span>
+              ))}
+            </span>
+          ) : null}
           {message.attachments.length ? (
             <div className={`space-y-1 ${message.text ? "mt-1" : ""}`}>
               {message.attachments.map((item, index) => (

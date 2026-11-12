@@ -26,6 +26,12 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from meobot.application.audit_service import AuditService
 from meobot.application.cskh.access import CskhAccess, page_scope, zalo_scope
+from meobot.application.cskh.codes import (
+    all_codes,
+    codes_of,
+    conversation_by_code,
+    link,
+)
 from meobot.application.cskh.common import CskhClients, names_of, pairs
 from meobot.application.cskh.inbox import Actor, iso, message_view
 from meobot.application.cskh.sync import aware, send_text
@@ -175,24 +181,9 @@ async def save_zalo_message(
     return True
 
 
-async def _codes(session: AsyncSession) -> dict[str, uuid.UUID]:
-    """Every customer code ≥ 4 characters -> its page conversation (the latest)."""
-    rows = (
-        await session.execute(
-            select(CskhOrder.customer_code, CskhOrder.conversation_id)
-            .where(
-                CskhOrder.customer_code != "",
-                func.length(CskhOrder.customer_code) >= MIN_CODE_LENGTH,
-            )
-            .order_by(CskhOrder.created_at)
-        )
-    ).all()
-    return {code.upper(): conv_id for code, conv_id in rows}
-
-
 async def find_conversation(session: AsyncSession, text: str) -> tuple[uuid.UUID, str, str] | None:
     """A customer code first, then a phone number (orders, then conversations)."""
-    for code, conv_id in (await _codes(session)).items():
+    for code, conv_id in (await all_codes(session)).items():
         if code_in_text(code, text):
             return conv_id, code, f"Mã KH {code} trong tin Zalo"
     for phone in find_phones(text):
@@ -217,23 +208,6 @@ async def find_conversation(session: AsyncSession, text: str) -> tuple[uuid.UUID
             if any(phone_key(str(p)) == key for p in conv.phones or []):
                 return conv.id, "", f"SĐT {phone} trong tin Zalo"
     return None
-
-
-def link(
-    thread: CskhZaloThread,
-    conversation_id: uuid.UUID,
-    code: str,
-    how: str,
-    kind: LinkKind,
-    *,
-    user_id: uuid.UUID | None = None,
-) -> None:
-    thread.conversation_id = conversation_id
-    thread.customer_code = code[:40]
-    thread.link_how = clip(how, 300)
-    thread.link_kind = kind.value
-    thread.linked_at = utcnow()
-    thread.linked_by_user_id = user_id
 
 
 # --- the Zalo inbox --------------------------------------------------------------------------
@@ -490,17 +464,9 @@ class CskhZalo:
         clean = (term or "").strip()
         if not clean:
             return None
-        code = normalize_code(clean)
-        row = (
-            await self._session.execute(
-                select(CskhOrder.conversation_id, CskhOrder.customer_code)
-                .where(CskhOrder.customer_code == code, CskhOrder.customer_code != "")
-                .order_by(CskhOrder.created_at.desc())
-                .limit(1)
-            )
-        ).first()
-        if row is not None:
-            return row[0], row[1], LinkKind.CODE
+        by_code = await conversation_by_code(self._session, clean)
+        if by_code is not None:
+            return by_code[0], by_code[1], LinkKind.CODE
         match = await find_conversation(self._session, clean)
         if match is None:
             return None
@@ -536,17 +502,7 @@ class CskhZalo:
         """From the page inbox's "Zalo telesale" tab: this conversation <-> a found thread."""
         thread = await self.thread(access, thread_id)
         conv = await self._visible_conversation(access, conversation_id)
-        codes = [
-            c
-            for c in (
-                await self._session.scalars(
-                    select(CskhOrder.customer_code)
-                    .where(CskhOrder.conversation_id == conv.id, CskhOrder.customer_code != "")
-                    .order_by(CskhOrder.created_at.desc())
-                )
-            ).all()
-            if c
-        ]
+        codes = await codes_of(self._session, conv.id)
         wanted = normalize_code(term)
         by_code = next((c for c in codes if wanted and c == wanted), None)
         if by_code is None and match.startswith("Mã KH"):
@@ -634,21 +590,12 @@ class CskhZalo:
                 ).all()
             )[::-1]
             view["messages"] = [zalo_view(m) for m in messages]
-        codes = list(
-            dict.fromkeys(
-                (
-                    await self._session.scalars(
-                        select(CskhOrder.customer_code).where(
-                            CskhOrder.conversation_id == conv.id, CskhOrder.customer_code != ""
-                        )
-                    )
-                ).all()
-            )
-        )
+        codes = await codes_of(self._session, conv.id)
         suggest = [] if threads or scope == set() else await self._search("", conv, scope)
         return {
             "threads": threads,
             "codes": codes,
+            "notes": list(conv.notes or []),
             "suggest": suggest,
             "may_link": access.sees_zalo,
         }
@@ -671,15 +618,7 @@ class CskhZalo:
         if term.strip():
             terms = [("Tìm", term.strip())]
         elif conv is not None:
-            for code in dict.fromkeys(
-                (
-                    await self._session.scalars(
-                        select(CskhOrder.customer_code).where(
-                            CskhOrder.conversation_id == conv.id, CskhOrder.customer_code != ""
-                        )
-                    )
-                ).all()
-            ):
+            for code in await codes_of(self._session, conv.id):
                 if len(code) >= MIN_CODE_LENGTH:
                     terms.append(("Mã KH", code))
             phones = {str(p) for p in conv.phones or []}

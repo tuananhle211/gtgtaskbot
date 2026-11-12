@@ -594,6 +594,7 @@ class AuditAction(StrEnum):
     CSKH_POS_KEY_REMOVED = "cskh.pos_key.removed"
     CSKH_SETTINGS_UPDATED = "cskh.settings.updated"
     CSKH_MESSAGE_SENT = "cskh.message.sent"
+    CSKH_STAGE_CHANGED = "cskh.stage.changed"
     CSKH_ORDER_CONFIRMED = "cskh.order.confirmed"
     CSKH_ZALO_ACCOUNT_UPDATED = "cskh.zalo.account.updated"
     CSKH_ZALO_ACCOUNT_LOGOUT = "cskh.zalo.account.logout"

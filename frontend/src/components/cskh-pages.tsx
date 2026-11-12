@@ -11,6 +11,10 @@ import { useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   cskhApi,
+  PAGE_COLOR_NAMES,
+  PAGE_TONES,
+  pageShort,
+  pageTone,
   WEEKDAYS,
   type ConnectJob,
   type Connections,
@@ -835,6 +839,8 @@ function PageRow({
   pending: boolean;
 }) {
   const [members, setMembers] = useState(false);
+  const [look, setLook] = useState(false);
+  const [fill, ink] = pageTone(page.id, page.color);
   return (
     <tr data-testid="cskh-page-row">
       <td>
@@ -851,6 +857,33 @@ function PageRow({
           {page.id}
           {page.skipped ? " · bị loại trừ" : ""}
         </p>
+        <button
+          type="button"
+          onClick={() => setLook(true)}
+          className="mt-1 inline-flex items-center gap-1 text-xs"
+          aria-label={`Nhãn ngắn ${page.name}`}
+          title="Tên ngắn và màu hiện trong hộp chat"
+        >
+          <span
+            className="rounded-md px-1.5 py-px font-semibold"
+            style={{ background: fill, color: ink }}
+          >
+            {pageShort(page.name, page.short_name)}
+          </span>
+          <span className="text-[var(--text-muted)] underline-offset-2 hover:underline">
+            {page.short_name ? "Sửa" : "Đặt tên ngắn"}
+          </span>
+        </button>
+        {look ? (
+          <PageLookDialog
+            page={page}
+            onClose={() => setLook(false)}
+            onSave={(value) => {
+              onUpdate(value);
+              setLook(false);
+            }}
+          />
+        ) : null}
       </td>
       <td>
         <span className={`st ${page.connected ? "st-green" : page.token_hint ? "st-amber" : "st-slate"}`}>
@@ -942,6 +975,78 @@ function PageRow({
         </div>
       </td>
     </tr>
+  );
+}
+
+/** A page's short label on the inbox ("Tiểu Eva") and its colour. */
+function PageLookDialog({
+  page,
+  onClose,
+  onSave,
+}: {
+  page: ConnectionPage;
+  onClose: () => void;
+  onSave: (value: { short_name: string; color: string }) => void;
+}) {
+  const [short, setShort] = useState(page.short_name ?? "");
+  const [color, setColor] = useState(page.color ?? "");
+  const [fill, ink] = pageTone(page.id, color);
+  return (
+    <Modal open onClose={onClose} title="Nhãn ngắn của page">
+      <ModalBody className="space-y-3 text-sm">
+        <p className="text-[var(--text-muted)]">{page.name}</p>
+        <label className="block space-y-1">
+          <span className="font-medium">Tên ngắn (tối đa 24 ký tự)</span>
+          <input
+            className={fieldClass}
+            value={short}
+            maxLength={24}
+            onChange={(e) => setShort(e.target.value)}
+            placeholder={pageShort(page.name)}
+          />
+        </label>
+        <fieldset className="space-y-1">
+          <legend className="font-medium">Màu</legend>
+          <div className="flex flex-wrap gap-2">
+            {[["", "Tự chọn"], ...Object.entries(PAGE_COLOR_NAMES)].map(([key, label]) => {
+              const [bg, fg] = key ? PAGE_TONES[key] : ["var(--surface)", "var(--text)"];
+              return (
+                <label
+                  key={key || "auto"}
+                  className={`inline-flex min-h-9 cursor-pointer items-center rounded-lg border px-2.5 text-xs font-semibold ${
+                    color === key ? "border-[var(--accent)] shadow-[0_0_0_2px_var(--ring)]" : "border-[var(--border)]"
+                  }`}
+                  style={{ background: bg, color: fg }}
+                >
+                  <input
+                    type="radio"
+                    name="page-color"
+                    className="sr-only"
+                    checked={color === key}
+                    onChange={() => setColor(key)}
+                  />
+                  {label}
+                </label>
+              );
+            })}
+          </div>
+        </fieldset>
+        <p className="flex items-center gap-2 text-xs text-[var(--text-muted)]">
+          Xem trước:
+          <span className="rounded-md px-1.5 py-px font-semibold" style={{ background: fill, color: ink }}>
+            {pageShort(page.name, short.trim())}
+          </span>
+        </p>
+      </ModalBody>
+      <ModalFooter>
+        <SecondaryButton type="button" onClick={onClose}>
+          Huỷ
+        </SecondaryButton>
+        <PrimaryButton type="button" onClick={() => onSave({ short_name: short.trim(), color })}>
+          Lưu
+        </PrimaryButton>
+      </ModalFooter>
+    </Modal>
   );
 }
 
@@ -1091,6 +1196,7 @@ function SettingsForm({ settings, onChanged }: { settings: InboxSettings; onChan
         auto_reply_text: form.auto_reply_text,
         order_statuses: lines(form.order_statuses_text),
         mkt_lock_days: Number(form.mkt_lock_days) || 0,
+        wait_alert_minutes: Number(form.wait_alert_minutes) || 8,
         skip_keywords: lines(form.skip_text),
         pos_dup_skip_keywords: lines(form.dup_skip_text),
       }),
@@ -1182,6 +1288,18 @@ function SettingsForm({ settings, onChanged }: { settings: InboxSettings; onChan
               max={3650}
               value={form.mkt_lock_days}
               onChange={(e) => setForm({ ...form, mkt_lock_days: Number(e.target.value) })}
+            />
+          </label>
+          <label className="block space-y-1 text-sm">
+            <span className="font-medium">Khách chờ quá bao nhiêu phút thì báo đỏ</span>
+            <input
+              className={fieldClass}
+              type="number"
+              min={1}
+              max={240}
+              value={form.wait_alert_minutes ?? 8}
+              onChange={(e) => setForm({ ...form, wait_alert_minutes: Number(e.target.value) })}
+              aria-label="Ngưỡng khách chờ (phút)"
             />
           </label>
           <label className="block space-y-1 text-sm">

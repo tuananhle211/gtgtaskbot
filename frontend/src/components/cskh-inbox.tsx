@@ -1,11 +1,21 @@
 "use client";
 
 /**
- * "Hộp chat page" (0102): every Pancake page in one inbox. Three columns - the
- * conversations (filters, tabs, search), the chat (attachments, ads, phones,
- * QR codes, Pancake tags + assignee, quick replies, the phone / QR
- * confirmation) and the customer (orders, page staff) / "Zalo telesale".
- * The URL holds the open conversation (`?c=`); on a phone one column at a time.
+ * "Hộp chat page" (0102; redesigned 12/11 from `THIET_KE_HOP_CHAT.md`): every
+ * Pancake page in one inbox that fits the screen, three columns scrolling inside.
+ *
+ * - left: search + "Lọc" (page, label / tag / campaign, stage, "Của tôi") with the
+ *   active filters as chips, "Xếp: Chờ lâu nhất / Mới nhất", tabs with counts; each
+ *   customer in 3 lines (name · time · unread; last message; page label · phone ·
+ *   person in charge · how long they have waited, red past the threshold);
+ * - middle: the chat - header with the page, the wait, the ad on one line and
+ *   "Trạng thái"; navy page bubbles; a phone the customer typed can be confirmed
+ *   or copied in the bubble; one toolbar row; Ctrl+Enter sends, "/" quick replies;
+ * - right: the customer card (Mã KH from orders or Pancake notes, phone, person in
+ *   charge, Pancake notes, orders + "Xác nhận đơn", the page) / "Zalo telesale".
+ *
+ * The URL holds the open conversation (`?c=`); ↑ / ↓ move between customers when
+ * not typing. On a phone one column at a time.
  */
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
@@ -14,53 +24,170 @@ import {
   cskhApi,
   fillReply,
   MAX_MESSAGE_CHARS,
+  nameTone,
+  pageShort,
+  pageTone,
   repliesFor,
+  STAGES,
+  waitLabel,
+  waitMinutes,
   type ConversationDetail,
   type ConversationFilters,
   type ConversationRow,
+  type InboxPage,
   type InboxState,
   type QuickReply,
+  type Stage,
   type ZaloThread,
 } from "@/lib/cskh";
 import { formatDateTime, formatShortDateTime } from "@/lib/datetime";
-import {
-  ColumnHead,
-  CopyChip,
-  ErrorLine,
-  Initials,
-  LabelChip,
-  MessageBubble,
-  fieldClass,
-  smallButton,
-} from "@/components/cskh-common";
+import { CopyChip, ErrorLine, MessageBubble, fieldClass, smallButton } from "@/components/cskh-common";
 import { OrderConfirmDialog } from "@/components/cskh-confirm";
 import { ConfirmButton } from "@/components/confirm";
-import { PrimaryButton, Select } from "@/components/pr";
+import { Select } from "@/components/pr";
+import { RowMenu } from "@/components/row-menu";
 import { ErrorBox, Loading } from "@/components/states";
 
 const POLL_MS = 4000;
+const DEFAULT_WAIT_ALERT = 8;
 type Tab = NonNullable<ConversationFilters["tab"]>;
-const TABS: { key: Tab; label: string }[] = [
-  { key: "all", label: "Tất cả" },
-  { key: "unread", label: "Chưa đọc" },
-  { key: "callback", label: "Chờ gọi lại" },
-  { key: "phone", label: "Có SĐT" },
-];
+
+// --- small pieces ---------------------------------------------------------------------------
+
+const ICONS = {
+  search: "M11 19a8 8 0 1 0 0-16 8 8 0 0 0 0 16Zm10 2-4.35-4.35",
+  filter: "M3 5h18M6 12h12M10 19h4",
+  tag: "M20.6 13.4 13.4 20.6a2 2 0 0 1-2.8 0L3 13V3h10l7.6 7.6a2 2 0 0 1 0 2.8ZM7.5 7.5h.01",
+  clock: "M12 21a9 9 0 1 0 0-18 9 9 0 0 0 0 18Zm0-13v4l3 2",
+  qr: "M4 4h6v6H4zM14 4h6v6h-6zM4 14h6v6H4zM14 14h2v2h-2zM18 18h2v2h-2zM14 18h2",
+  phone:
+    "M22 16.9v3a2 2 0 0 1-2.2 2 19.8 19.8 0 0 1-8.6-3.1 19.5 19.5 0 0 1-6-6A19.8 19.8 0 0 1 2.1 4.2 2 2 0 0 1 4.1 2h3a2 2 0 0 1 2 1.7c.1.9.4 1.8.7 2.7a2 2 0 0 1-.5 2.1L8.1 9.8a16 16 0 0 0 6 6l1.3-1.3a2 2 0 0 1 2.1-.4c.9.3 1.8.6 2.7.7a2 2 0 0 1 1.7 2Z",
+  send: "M22 2 11 13M22 2l-7 20-4-9-9-4 20-7Z",
+  check: "M20 6 9 17l-5-5",
+  back: "M15 18l-6-6 6-6",
+  info: "M12 21a9 9 0 1 0 0-18 9 9 0 0 0 0 18Zm0-5v-4m0-4h.01",
+  ad: "M3 11l15-6v14L3 13zM11.6 16.8a3 3 0 1 1-5.8-1.6",
+  close: "M18 6 6 18M6 6l12 12",
+} as const;
+
+function Icon({ name, size = 16 }: { name: keyof typeof ICONS; size?: number }) {
+  return (
+    <svg
+      aria-hidden="true"
+      width={size}
+      height={size}
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth={2}
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      className="shrink-0"
+    >
+      <path d={ICONS[name]} />
+    </svg>
+  );
+}
+
+/** The customer's initials on a tint picked from the name. */
+function Avatar({ name, size = 40 }: { name: string; size?: number }) {
+  const [fill, ink] = nameTone(name);
+  const letters =
+    name
+      .split(/\s+/)
+      .filter(Boolean)
+      .slice(-2)
+      .map((part) => part[0]?.toUpperCase())
+      .join("") || "?";
+  return (
+    <span
+      aria-hidden="true"
+      style={{ width: size, height: size, background: fill, color: ink }}
+      className="inline-flex shrink-0 items-center justify-center rounded-full text-xs font-bold"
+    >
+      {letters}
+    </span>
+  );
+}
+
+/** The page's short coloured label. */
+function PageTag({ pageId, name, short, color }: { pageId: string; name: string; short?: string; color?: string }) {
+  const [fill, ink] = pageTone(pageId, color);
+  return (
+    <span
+      title={name}
+      style={{ background: fill, color: ink }}
+      className="inline-flex max-w-[11rem] items-center truncate rounded-md px-1.5 py-px text-[11px] font-semibold"
+      data-testid="cskh-page-tag"
+    >
+      {pageShort(name, short)}
+    </span>
+  );
+}
+
+/** "N phút" the customer has waited: amber, red from the threshold on. */
+function WaitClock({ minutes, alert, long = false }: { minutes: number; alert: number; long?: boolean }) {
+  const late = minutes >= alert;
+  return (
+    <span
+      className={`inline-flex shrink-0 items-center gap-1 rounded-md px-1.5 py-px text-[11px] font-semibold tabular-nums ${
+        late ? "bg-[var(--bad)] text-[var(--surface)]" : "bg-[var(--warn-soft)] text-[var(--warn)]"
+      }`}
+      data-testid="cskh-wait"
+      data-late={late ? "true" : undefined}
+      title={`Khách chờ ${waitLabel(minutes)} chưa được trả lời`}
+    >
+      <Icon name="clock" size={12} />
+      {long ? `Khách chờ ${waitLabel(minutes)}` : waitLabel(minutes)}
+    </span>
+  );
+}
+
+function UnreadBadge({ count }: { count: number }) {
+  return (
+    <span className="inline-flex min-w-5 items-center justify-center rounded-full bg-[var(--magenta)] px-1.5 text-[11px] font-bold leading-5 text-[var(--surface)] tabular-nums">
+      {count > 99 ? "99+" : count}
+    </span>
+  );
+}
+
+/** The list's time: today = "HH:mm", another day = "dd/mm". */
+function listTime(at: string | null, now: number): string {
+  const when = formatShortDateTime(at);
+  if (!when) return "";
+  const [day, time] = when.split(" ");
+  return day === formatShortDateTime(new Date(now).toISOString()).split(" ")[0] ? (time ?? when) : day;
+}
+
+/** A clock that moves every 30 s (the wait timers). */
+function useNow(): number {
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    const timer = window.setInterval(() => setNow(Date.now()), 30000);
+    return () => window.clearInterval(timer);
+  }, []);
+  return now;
+}
+
+const toolButton =
+  "inline-flex min-h-10 items-center gap-1.5 rounded-lg border border-[var(--border)] bg-[var(--surface)] px-3 text-sm font-medium text-[var(--text)] hover:bg-[var(--surface-muted)] disabled:opacity-50";
+
+// --- the screen -----------------------------------------------------------------------------
 
 export function CskhInbox() {
   const router = useRouter();
   const params = useSearchParams();
   const openId = params.get("c");
-  const [filters, setFilters] = useState<ConversationFilters>({ tab: "all" });
+  const [filters, setFilters] = useState<ConversationFilters>({ tab: "all", sort: "wait" });
   const [search, setSearch] = useState("");
   const [older, setOlder] = useState<ConversationRow[]>([]);
-  const [cursor, setCursor] = useState<string | null>(null);
+  const [cursor, setCursor] = useState<{ before?: string; offset?: number } | null>(null);
   const [showSide, setShowSide] = useState(false);
+  const now = useNow();
 
   const state = useQuery({ queryKey: ["cskh", "state"], queryFn: cskhApi.state, refetchInterval: 15000 });
-  const listKey = ["cskh", "conversations", filters] as const;
   const list = useQuery({
-    queryKey: listKey,
+    queryKey: ["cskh", "conversations", filters] as const,
     queryFn: () => cskhApi.conversations(filters),
     refetchInterval: POLL_MS,
   });
@@ -69,12 +196,16 @@ export function CskhInbox() {
     setCursor(null);
   }, [filters]);
 
+  const next = cursor ?? {
+    before: list.data?.next_before ?? undefined,
+    offset: list.data?.next_offset ?? undefined,
+  };
+  const more = Boolean(next.before) || next.offset != null;
   const loadMore = useMutation({
-    mutationFn: () =>
-      cskhApi.conversations({ ...filters, before: cursor ?? list.data?.next_before ?? undefined }),
+    mutationFn: () => cskhApi.conversations({ ...filters, before: next.before, offset: next.offset }),
     onSuccess: (data) => {
       setOlder((rows) => [...rows, ...data.conversations]);
-      setCursor(data.next_before ?? "");
+      setCursor({ before: data.next_before ?? undefined, offset: data.next_offset ?? undefined });
     },
   });
 
@@ -83,42 +214,51 @@ export function CskhInbox() {
     const seen = new Set(first.map((row) => row.id));
     return [...first, ...older.filter((row) => !seen.has(row.id))];
   }, [list.data, older]);
-  const more = cursor === null ? Boolean(list.data?.next_before) : Boolean(cursor);
 
   const open = (id: string | null) => {
-    const next = new URLSearchParams(params.toString());
-    if (id) next.set("c", id);
-    else next.delete("c");
-    router.replace(`/cskh${next.toString() ? `?${next}` : ""}`, { scroll: false });
+    const query = new URLSearchParams(params.toString());
+    if (id) query.set("c", id);
+    else query.delete("c");
+    router.replace(`/cskh${query.toString() ? `?${query}` : ""}`, { scroll: false });
   };
+
+  // ↑ / ↓ move between customers (never while typing in a field).
+  const openRef = useRef(open);
+  openRef.current = open;
+  useEffect(() => {
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key !== "ArrowDown" && event.key !== "ArrowUp") return;
+      const target = event.target as HTMLElement | null;
+      if (target?.closest("input, textarea, select, [contenteditable='true'], [role='listbox']")) return;
+      if (!rows.length) return;
+      const at = rows.findIndex((row) => row.id === openId);
+      const to = event.key === "ArrowDown" ? Math.min(rows.length - 1, at + 1) : Math.max(0, at - 1);
+      if (to !== at && rows[to]) {
+        event.preventDefault();
+        openRef.current(rows[to].id);
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [rows, openId]);
 
   if (state.isLoading) return <Loading />;
   if (state.error) return <ErrorBox error={state.error} onRetry={() => void state.refetch()} />;
   const frame = state.data!;
+  const alert = frame.wait_alert_minutes ?? DEFAULT_WAIT_ALERT;
   const pageOf = (id: string) => frame.pages.find((page) => page.id === id);
 
   return (
-    <div className="space-y-3">
-      <div className="flex flex-wrap items-center justify-between gap-2">
-        <div>
-          <p className="brand-eyebrow">Chăm sóc khách hàng</p>
-          <h1 className="text-xl font-semibold tracking-tight sm:text-2xl">Hộp chat page</h1>
-        </div>
-        <p className="text-xs text-[var(--text-muted)]">
-          {frame.pages.length} page · {frame.unread_total} tin chưa đọc ·{" "}
-          {frame.work_now
-            ? "Trong giờ làm"
-            : frame.auto_reply_enabled
-              ? "Ngoài giờ: đang tự trả lời"
-              : "Ngoài giờ"}
-        </p>
-      </div>
-      <div className="grid gap-3 lg:h-[calc(100vh-11rem)] lg:grid-cols-[320px_minmax(0,1fr)] xl:grid-cols-[320px_minmax(0,1fr)_360px]">
+    // The columns follow the room the content really has (the APM sidebar open or
+    // folded), not the window: 2 columns from 768 px, 3 from 1024 px of content.
+    <div className="@container flex flex-col gap-3 lg:h-[calc(100dvh-9.5rem)] lg:min-h-[560px]">
+      <InboxBar frame={frame} />
+      <div className="grid min-h-0 flex-1 grid-cols-[minmax(0,1fr)] gap-3 @3xl:grid-cols-[minmax(300px,360px)_minmax(0,1fr)] @5xl:grid-cols-[minmax(290px,350px)_minmax(0,1fr)_minmax(290px,350px)] @7xl:grid-cols-[390px_minmax(0,1fr)_400px]">
         <section
-          className={`panel flex min-h-0 flex-col overflow-hidden ${openId ? "hidden lg:flex" : "flex"}`}
+          className={`panel min-h-0 flex-col overflow-hidden ${openId ? "hidden @3xl:flex" : "flex"} max-lg:h-[calc(100dvh-10rem)]`}
           aria-label="Danh sách hội thoại"
         >
-          <ListFilters
+          <ListHead
             frame={frame}
             filters={filters}
             setFilters={setFilters}
@@ -137,13 +277,15 @@ export function CskhInbox() {
                   <ConversationItem
                     row={row}
                     selected={row.id === openId}
-                    frame={frame}
+                    page={pageOf(row.page_id)}
+                    now={now}
+                    alert={alert}
                     onOpen={() => open(row.id)}
                   />
                 </li>
               ))}
             </ul>
-            {more ? (
+            {more && rows.length ? (
               <div className="p-3">
                 <button
                   type="button"
@@ -162,14 +304,20 @@ export function CskhInbox() {
             key={openId}
             id={openId}
             frame={frame}
+            now={now}
+            alert={alert}
             onBack={() => open(null)}
             onInfo={() => setShowSide((v) => !v)}
             showSide={showSide}
-            pageOf={pageOf}
+            page={(pageId) => pageOf(pageId)}
           />
         ) : (
-          <section className="panel hidden items-center justify-center p-6 text-sm text-[var(--text-muted)] lg:flex">
-            Chọn một hội thoại để xem tin nhắn.
+          <section className="panel hidden flex-col items-center justify-center gap-2 p-6 text-center text-sm text-[var(--text-muted)] @3xl:flex @5xl:col-span-2">
+            <span className="text-[var(--accent)]">
+              <Icon name="send" size={28} />
+            </span>
+            Chọn một khách bên trái để xem tin nhắn.
+            <span className="text-xs">Phím ↑ / ↓ để chuyển khách.</span>
           </section>
         )}
       </div>
@@ -177,7 +325,41 @@ export function CskhInbox() {
   );
 }
 
-function ListFilters({
+/** One line on top: what this is and the numbers that matter (replaces the big title). */
+function InboxBar({ frame }: { frame: InboxState }) {
+  const status = frame.work_now
+    ? "Trong giờ làm"
+    : frame.auto_reply_enabled
+      ? "Ngoài giờ · tự trả lời bật"
+      : "Ngoài giờ";
+  return (
+    <div className="flex flex-wrap items-center gap-2">
+      <h1 className="mr-1 text-lg font-semibold tracking-tight">Hộp chat page</h1>
+      <span className="rounded-full border border-[var(--border)] bg-[var(--surface)] px-2.5 py-0.5 text-xs font-semibold">
+        {frame.pages.length} page
+      </span>
+      <span
+        className="rounded-full bg-[var(--magenta)] px-2.5 py-0.5 text-xs font-bold text-[var(--surface)]"
+        data-testid="cskh-unread-total"
+      >
+        {frame.unread_total} chưa đọc
+      </span>
+      <span
+        className={`rounded-full px-2.5 py-0.5 text-xs font-semibold ${
+          frame.work_now
+            ? "bg-[var(--good-soft)] text-[var(--good)]"
+            : "bg-[var(--warn-soft)] text-[var(--warn)]"
+        }`}
+      >
+        {status}
+      </span>
+    </div>
+  );
+}
+
+// --- the list -------------------------------------------------------------------------------
+
+function ListHead({
   frame,
   filters,
   setFilters,
@@ -190,28 +372,187 @@ function ListFilters({
   search: string;
   setSearch: (value: string) => void;
 }) {
+  const [panel, setPanel] = useState(false);
   const page = frame.pages.find((p) => p.id === filters.page_id);
+  const label = frame.labels.find((l) => l.id === filters.label_id);
+  const tag = page?.pancake_tags.find((t) => t.id === filters.pancake_tag);
+  const campaign = frame.campaigns.find((c) => c.id === filters.campaign_id);
+  const stages = frame.stages ?? STAGES;
+  const chips: { key: string; text: string; clear: Partial<ConversationFilters> }[] = [];
+  if (page)
+    chips.push({
+      key: "page",
+      text: `Page: ${pageShort(page.name, page.short_name)}`,
+      clear: { page_id: undefined, pancake_tag: undefined },
+    });
+  if (label) chips.push({ key: "label", text: `Nhãn: ${label.name}`, clear: { label_id: undefined } });
+  if (tag) chips.push({ key: "tag", text: `Thẻ: ${tag.text}`, clear: { pancake_tag: undefined } });
+  if (campaign)
+    chips.push({ key: "campaign", text: `Chiến dịch: ${campaign.name}`, clear: { campaign_id: undefined } });
+  if (filters.stage)
+    chips.push({
+      key: "stage",
+      text: stages.find((s) => s.id === filters.stage)?.label ?? filters.stage,
+      clear: { stage: undefined },
+    });
+  if (filters.mine) chips.push({ key: "mine", text: "Của tôi", clear: { mine: undefined } });
+  const tabs: { key: Tab; label: string; count?: number }[] = [
+    { key: "all", label: "Tất cả" },
+    { key: "unread", label: "Chưa đọc", count: frame.unread_total },
+    { key: "callback", label: "Gọi lại", count: frame.callback_total },
+    { key: "phone", label: "Có SĐT" },
+  ];
+  const tab = filters.tab ?? "all";
+
   return (
     <div className="space-y-2 border-b border-[var(--border)] p-3">
-      <form
-        onSubmit={(event) => {
-          event.preventDefault();
-          setFilters({ ...filters, q: search.trim() || undefined });
-        }}
-      >
-        <input
-          type="search"
-          value={search}
-          onChange={(event) => {
-            setSearch(event.target.value);
-            if (!event.target.value) setFilters({ ...filters, q: undefined });
+      <div className="relative flex gap-2">
+        <form
+          className="relative min-w-0 flex-1"
+          role="search"
+          onSubmit={(event) => {
+            event.preventDefault();
+            setFilters({ ...filters, q: search.trim() || undefined });
           }}
-          placeholder="Tìm mã KH, SĐT, tên, nội dung tin…"
-          aria-label="Tìm hội thoại"
-          className={fieldClass}
-        />
-      </form>
-      <div className="grid grid-cols-2 gap-2">
+        >
+          <span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-[var(--text-muted)]">
+            <Icon name="search" />
+          </span>
+          <input
+            type="search"
+            value={search}
+            onChange={(event) => {
+              setSearch(event.target.value);
+              if (!event.target.value) setFilters({ ...filters, q: undefined });
+            }}
+            placeholder="Mã KH, SĐT, tên, nội dung…"
+            aria-label="Tìm hội thoại"
+            className={`${fieldClass} pl-9`}
+          />
+        </form>
+        <button
+          type="button"
+          className={`${toolButton} min-h-11`}
+          aria-expanded={panel}
+          aria-haspopup="dialog"
+          onClick={() => setPanel((v) => !v)}
+        >
+          <Icon name="filter" />
+          Lọc
+          {chips.length ? (
+            <span className="inline-flex min-w-5 items-center justify-center rounded-full bg-[var(--accent-strong)] px-1 text-[11px] font-bold leading-5 text-[var(--surface)]">
+              {chips.length}
+            </span>
+          ) : null}
+        </button>
+        {panel ? (
+          <FilterPanel frame={frame} filters={filters} setFilters={setFilters} onClose={() => setPanel(false)} />
+        ) : null}
+      </div>
+      <div className="flex flex-wrap items-center gap-1.5">
+        {chips.map((chip) => (
+          <button
+            key={chip.key}
+            type="button"
+            onClick={() => setFilters({ ...filters, ...chip.clear })}
+            className="inline-flex min-h-7 max-w-[14rem] items-center gap-1 truncate rounded-full bg-[var(--accent-soft)] px-2.5 text-xs font-semibold text-[var(--accent-strong)]"
+            aria-label={`Bỏ lọc ${chip.text}`}
+            data-testid="cskh-filter-chip"
+          >
+            <span className="truncate">{chip.text}</span>
+            <Icon name="close" size={12} />
+          </button>
+        ))}
+        <label className="ml-auto inline-flex items-center gap-1 text-xs text-[var(--text-muted)]">
+          Xếp:
+          <select
+            value={filters.sort ?? "wait"}
+            onChange={(event) =>
+              setFilters({ ...filters, sort: event.target.value as ConversationFilters["sort"] })
+            }
+            className="min-h-7 rounded-md bg-transparent pr-1 text-xs font-semibold text-[var(--text)]"
+            aria-label="Xếp hội thoại"
+          >
+            <option value="wait">Chờ lâu nhất</option>
+            <option value="recent">Mới nhất</option>
+          </select>
+        </label>
+      </div>
+      <div
+        role="tablist"
+        aria-label="Lọc hội thoại"
+        className="grid grid-cols-4 gap-1 rounded-lg bg-[var(--surface-muted)] p-1"
+      >
+        {tabs.map((item) => (
+          <button
+            key={item.key}
+            type="button"
+            role="tab"
+            aria-selected={tab === item.key}
+            onClick={() => setFilters({ ...filters, tab: item.key })}
+            className={`inline-flex min-h-8 items-center justify-center gap-1 whitespace-nowrap rounded-md px-1 text-xs ${
+              tab === item.key
+                ? "bg-[var(--surface)] font-semibold text-[var(--accent-strong)] shadow-sm"
+                : "text-[var(--text-muted)] hover:text-[var(--text)]"
+            }`}
+          >
+            {item.label}
+            {item.count ? (
+              <span
+                className={`rounded-full px-1.5 text-[10px] font-bold leading-4 tabular-nums ${
+                  item.key === "unread"
+                    ? "bg-[var(--magenta)] text-[var(--surface)]"
+                    : "bg-[var(--accent-soft)] text-[var(--accent-strong)]"
+                }`}
+              >
+                {item.count > 999 ? "999+" : item.count}
+              </span>
+            ) : null}
+          </button>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+/** "Lọc": page, label / Pancake tag / campaign, stage, "Của tôi". */
+function FilterPanel({
+  frame,
+  filters,
+  setFilters,
+  onClose,
+}: {
+  frame: InboxState;
+  filters: ConversationFilters;
+  setFilters: (value: ConversationFilters) => void;
+  onClose: () => void;
+}) {
+  const box = useRef<HTMLDivElement | null>(null);
+  useEffect(() => {
+    const onKey = (event: KeyboardEvent) => event.key === "Escape" && onClose();
+    const onDown = (event: MouseEvent) => {
+      const target = event.target as Node;
+      if (box.current && !box.current.contains(target) && !(target as HTMLElement).closest?.("[data-select-panel]"))
+        onClose();
+    };
+    document.addEventListener("keydown", onKey);
+    document.addEventListener("mousedown", onDown);
+    return () => {
+      document.removeEventListener("keydown", onKey);
+      document.removeEventListener("mousedown", onDown);
+    };
+  }, [onClose]);
+  const page = frame.pages.find((p) => p.id === filters.page_id);
+  const field = "min-h-10 w-full rounded-lg border border-[var(--border)] bg-[var(--surface)] px-2 text-sm text-[var(--text)]";
+  return (
+    <div
+      ref={box}
+      role="dialog"
+      aria-label="Lọc hội thoại"
+      className="absolute right-0 top-full z-30 mt-2 w-[min(22rem,calc(100vw-2rem))] space-y-3 rounded-xl border border-[var(--border)] bg-[var(--surface)] p-3 shadow-[var(--shadow-pop)]"
+    >
+      <label className="block space-y-1 text-xs font-semibold text-[var(--text-muted)]">
+        Page
         <Select
           aria-label="Lọc theo page"
           value={filters.page_id ?? ""}
@@ -222,12 +563,17 @@ function ListFilters({
           <option value="">Mọi page</option>
           {frame.pages.map((p) => (
             <option key={p.id} value={p.id}>
+              {p.short_name ? `${p.short_name} · ` : ""}
               {p.name}
               {p.unread ? ` (${p.unread})` : ""}
             </option>
           ))}
         </Select>
-        <Select
+      </label>
+      <label className="block space-y-1 text-xs font-semibold text-[var(--text-muted)]">
+        Nhãn, thẻ, chiến dịch
+        <select
+          className={field}
           aria-label="Lọc theo nhãn, thẻ, chiến dịch"
           value={
             filters.label_id
@@ -248,7 +594,7 @@ function ListFilters({
             });
           }}
         >
-          <option value="">Mọi nhãn / thẻ</option>
+          <option value="">Tất cả</option>
           {frame.labels.length ? (
             <optgroup label="Nhãn page">
               {frame.labels.map((label) => (
@@ -276,25 +622,46 @@ function ListFilters({
               ))}
             </optgroup>
           ) : null}
-        </Select>
-      </div>
-      <div role="tablist" aria-label="Lọc hội thoại" className="flex flex-wrap gap-1">
-        {TABS.map((tab) => (
-          <button
-            key={tab.key}
-            type="button"
-            role="tab"
-            aria-selected={(filters.tab ?? "all") === tab.key}
-            onClick={() => setFilters({ ...filters, tab: tab.key })}
-            className={`min-h-8 rounded-full px-3 text-xs ${
-              (filters.tab ?? "all") === tab.key
-                ? "bg-[var(--accent-soft)] font-semibold text-[var(--accent-strong)]"
-                : "text-[var(--text-muted)] hover:bg-[var(--surface-muted)]"
-            }`}
-          >
-            {tab.label}
-          </button>
-        ))}
+        </select>
+      </label>
+      <label className="block space-y-1 text-xs font-semibold text-[var(--text-muted)]">
+        Trạng thái
+        <select
+          className={field}
+          aria-label="Lọc theo trạng thái"
+          value={filters.stage ?? ""}
+          onChange={(event) => setFilters({ ...filters, stage: (event.target.value || undefined) as Stage })}
+        >
+          <option value="">Mọi trạng thái</option>
+          {(frame.stages ?? STAGES).map((stage) => (
+            <option key={stage.id} value={stage.id}>
+              {stage.label}
+            </option>
+          ))}
+        </select>
+      </label>
+      <label className="flex min-h-10 items-center gap-2 text-sm">
+        <input
+          type="checkbox"
+          checked={Boolean(filters.mine)}
+          onChange={(event) => setFilters({ ...filters, mine: event.target.checked || undefined })}
+          className="h-4 w-4"
+        />
+        Của tôi <span className="text-xs text-[var(--text-muted)]">(mình đã trả lời hoặc được giao)</span>
+      </label>
+      <div className="flex justify-between gap-2">
+        <button
+          type="button"
+          className={smallButton}
+          onClick={() =>
+            setFilters({ tab: filters.tab, sort: filters.sort, q: filters.q })
+          }
+        >
+          Bỏ lọc
+        </button>
+        <button type="button" className={smallButton} onClick={onClose}>
+          Xong
+        </button>
       </div>
     </div>
   );
@@ -303,60 +670,85 @@ function ListFilters({
 function ConversationItem({
   row,
   selected,
-  frame,
+  page,
+  now,
+  alert,
   onOpen,
 }: {
   row: ConversationRow;
   selected: boolean;
-  frame: InboxState;
+  page: InboxPage | undefined;
+  now: number;
+  alert: number;
   onOpen: () => void;
 }) {
-  const page = frame.pages.find((p) => p.id === row.page_id);
-  const tags = (page?.pancake_tags ?? []).filter((tag) => row.pancake_tags.includes(tag.id));
+  const wait = waitMinutes(row, now);
+  const staff = page?.pancake_users.find((user) => user.id === row.assignee_ids[0])?.name;
+  const unread = row.unread > 0;
   return (
     <button
       type="button"
       onClick={onOpen}
       aria-current={selected ? "true" : undefined}
-      className={`flex w-full gap-2 border-b border-[var(--border)] px-3 py-2 text-left ${
-        selected ? "bg-[var(--accent-soft)]" : "hover:bg-[var(--surface-muted)]"
+      className={`relative flex w-full gap-3 border-b border-[var(--border)] py-2.5 pl-3 pr-3 text-left ${
+        selected
+          ? "bg-[var(--accent-soft)] before:absolute before:inset-y-0 before:left-0 before:w-[3px] before:bg-[var(--accent-strong)]"
+          : "hover:bg-[var(--surface-muted)]"
       }`}
+      data-testid="cskh-row"
     >
-      <Initials name={row.customer_name} />
-      <span className="min-w-0 flex-1">
-        <span className="flex items-center justify-between gap-2">
-          <span className={`truncate text-sm ${row.unread ? "font-semibold" : ""}`}>
+      <Avatar name={row.customer_name} />
+      <span className="min-w-0 flex-1 space-y-0.5">
+        <span className="flex items-center gap-2">
+          <span
+            className={`min-w-0 flex-1 truncate text-sm ${
+              unread ? "font-bold text-[var(--accent-strong)]" : "font-medium text-[var(--text)]"
+            }`}
+          >
             {row.customer_name}
-            {row.phones.length ? <span title="Có số điện thoại"> 📞</span> : null}
-            {row.has_qr ? <span title="Có mã QR"> ▦</span> : null}
-            {row.zalo_linked ? <span title="Đã ghép Zalo"> 💬</span> : null}
           </span>
-          <span className="shrink-0 text-[11px] text-[var(--text-muted)]">
-            {formatShortDateTime(row.last_at)}
+          <span
+            className={`shrink-0 text-xs tabular-nums ${
+              unread ? "font-semibold text-[var(--accent-strong)]" : "text-[var(--text-muted)]"
+            }`}
+          >
+            {listTime(row.last_at, now)}
           </span>
+          {unread ? <UnreadBadge count={row.unread} /> : null}
         </span>
-        <span className="block truncate text-xs text-[var(--text-muted)]">
-          {row.last_out ? "Bạn: " : ""}
+        <span
+          className={`block truncate text-[13px] ${
+            unread ? "font-semibold text-[var(--text)]" : "text-[var(--text-muted)]"
+          }`}
+        >
+          {row.last_out ? <span className="font-normal text-[var(--text-muted)]">Bạn: </span> : null}
           {row.last_text}
         </span>
-        <span className="mt-0.5 flex flex-wrap items-center gap-1 text-[11px] text-[var(--text-muted)]">
-          <span className="truncate">{row.page_name}</span>
-          {row.unread ? (
-            <span className="rounded-full bg-[var(--magenta)] px-1.5 font-semibold text-white">
-              {row.unread}
+        <span className="flex items-center gap-1.5 text-xs text-[var(--text-muted)]">
+          <PageTag
+            pageId={row.page_id}
+            name={row.page_name}
+            short={row.page_short || page?.short_name}
+            color={row.page_color || page?.color}
+          />
+          {row.phones.length ? (
+            <span className="inline-flex items-center gap-0.5" title="Có số điện thoại">
+              <Icon name="phone" size={12} />
+              SĐT
             </span>
           ) : null}
-          {row.callback ? <span className="text-[var(--warn)]">Chờ gọi lại</span> : null}
-          {row.ad_name ? <span className="truncate">📢 {row.ad_name}</span> : null}
-          {tags.map((tag) => (
-            <span key={tag.id} className="rounded px-1" style={{ background: tag.color, color: "#fff" }}>
-              {tag.text}
+          {row.has_qr ? (
+            <span className="inline-flex items-center" title="Có mã QR">
+              <Icon name="qr" size={12} />
             </span>
-          ))}
+          ) : null}
+          {staff ? <span className="truncate">· {staff}</span> : null}
+          <span className="ml-auto" />
+          {wait !== null ? <WaitClock minutes={wait} alert={alert} /> : null}
         </span>
         {row.match ? (
           <span
-            className="mt-1 block truncate rounded bg-[var(--warn-soft)] px-1.5 text-[11px]"
+            className="mt-1 block truncate rounded bg-[var(--warn-soft)] px-1.5 text-[11px] text-[var(--text)]"
             data-testid="cskh-match"
           >
             {row.match.why}: {row.match.snippet}
@@ -367,20 +759,26 @@ function ConversationItem({
   );
 }
 
+// --- the chat -------------------------------------------------------------------------------
+
 function ChatColumn({
   id,
   frame,
+  now,
+  alert,
   onBack,
   onInfo,
   showSide,
-  pageOf,
+  page: pageOf,
 }: {
   id: string;
   frame: InboxState;
+  now: number;
+  alert: number;
   onBack: () => void;
   onInfo: () => void;
   showSide: boolean;
-  pageOf: (id: string) => InboxState["pages"][number] | undefined;
+  page: (id: string) => InboxPage | undefined;
 }) {
   const client = useQueryClient();
   const detail = useQuery({
@@ -388,24 +786,16 @@ function ChatColumn({
     queryFn: () => cskhApi.conversation(id),
     refetchInterval: POLL_MS,
   });
-  const [confirmMode, setConfirmMode] = useState<"phone" | "qr" | null>(null);
+  const [confirm, setConfirm] = useState<{ mode: "phone" | "qr"; phone?: string } | null>(null);
   const refresh = () => {
     void client.invalidateQueries({ queryKey: ["cskh", "conversation", id] });
     void client.invalidateQueries({ queryKey: ["cskh", "conversations"] });
+    void client.invalidateQueries({ queryKey: ["cskh", "state"] });
   };
-  const tag = useMutation({
-    mutationFn: ({ tagId, add }: { tagId: string; add: boolean }) => cskhApi.pancakeTag(id, tagId, add),
-    onSuccess: refresh,
-  });
-  const assign = useMutation({
-    mutationFn: (userId: string | null) => cskhApi.assign(id, userId),
-    onSuccess: refresh,
-  });
-  const callback = useMutation({
-    mutationFn: (on: boolean) => cskhApi.setCallback(id, on),
-    onSuccess: refresh,
-  });
+  const callback = useMutation({ mutationFn: (on: boolean) => cskhApi.setCallback(id, on), onSuccess: refresh });
+  const stage = useMutation({ mutationFn: (value: Stage) => cskhApi.setStage(id, value), onSuccess: refresh });
   const scan = useMutation({ mutationFn: () => cskhApi.scanQr(id), onSuccess: refresh });
+  const unread = useMutation({ mutationFn: () => cskhApi.markUnread(id), onSuccess: refresh });
 
   if (detail.isLoading)
     return (
@@ -416,7 +806,7 @@ function ChatColumn({
   if (detail.error || !detail.data)
     return (
       <section className="panel p-4">
-        <button type="button" className={`${smallButton} mb-2 lg:hidden`} onClick={onBack}>
+        <button type="button" className={`${smallButton} mb-2 @3xl:hidden`} onClick={onBack}>
           ‹ Danh sách
         </button>
         <ErrorBox error={detail.error} />
@@ -425,9 +815,10 @@ function ChatColumn({
   const data = detail.data;
   const conv = data.conversation;
   const page = pageOf(conv.page_id);
-  const tags = page?.pancake_tags ?? [];
-  const users = page?.pancake_users ?? [];
-  const ads = conv.ads;
+  const wait = waitMinutes(conv, now);
+  const ad = conv.ads[0];
+  const stages = frame.stages ?? STAGES;
+  const currentStage = conv.stage ?? (conv.callback ? "CALLBACK" : "NEW");
 
   return (
     <>
@@ -435,114 +826,124 @@ function ChatColumn({
         className="panel flex min-h-[70vh] min-w-0 flex-col overflow-hidden lg:min-h-0"
         aria-label="Hội thoại"
       >
-        <ColumnHead>
-          <button type="button" className={`${smallButton} lg:hidden`} onClick={onBack}>
-            ‹
+        <header className="flex flex-wrap items-start gap-x-3 gap-y-2 border-b border-[var(--border)] px-4 py-3">
+          <button
+            type="button"
+            className={`${smallButton} @3xl:hidden`}
+            onClick={onBack}
+            aria-label="Về danh sách"
+          >
+            <Icon name="back" />
           </button>
-          <Initials name={conv.customer_name} />
-          <div className="min-w-0 flex-1">
-            <p className="truncate text-sm font-semibold">{conv.customer_name}</p>
-            <p className="truncate text-xs text-[var(--text-muted)]">
-              {conv.page_name}
-              {!data.page.connected ? " · page chưa nối Pancake" : ""}
-            </p>
-          </div>
-          <button type="button" className={`${smallButton} xl:hidden`} onClick={onInfo}>
-            {showSide ? "Ẩn thông tin" : "Thông tin"}
-          </button>
-        </ColumnHead>
-        <div className="space-y-2 border-b border-[var(--border)] px-3 py-2">
-          <div className="flex flex-wrap items-center gap-1">
-            {conv.phones.map((phone) => (
-              <CopyChip key={phone} text={phone} display={`📞 ${phone}`} />
-            ))}
-            {conv.qrs.map((qr, index) => (
-              <CopyChip
-                key={`${qr.text}-${index}`}
-                text={qr.text}
-                display={`QR ${qr.kind}`}
-                title={qr.text}
+          <Avatar name={conv.customer_name} size={44} />
+          <div className="min-w-[11rem] flex-1 space-y-1">
+            <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+              <p className="max-w-full truncate text-base font-bold text-[var(--accent-strong)]">
+                {conv.customer_name}
+              </p>
+              <PageTag
+                pageId={conv.page_id}
+                name={data.page.name}
+                short={data.page.short_name}
+                color={data.page.color}
               />
-            ))}
-            {ads.length ? (
-              <span className="rounded-full bg-[var(--magenta-soft)] px-2 py-0.5 text-xs text-[var(--magenta)]">
-                Từ quảng cáo
-              </span>
-            ) : null}
-          </div>
-          {ads.length ? <AdCard ads={ads} /> : null}
-        </div>
-        <MessageList messages={data.messages} />
-        <div className="space-y-2 border-t border-[var(--border)] p-3">
-          {tags.length || users.length ? (
-            <div className="flex flex-wrap items-center gap-1" aria-label="Thẻ Pancake">
-              {tags.map((t) => {
-                const on = conv.pancake_tags.includes(t.id);
-                return (
-                  <button
-                    key={t.id}
-                    type="button"
-                    aria-pressed={on}
-                    disabled={tag.isPending || !data.page.connected}
-                    onClick={() => tag.mutate({ tagId: t.id, add: !on })}
-                    className="min-h-8 rounded-full border px-2.5 text-xs disabled:opacity-50"
-                    style={
-                      on
-                        ? { background: t.color, borderColor: t.color, color: "#fff" }
-                        : { borderColor: "var(--border)" }
-                    }
-                  >
-                    {t.text}
-                  </button>
-                );
-              })}
-              {users.length ? (
-                <select
-                  aria-label="Người phụ trách"
-                  value={conv.assignee_ids[0] ?? ""}
-                  disabled={assign.isPending || !data.page.connected}
-                  onChange={(event) => assign.mutate(event.target.value || null)}
-                  className="min-h-8 rounded-lg border border-[var(--border)] bg-[var(--surface)] px-2 text-xs"
-                >
-                  <option value="">Chưa giao người phụ trách</option>
-                  {users.map((u) => (
-                    <option key={u.id} value={u.id}>
-                      {u.name}
-                    </option>
-                  ))}
-                </select>
+              {wait !== null ? <WaitClock minutes={wait} alert={alert} long /> : null}
+              {!data.page.connected ? (
+                <span className="whitespace-nowrap text-xs text-[var(--bad)]">Page chưa nối Pancake</span>
               ) : null}
             </div>
-          ) : null}
-          <div className="flex flex-wrap items-center gap-1">
+            {ad ? (
+              <p
+                className="flex min-w-0 items-center gap-1 text-xs text-[var(--text-muted)]"
+                data-testid="cskh-ad"
+                title={[ad.name, ad.campaign_name, `Mã QC ${ad.ad_id}`].filter(Boolean).join(" · ")}
+              >
+                <Icon name="ad" size={13} />
+                <span className="truncate">
+                  Từ quảng cáo: {ad.name || ad.campaign_name || ad.ad_id}
+                  {ad.at ? ` · bấm lúc ${formatShortDateTime(ad.at)}` : ""}
+                  {conv.ads.length > 1 ? ` · +${conv.ads.length - 1} QC` : ""}
+                </span>
+                {ad.post_id ? (
+                  <a
+                    href={`https://facebook.com/${encodeURIComponent(ad.post_id)}`}
+                    target="_blank"
+                    rel="noreferrer noopener"
+                    className="shrink-0 font-semibold text-[var(--accent)] underline"
+                  >
+                    Xem bài viết
+                  </a>
+                ) : null}
+              </p>
+            ) : null}
+          </div>
+          <label className="flex shrink-0 items-center gap-2 whitespace-nowrap text-xs text-[var(--text-muted)]">
+            Trạng thái
+            <select
+              value={currentStage}
+              disabled={stage.isPending}
+              onChange={(event) => stage.mutate(event.target.value as Stage)}
+              aria-label="Trạng thái hội thoại"
+              className="min-h-10 rounded-lg border border-[var(--border)] bg-[var(--surface)] px-2 text-sm font-semibold text-[var(--text)]"
+            >
+              {stages.map((s) => (
+                <option key={s.id} value={s.id}>
+                  {s.label}
+                </option>
+              ))}
+            </select>
+          </label>
+          <button type="button" className={`${smallButton} @5xl:hidden`} onClick={onInfo} aria-expanded={showSide}>
+            <Icon name="info" />
+            {showSide ? "Ẩn thẻ khách" : "Thẻ khách"}
+          </button>
+        </header>
+        <MessageList
+          messages={data.messages}
+          onConfirmPhone={(phone) => setConfirm({ mode: "phone", phone })}
+        />
+        <div className="space-y-2 border-t border-[var(--border)] p-3">
+          <div className="flex flex-wrap items-center gap-2" aria-label="Công cụ hội thoại">
+            <TagButton id={id} detail={data} page={page} onDone={refresh} />
             <button
               type="button"
-              className={smallButton}
+              className={`${toolButton} ${conv.callback ? "border-[var(--warn)] bg-[var(--warn-soft)] text-[var(--warn)]" : ""}`}
               aria-pressed={conv.callback}
               disabled={callback.isPending}
               onClick={() => callback.mutate(!conv.callback)}
             >
-              {conv.callback ? "✓ Chờ gọi lại" : "Chờ gọi lại"}
-            </button>
-            <button type="button" className={smallButton} onClick={() => setConfirmMode("phone")}>
-              ✓ Xác nhận số điện thoại
+              <Icon name="clock" />
+              Chờ gọi lại
             </button>
             {conv.qrs.length ? (
-              <button type="button" className={smallButton} onClick={() => setConfirmMode("qr")}>
-                Xác nhận QR
+              <button type="button" className={toolButton} onClick={() => setConfirm({ mode: "qr" })}>
+                <Icon name="qr" />
+                Mã QR Zalo
               </button>
             ) : null}
-            <button
-              type="button"
-              className={smallButton}
-              disabled={scan.isPending}
-              onClick={() => scan.mutate()}
-              title="Đọc lại mã QR trong ảnh khách gửi"
-            >
-              {scan.isPending ? "Đang quét…" : "Quét lại QR"}
-            </button>
+            <RowMenu
+              label="Thêm thao tác"
+              items={[
+                {
+                  key: "confirm",
+                  label: "Xác nhận số điện thoại",
+                  onSelect: () => setConfirm({ mode: "phone" }),
+                },
+                ...(conv.qrs.length
+                  ? [{ key: "qr", label: "Xác nhận QR", onSelect: () => setConfirm({ mode: "qr" as const }) }]
+                  : []),
+                { key: "scan", label: "Quét lại QR trong ảnh", onSelect: () => scan.mutate() },
+                { key: "unread", label: "Đánh dấu chưa đọc", onSelect: () => unread.mutate() },
+              ]}
+            />
+            {scan.isPending ? <span className="text-xs text-[var(--text-muted)]">Đang quét QR…</span> : null}
+            {scan.data ? (
+              <span className="text-xs text-[var(--text-muted)]">
+                Đã quét {scan.data.scanned} ảnh, thấy {scan.data.found} mã
+              </span>
+            ) : null}
           </div>
-          <ErrorLine error={tag.error ?? assign.error ?? callback.error ?? scan.error} />
+          <ErrorLine error={callback.error ?? stage.error ?? scan.error ?? unread.error} />
           <Composer
             id={id}
             pageId={conv.page_id}
@@ -554,15 +955,29 @@ function ChatColumn({
           />
         </div>
       </section>
-      <aside className={`panel min-h-0 overflow-y-auto ${showSide ? "block" : "hidden"} xl:block`}>
-        <SidePanel detail={data} />
+      <aside
+        className={`panel min-h-0 flex-col overflow-hidden ${
+          showSide
+            ? "fixed inset-y-3 right-3 z-40 flex w-[min(400px,calc(100vw-1.5rem))] shadow-[var(--shadow-pop)]"
+            : "hidden"
+        } @5xl:static @5xl:z-auto @5xl:flex @5xl:w-auto`}
+        aria-label="Thẻ khách hàng"
+      >
+        <SidePanel
+          detail={data}
+          page={page}
+          onClose={onInfo}
+          onConfirm={() => setConfirm({ mode: "phone" })}
+          onChanged={refresh}
+        />
       </aside>
-      {confirmMode ? (
+      {confirm ? (
         <OrderConfirmDialog
-          mode={confirmMode}
+          mode={confirm.mode}
+          phone={confirm.phone}
           detail={data}
           frame={frame}
-          onClose={() => setConfirmMode(null)}
+          onClose={() => setConfirm(null)}
           onDone={refresh}
         />
       ) : null}
@@ -570,59 +985,136 @@ function ChatColumn({
   );
 }
 
-function AdCard({ ads }: { ads: ConversationDetail["conversation"]["ads"] }) {
-  const ad = ads[0];
+/** "Gắn thẻ": the page's Pancake tags to tick, the ones on shown beside the button. */
+function TagButton({
+  id,
+  detail,
+  page,
+  onDone,
+}: {
+  id: string;
+  detail: ConversationDetail;
+  page: InboxPage | undefined;
+  onDone: () => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const box = useRef<HTMLDivElement | null>(null);
+  const tags = page?.pancake_tags ?? [];
+  const on = tags.filter((t) => detail.conversation.pancake_tags.includes(t.id));
+  const tag = useMutation({
+    mutationFn: ({ tagId, add }: { tagId: string; add: boolean }) => cskhApi.pancakeTag(id, tagId, add),
+    onSuccess: onDone,
+  });
+  useEffect(() => {
+    if (!open) return;
+    const onDown = (event: MouseEvent) => {
+      if (box.current && !box.current.contains(event.target as Node)) setOpen(false);
+    };
+    const onKey = (event: KeyboardEvent) => event.key === "Escape" && setOpen(false);
+    document.addEventListener("mousedown", onDown);
+    document.addEventListener("keydown", onKey);
+    return () => {
+      document.removeEventListener("mousedown", onDown);
+      document.removeEventListener("keydown", onKey);
+    };
+  }, [open]);
+  if (!tags.length) return null;
   return (
-    <div className="flex gap-2 rounded-lg border border-[var(--border)] p-2 text-xs" data-testid="cskh-ad">
-      {ad.image_url ? (
-        // eslint-disable-next-line @next/next/no-img-element
-        <img src={ad.image_url} alt="" loading="lazy" className="h-12 w-12 shrink-0 rounded object-cover" />
+    <div ref={box} className="relative flex flex-wrap items-center gap-1.5">
+      <button
+        type="button"
+        className={toolButton}
+        aria-expanded={open}
+        disabled={!detail.page.connected}
+        onClick={() => setOpen((v) => !v)}
+      >
+        <Icon name="tag" />
+        Gắn thẻ
+      </button>
+      {on.map((t) => (
+        <span
+          key={t.id}
+          className="inline-flex min-h-7 items-center rounded-full bg-[var(--accent-soft)] px-2.5 text-xs font-semibold text-[var(--accent-strong)]"
+        >
+          <span aria-hidden="true" className="mr-1 h-2 w-2 rounded-full" style={{ background: t.color }} />
+          {t.text}
+        </span>
+      ))}
+      {open ? (
+        <ul
+          aria-label="Thẻ Pancake"
+          className="absolute bottom-full left-0 z-30 mb-2 max-h-72 w-60 overflow-y-auto rounded-xl border border-[var(--border)] bg-[var(--surface)] p-1 shadow-[var(--shadow-pop)]"
+        >
+          {tags.map((t) => {
+            const active = detail.conversation.pancake_tags.includes(t.id);
+            return (
+              <li key={t.id}>
+                <button
+                  type="button"
+                  aria-pressed={active}
+                  disabled={tag.isPending}
+                  onClick={() => tag.mutate({ tagId: t.id, add: !active })}
+                  className="flex min-h-10 w-full items-center gap-2 rounded-lg px-2 text-left text-sm hover:bg-[var(--surface-muted)] disabled:opacity-50"
+                >
+                  <span aria-hidden="true" className="h-2.5 w-2.5 rounded-full" style={{ background: t.color }} />
+                  <span className="flex-1 truncate">{t.text}</span>
+                  {active ? (
+                    <span className="text-[var(--accent)]">
+                      <Icon name="check" />
+                    </span>
+                  ) : null}
+                </button>
+              </li>
+            );
+          })}
+        </ul>
       ) : null}
-      <div className="min-w-0">
-        <p className="truncate font-semibold">📢 {ad.name || `Quảng cáo ${ad.ad_id}`}</p>
-        <p className="truncate text-[var(--text-muted)]">
-          {ad.campaign_name ? `Chiến dịch: ${ad.campaign_name} · ` : ""}
-          {ad.at ? `Bấm lúc ${formatShortDateTime(ad.at)} · ` : ""}
-          Mã QC {ad.ad_id}
-        </p>
-        <p className="text-[var(--text-muted)]">
-          {ad.post_id ? (
-            <a
-              href={`https://facebook.com/${encodeURIComponent(ad.post_id)}`}
-              target="_blank"
-              rel="noreferrer noopener"
-              className="underline"
-            >
-              Xem bài viết
-            </a>
-          ) : null}
-          {ads.length > 1 ? ` · +${ads.length - 1} quảng cáo khác` : ""}
-        </p>
-      </div>
+      <ErrorLine error={tag.error} />
     </div>
   );
 }
 
-function MessageList({ messages }: { messages: ConversationDetail["messages"] }) {
+function MessageList({
+  messages,
+  onConfirmPhone,
+}: {
+  messages: ConversationDetail["messages"];
+  onConfirmPhone: (phone: string) => void;
+}) {
   const end = useRef<HTMLDivElement | null>(null);
   const count = messages.length;
   useEffect(() => {
     end.current?.scrollIntoView?.({ block: "end" });
   }, [count]);
+  let lastDay = "";
   return (
-    <div className="min-h-0 flex-1 space-y-2 overflow-y-auto bg-[var(--surface-muted)] p-3">
+    <div className="min-h-0 flex-1 space-y-3 overflow-y-auto bg-[var(--surface-muted)] px-4 py-3">
       {messages.length === 0 ? (
         <p className="text-center text-sm text-[var(--text-muted)]">Chưa có tin nhắn.</p>
       ) : null}
-      {messages.map((message) => (
-        <MessageBubble key={message.id} message={message} />
-      ))}
+      {messages.map((message) => {
+        const day = formatDateTime(message.at).split(" ")[0] ?? "";
+        const divider = day && day !== lastDay ? day : null;
+        lastDay = day || lastDay;
+        return (
+          <div key={message.id} className="space-y-3">
+            {divider ? (
+              <p className="text-center">
+                <span className="rounded-full border border-[var(--border)] bg-[var(--surface)] px-3 py-0.5 text-xs text-[var(--text-muted)]">
+                  {divider}
+                </span>
+              </p>
+            ) : null}
+            <MessageBubble message={message} onConfirmPhone={onConfirmPhone} />
+          </div>
+        );
+      })}
       <div ref={end} />
     </div>
   );
 }
 
-/** The send box: Enter sends, Shift+Enter breaks a line, "/" opens the quick replies. */
+/** The send box: Ctrl/⌘+Enter sends, Enter breaks a line, "/" opens the quick replies. */
 function Composer({
   id,
   pageId,
@@ -698,131 +1190,276 @@ function Composer({
           ))}
         </ul>
       ) : null}
-      <div className="flex items-end gap-2">
-        <textarea
-          ref={box}
-          value={text}
-          rows={2}
-          maxLength={MAX_MESSAGE_CHARS}
-          disabled={disabled}
-          aria-label="Nội dung tin nhắn"
-          placeholder={disabled ? "Page chưa nối Pancake" : "Nhập tin… (gõ / để chèn câu mẫu)"}
-          onChange={(event) => {
-            const value = event.target.value;
-            setText(value);
-            const open = /(?:^|\s)\/\S*$/.test(value);
-            setPicker(open);
-            if (open) setActive(0);
-          }}
-          onKeyDown={(event) => {
-            if (picker && shown.length) {
-              if (event.key === "ArrowDown") {
-                event.preventDefault();
-                setActive((i) => (i + 1) % shown.length);
-                return;
-              }
-              if (event.key === "ArrowUp") {
-                event.preventDefault();
-                setActive((i) => (i - 1 + shown.length) % shown.length);
-                return;
-              }
-              if (event.key === "Enter") {
-                event.preventDefault();
-                insert(shown[Math.min(active, shown.length - 1)]);
-                return;
-              }
-              if (event.key === "Escape") {
-                setPicker(false);
-                return;
-              }
-            }
-            if (event.key === "Enter" && !event.shiftKey) {
-              event.preventDefault();
-              submit();
-            }
-          }}
-          className="min-h-11 w-full resize-y rounded-lg border border-[var(--border)] bg-[var(--surface)] px-3 py-2 text-[var(--text)]"
-        />
-        <div className="flex flex-col gap-1">
-          <button
-            type="button"
-            className={smallButton}
+      <div className="flex items-stretch gap-2">
+        <div className="min-w-0 flex-1 rounded-xl border border-[var(--border)] bg-[var(--surface)] focus-within:border-[var(--accent)] focus-within:shadow-[0_0_0_3px_var(--ring)]">
+          <textarea
+            ref={box}
+            value={text}
+            rows={2}
+            maxLength={MAX_MESSAGE_CHARS}
             disabled={disabled}
-            onClick={() => {
-              setPicker((v) => !v);
-              setActive(0);
+            aria-label="Nội dung tin nhắn"
+            placeholder={disabled ? "Page chưa nối Pancake" : "Nhập tin cho khách…"}
+            onChange={(event) => {
+              const value = event.target.value;
+              setText(value);
+              const open = /(?:^|\s)\/\S*$/.test(value);
+              setPicker(open);
+              if (open) setActive(0);
             }}
-          >
-            / Câu mẫu
-          </button>
-          <PrimaryButton type="button" onClick={submit} disabled={disabled || !text.trim() || send.isPending}>
-            {send.isPending ? "Đang gửi…" : "Gửi"}
-          </PrimaryButton>
+            onKeyDown={(event) => {
+              if (picker && shown.length) {
+                if (event.key === "ArrowDown") {
+                  event.preventDefault();
+                  setActive((i) => (i + 1) % shown.length);
+                  return;
+                }
+                if (event.key === "ArrowUp") {
+                  event.preventDefault();
+                  setActive((i) => (i - 1 + shown.length) % shown.length);
+                  return;
+                }
+                if (event.key === "Enter" && !event.ctrlKey && !event.metaKey) {
+                  event.preventDefault();
+                  insert(shown[Math.min(active, shown.length - 1)]);
+                  return;
+                }
+                if (event.key === "Escape") {
+                  setPicker(false);
+                  return;
+                }
+              }
+              if (event.key === "Enter" && (event.ctrlKey || event.metaKey)) {
+                event.preventDefault();
+                submit();
+              }
+            }}
+            className="block min-h-14 w-full resize-none rounded-t-xl bg-transparent px-3 pt-2.5 text-[var(--text)] outline-none"
+          />
+          <div className="flex items-center gap-3 whitespace-nowrap px-3 pb-2 text-xs text-[var(--text-muted)]">
+            <button
+              type="button"
+              className="inline-flex items-center gap-1 hover:text-[var(--text)] disabled:opacity-50"
+              disabled={disabled}
+              onClick={() => {
+                setPicker((v) => !v);
+                setActive(0);
+              }}
+            >
+              <kbd className="rounded border border-[var(--border)] px-1 font-sans">/</kbd> câu mẫu
+            </button>
+            <span className="hidden sm:inline">
+              <kbd className="rounded border border-[var(--border)] px-1 font-sans">Ctrl</kbd> +{" "}
+              <kbd className="rounded border border-[var(--border)] px-1 font-sans">Enter</kbd> gửi
+            </span>
+          </div>
         </div>
+        <button
+          type="button"
+          onClick={submit}
+          disabled={disabled || !text.trim() || send.isPending}
+          className="inline-flex min-h-12 shrink-0 items-center gap-2 self-end rounded-xl bg-[var(--accent-strong)] px-5 text-sm font-bold text-[var(--surface)] hover:opacity-90 disabled:opacity-50"
+        >
+          {send.isPending ? "Đang gửi…" : "Gửi"}
+          <Icon name="send" />
+        </button>
       </div>
       <ErrorLine error={send.error} />
     </div>
   );
 }
 
-function SidePanel({ detail }: { detail: ConversationDetail }) {
-  const [tab, setTab] = useState<"customer" | "zalo">(detail.conversation.zalo_linked ? "zalo" : "customer");
-  useEffect(() => {
-    if (detail.conversation.zalo_linked) setTab("zalo");
-  }, [detail.conversation.zalo_linked]);
+// --- the customer card ----------------------------------------------------------------------
+
+function SidePanel({
+  detail,
+  page,
+  onClose,
+  onConfirm,
+  onChanged,
+}: {
+  detail: ConversationDetail;
+  page: InboxPage | undefined;
+  onClose: () => void;
+  onConfirm: () => void;
+  onChanged: () => void;
+}) {
+  const [tab, setTab] = useState<"customer" | "zalo">("customer");
   return (
-    <div>
-      <div role="tablist" aria-label="Thông tin khách" className="flex border-b border-[var(--border)]">
+    <>
+      <div role="tablist" aria-label="Thông tin khách" className="flex shrink-0 border-b border-[var(--border)]">
+        <button
+          type="button"
+          onClick={onClose}
+          aria-label="Đóng thẻ khách"
+          className="inline-flex min-h-12 w-12 items-center justify-center text-[var(--text-muted)] @5xl:hidden"
+        >
+          <Icon name="close" />
+        </button>
         {(
           [
-            ["customer", "Khách hàng"],
-            ["zalo", `Zalo telesale${detail.zalo_threads ? ` (${detail.zalo_threads})` : ""}`],
+            ["customer", "Khách hàng", 0],
+            ["zalo", "Zalo telesale", detail.zalo_threads],
           ] as const
-        ).map(([key, label]) => (
+        ).map(([key, label, count]) => (
           <button
             key={key}
             type="button"
             role="tab"
             aria-selected={tab === key}
             onClick={() => setTab(key)}
-            className={`min-h-11 flex-1 text-sm ${
-              tab === key ? "border-b-2 border-[var(--accent)] font-semibold" : "text-[var(--text-muted)]"
+            className={`inline-flex min-h-12 flex-1 items-center justify-center gap-1.5 text-sm ${
+              tab === key
+                ? "border-b-2 border-[var(--accent-strong)] font-bold text-[var(--accent-strong)]"
+                : "text-[var(--text-muted)]"
             }`}
           >
             {label}
+            {count ? (
+              <span className="rounded-full bg-[var(--accent-soft)] px-1.5 text-[11px] font-bold text-[var(--accent-strong)]">
+                {count}
+              </span>
+            ) : null}
           </button>
         ))}
       </div>
-      {tab === "customer" ? (
-        <CustomerTab detail={detail} />
-      ) : (
-        <ZaloTab conversationId={detail.conversation.id} />
-      )}
-    </div>
+      <div className="min-h-0 flex-1 overflow-y-auto">
+        {tab === "customer" ? (
+          <CustomerTab detail={detail} page={page} onConfirm={onConfirm} onChanged={onChanged} />
+        ) : (
+          <ZaloTab conversationId={detail.conversation.id} />
+        )}
+      </div>
+    </>
   );
 }
 
-function CustomerTab({ detail }: { detail: ConversationDetail }) {
+function CustomerTab({
+  detail,
+  page: inboxPage,
+  onConfirm,
+  onChanged,
+}: {
+  detail: ConversationDetail;
+  page: InboxPage | undefined;
+  onConfirm: () => void;
+  onChanged: () => void;
+}) {
   const { conversation: conv, page, orders } = detail;
+  const users = inboxPage?.pancake_users ?? [];
+  const assign = useMutation({
+    mutationFn: (userId: string | null) => cskhApi.assign(conv.id, userId),
+    onSuccess: onChanged,
+  });
+  const firstIn = detail.messages.find((m) => m.direction === "in")?.at ?? null;
+  const codes = conv.codes ?? [];
+  const orderCodes = new Set(orders.map((o) => o.customer_code.toUpperCase()).filter(Boolean));
+  const code = codes[0];
+  const phone = conv.phones[0];
+  const confirmedPhones = new Set(orders.map((o) => o.phone.replace(/\D/g, "")).filter(Boolean));
+  const notes = conv.notes ?? [];
+  const sectionTitle = "mb-1.5 text-xs font-bold text-[var(--text)]";
   return (
-    <div className="space-y-4 p-3 text-sm">
+    <div className="space-y-4 p-4 text-sm" data-testid="cskh-customer">
+      <div className="flex items-center gap-3">
+        <Avatar name={conv.customer_name} size={48} />
+        <div className="min-w-0">
+          <p className="truncate text-base font-bold text-[var(--accent-strong)]">{conv.customer_name}</p>
+          <p className="text-xs text-[var(--text-muted)]">
+            {orders.length ? `${orders.length} đơn đã xác nhận` : "Khách mới"}
+            {firstIn ? ` · nhắn lần đầu ${formatShortDateTime(firstIn)}` : ""}
+          </p>
+        </div>
+      </div>
+      <div className="grid grid-cols-2 gap-2">
+        <div className="rounded-xl bg-[var(--surface-muted)] p-3">
+          <p className="text-xs text-[var(--text-muted)]">Mã KH</p>
+          {code ? (
+            <>
+              <p className="truncate font-bold tabular-nums text-[var(--accent-strong)]" data-testid="cskh-code">
+                {code}
+              </p>
+              <p className="text-[11px] text-[var(--text-muted)]">
+                {orderCodes.has(code) ? "từ đơn đã xác nhận" : "từ ghi chú Pancake"}
+                {codes.length > 1 ? ` · +${codes.length - 1} mã` : ""}
+              </p>
+            </>
+          ) : (
+            <p className="text-[var(--text-muted)]">chưa có</p>
+          )}
+        </div>
+        <div className="rounded-xl bg-[var(--surface-muted)] p-3">
+          <p className="text-xs text-[var(--text-muted)]">Số điện thoại</p>
+          {phone ? (
+            <>
+              <CopyChip text={phone} display={phone} />
+              <p
+                className={`mt-0.5 text-[11px] font-semibold ${
+                  confirmedPhones.has(phone.replace(/\D/g, "")) ? "text-[var(--good)]" : "text-[var(--text-muted)]"
+                }`}
+              >
+                {confirmedPhones.has(phone.replace(/\D/g, "")) ? "Đã xác nhận" : "Chưa xác nhận"}
+                {conv.phones.length > 1 ? ` · +${conv.phones.length - 1} số` : ""}
+              </p>
+            </>
+          ) : (
+            <p className="text-[var(--text-muted)]">chưa có</p>
+          )}
+        </div>
+      </div>
+      {users.length ? (
+        <label className="block">
+          <span className={`block ${sectionTitle}`}>Người phụ trách</span>
+          <select
+            aria-label="Người phụ trách"
+            value={conv.assignee_ids[0] ?? ""}
+            disabled={assign.isPending || !page.connected}
+            onChange={(event) => assign.mutate(event.target.value || null)}
+            className="min-h-11 w-full rounded-lg border border-[var(--border)] bg-[var(--surface)] px-3 text-sm text-[var(--text)]"
+          >
+            <option value="">Chưa giao</option>
+            {users.map((u) => (
+              <option key={u.id} value={u.id}>
+                {u.name}
+              </option>
+            ))}
+          </select>
+          <ErrorLine error={assign.error} />
+        </label>
+      ) : null}
       <div>
-        <p className="font-semibold">{conv.customer_name}</p>
-        <p className="text-xs text-[var(--text-muted)]">
-          PSID {conv.psid} · lần cuối khách nhắn {formatDateTime(conv.last_in_at)}
-        </p>
+        <h3 className={sectionTitle}>Ghi chú Pancake</h3>
+        {notes.length === 0 ? (
+          <p className="text-xs text-[var(--text-muted)]">Chưa có ghi chú.</p>
+        ) : (
+          <ul className="space-y-2" data-testid="cskh-notes">
+            {[...notes].reverse().map((note) => (
+              <li
+                key={note.id || note.text}
+                className="rounded-lg border border-[var(--warn)]/30 bg-[var(--warn-soft)] p-2.5"
+              >
+                <p className="whitespace-pre-wrap break-words text-[var(--text)]">{note.text}</p>
+                <p className="mt-1 text-[11px] text-[var(--text-muted)]">
+                  {[note.by, note.at ? formatShortDateTime(note.at) : ""].filter(Boolean).join(" · ")}
+                </p>
+              </li>
+            ))}
+          </ul>
+        )}
       </div>
       <div>
-        <h3 className="mb-1 text-xs font-semibold uppercase text-[var(--text-muted)]">Đơn đã xác nhận</h3>
-        {orders.length === 0 ? <p className="text-xs text-[var(--text-muted)]">Chưa có.</p> : null}
-        <ul className="space-y-2">
+        <div className="mb-1.5 flex items-center justify-between">
+          <h3 className="text-xs font-bold text-[var(--text)]">Đơn hàng</h3>
+          {!orders.length ? <span className="text-xs text-[var(--text-muted)]">chưa có đơn</span> : null}
+        </div>
+        <ul className="mb-2 space-y-2">
           {orders.map((order) => (
             <li
               key={order.id}
               className="rounded-lg border border-[var(--border)] p-2 text-xs"
               data-testid="cskh-order"
             >
-              <p className="font-medium">
+              <p className="font-semibold">
                 {order.confirm_type === "qr" ? "Xác nhận QR" : "Xác nhận SĐT"} · đơn POS #
                 {order.pos_order_no ?? "—"} ({order.action === "create" ? "tạo mới" : "chuyển Đã xác nhận"})
               </p>
@@ -845,22 +1482,26 @@ function CustomerTab({ detail }: { detail: ConversationDetail }) {
             </li>
           ))}
         </ul>
+        <button
+          type="button"
+          onClick={onConfirm}
+          className="inline-flex min-h-12 w-full items-center justify-center gap-2 rounded-xl bg-[var(--accent-strong)] text-sm font-bold text-[var(--surface)] hover:opacity-90"
+        >
+          <Icon name="check" />
+          Xác nhận đơn
+        </button>
       </div>
-      <div>
-        <h3 className="mb-1 text-xs font-semibold uppercase text-[var(--text-muted)]">Page</h3>
-        <p>{page.name}</p>
+      <div className="border-t border-[var(--border)] pt-3">
+        <h3 className={sectionTitle}>Page</h3>
+        <p className="font-semibold text-[var(--accent-strong)]">{page.name}</p>
         <p className="text-xs text-[var(--text-muted)]">
           Marketing: {page.marketer_name ?? "chưa gán"} · Cửa hàng POS: {page.pos_shop_name ?? "chưa có"}
         </p>
-        <ul className="mt-1 flex flex-wrap gap-1">
-          {page.members.map((m) => (
-            <li key={m.user_id}>
-              <LabelChip
-                label={{ name: `${m.role_label}: ${m.name}`, color: m.role === "OWNER" ? "blue" : "teal" }}
-              />
-            </li>
-          ))}
-        </ul>
+        {page.members.length ? (
+          <p className="mt-1 text-xs text-[var(--text-muted)]">
+            {page.members.map((m) => `${m.role_label}: ${m.name}`).join(" · ")}
+          </p>
+        ) : null}
       </div>
     </div>
   );
@@ -894,7 +1535,7 @@ function ZaloTab({ conversationId }: { conversationId: string }) {
   const data = zalo.data!;
   const results = search.data?.results ?? data.suggest;
   return (
-    <div className="space-y-3 p-3 text-sm">
+    <div className="space-y-3 p-4 text-sm">
       {data.codes.length ? (
         <p className="text-xs text-[var(--text-muted)]">Mã KH của khách: {data.codes.join(", ")}</p>
       ) : null}

@@ -69,6 +69,11 @@
   --yellow-soft: #fff6d1;
   --bad: #b3261e;
   --bad-soft: #ffe4de;
+  /* Two more label tints (the inbox's page labels): deep ink on a pale fill. */
+  --purple: #5b2a86;
+  --purple-soft: #f1e7fb;
+  --teal: #0f5e6b;
+  --teal-soft: #dff3f5;
   --shadow-card: 0 1px 2px rgb(19 40 99 / 0.05), 0 8px 24px -12px rgb(19 40 99 / 0.16);
   --shadow-pop: 0 18px 48px -16px rgb(19 40 99 / 0.38);
   --page-glow: radial-gradient(1100px 520px at 100% -10%, rgb(136 175 234 / 0.22), transparent 70%),
@@ -100,6 +105,10 @@
     --yellow-soft: #3b3010;
     --bad: #ff9a8a;
     --bad-soft: #421c24;
+    --purple: #d6b4f5;
+    --purple-soft: #2e1c45;
+    --teal: #7fd6e0;
+    --teal-soft: #0f3138;
     --shadow-card: 0 1px 2px rgb(0 0 0 / 0.3), 0 10px 28px -14px rgb(0 0 0 / 0.6);
     --shadow-pop: 0 22px 56px -18px rgb(0 0 0 / 0.75);
     --page-glow: radial-gradient(1100px 560px at 100% -10%, rgb(36 92 181 / 0.28), transparent 70%),
@@ -141,6 +150,10 @@
   --yellow-soft: #3b3010;
   --bad: #ff9a8a;
   --bad-soft: #421c24;
+  --purple: #d6b4f5;
+  --purple-soft: #2e1c45;
+  --teal: #7fd6e0;
+  --teal-soft: #0f3138;
   --shadow-card: 0 1px 2px rgb(0 0 0 / 0.3), 0 10px 28px -14px rgb(0 0 0 / 0.6);
   --shadow-pop: 0 22px 56px -18px rgb(0 0 0 / 0.75);
   --page-glow: radial-gradient(1100px 560px at 100% -10%, rgb(36 92 181 / 0.28), transparent 70%),

@@ -9,7 +9,7 @@ request), so:
   with the question;
 * a skill - a ``SKILL.md``, or a ``.zip`` holding one - is read the same way
   and introduced as a skill: the agent uses it in this conversation, and
-  keeping it is the usual skill proposal Emma approves;
+  keeping it is the usual skill proposal (kept on its own, Emma approves edits of shared skills);
 * an SVG goes as its code (the browser also sends a PNG drawn from it, so the
   agent sees it); an Illustrator ``.ai`` (saved PDF-compatible) and a PDF with
   no words (a scan) are drawn here - page 1, ``pypdfium2`` - and kept as that

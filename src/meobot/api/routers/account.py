@@ -18,6 +18,7 @@ import uuid
 from typing import Any
 
 from fastapi import APIRouter, Query, Request, Response, status
+from pydantic import BaseModel, Field
 
 from meobot.api.deps import (
     AccountServiceDep,
@@ -51,6 +52,7 @@ from meobot.api.schemas.account import (
     WorkInfoResponse,
 )
 from meobot.api.schemas.pr import ErrorEnvelope
+from meobot.application.account.nav_pins import save_pins
 from meobot.application.account.stats_service import resolve_month
 from meobot.application.audit_service import AuditService
 from meobot.application.resources.access import resource_access
@@ -152,6 +154,30 @@ async def upload_avatar(
         actor=actor, request_id=request_id, content_type=body.content_type, data=body.data
     )
     return AvatarResponse(avatar_url=url)
+
+
+class NavPinsBody(BaseModel):
+    """Ghim menu: the branch keys in pin order (``pr``, ``ads``, ``hr``...)."""
+
+    pins: list[str] = Field(default_factory=list, max_length=40)
+
+
+class NavPinsResponse(BaseModel):
+    pins: list[str]
+
+
+@router.put(
+    "/nav-pins",
+    response_model=NavPinsResponse,
+    responses={422: {"model": ErrorEnvelope, "description": "nav_pins_invalid."}},
+)
+async def set_nav_pins(
+    body: NavPinsBody, actor: CurrentActorDep, session: SessionDep
+) -> NavPinsResponse:
+    """Ghim menu (2026-11-12): the branches drawn first and open in my sidebar.
+    My own list only; ``/api/units/me`` hands it back as ``nav_pins``."""
+    assert actor.user_id is not None
+    return NavPinsResponse(pins=await save_pins(session, actor.user_id, body.pins))
 
 
 @router.delete("/avatar", status_code=status.HTTP_204_NO_CONTENT)

@@ -67,6 +67,10 @@ from meobot.domain.cskh.errors import (
 from meobot.domain.cskh.models import (
     LABEL_COLORS,
     MEMBER_ROLE_LABELS,
+    PAGE_COLORS,
+    PAGE_SHORT_NAME_MAX,
+    WAIT_ALERT_MAX,
+    WAIT_ALERT_MIN,
     CskhUpstreamError,
     InboxSettings,
     MemberRole,
@@ -233,6 +237,8 @@ class CskhConfig:
                     "last_at": iso(last),
                     "polled_at": iso(page.polled_at),
                     "poll_error": page.poll_error,
+                    "short_name": page.short_name,
+                    "color": page.color,
                     "meta_at": iso(page.meta_at),
                 }
             )
@@ -524,6 +530,32 @@ class CskhConfig:
                     else:
                         current.role = role.value
             changed.append("members")
+        if "short_name" in data or "color" in data:
+            if len(pages) != 1:
+                raise CskhInvalidError(
+                    "cskh_page_look_one",
+                    "Tên ngắn và màu đặt cho từng page một.",
+                    field="short_name",
+                )
+            page = pages[0]
+            if "short_name" in data:
+                short = " ".join(str(data.get("short_name") or "").split())
+                if len(short) > PAGE_SHORT_NAME_MAX:
+                    raise CskhInvalidError(
+                        "cskh_page_short_name_invalid",
+                        f"Tên ngắn tối đa {PAGE_SHORT_NAME_MAX} ký tự.",
+                        field="short_name",
+                    )
+                page.short_name = short
+                changed.append("short_name")
+            if "color" in data:
+                color = str(data.get("color") or "")
+                if color and color not in PAGE_COLORS:
+                    raise CskhInvalidError(
+                        "cskh_page_color_invalid", "Màu không hợp lệ.", field="color"
+                    )
+                page.color = color
+                changed.append("color")
         if "label_ids" in data:
             label_ids = await self._labels(data.get("label_ids"))
             mode = str(data.get("label_mode") or "set")
@@ -815,6 +847,13 @@ class CskhConfig:
                 "cskh_settings_invalid",
                 "Nhập tin tự động (tối đa 1000 ký tự).",
                 field="auto_reply_text",
+            )
+        wait = merged.get("wait_alert_minutes")
+        if not isinstance(wait, int) or not WAIT_ALERT_MIN <= wait <= WAIT_ALERT_MAX:
+            raise CskhInvalidError(
+                "cskh_settings_invalid",
+                f"Ngưỡng khách chờ {WAIT_ALERT_MIN}-{WAIT_ALERT_MAX} phút.",
+                field="wait_alert_minutes",
             )
         lock = merged.get("mkt_lock_days")
         if not isinstance(lock, int) or not 0 <= lock <= 3650:

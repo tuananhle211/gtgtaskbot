@@ -18,11 +18,12 @@ from datetime import datetime, timedelta
 from decimal import Decimal
 from typing import Any
 
-from sqlalchemy import Text, cast, func, or_, select
+from sqlalchemy import Text, and_, case, cast, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from meobot.application.audit_service import AuditService
 from meobot.application.cskh.access import CskhAccess, page_scope
+from meobot.application.cskh.codes import codes_of, noted_codes
 from meobot.application.cskh.common import (
     CskhClients,
     load_settings,
@@ -38,11 +39,13 @@ from meobot.application.cskh.sync import (
     same_session,
     send_text,
     set_phones,
+    set_stage,
 )
 from meobot.core.time import ensure_utc, utcnow
 from meobot.db.models.cskh import (
     CskhAd,
     CskhConversation,
+    CskhConversationCode,
     CskhLabel,
     CskhMessage,
     CskhOrder,
@@ -73,7 +76,9 @@ from meobot.domain.cskh.models import (
     PENDING_POS,
     PLATFORMS,
     POS_STATUS,
+    STAGE_LABELS,
     ConfirmType,
+    ConvStage,
     CskhUpstreamError,
     MemberRole,
     OrderInfo,
@@ -88,6 +93,9 @@ from meobot.domain.cskh.models import (
 )
 
 PAGE_SIZE = 60
+#: "Xếp: Chờ lâu nhất" puts first the customers whose last message, this recent, has
+#: no answer yet (older silences are no longer "waiting").
+WAIT_WINDOW = timedelta(hours=24)
 MAX_MESSAGES = 500
 SEARCH_LIMIT = 200
 #: The duplicate check's POS answers are kept this long per number.
@@ -212,6 +220,8 @@ class CskhInbox:
                     "pos_shop_id": p.pos_shop_id,
                     "pancake_tags": tags.get(p.id, []),
                     "pancake_users": users.get(p.id, []),
+                    "short_name": p.short_name,
+                    "color": p.color,
                 }
                 for p in pages
             ],
@@ -229,6 +239,16 @@ class CskhInbox:
             "platforms": list(PLATFORMS),
             "work_now": is_work_time(settings, vn_now()),
             "auto_reply_enabled": settings.auto_reply_enabled,
+            "wait_alert_minutes": settings.wait_alert_minutes,
+            "stages": [{"id": stage.value, "label": STAGE_LABELS[stage]} for stage in ConvStage],
+            "callback_total": int(
+                await self._session.scalar(
+                    select(func.count())
+                    .select_from(CskhConversation)
+                    .where(CskhConversation.page_id.in_(ids), CskhConversation.callback.is_(True))
+                )
+                or 0
+            ),
             "unread_total": sum(int(v or 0) for v in unread.values()),
             "people": await self._people_list(),
         }
@@ -271,7 +291,13 @@ class CskhInbox:
         q: str | None = None,
         before: datetime | None = None,
         limit: int = PAGE_SIZE,
+        stage: str | None = None,
+        mine: bool = False,
+        sort: str = "recent",
+        offset: int = 0,
     ) -> dict[str, Any]:
+        """``sort`` "recent" (newest first, paged by ``before``) or "wait" (the longest
+        unanswered first, then the rest newest first; paged by ``offset``)."""
         allowed = await self._pages(access)
         query = select(CskhConversation).where(CskhConversation.last_at.is_not(None))
         if allowed is not None:
@@ -298,19 +324,30 @@ class CskhInbox:
             query = query.where(CskhConversation.callback.is_(True))
         elif tab == "phone":
             query = query.where(CskhConversation.phone_digits != "")
+        if stage:
+            query = query.where(CskhConversation.stage == stage)
+        if mine:
+            query = query.where(await self._mine(access))
         hits: dict[uuid.UUID, dict[str, str]] = {}
         if q and q.strip():
             hits = await self._search(q, allowed)
             query = query.where(CskhConversation.id.in_(list(hits)))
-        if before is not None:
-            query = query.where(CskhConversation.last_at < before)
-        rows = list(
-            (
-                await self._session.scalars(
-                    query.order_by(CskhConversation.last_at.desc()).limit(limit + 1)
-                )
-            ).all()
-        )
+        if sort == "wait":
+            waiting = and_(
+                CskhConversation.last_out.is_(False),
+                CskhConversation.last_at >= utcnow() - WAIT_WINDOW,
+            )
+            query = query.order_by(
+                case((waiting, 0), else_=1),
+                case((waiting, CskhConversation.last_at), else_=None).asc(),
+                CskhConversation.last_at.desc(),
+                CskhConversation.id,
+            ).offset(max(0, offset))
+        else:
+            if before is not None:
+                query = query.where(CskhConversation.last_at < before)
+            query = query.order_by(CskhConversation.last_at.desc())
+        rows = list((await self._session.scalars(query.limit(limit + 1))).all())
         more = len(rows) > limit
         rows = rows[:limit]
         views = await self.rows(rows)
@@ -318,21 +355,64 @@ class CskhInbox:
             hit = hits.get(uuid.UUID(view["id"]))
             if hit:
                 view["match"] = hit
+        if sort == "wait":
+            return {
+                "conversations": views,
+                "next_before": None,
+                "next_offset": offset + len(rows) if more else None,
+            }
         return {
             "conversations": views,
             "next_before": iso(rows[-1].last_at) if more and rows else None,
+            "next_offset": None,
         }
 
+    async def _mine(self, access: CskhAccess) -> Any:
+        """ "Của tôi": conversations one answered from APM, or that Pancake assigns to a
+        staff member of one's own name (Pancake's staff are not APM accounts)."""
+        if access.user_id is None:
+            return CskhConversation.id.is_(None)
+        replied = CskhConversation.id.in_(
+            select(CskhMessage.conversation_id).where(CskhMessage.sender_user_id == access.user_id)
+        )
+        me = await self._session.get(User, access.user_id)
+        name = fold(me.full_name or "").strip() if me is not None else ""
+        pancake_ids = (
+            {
+                row.user_id
+                for row in (await self._session.scalars(select(CskhPancakeUser))).all()
+                if fold(row.name or "").strip() == name
+            }
+            if name
+            else set()
+        )
+        return or_(replied, *(_json_has(CskhConversation.assignee_ids, pid) for pid in pancake_ids))
+
     async def rows(self, rows: Sequence[CskhConversation]) -> list[dict[str, Any]]:
-        page_names: dict[Any, Any] = pairs(
-            (
+        looks = {
+            page_id: (name, short, color)
+            for page_id, name, short, color in (
                 await self._session.execute(
-                    select(CskhPage.id, CskhPage.name).where(
+                    select(CskhPage.id, CskhPage.name, CskhPage.short_name, CskhPage.color).where(
                         CskhPage.id.in_({r.page_id for r in rows})
                     )
                 )
             ).all()
-        )
+        }
+        codes: dict[uuid.UUID, list[str]] = {}
+        for conv_id, code in (
+            await self._session.execute(
+                select(CskhOrder.conversation_id, CskhOrder.customer_code)
+                .where(
+                    CskhOrder.conversation_id.in_([r.id for r in rows]),
+                    CskhOrder.customer_code != "",
+                )
+                .order_by(CskhOrder.created_at.desc())
+            )
+        ).all():
+            codes.setdefault(conv_id, []).append(normalize_code(code))
+        for conv_id, found in (await noted_codes(self._session, [r.id for r in rows])).items():
+            codes.setdefault(conv_id, []).extend(found)
         ad_names: dict[Any, Any] = pairs(
             (
                 await self._session.execute(
@@ -355,7 +435,12 @@ class CskhInbox:
             {
                 "id": str(r.id),
                 "page_id": r.page_id,
-                "page_name": page_names.get(r.page_id, r.page_id),
+                "page_name": looks.get(r.page_id, (r.page_id, "", ""))[0],
+                "page_short": looks.get(r.page_id, (r.page_id, "", ""))[1],
+                "page_color": looks.get(r.page_id, (r.page_id, "", ""))[2],
+                "stage": r.stage,
+                "codes": list(dict.fromkeys(codes.get(r.id, []))),
+                "last_in_at": iso(r.last_in_at),
                 "psid": r.psid,
                 "customer_name": r.customer_name or f"Khách …{r.psid[-4:]}",
                 "last_text": r.last_text,
@@ -397,6 +482,16 @@ class CskhInbox:
             )
         ).all():
             add(conv_id, "Mã KH", value)
+        noted = "".join(ch for ch in code if ch.isalnum())
+        if len(noted) >= 3:
+            for conv_id, value in (
+                await self._session.execute(
+                    select(CskhConversationCode.conversation_id, CskhConversationCode.code)
+                    .where(CskhConversationCode.code.like(f"%{noted}%"))
+                    .order_by(CskhConversationCode.at.desc())
+                )
+            ).all():
+                add(conv_id, "Mã KH (ghi chú)", value)
         if len(digits) >= 4:
             part = digits[-9:]
             query = select(CskhConversation.id, CskhConversation.phones).where(
@@ -499,7 +594,8 @@ class CskhInbox:
                 **view,
                 "qrs": list(conv.qrs or []),
                 "ads": ads,
-                "last_in_at": iso(conv.last_in_at),
+                "notes": list(conv.notes or []),
+                "codes": await codes_of(self._session, conv.id),
             },
             "page": {
                 "id": page.id,
@@ -510,6 +606,8 @@ class CskhInbox:
                 "marketer_name": marketer,
                 "pos_shop_id": page.pos_shop_id,
                 "pos_shop_name": shop.name if shop else None,
+                "short_name": page.short_name,
+                "color": page.color,
             },
             "messages": [message_view(m) for m in messages],
             "orders": await self.orders(conv),
@@ -578,8 +676,8 @@ class CskhInbox:
             sender_user_id=actor.user_id,
             sender_name=actor.name,
         )
-        if clear_callback:
-            conv.callback = False
+        if clear_callback and conv.callback:
+            set_stage(conv, ConvStage.CONSULTING)
         conv.unread = 0
         await self._session.flush()
         await self._record(actor, AuditAction.CSKH_MESSAGE_SENT, conv, {"page_id": conv.page_id})
@@ -587,8 +685,31 @@ class CskhInbox:
 
     async def set_callback(self, access: CskhAccess, conversation_id: uuid.UUID, on: bool) -> None:
         conv = await self.conversation(access, conversation_id)
-        conv.callback = on
+        if on:
+            set_stage(conv, ConvStage.CALLBACK)
+        elif conv.callback:
+            set_stage(conv, ConvStage.CONSULTING)
         await self._session.flush()
+
+    async def set_stage(
+        self, access: CskhAccess, conversation_id: uuid.UUID, stage: str, actor: Actor
+    ) -> str:
+        """ "Trạng thái": Mới / Đang tư vấn / Chờ gọi lại / Đã chốt."""
+        conv = await self.conversation(access, conversation_id)
+        try:
+            value = ConvStage(stage)
+        except ValueError as error:
+            raise CskhInvalidError(
+                "cskh_stage_invalid", "Trạng thái không hợp lệ.", field="stage"
+            ) from error
+        before = conv.stage
+        set_stage(conv, value)
+        await self._session.flush()
+        if before != value.value:
+            await self._record(
+                actor, AuditAction.CSKH_STAGE_CHANGED, conv, {"from": before, "to": value.value}
+            )
+        return value.value
 
     async def mark_unread(self, access: CskhAccess, conversation_id: uuid.UUID) -> None:
         conv = await self.conversation(access, conversation_id)
@@ -1112,6 +1233,7 @@ class CskhInbox:
             created_by_user_id=actor.user_id,
         )
         self._session.add(row)
+        set_stage(conv, ConvStage.CLOSED)
         await self._session.flush()
         await self._record(
             actor,

@@ -318,6 +318,8 @@ class UnitMeResponse(BaseModel):
     agents: AgentsAccessResponse = AgentsAccessResponse()
     cskh: CskhMenuResponse = CskhMenuResponse()
     hr: HrMenuResponse = HrMenuResponse()
+    #: Ghim menu (2026-11-12): branch keys this person pinned, in order.
+    nav_pins: list[str] = []
 
     @classmethod
     def from_domain(

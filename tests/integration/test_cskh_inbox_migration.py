@@ -37,6 +37,20 @@ pytestmark = [
 SETTINGS_KWARGS = {"_env_file": None, "web_cookie_secure": False}
 
 
+def added_later(item: object) -> bool:
+    """What 0104 adds (notes, codes, stage, a page's look) is checked by its own test."""
+    text_ = repr(item)
+    return "cskh_conversation_codes" in text_ or any(
+        f"'{column}'" in text_ and table in text_
+        for table, column in (
+            ("cskh_conversations", "notes"),
+            ("cskh_conversations", "stage"),
+            ("cskh_pages", "short_name"),
+            ("cskh_pages", "color"),
+        )
+    )
+
+
 @pytest_asyncio.fixture(scope="module", loop_scope="module")
 async def dsn() -> AsyncIterator[str]:
     assert TEST_DATABASE_URL is not None
@@ -100,7 +114,7 @@ async def test_01_tables_grants_and_downgrade(dsn: str, database: Database) -> N
         return [
             item
             for item in compare_metadata(context, Base.metadata)
-            if "cskh_" in repr(item) or "pancake_" in repr(item)
+            if ("cskh_" in repr(item) or "pancake_" in repr(item)) and not added_later(item)
         ]
 
     async with database.engine.begin() as connection:

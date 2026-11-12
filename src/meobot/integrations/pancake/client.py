@@ -25,6 +25,8 @@ Tokens and keys travel in the query string as both ask; the log filter
 from __future__ import annotations
 
 import asyncio
+import contextlib
+from collections.abc import AsyncIterator
 from dataclasses import dataclass, field
 from typing import Any, Protocol
 
@@ -36,6 +38,8 @@ TIMEOUT_SECONDS = 30.0
 #: Pancake limits the account-level calls (page list, page token): a 429 there is
 #: waited out this many times, these seconds apart.
 RATE_LIMIT_BACKOFF: tuple[float, ...] = (5.0, 15.0, 30.0)
+#: A read Pancake answered with HTTP 5xx is asked again once, this long after.
+SERVER_ERROR_RETRY_SECONDS = 2.0
 #: Customer pictures are read (QR codes) only from Pancake's / Facebook's hosts.
 IMAGE_HOSTS: tuple[str, ...] = (
     "pancake.vn",
@@ -91,6 +95,9 @@ def _check(response: httpx.Response, what: str) -> Any:
         lowered = message.lower()
         if any(word in lowered for word in ("rate", "too many", "limit", "giới hạn")):
             code = f"{what}_rate_limited"
+        elif "renewed" in lowered:
+            # Somebody made a new page token (another tool, Pancake's settings).
+            code = f"{what}_token_renewed"
         elif "token" in lowered or "api_key" in lowered:
             code = f"{what}_token_invalid"
         else:
@@ -104,11 +111,15 @@ def _name(what: str) -> str:
 
 
 class PancakeClient(Protocol):
+    def session(self) -> contextlib.AbstractAsyncContextManager[None]: ...
+
     async def list_pages(self, user_token: str) -> list[PancakePageInfo]: ...
 
     async def generate_page_token(self, user_token: str, page_id: str) -> str: ...
 
-    async def conversations(self, page_id: str, token: str) -> list[dict[str, Any]]: ...
+    async def conversations(
+        self, page_id: str, token: str, *, after: str | None = None
+    ) -> list[dict[str, Any]]: ...
 
     async def messages(
         self, page_id: str, conversation_id: str, token: str
@@ -160,6 +171,30 @@ class HttpPancakeClient:
         self._base = base_url.rstrip("/")
         self._timeout = timeout
         self._backoff = backoff
+        self._shared: httpx.AsyncClient | None = None
+
+    @contextlib.asynccontextmanager
+    async def session(self) -> AsyncIterator[None]:
+        """Inside, every call reuses one connection pool (no TLS handshake per call)."""
+        if self._shared is not None:
+            yield
+            return
+        async with httpx.AsyncClient(
+            timeout=self._timeout, limits=httpx.Limits(max_connections=30)
+        ) as client:
+            self._shared = client
+            try:
+                yield
+            finally:
+                self._shared = None
+
+    async def _send(
+        self, method: str, url: str, params: dict[str, str], body: dict[str, Any] | None
+    ) -> httpx.Response:
+        if self._shared is not None:
+            return await self._shared.request(method, url, params=params, json=body)
+        async with httpx.AsyncClient(timeout=self._timeout) as client:
+            return await client.request(method, url, params=params, json=body)
 
     async def _call(
         self,
@@ -173,16 +208,19 @@ class HttpPancakeClient:
         """``patient``: a 429 is waited out (``backoff``) - the account-level calls
         (page list, page token), which Pancake limits per user token."""
         waits = list(self._backoff) if patient else []
+        # A read answered 5xx (Pancake has bad seconds) is asked once more.
+        server_retry = method == "GET"
         while True:
             try:
-                async with httpx.AsyncClient(timeout=self._timeout) as client:
-                    response = await client.request(
-                        method, f"{self._base}/{path}", params=params, json=body
-                    )
+                response = await self._send(method, f"{self._base}/{path}", params, body)
             except httpx.HTTPError as error:
                 raise CskhUpstreamError(
                     "pancake_unreachable", "Không kết nối được Pancake."
                 ) from error
+            if response.status_code >= 500 and server_retry:
+                server_retry = False
+                await asyncio.sleep(SERVER_ERROR_RETRY_SECONDS)
+                continue
             try:
                 return _check(response, "pancake")
             except CskhUpstreamError as error:
@@ -223,10 +261,14 @@ class HttpPancakeClient:
             )
         return token
 
-    async def conversations(self, page_id: str, token: str) -> list[dict[str, Any]]:
-        payload = await self._call(
-            "GET", f"public_api/v2/pages/{page_id}/conversations", {"page_access_token": token}
-        )
+    async def conversations(
+        self, page_id: str, token: str, *, after: str | None = None
+    ) -> list[dict[str, Any]]:
+        """The 60 newest; ``after`` = the last id of the previous 60 (older ones)."""
+        params = {"page_access_token": token}
+        if after:
+            params["last_conversation_id"] = after
+        payload = await self._call("GET", f"public_api/v2/pages/{page_id}/conversations", params)
         items = (payload or {}).get("conversations")
         return [c for c in items if isinstance(c, dict)] if isinstance(items, list) else []
 
@@ -399,6 +441,16 @@ class FakePancakeClient:
     sent: list[dict[str, str]] = field(default_factory=list)
     fail_send: str | None = None
     calls: list[str] = field(default_factory=list)
+    #: Page tokens somebody else replaced: Pancake answers "access_token renewed".
+    renewed: set[str] = field(default_factory=set)
+    #: Pancake answers 60 conversations a call.
+    page_size: int = 60
+    #: (user token, page): that account is only staff of the page ("Thiếu quyền Admin").
+    no_admin: set[tuple[str, str]] = field(default_factory=set)
+
+    @contextlib.asynccontextmanager
+    async def session(self) -> AsyncIterator[None]:
+        yield
 
     async def list_pages(self, user_token: str) -> list[PancakePageInfo]:
         if user_token == "bad":  # noqa: S105 - the fake's refused token
@@ -406,13 +458,28 @@ class FakePancakeClient:
         return list(self.pages.get(user_token, []))
 
     async def generate_page_token(self, user_token: str, page_id: str) -> str:
-        token = f"pt-{page_id}"
+        if (user_token, page_id) in self.no_admin:
+            raise CskhUpstreamError("pancake_failed", "Pancake: Thiếu quyền Admin")
+        made = sum(1 for call in self.calls if call == f"token:{page_id}")
+        self.calls.append(f"token:{page_id}")
+        token = f"pt-{page_id}" if not made else f"pt-{page_id}-{made + 1}"
         self.page_tokens[page_id] = token
         return token
 
-    async def conversations(self, page_id: str, token: str) -> list[dict[str, Any]]:
+    async def conversations(
+        self, page_id: str, token: str, *, after: str | None = None
+    ) -> list[dict[str, Any]]:
+        if token in self.renewed:
+            raise CskhUpstreamError(
+                "pancake_token_renewed",
+                "Pancake: access_token renewed please use new access_token",
+            )
         self.calls.append(f"conversations:{page_id}")
-        return list(self.convs.get(page_id, []))
+        items = list(self.convs.get(page_id, []))
+        if after is not None:
+            ids = [str(c.get("id")) for c in items]
+            items = items[ids.index(after) + 1 :] if after in ids else []
+        return items[: self.page_size]
 
     async def messages(
         self, page_id: str, conversation_id: str, token: str

@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { api, type DesignLibraryLink, type UnitsMe } from "@/lib/api";
 import { effortEnabled } from "@/lib/effort";
 import { adminTabsFor } from "@/components/admin-tabs";
@@ -32,6 +32,8 @@ type NavItem = {
  * (`external`), which come first.
  */
 type NavGroup = {
+  /** Stable id, used by "Ghim menu" (`nav_pins` on `/api/units/me`). */
+  key: string;
   label: string;
   icon: NavIcon;
   children: NavItem[];
@@ -82,6 +84,7 @@ type NavIcon =
   | "performance"
   | "timeline"
   | "ads"
+  | "media"
   | "agents"
   | "cskh"
   | "hr"
@@ -102,6 +105,7 @@ function cskhBranch(me: UnitsMe | undefined): NavGroup | null {
   const cskh = me?.cskh;
   if (!cskh || !(cskh.inbox || cskh.zalo || cskh.manage)) return null;
   return {
+    key: "cskh",
     label: "Chăm sóc khách hàng",
     icon: "cskh",
     children: [
@@ -164,6 +168,7 @@ const ADS_SALARY_NAV: NavItem = { href: "/tasks/salary", label: "Tính lương A
 /** The order boards this person has, as one branch of the nav. */
 function orderBoards(me: UnitsMe | undefined, sessionRole?: string): NavGroup {
   return {
+    key: "orders",
     label: "Bảng order",
     icon: "board",
     children: [
@@ -194,6 +199,7 @@ function libraryBranch(me: UnitsMe | undefined): NavGroup | null {
   const manages = Boolean(me?.design?.manage_library);
   if (links.length === 0 && !manages) return null;
   return {
+    key: "library",
     label: "Thư viện",
     icon: "library",
     variant: "section",
@@ -211,6 +217,7 @@ function resourcesBranch(me: UnitsMe | undefined): NavGroup | null {
   const screens = resourceScreens(me);
   if (screens.length === 0) return null;
   return {
+    key: "resources",
     label: "Phòng Tài nguyên",
     icon: "resource",
     children: screens.map((screen) => ({
@@ -231,6 +238,7 @@ function resourcesBranch(me: UnitsMe | undefined): NavGroup | null {
  */
 function performanceBranch(me: UnitsMe | undefined): NavGroup {
   return {
+    key: "performance",
     label: "Hiệu suất",
     icon: "performance",
     children: [
@@ -262,6 +270,7 @@ function hrBranch(me: UnitsMe | undefined): NavGroup | null {
   if (!me) return null;
   const hr = me.hr;
   return {
+    key: "hr",
     label: "Nhân sự",
     icon: "hr",
     children: [
@@ -311,6 +320,7 @@ function adsBranch(me: UnitsMe | undefined, sessionRole?: string): NavGroup | nu
   if (!me?.ads?.view) return null;
   const manages = sessionRole === "OWNER" || sessionRole === "ADMIN";
   return {
+    key: "ads",
     label: "Phòng Ads",
     icon: "ads",
     children: [
@@ -345,6 +355,7 @@ const FORCED_PASSWORD_CHANGE = "/account?doi-mat-khau=1";
  * untagged account has nothing behind these routes (the API answers 404).
  */
 const PR_GROUP: NavGroup = {
+  key: "pr",
   label: "Phòng PR",
   icon: "content",
   children: [
@@ -477,6 +488,86 @@ export function navFor(me: UnitsMe | undefined, sessionRole?: string): NavEntry[
   ];
 }
 
+/**
+ * "Phòng Media" (2026-11-12): a heading over the media branches - "Bảng order"
+ * (+ Effort), "Phòng Ads", "Phòng PR" - drawn where the first of them was.
+ * Only when the person has two or more of them: a single one sits on its own.
+ */
+type NavFolder = { key: string; label: string; icon: NavIcon; entries: NavEntry[] };
+export type DisplayEntry = NavEntry | NavFolder;
+export const isFolder = (entry: DisplayEntry): entry is NavFolder => "entries" in entry;
+
+export const MEDIA_KEY = "media";
+const MEDIA_LABEL = "Phòng Media";
+const MEDIA_BRANCHES = new Set(["orders", "ads", "pr"]);
+const inMedia = (entry: NavEntry): boolean =>
+  isGroup(entry) ? MEDIA_BRANCHES.has(entry.key) : entry.href === "/tasks/effort";
+
+/**
+ * The menu as drawn: "Ghim menu" (2026-11-12) puts the pinned branches first,
+ * in pin order, out of "Phòng Media" and always open; the rest keeps
+ * `navFor`'s order with the media branches gathered under "Phòng Media". A pin
+ * the menu does not have (a branch this person cannot see) is ignored.
+ */
+export function arrangeNav(
+  nav: NavEntry[],
+  pins: readonly string[] = [],
+): { pinned: DisplayEntry[]; rest: DisplayEntry[] } {
+  const wanted = new Set(pins);
+  const pinnedGroups = new Map<string, NavGroup>();
+  const media: NavEntry[] = [];
+  const rest: DisplayEntry[] = [];
+  let mediaAt = -1;
+  for (const entry of nav) {
+    if (isGroup(entry) && wanted.has(entry.key)) {
+      pinnedGroups.set(entry.key, entry);
+    } else if (inMedia(entry)) {
+      if (mediaAt < 0) mediaAt = rest.length;
+      media.push(entry);
+    } else {
+      rest.push(entry);
+    }
+  }
+  let folder: DisplayEntry | null =
+    media.length >= 2
+      ? { key: MEDIA_KEY, label: MEDIA_LABEL, icon: "media", entries: media }
+      : (media[0] ?? null);
+  const pinned: DisplayEntry[] = [];
+  for (const key of pins) {
+    if (key === MEDIA_KEY) {
+      if (folder && isFolder(folder)) {
+        pinned.push(folder);
+        folder = null;
+      }
+      continue;
+    }
+    const group = pinnedGroups.get(key);
+    if (group) pinned.push(group);
+  }
+  if (folder) rest.splice(mediaAt, 0, folder);
+  return { pinned, rest };
+}
+
+/** "Ghim menu": a push pin, filled once pinned. */
+function PinIcon({ filled }: { filled: boolean }) {
+  return (
+    <svg
+      viewBox="0 0 24 24"
+      width="16"
+      height="16"
+      fill={filled ? "currentColor" : "none"}
+      stroke="currentColor"
+      strokeWidth="1.8"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+    >
+      <path d="M9 3h6l-1 6 3 3v2H7v-2l3-3-1-6z" />
+      <path d="M12 14v7" fill="none" />
+    </svg>
+  );
+}
+
 /** Inline stroke icons, one per nav entry. Decorative: the label carries the name. */
 function Icon({ name }: { name: NavIcon }) {
   const paths: Record<NavIcon, React.ReactNode> = {
@@ -492,6 +583,12 @@ function Icon({ name }: { name: NavIcon }) {
       <>
         <path d="M3 6h18M3 12h18M3 18h18" />
         <path d="M8 3v18" />
+      </>
+    ),
+    media: (
+      <>
+        <rect x="3" y="5" width="18" height="14" rx="2" />
+        <path d="M10 9.5v5l4.5-2.5z" />
       </>
     ),
     effort: (
@@ -746,6 +843,7 @@ export function Shell({ children }: { children: React.ReactNode }) {
       return !was;
     });
   const session = useQuery({ queryKey: ["session"], queryFn: api.session });
+  const queryClient = useQueryClient();
   // Still on the default password: only /account works until it changes, so
   // every other screen is left before it renders (and before it asks the API
   // for anything the API would refuse).
@@ -845,6 +943,151 @@ export function Shell({ children }: { children: React.ReactNode }) {
     </a>
   );
 
+  // Ghim menu (2026-11-12): the person's pins, saved on the server and
+  // mirrored at once in the cached /api/units/me (put back if the save fails).
+  const pins = me.data?.nav_pins ?? [];
+  const { pinned, rest } = arrangeNav(nav, pins);
+  const togglePin = (key: string) => {
+    const before = pins;
+    const next = before.includes(key) ? before.filter((pin) => pin !== key) : [...before, key];
+    const write = (value: string[]) =>
+      queryClient.setQueryData<UnitsMe>(["units", "me"], (old) =>
+        old ? { ...old, nav_pins: value } : old,
+      );
+    write(next);
+    api.setNavPins(next).then(
+      (saved) => write(saved.pins),
+      () => {
+        write(before);
+        void queryClient.invalidateQueries({ queryKey: ["units", "me"] });
+      },
+    );
+  };
+  const pinButton = (key: string, label: string, isPinned: boolean) => (
+    <button
+      type="button"
+      onClick={() => togglePin(key)}
+      aria-pressed={isPinned}
+      aria-label={isPinned ? `Bỏ ghim ${label}` : `Ghim ${label}`}
+      title={isPinned ? "Bỏ ghim" : "Ghim lên đầu menu"}
+      // Always there in the phone drawer; on a wide screen it shows on hover /
+      // focus of the heading, and stays lit once pinned.
+      className={`inline-flex h-11 w-9 shrink-0 items-center justify-center rounded-lg transition-[opacity,color] hover:bg-[var(--surface-muted)] hover:text-[var(--text)] focus-visible:opacity-100 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--accent)] ${
+        isPinned
+          ? "text-[var(--accent)]"
+          : "text-[var(--text-muted)] lg:opacity-0 lg:group-hover/head:opacity-100 lg:group-focus-within/head:opacity-100"
+      }`}
+    >
+      <PinIcon filled={isPinned} />
+    </button>
+  );
+  /** A branch heading: a fold button, or - pinned - a plain title (always open). */
+  const heading = (
+    entry: { key: string; label: string; icon: NavIcon },
+    opts: { open: boolean; folded: boolean; holdsCurrent: boolean; section: boolean; pinned: boolean },
+  ) => {
+    const look = `flex min-w-0 flex-1 items-center rounded-lg px-3 text-left ${
+      opts.section
+        ? "min-h-9 gap-1.5 text-[11px] font-semibold uppercase tracking-wider"
+        : "min-h-11 gap-2.5 text-sm"
+    }`;
+    const content = (
+      <>
+        {opts.section ? null : <Icon name={entry.icon} />}
+        <span className={`whitespace-nowrap ${opts.section ? "" : "flex-1"}`}>{entry.label}</span>
+      </>
+    );
+    return (
+      <div className={`group/head flex items-center ${collapsed ? "lg:hidden" : ""}`}>
+        {opts.open ? (
+          <div className={`${look} font-semibold text-[var(--text)]`}>{content}</div>
+        ) : (
+          <button
+            type="button"
+            onClick={() => toggleBranch(entry.label, !opts.folded)}
+            aria-expanded={!opts.folded}
+            className={`${look} transition-colors hover:bg-[var(--surface-muted)] hover:text-[var(--text)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--accent)] ${
+              opts.folded && opts.holdsCurrent
+                ? "font-semibold text-[var(--accent-strong)]"
+                : "text-[var(--text-muted)]"
+            }`}
+          >
+            {content}
+            <svg
+              viewBox="0 0 24 24"
+              width="14"
+              height="14"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              aria-hidden="true"
+              className="shrink-0"
+            >
+              <path d={opts.folded ? "M9 6l6 6-6 6" : "M6 9l6 6 6-6"} />
+            </svg>
+          </button>
+        )}
+        {pinButton(entry.key, entry.label, opts.pinned)}
+      </div>
+    );
+  };
+  // Every branch starts folded on the sidebar; in the phone drawer the branch
+  // holding the current screen opens until someone folds it. A pinned branch
+  // (or one inside a pinned "Phòng Media") is always open.
+  const foldedOf = (label: string, holdsCurrent: boolean, open: boolean) =>
+    open ? false : label in openNow ? !openNow[label] : !(menuOpen && holdsCurrent);
+  const renderGroup = (entry: NavGroup, open: boolean, isPinned: boolean) => {
+    const section = entry.variant === "section" && !open;
+    const holdsCurrent = entry.children.some((child) => isActive(child.href));
+    const folded = foldedOf(entry.label, holdsCurrent, open);
+    // With the sidebar folded to icons (lg only) there is no heading to
+    // press, so its entries always show.
+    return (
+      <div
+        key={entry.label}
+        role="group"
+        aria-label={entry.label}
+        className={`flex flex-col gap-1 ${section ? "mt-3 border-t border-[var(--border)] pt-3" : ""}`}
+      >
+        {heading(entry, { open, folded, holdsCurrent, section, pinned: isPinned })}
+        <div
+          className={`flex-col gap-1 ${folded ? "hidden" : "flex"} ${
+            section ? "" : "ml-4 border-l border-[var(--border)] pl-2"
+          } ${collapsed ? "lg:ml-0 lg:flex lg:border-l-0 lg:pl-0" : ""}`}
+        >
+          {(entry.external ?? []).map(libraryLink)}
+          {entry.children.map(navLink)}
+        </div>
+      </div>
+    );
+  };
+  const renderEntry = (entry: DisplayEntry, isPinned: boolean): React.ReactNode => {
+    if (isFolder(entry)) {
+      const holdsCurrent = entry.entries.some((inner) =>
+        isGroup(inner) ? inner.children.some((child) => isActive(child.href)) : isActive(inner.href),
+      );
+      const folded = foldedOf(entry.label, holdsCurrent, isPinned);
+      return (
+        <div key={entry.key} role="group" aria-label={entry.label} className="flex flex-col gap-1">
+          {heading(entry, { open: isPinned, folded, holdsCurrent, section: false, pinned: isPinned })}
+          <div
+            className={`flex-col gap-1 ${folded ? "hidden" : "flex"} ml-3 border-l border-[var(--border)] pl-1.5 ${
+              collapsed ? "lg:ml-0 lg:flex lg:border-l-0 lg:pl-0" : ""
+            }`}
+          >
+            {entry.entries.map((inner) =>
+              isGroup(inner) ? renderGroup(inner, isPinned, false) : navLink(inner),
+            )}
+          </div>
+        </div>
+      );
+    }
+    if (isGroup(entry)) return renderGroup(entry, isPinned, isPinned);
+    return navLink(entry);
+  };
+
   return (
     <div className="min-h-screen lg:flex">
       {menuOpen ? (
@@ -886,71 +1129,23 @@ export function Shell({ children }: { children: React.ReactNode }) {
           // badges' absolutely placed screen-reader text inside it.
           className="relative flex min-h-0 flex-1 flex-col gap-1 overflow-y-auto overflow-x-hidden overscroll-contain px-3 py-1"
         >
-          {nav.map((entry) => {
-            if (!isGroup(entry)) return navLink(entry);
-            const section = entry.variant === "section";
-            const holdsCurrent = entry.children.some((child) => isActive(child.href));
-            // Every branch starts folded on the sidebar; in the phone drawer the
-            // branch holding the current screen opens until someone folds it.
-            const folded =
-              entry.label in openNow
-                ? !openNow[entry.label]
-                : !(menuOpen && holdsCurrent);
-            // A branch: a heading that folds. With the sidebar folded to icons
-            // (lg only) there is no heading to press, so its entries always show.
-            return (
-              <div
-                key={entry.label}
-                role="group"
-                aria-label={entry.label}
-                className={`flex flex-col gap-1 ${
-                  section ? "mt-3 border-t border-[var(--border)] pt-3" : ""
-                }`}
+          {pinned.length > 0 ? (
+            // "Ghim menu": the pinned branches first, always open, then a rule.
+            <div
+              role="group"
+              aria-label="Đã ghim"
+              className="mb-1 flex flex-col gap-1 border-b border-[var(--border)] pb-2"
+            >
+              <p
+                aria-hidden="true"
+                className={`px-3 pt-1 text-[11px] font-semibold uppercase tracking-wider text-[var(--text-muted)] ${collapsed ? "lg:hidden" : ""}`}
               >
-                <button
-                  type="button"
-                  onClick={() => toggleBranch(entry.label, !folded)}
-                  aria-expanded={!folded}
-                  className={`flex items-center rounded-lg px-3 text-left transition-colors hover:bg-[var(--surface-muted)] hover:text-[var(--text)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--accent)] ${
-                    section
-                      ? "min-h-9 gap-1.5 text-[11px] font-semibold uppercase tracking-wider"
-                      : "min-h-11 gap-2.5 text-sm"
-                  } ${collapsed ? "lg:hidden" : ""} ${
-                    folded && holdsCurrent
-                      ? "font-semibold text-[var(--accent-strong)]"
-                      : "text-[var(--text-muted)]"
-                  }`}
-                >
-                  {section ? null : <Icon name={entry.icon} />}
-                  <span className={`whitespace-nowrap ${section ? "" : "flex-1"}`}>
-                    {entry.label}
-                  </span>
-                  <svg
-                    viewBox="0 0 24 24"
-                    width="14"
-                    height="14"
-                    fill="none"
-                    stroke="currentColor"
-                    strokeWidth="2"
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                    aria-hidden="true"
-                    className="shrink-0"
-                  >
-                    <path d={folded ? "M9 6l6 6-6 6" : "M6 9l6 6 6-6"} />
-                  </svg>
-                </button>
-                <div
-                  className={`flex-col gap-1 ${folded ? "hidden" : "flex"} ${
-                    section ? "" : "ml-4 border-l border-[var(--border)] pl-2"
-                  } ${collapsed ? "lg:ml-0 lg:flex lg:border-l-0 lg:pl-0" : ""}`}
-                >
-                  {(entry.external ?? []).map(libraryLink)}
-                  {entry.children.map(navLink)}
-                </div>
-              </div>
-            );
-          })}
+                Đã ghim
+              </p>
+              {pinned.map((entry) => renderEntry(entry, true))}
+            </div>
+          ) : null}
+          {rest.map((entry) => renderEntry(entry, false))}
         </nav>
         {session.data ? (
           <div className={`mt-auto border-t border-[var(--border)] px-4 py-4 ${collapsed ? "lg:hidden" : ""}`}>

@@ -693,7 +693,7 @@ async def test_14_files_go_with_the_question(world: World) -> None:
     assert "[Tệp đính kèm: hop-dong.pdf - 1 trang]" in call["text"]
     assert "Dieu 5 cam ket" in call["text"]
     assert "[Skill đính kèm: SKILL.md - Skill: soat-hop-dong]" in call["text"]
-    assert "Emma duyệt" in call["text"]
+    assert "tự duyệt" in call["text"]
     # The conversation reads them back; a sent file stays (cannot be taken back).
     listed = world.client.get(f"/api/agents/conversations/{conversation}/messages").json()
     assert [len(m["attachments"]) for m in listed["messages"]] == [3, 0]

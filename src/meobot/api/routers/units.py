@@ -75,6 +75,7 @@ from meobot.api.schemas.units import (
     unit_entry,
 )
 from meobot.application.account.avatar_service import avatar_urls
+from meobot.application.account.nav_pins import read_pins
 from meobot.application.ads.access import ads_access
 from meobot.application.agents.access import agent_access
 from meobot.application.agents.service import AgentChatService
@@ -281,7 +282,7 @@ async def my_units(
         birthday=membership.has(UnitCode.ADS)
         and has_birthday_orders(membership, await directory.settings(UnitCode.ADS)),
     )
-    return UnitMeResponse.from_domain(
+    response = UnitMeResponse.from_domain(
         membership,
         entries,
         can_admin=can_admin,
@@ -302,6 +303,9 @@ async def my_units(
         cskh=await _cskh_block(directory.session, membership),
         hr=await _hr_block(directory.session, actor, membership),
     )
+    # Ghim menu (2026-11-12): the person's own pinned branches.
+    response.nav_pins = await read_pins(directory.session, actor.user_id)
+    return response
 
 
 async def _cskh_block(session: AsyncSession, membership: UnitMembership) -> CskhMenuResponse:

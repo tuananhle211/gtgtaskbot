@@ -449,6 +449,8 @@ class InboxSettings:
     skip_keywords: tuple[str, ...] = ()
     #: POS shops left out of the duplicate-number check.
     pos_dup_skip_keywords: tuple[str, ...] = ()
+    #: A customer waiting this long for an answer turns red on the list (1-240 min).
+    wait_alert_minutes: int = 8
 
     def as_dict(self) -> dict[str, Any]:
         return {
@@ -461,6 +463,7 @@ class InboxSettings:
             "mkt_lock_days": self.mkt_lock_days,
             "skip_keywords": list(self.skip_keywords),
             "pos_dup_skip_keywords": list(self.pos_dup_skip_keywords),
+            "wait_alert_minutes": self.wait_alert_minutes,
         }
 
     def skipped(self, name: str | None) -> bool:
@@ -500,6 +503,7 @@ def settings_from(value: Mapping[str, Any] | None) -> InboxSettings:
     start = str(data.get("work_start") or base.work_start)
     end = str(data.get("work_end") or base.work_end)
     lock = data.get("mkt_lock_days")
+    wait = data.get("wait_alert_minutes")
     return InboxSettings(
         auto_reply_enabled=bool(data.get("auto_reply_enabled", base.auto_reply_enabled)),
         work_start=start if valid_hhmm(start) else base.work_start,
@@ -510,6 +514,9 @@ def settings_from(value: Mapping[str, Any] | None) -> InboxSettings:
         mkt_lock_days=lock if isinstance(lock, int) and 0 <= lock <= 3650 else base.mkt_lock_days,
         skip_keywords=words("skip_keywords", base.skip_keywords),
         pos_dup_skip_keywords=words("pos_dup_skip_keywords", base.pos_dup_skip_keywords),
+        wait_alert_minutes=wait
+        if isinstance(wait, int) and WAIT_ALERT_MIN <= wait <= WAIT_ALERT_MAX
+        else base.wait_alert_minutes,
     )
 
 
@@ -581,6 +588,78 @@ def order_note_text(info: OrderInfo) -> str:
 
 def normalize_code(value: object) -> str:
     return re.sub(r"\s+", "", str(value or "")).upper()[:40]
+
+
+# --- Pancake's customer notes (12/11: the care team writes "KH1426035" there) ------------------
+
+#: ``KH1426035``, ``kh 1425469``, ``KH-50081``; not ``SKH12345`` nor ``KH12``.
+NOTE_CODE_RE = re.compile(r"(?<![A-Z0-9])KH[\s\-_.:]?(\d{3,})(?![0-9])", re.IGNORECASE)
+MAX_NOTES = 50
+
+
+def note_codes(text: str) -> list[str]:
+    """The customer codes a note names, as ``KH`` + digits, in order, once each."""
+    return list(dict.fromkeys("KH" + m.group(1) for m in NOTE_CODE_RE.finditer(text or "")))
+
+
+def _note_time(value: object) -> datetime | None:
+    """A note's time: Pancake's text time, or epoch seconds / milliseconds."""
+    if isinstance(value, int | float) or (isinstance(value, str) and value.isdigit()):
+        number = float(value)
+        if number <= 0:
+            return None
+        return datetime.fromtimestamp(number / 1000 if number > 1e11 else number, tz=UTC)
+    return pancake_time(value)
+
+
+def parse_notes(raw: object) -> list[dict[str, Any]]:
+    """Pancake's ``page_customer.notes`` -> ``[{id, text, by, at}]`` oldest first; a
+    removed or empty note is left out."""
+    items: list[dict[str, Any]] = []
+    for note in raw if isinstance(raw, list) else []:
+        if not isinstance(note, dict) or note.get("removed_at"):
+            continue
+        text = str(note.get("message") or "").strip()
+        if not text:
+            continue
+        by = mapping_of(note.get("created_by"))
+        at = _note_time(note.get("updated_at") or note.get("created_at"))
+        items.append(
+            {
+                "id": str(note.get("id") or "")[:60],
+                "text": text[:2000],
+                "by": clip(by.get("fb_name") or by.get("name") or "", 120),
+                "at": at.isoformat() if at else None,
+            }
+        )
+    items.sort(key=lambda n: n["at"] or "")
+    return items[-MAX_NOTES:]
+
+
+# --- a conversation's stage and a page's look (12/11 design) ------------------------------------
+
+
+class ConvStage(StrEnum):
+    NEW = "NEW"
+    CONSULTING = "CONSULTING"
+    CALLBACK = "CALLBACK"
+    CLOSED = "CLOSED"
+
+
+STAGE_LABELS: Mapping[ConvStage, str] = MappingProxyType(
+    {
+        ConvStage.NEW: "Mới",
+        ConvStage.CONSULTING: "Đang tư vấn",
+        ConvStage.CALLBACK: "Chờ gọi lại",
+        ConvStage.CLOSED: "Đã chốt",
+    }
+)
+
+#: A page's short label colour on the inbox (admin picks it on "Kết nối page").
+PAGE_COLORS: tuple[str, ...] = ("blue", "pink", "green", "purple", "amber", "teal", "slate")
+PAGE_SHORT_NAME_MAX = 24
+WAIT_ALERT_MIN = 1
+WAIT_ALERT_MAX = 240
 
 
 def code_in_text(code: str, text: str) -> bool:
@@ -717,11 +796,15 @@ __all__ = [
     "CONFIRMED_POS",
     "DEFAULT_PLATFORM",
     "LABEL_COLORS",
+    "MAX_NOTES",
     "MAX_QR_IMAGE_BYTES",
     "MEMBER_ROLE_LABELS",
     "MESSAGES_PER_CONVERSATION",
     "META_SECONDS",
     "MIN_CODE_LENGTH",
+    "NOTE_CODE_RE",
+    "PAGE_COLORS",
+    "PAGE_SHORT_NAME_MAX",
     "PANCAKE_API_BASE",
     "PENDING_POS",
     "PLATFORMS",
@@ -729,8 +812,12 @@ __all__ = [
     "POS_API_BASE",
     "POS_STATUS",
     "RECENT_EDIT_SECONDS",
+    "STAGE_LABELS",
+    "WAIT_ALERT_MAX",
+    "WAIT_ALERT_MIN",
     "ZALO_STATUS_LABELS",
     "ConfirmType",
+    "ConvStage",
     "CskhUpstreamError",
     "Direction",
     "InboxSettings",
@@ -759,8 +846,10 @@ __all__ = [
     "merge_qrs",
     "normalize_attachments",
     "normalize_code",
+    "note_codes",
     "order_note_text",
     "pancake_time",
+    "parse_notes",
     "parse_quick_replies",
     "parse_zalo_message",
     "parse_zalo_push",

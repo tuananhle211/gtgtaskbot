@@ -169,7 +169,8 @@ describe("Hộp chat page", () => {
     await userEvent.type(box, "/ch");
     await userEvent.keyboard("{Enter}");
     expect(box).toHaveValue("Dạ em chào Ngô Trọng Huy ạ");
-    await userEvent.keyboard("{Enter}");
+    // Enter alone breaks a line now; Ctrl+Enter sends (12/11 design).
+    await userEvent.keyboard("{Control>}{Enter}{/Control}");
     await waitFor(() =>
       expect(sent(stub, "POST", "/api/cskh/conversations/c1/messages")[0]?.body).toEqual({
         text: "Dạ em chào Ngô Trọng Huy ạ",
@@ -217,7 +218,7 @@ describe("Hộp chat page", () => {
       }),
     );
     renderWithQuery(<InboxPage />);
-    await userEvent.click(await screen.findByRole("button", { name: "✓ Xác nhận số điện thoại" }));
+    await userEvent.click(await screen.findByRole("button", { name: "Xác nhận đơn" }));
     const dialog = await screen.findByRole("dialog", { name: "Xác nhận số điện thoại" });
     expect(await within(dialog).findByTestId("cskh-new-customer")).toBeInTheDocument();
     await userEvent.click(within(dialog).getByRole("button", { name: "Xác nhận đơn" }));
@@ -238,6 +239,129 @@ describe("Hộp chat page", () => {
       dup_ack: true,
       platform: "Facebook",
     });
+  });
+});
+
+describe("Hộp chat page - bản cải tiến 12/11", () => {
+  const NOW = Date.parse("2026-11-12T03:00:00Z");
+
+  it("draws 3-line rows: page label, waiting clock red past the threshold, filters as chips", async () => {
+    vi.spyOn(Date, "now").mockReturnValue(NOW);
+    const stub = stubFetch([
+      { match: "/api/units/me", body: me({ inbox: true }) },
+      {
+        match: "/api/cskh/state",
+        body: {
+          ...STATE,
+          pages: [{ ...PAGE, short_name: "Tiểu Eva", color: "pink" }],
+          wait_alert_minutes: 8,
+          callback_total: 3,
+          stages: [
+            { id: "NEW", label: "Mới" },
+            { id: "CONSULTING", label: "Đang tư vấn" },
+            { id: "CALLBACK", label: "Chờ gọi lại" },
+            { id: "CLOSED", label: "Đã chốt" },
+          ],
+        },
+      },
+      {
+        match: "/api/cskh/conversations",
+        body: {
+          conversations: [
+            { ...ROW, last_at: "2026-11-12T02:50:00Z", page_short: "Tiểu Eva", page_color: "pink" },
+            {
+              ...ROW,
+              id: "c2",
+              customer_name: "Thu Trang",
+              unread: 0,
+              last_at: "2026-11-12T02:57:00Z",
+            },
+            { ...ROW, id: "c3", customer_name: "Ngọc Anh", unread: 0, last_out: true },
+          ],
+          next_before: null,
+          next_offset: null,
+        },
+      },
+    ]);
+    renderWithQuery(<InboxPage />);
+    const list = await screen.findByTestId("cskh-conversations");
+    await within(list).findByText("Thu Trang");
+    const [late, fresh] = within(list).getAllByTestId("cskh-wait");
+    expect(late).toHaveTextContent("10 phút");
+    expect(late).toHaveAttribute("data-late", "true");
+    expect(fresh).toHaveTextContent("3 phút");
+    expect(fresh).not.toHaveAttribute("data-late");
+    // An answered customer waits for nobody.
+    expect(within(list).getAllByTestId("cskh-wait")).toHaveLength(2);
+    expect(within(list).getAllByTestId("cskh-page-tag")[0]).toHaveTextContent("Tiểu Eva");
+    expect(screen.getByRole("tab", { name: /Gọi lại/ })).toHaveTextContent("3");
+    // Default order "Chờ lâu nhất"; filters go in the request and show as chips.
+    expect(sent(stub, "GET", "/api/cskh/conversations?")[0]?.url).toContain("sort=wait");
+    await userEvent.click(screen.getByRole("button", { name: /^Lọc/ }));
+    const panel = screen.getByRole("dialog", { name: "Lọc hội thoại" });
+    await userEvent.selectOptions(within(panel).getByLabelText("Lọc theo trạng thái"), "CALLBACK");
+    await userEvent.click(within(panel).getByRole("checkbox"));
+    await waitFor(() =>
+      expect(sent(stub, "GET", "mine=true").at(-1)?.url).toContain("stage=CALLBACK"),
+    );
+    const chips = screen.getAllByTestId("cskh-filter-chip");
+    expect(chips.map((chip) => chip.textContent)).toEqual(["Chờ gọi lại", "Của tôi"]);
+    await userEvent.click(screen.getByRole("button", { name: "Bỏ lọc Của tôi" }));
+    expect(screen.getAllByTestId("cskh-filter-chip")).toHaveLength(1);
+    vi.restoreAllMocks();
+  });
+
+  it("confirms a phone from the bubble, shows the code and Pancake notes, changes the stage", async () => {
+    params.value = new URLSearchParams("c=c1");
+    const detail = {
+      ...DETAIL,
+      conversation: {
+        ...DETAIL.conversation,
+        stage: "NEW",
+        codes: ["KH1426035"],
+        notes: [
+          {
+            id: "n1",
+            text: "KH1426035 — khách hỏi giá gói tân trang, hẹn gọi lại sau 20h",
+            by: "Care page",
+            at: "2026-11-11T15:45:00+00:00",
+          },
+        ],
+      },
+      messages: [
+        {
+          ...DETAIL.messages[0],
+          text: "Số của chị đây 032 593 7871",
+          attachments: [],
+          qr: null,
+        },
+      ],
+    };
+    const stub = stubFetch([
+      { match: "/api/units/me", body: me({ inbox: true }) },
+      { match: "/api/cskh/state", body: STATE },
+      { match: "/api/cskh/conversations/c1/stage", method: "POST", body: { stage: "CONSULTING" } },
+      { match: "/phone-check", body: { ...CHECK_DUP, need_ack: false, is_new: true, seen: [] } },
+      {
+        match: "/api/cskh/conversations/c1/zalo",
+        body: { threads: [], codes: [], suggest: [], may_link: false },
+      },
+      { match: "/api/cskh/conversations/c1", body: detail },
+      { match: "/api/cskh/conversations", body: { conversations: [ROW], next_before: null } },
+    ]);
+    renderWithQuery(<InboxPage />);
+    const card = await screen.findByTestId("cskh-customer");
+    expect(within(card).getByTestId("cskh-code")).toHaveTextContent("KH1426035");
+    expect(within(card).getByText("từ ghi chú Pancake")).toBeInTheDocument();
+    expect(within(card).getByTestId("cskh-notes")).toHaveTextContent("Care page");
+    await userEvent.selectOptions(screen.getByLabelText("Trạng thái hội thoại"), "CONSULTING");
+    await waitFor(() =>
+      expect(sent(stub, "POST", "/conversations/c1/stage")[0]?.body).toEqual({ stage: "CONSULTING" }),
+    );
+    await userEvent.click(screen.getByRole("button", { name: "Xác nhận số 0325937871" }));
+    const dialog = await screen.findByRole("dialog", { name: "Xác nhận số điện thoại" });
+    expect(within(dialog).getByDisplayValue("0325937871")).toBeInTheDocument();
+    expect(within(dialog).getByDisplayValue("KH1426035")).toBeInTheDocument();
   });
 });
 

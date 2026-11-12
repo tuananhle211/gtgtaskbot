@@ -32,15 +32,18 @@ export function OrderConfirmDialog({
   frame,
   onClose,
   onDone,
+  phone: givenPhone,
 }: {
   mode: "phone" | "qr";
   detail: ConversationDetail;
   frame: InboxState;
   onClose: () => void;
   onDone: () => void;
+  /** The number picked in a message bubble ("Xác nhận số"). */
+  phone?: string;
 }) {
   const conv = detail.conversation;
-  const [phone, setPhone] = useState(conv.phones[0] ?? "");
+  const [phone, setPhone] = useState(givenPhone ?? conv.phones[0] ?? "");
   const [checkedPhone, setCheckedPhone] = useState(phone);
   const [form, setForm] = useState({
     customer_name: conv.customer_name,
@@ -51,7 +54,7 @@ export function OrderConfirmDialog({
     marketer_user_id: "",
     creator_user_id: "",
     telesale_name: "",
-    customer_code: "",
+    customer_code: conv.codes?.[0] ?? "",
     note: "",
   });
   const [ack, setAck] = useState(false);

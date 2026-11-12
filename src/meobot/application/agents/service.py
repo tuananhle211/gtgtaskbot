@@ -64,7 +64,8 @@ NEW_TITLE = "Cuộc trò chuyện mới"
 FILES_ONLY = "(Người hỏi gửi tệp đính kèm, không kèm lời nhắn.)"
 SKILL_HINT = (
     "Người hỏi gửi skill này để bạn dùng trong cuộc trò chuyện. Muốn giữ lâu dài thì "
-    "tạo đề xuất skill như thường lệ - Emma duyệt trước khi dùng chính thức."
+    "lưu skill như thường lệ: skill mới vào thư mục riêng của bạn (tự duyệt), sửa skill "
+    "dùng chung thì Emma duyệt."
 )
 
 

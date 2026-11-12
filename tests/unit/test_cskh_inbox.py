@@ -146,7 +146,8 @@ class Kit:
             yield session
             await session.flush()
 
-        return CskhSync(same, self.clients, qr_decoder=decoder, pause=0)
+        # One session for everything here: pages are imported one after another.
+        return CskhSync(same, self.clients, qr_decoder=decoder, pause=0, imports=1)
 
     def say(
         self,
@@ -869,3 +870,234 @@ async def test_12_pancake_rate_limit_is_not_hit_twice(world: World) -> None:
     job = await kit.sync().connect(["123"])
     assert job["running"] is False and len(job["errors"]) == 1
     assert "giới hạn số lần gọi" in job["errors"][0]
+
+
+async def test_13_a_replaced_page_token_is_made_again_once(world: World) -> None:
+    """11/11 on prod: pages answered "access_token renewed please use new access_token"
+    (another tool made new page tokens) and stopped being read. Now APM makes its own
+    again - at most every 30 minutes, so two tools never take it from each other."""
+    kit = Kit(world)
+    now = datetime.now(UTC)
+    kit.say(PAGE, "psid1", "Khách A", [("m_1", "Alo", False, now - timedelta(hours=1))])
+    await kit.connect(PAGE)
+    page = await world.session.get(CskhPage, PAGE)
+    assert page is not None and page.token_hint
+    first_hint = page.token_hint
+    kit.pancake.renewed.add(f"pt-{PAGE}")
+    kit.say(PAGE, "psid1", "Khách A", [("m_2", "Còn đó không", False, now)])
+    report = await kit.sync().poll()
+    assert report.errors == [] and report.messages == 1
+    await world.session.refresh(page)
+    assert page.token_hint != first_hint and page.poll_error is None
+    assert kit.pancake.calls.count(f"token:{PAGE}") == 2
+    # Taken again within 30 minutes: said on the page, no third token.
+    kit.pancake.renewed.add(f"pt-{PAGE}-2")
+    report = await kit.sync().poll()
+    assert len(report.errors) == 1 and "tạo lại ở nơi khác" in report.errors[0]
+    assert kit.pancake.calls.count(f"token:{PAGE}") == 2
+
+
+async def test_14_one_unreadable_thread_does_not_stop_the_page(world: World) -> None:
+    """Threads are asked a few at a time now; one Pancake refuses is read next time."""
+    from meobot.domain.cskh.models import CskhUpstreamError
+
+    kit = Kit(world)
+    now = datetime.now(UTC)
+    kit.say(PAGE, "psid1", "Khách A", [("m_1", "Alo", False, now - timedelta(hours=1))])
+    kit.say(PAGE, "psid2", "Khách B", [("m_2", "Giá bao nhiêu", False, now - timedelta(hours=1))])
+    real = kit.pancake.messages
+
+    async def flaky(page_id: str, conversation_id: str, token: str) -> list[dict[str, Any]]:
+        if conversation_id.endswith("psid2"):
+            raise CskhUpstreamError("pancake_failed", "Pancake trả lỗi HTTP 500")
+        return await real(page_id, conversation_id, token)
+
+    kit.pancake.messages = flaky  # type: ignore[method-assign]
+    await kit.connect(PAGE)
+    read = await conversation(world, "psid1")
+    unread = await conversation(world, "psid2")
+    assert read.last_text == "Alo" and unread.pancake_updated_at is None
+    kit.pancake.messages = real  # type: ignore[method-assign]
+    await kit.sync().poll()
+    await world.session.refresh(unread)
+    assert unread.last_text == "Giá bao nhiêu" and unread.pancake_updated_at is not None
+
+
+async def test_15_a_job_killed_by_a_restart_is_not_running(world: World) -> None:
+    """11/11 on prod: a deploy restarted the worker mid-job and the screen kept
+    "đang chạy 65/71" for 70 minutes. A job silent for 10 minutes is over."""
+    from meobot.application.cskh.sync import job_running
+
+    started = (datetime.now(UTC) - timedelta(minutes=15)).isoformat()
+    beat = (datetime.now(UTC) - timedelta(minutes=2)).isoformat()
+    await write_state(
+        world.session, "cskh_job", {"running": True, "started_at": started, "beat": beat}
+    )
+    assert await job_running(world.session) is True
+    silent = (datetime.now(UTC) - timedelta(minutes=11)).isoformat()
+    await write_state(
+        world.session, "cskh_job", {"running": True, "started_at": started, "beat": silent}
+    )
+    assert await job_running(world.session) is False
+
+
+async def test_16_pancake_notes_give_customer_codes(world: World) -> None:
+    """12/11: the care team writes "KH1426035" in Pancake's customer notes. APM keeps the
+    notes, takes the codes (search, the customer card, Zalo matching), follows edits and
+    reads the older conversations' notes every 10 minutes."""
+    kit = Kit(world)
+    now = datetime.now(UTC)
+    note = {
+        "id": "n1",
+        "message": "KH1426035 — khách hỏi giá gói tân trang, hẹn gọi lại sau 20h",
+        "created_by": {"fb_name": "Care page"},
+        "created_at": stamp(now - timedelta(hours=1)),
+    }
+    removed = {"id": "n0", "message": "KH7777777 nhầm", "removed_at": stamp(now)}
+    kit.say(
+        PAGE,
+        "psid1",
+        "Ngọc Anh",
+        [("m_1", "Cho em hỏi giá", False, now - timedelta(hours=2))],
+        page_customer={"notes": [note, removed]},
+    )
+    kit.say(PAGE, "psid2", "Thu Trang", [("m_2", "Alo", False, now - timedelta(hours=3))])
+    # A Zalo thread already holds the code before the page knows it.
+    world.act_as(world.owner)
+    pushed = world.client.post(
+        "/api/cskh/zalo/bridge",
+        json=push(
+            "acc1",
+            {"msgId": "z1", "uidFrom": "0", "idTo": "cust1", "content": "Mã của chị kh1426035 ạ"},
+            status="connected",
+        ),
+        headers={"x-bridge-secret": BRIDGE_SECRET},
+    )
+    assert pushed.status_code == 200
+    await kit.connect(PAGE)
+    conv = await conversation(world, "psid1")
+    assert [n["text"][:9] for n in conv.notes] == ["KH1426035"]
+    assert conv.notes[0]["by"] == "Care page"
+    thread = await world.session.scalar(select(CskhZaloThread))
+    assert thread is not None and thread.conversation_id == conv.id
+    assert thread.link_kind == "code" and "ghi chú Pancake" in thread.link_how
+    detail = world.client.get(f"/api/cskh/conversations/{conv.id}").json()
+    assert detail["conversation"]["codes"] == ["KH1426035"]
+    assert detail["conversation"]["notes"][0]["by"] == "Care page"
+    found = world.client.get("/api/cskh/conversations", params={"q": "kh 1426035"}).json()
+    row = found["conversations"][0]
+    assert row["id"] == str(conv.id) and row["match"]["why"] == "Mã KH (ghi chú)"
+    assert row["codes"] == ["KH1426035"]
+    zalo = world.client.get(f"/api/cskh/conversations/{conv.id}/zalo").json()
+    assert zalo["codes"] == ["KH1426035"] and zalo["notes"][0]["id"] == "n1"
+    # The note is edited: the code follows, without a new message.
+    kit.pancake.convs[PAGE][0]["page_customer"] = {
+        "notes": [{**note, "message": "Mã: KH-50081, KH107078"}]
+    }
+    await kit.sync().poll()
+    detail = world.client.get(f"/api/cskh/conversations/{conv.id}").json()
+    assert sorted(detail["conversation"]["codes"]) == ["KH107078", "KH50081"]
+    # Older conversations: read page by page, only those APM holds.
+    kit.pancake.page_size = 1
+    kit.pancake.convs[PAGE][1]["page_customer"] = {
+        "notes": [{"id": "n9", "message": "KH2000001", "created_at": "1794000000000"}]
+    }
+    kit.say(PAGE, "psid9", "Người lạ", [("m_9", "Hi", False, now - timedelta(days=9))])
+    kit.pancake.convs[PAGE][2]["page_customer"] = {"notes": [{"id": "x", "message": "KH3"}]}
+    seen = await kit.sync().backfill_notes(PAGE)
+    assert seen == 2
+    other = await conversation(world, "psid2")
+    assert other.notes[0]["text"] == "KH2000001" and other.notes[0]["at"].startswith("2026")
+    assert (
+        await world.session.scalar(select(CskhConversation).where(CskhConversation.psid == "psid9"))
+        is None
+    )
+
+
+async def test_17_stage_mine_wait_and_page_look(world: World) -> None:
+    """12/11 inbox design: "Trạng thái", "Của tôi", "Xếp: Chờ lâu nhất", the page's short
+    coloured label and the waiting threshold."""
+    kit = Kit(world)
+    now = datetime.now(UTC)
+    kit.say(PAGE, "a", "Khách A", [("m_a", "Chào", False, now - timedelta(minutes=50))])
+    kit.say(PAGE, "b", "Khách B", [("m_b", "Giá?", False, now - timedelta(minutes=30))])
+    kit.say(PAGE, "c", "Khách C", [("m_c", "Alo", False, now - timedelta(minutes=5))])
+    await kit.connect(PAGE)
+    client = world.client
+    world.act_as(world.owner)
+    a = await conversation(world, "a")
+    assert a.stage == "NEW"
+    sent = client.post(f"/api/cskh/conversations/{a.id}/messages", json={"text": "Dạ em chào chị"})
+    assert sent.status_code == 200
+    await world.session.refresh(a)
+    assert a.stage == "CONSULTING"
+
+    def names(**params: Any) -> list[str]:
+        listed = client.get("/api/cskh/conversations", params=params).json()
+        return [row["customer_name"] for row in listed["conversations"]]
+
+    assert names() == ["Khách A", "Khách C", "Khách B"]
+    assert names(sort="wait") == ["Khách B", "Khách C", "Khách A"]
+    assert names(mine="true") == ["Khách A"]
+    paged = client.get("/api/cskh/conversations", params={"sort": "wait", "limit": 10}).json()
+    assert paged["next_offset"] is None
+    # Trạng thái: "Chờ gọi lại" is the callback tab too; an answer that clears it consults.
+    b = await conversation(world, "b")
+    moved = client.post(f"/api/cskh/conversations/{b.id}/stage", json={"stage": "CALLBACK"})
+    assert moved.status_code == 200 and moved.json() == {"stage": "CALLBACK"}
+    assert names(tab="callback") == ["Khách B"] and names(stage="CALLBACK") == ["Khách B"]
+    assert client.get("/api/cskh/state").json()["callback_total"] == 1
+    client.post(
+        f"/api/cskh/conversations/{b.id}/messages",
+        json={"text": "Em gọi chị", "clear_callback": True},
+    )
+    await world.session.refresh(b)
+    assert b.stage == "CONSULTING" and b.callback is False
+    bad = client.post(f"/api/cskh/conversations/{b.id}/stage", json={"stage": "LOST"})
+    assert bad.status_code == 422
+    # The page's look: one page at a time, a known colour.
+    look = client.post(
+        "/api/cskh/pages/update",
+        json={"page_ids": [PAGE], "short_name": "  Tiểu   Eva ", "color": "pink"},
+    )
+    assert look.status_code == 200, look.json()
+    state = client.get("/api/cskh/state").json()
+    page = next(p for p in state["pages"] if p["id"] == PAGE)
+    assert page["short_name"] == "Tiểu Eva" and page["color"] == "pink"
+    assert state["wait_alert_minutes"] == 8 and len(state["stages"]) == 4
+    row = client.get("/api/cskh/conversations").json()["conversations"][0]
+    assert row["page_short"] == "Tiểu Eva" and row["page_color"] == "pink"
+    assert (
+        client.post(
+            "/api/cskh/pages/update", json={"page_ids": [PAGE], "color": "rainbow"}
+        ).status_code
+        == 422
+    )
+    settings = client.get("/api/cskh/settings").json()
+    saved = client.put("/api/cskh/settings", json={**settings, "wait_alert_minutes": 15})
+    assert saved.status_code == 200, saved.json()
+    assert client.get("/api/cskh/state").json()["wait_alert_minutes"] == 15
+    refused = client.put("/api/cskh/settings", json={**settings, "wait_alert_minutes": 0})
+    assert refused.status_code == 422
+
+
+async def test_18_a_page_token_from_another_account(world: World) -> None:
+    """12/11: an account only staff of a page ("Thiếu quyền Admin") - the next account
+    that holds it makes the token."""
+    kit = Kit(world)
+    second = "pancake-user-token-0002"
+    kit.pancake.pages[second] = [PancakePageInfo(id=PAGE, name="BS Tiến - Thẩm mỹ")]
+    kit.pancake.no_admin.add((USER_TOKEN, PAGE))
+    world.act_as(world.owner)
+    added = world.client.post(
+        "/api/cskh/pancake-accounts",
+        json={"label": "Tài khoản 2", "token": second, "sort_order": 5},
+    )
+    assert added.status_code == 201, added.json()
+    await kit.connect(PAGE)
+    page = await world.session.get(CskhPage, PAGE)
+    account = await world.session.scalar(
+        select(CskhPancakeAccount).where(CskhPancakeAccount.label == "Tài khoản 2")
+    )
+    assert page is not None and account is not None
+    assert page.token_hint and page.pancake_account_id == account.id

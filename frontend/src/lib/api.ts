@@ -3498,6 +3498,8 @@ export interface UnitsMe {
    * "Chăm sóc khách hàng" (0094): `reply` = the nav item, `manage` = the pages
    * tab, `waiting` = suggestions waiting for a person (the badge). Optional.
    */
+  /** Ghim menu (2026-11-12): the branch keys this person pinned, in order. */
+  nav_pins?: string[];
   /** "Chăm sóc khách hàng" (0102): the nav items and their badges. */
   cskh?: {
     inbox: boolean;
@@ -6286,6 +6288,8 @@ export const api = {
     put<AvatarResult>("/api/account/avatar", { content_type: contentType, data }),
   /** 204. Back to initials. */
   removeAvatar: () => del<void>("/api/account/avatar"),
+  /** Ghim menu (2026-11-12): my pinned nav branches, in order. 422 `nav_pins_invalid`. */
+  setNavPins: (pins: string[]) => put<{ pins: string[] }>("/api/account/nav-pins", { pins }),
 
   // Units, orders, board.
   unitsMe: () => get<UnitsMe>("/api/units/me"),

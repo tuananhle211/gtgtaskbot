@@ -127,6 +127,11 @@ class CskhPage(Base, TimestampMixin):
     polled_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     poll_error: Mapped[str | None] = mapped_column(String(300), nullable=True)
     meta_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    #: The inbox's short label ("Tiểu Eva") and its colour (``PAGE_COLORS``); 0103.
+    short_name: Mapped[str] = mapped_column(
+        String(40), nullable=False, default="", server_default=""
+    )
+    color: Mapped[str] = mapped_column(String(12), nullable=False, default="", server_default="")
 
 
 class CskhPageMember(Base, TimestampMixin):
@@ -255,6 +260,27 @@ class CskhConversation(Base, UUIDPrimaryKeyMixin, TimestampMixin):
     #: ``[{text, kind, mid, at, url}]`` QR codes read from the customer's pictures.
     qrs: Mapped[list[Any]] = mapped_column(JSONColumn, nullable=False, default=list)
     qr_texts: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    #: Pancake's customer notes ``[{id, text, by, at}]`` oldest first (0103).
+    notes: Mapped[list[Any]] = mapped_column(JSONColumn, nullable=False, default=list)
+    #: ``ConvStage``: Mới / Đang tư vấn / Chờ gọi lại / Đã chốt (0103).
+    stage: Mapped[str] = mapped_column(
+        String(12), nullable=False, default="NEW", server_default="NEW"
+    )
+
+
+class CskhConversationCode(Base):
+    """A customer code found in the conversation's Pancake notes (0103). The codes of its
+    confirmed orders stay on ``cskh_orders``; both count (``codes_of``)."""
+
+    __tablename__ = "cskh_conversation_codes"
+    __table_args__ = (Index("ix_cskh_conversation_codes_code", "code"),)
+
+    conversation_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("cskh_conversations.id", ondelete="CASCADE"), primary_key=True
+    )
+    code: Mapped[str] = mapped_column(String(40), primary_key=True)
+    source: Mapped[str] = mapped_column(String(20), nullable=False, default="pancake_note")
+    at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
 
 
 class CskhMessage(Base, UUIDPrimaryKeyMixin):
@@ -428,6 +454,7 @@ class CskhZaloMessage(Base, UUIDPrimaryKeyMixin):
 __all__ = [
     "CskhAd",
     "CskhConversation",
+    "CskhConversationCode",
     "CskhLabel",
     "CskhMessage",
     "CskhOrder",

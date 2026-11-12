@@ -127,6 +127,10 @@ class FlagRequest(BaseModel):
     on: bool
 
 
+class StageRequest(BaseModel):
+    stage: str = Field(max_length=12)
+
+
 class TagRequest(BaseModel):
     tag_id: str = Field(max_length=60)
     add: bool = True
@@ -198,6 +202,8 @@ class PagesUpdateRequest(BaseModel):
     member_mode: str = Field(default="set", pattern="^(set|add|remove)$")
     label_ids: list[uuid.UUID] | None = None
     label_mode: str = Field(default="set", pattern="^(set|add|remove)$")
+    short_name: str | None = Field(default=None, max_length=60)
+    color: str | None = Field(default=None, max_length=12)
 
 
 class LabelRequest(BaseModel):
@@ -258,6 +264,10 @@ async def list_conversations(
     q: Annotated[str | None, Query(max_length=200)] = None,
     before: datetime | None = None,
     limit: Annotated[int, Query(ge=10, le=200)] = 60,
+    stage: Annotated[str | None, Query(pattern="^(NEW|CONSULTING|CALLBACK|CLOSED)$")] = None,
+    mine: bool = False,
+    sort: Annotated[str, Query(pattern="^(recent|wait)$")] = "recent",
+    offset: Annotated[int, Query(ge=0, le=100_000)] = 0,
 ) -> dict[str, Any]:
     return await _inbox(session, clients).conversations(
         cskh_access(membership),
@@ -269,6 +279,10 @@ async def list_conversations(
         q=q,
         before=before,
         limit=limit,
+        stage=stage,
+        mine=mine,
+        sort=sort,
+        offset=offset,
     )
 
 
@@ -314,6 +328,22 @@ async def set_callback(
 ) -> Response:
     await _inbox(session, clients).set_callback(cskh_access(membership), conversation_id, body.on)
     return Response(status_code=204)
+
+
+@router.post("/conversations/{conversation_id}/stage")
+async def set_stage(
+    conversation_id: uuid.UUID,
+    body: StageRequest,
+    session: SessionDep,
+    membership: UnitMembershipDep,
+    clients: ClientsDep,
+    actor: CurrentActorDep,
+    request_id: RequestIdDep,
+) -> dict[str, Any]:
+    stage = await _inbox(session, clients).set_stage(
+        cskh_access(membership), conversation_id, body.stage, _actor(actor, request_id)
+    )
+    return {"stage": stage}
 
 
 @router.post("/conversations/{conversation_id}/unread", status_code=204)
