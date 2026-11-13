@@ -45,6 +45,7 @@ from meobot.api.schemas.units import (
     DurationListResponse,
     DurationResponse,
     EffortGridResponse,
+    FinanceMenuResponse,
     HrMenuResponse,
     LibraryLinkResponse,
     LibraryResponse,
@@ -82,6 +83,8 @@ from meobot.application.agents.service import AgentChatService
 from meobot.application.assistant.access import may_chat_assistant
 from meobot.application.audit_service import AuditService
 from meobot.application.cskh.access import cskh_access, page_scope, zalo_scope
+from meobot.application.finance.access import load_finance_access
+from meobot.application.finance.requests import FinanceRequestService
 from meobot.application.hr.absences import HrAbsenceService
 from meobot.application.hr.access import hr_access
 from meobot.application.hr.files import HrFileService
@@ -305,6 +308,26 @@ async def my_units(
     )
     # Ghim menu (2026-11-12): the person's own pinned branches.
     response.nav_pins = await read_pins(directory.session, actor.user_id)
+    # Tài chính (0105).
+    finance = await load_finance_access(directory.session, membership)
+    awaiting = 0
+    if finance.requests:
+        awaiting = await FinanceRequestService(
+            directory.session, get_settings(), AuditService(directory.session)
+        ).awaiting_count(actor)
+    response.finance = FinanceMenuResponse(
+        revenue=finance.revenue,
+        customers=finance.customers,
+        settings=finance.settings,
+        fees=finance.fees,
+        requests=finance.requests,
+        awaiting=awaiting,
+        view_requests=finance.view_requests,
+        codes=finance.codes,
+        budget=finance.budget,
+        misa=finance.misa,
+        report=finance.report,
+    )
     return response
 
 

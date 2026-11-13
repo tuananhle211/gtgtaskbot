@@ -385,6 +385,10 @@ def _event_label(event_type: str) -> str:
         "hr_absence_approved": "Đơn từ đã duyệt xong",
         "hr_absence_rejected": "Đơn từ không được duyệt",
         "hr_absence_cancelled": "Đơn từ đã huỷ",
+        "finance_debts_digest": "Công nợ quá hạn",
+        "finance_request_awaiting": "Hồ sơ chi chờ duyệt",
+        "finance_request_updated": "Hồ sơ chi cập nhật",
+        "finance_request_reminder": "Nhắc hồ sơ chi",
     }.get(event_type, "Tin nhắn")
 
 

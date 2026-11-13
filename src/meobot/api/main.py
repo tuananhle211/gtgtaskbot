@@ -26,6 +26,8 @@ from meobot.api.routers import (
     cskh,
     departments,
     drive,
+    finance,
+    finance_spend,
     health,
     hr,
     hr_attendance,
@@ -135,6 +137,7 @@ _ENVELOPE_PREFIXES = (
     "/api/account",
     "/api/agents",
     "/api/cskh",
+    "/api/finance",
     "/auth/",
 )
 
@@ -268,6 +271,8 @@ def _include_web_facing_routers(app: FastAPI) -> None:
     # Hộp chat CSKH (0102): page inbox (CSKH INBOX), Zalo telesale (ZALO), the
     # connections (MANAGE); the Zalo bridge's push has no session (its secret header).
     app.include_router(cskh.router)
+    app.include_router(finance.router)
+    app.include_router(finance_spend.router)
     app.include_router(agent_rooms.router)
     app.include_router(agents.router)
     # Invite codes for the web "Mời thành viên" panel: team lead and above,

@@ -4,18 +4,19 @@ GET only, the key in the ``x-api-key`` header - never in the URL, a log line
 or the browser. 60 requests a minute per IP: a 429 is waited out and asked
 again. Pages hold up to 500 rows.
 
-Only what the revenue needs is read and kept: the marketing users, the
-branches (name -> region), and each
-payment's id, day, amount, type, marketing id, branch, order id, new/old
-customer, customer source and customer code (``KH…``, for reconciling) -
-never a customer's name or phone.
+Read for Phòng Ads and Tài chính in one run (``meobot.application.crm.sync``):
+the marketing users, the branches, the payments (thực thu, with the people on
+the customer's file and the order's owner), and for Tài chính the orders
+(doanh số, VAT, còn nợ, the lines), the revenue shared to doctors / TVV / KTV /
+nurses and the công tua. A customer's name is kept (Tài chính's reports,
+user 12/11/2026); a phone number never.
 """
 
 from __future__ import annotations
 
 import asyncio
 from dataclasses import dataclass, field
-from datetime import date
+from datetime import date, datetime
 from decimal import Decimal, InvalidOperation
 from typing import Any, Protocol
 
@@ -59,12 +60,116 @@ class CrmPayment:
     is_upsale: bool | None = None
     source_id: int | None = None
     customer_code: str | None = None
+    #: The people on the customer's file when read (not the seller), and the
+    #: order's owner ("người lên đơn") - Tài chính's "theo người".
+    telesales_id: int | None = None
+    telesales_name: str | None = None
+    cskh_id: int | None = None
+    cskh_name: str | None = None
+    carepage_id: int | None = None
+    carepage_name: str | None = None
+    owner_id: int | None = None
+    owner_name: str | None = None
+    order_code: str | None = None
+    customer_name: str | None = None
+
+    def people(self) -> list[tuple[int, str, str]]:
+        """(CRM id, name, role) of everybody the payment names."""
+        found = (
+            (self.marketing_id, self.marketing_name, "marketing"),
+            (self.telesales_id, self.telesales_name, "telesales"),
+            (self.cskh_id, self.cskh_name, "cskh"),
+            (self.carepage_id, self.carepage_name, "carepage"),
+            (self.owner_id, self.owner_name, "owner"),
+        )
+        return [(key, name or f"CRM {key}", role) for key, name, role in found if key is not None]
 
 
 @dataclass(frozen=True, slots=True)
 class CrmBranch:
     id: int
     name: str
+    location_id: int | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class CrmOrderItem:
+    service_id: int | None
+    service_name: str | None
+    quantity: Decimal
+    total_price: Decimal
+
+
+@dataclass(frozen=True, slots=True)
+class CrmOrder:
+    """One order, by the day it was created: doanh số (``all_total``), the
+    part before VAT, VAT, what is still owed (``the_rest``)."""
+
+    id: int
+    code: str | None
+    created_at: datetime
+    branch_id: int | None
+    customer_id: int | None
+    customer_code: str | None
+    customer_name: str | None
+    source_id: int | None
+    all_total: Decimal
+    amount_before_vat: Decimal
+    vat_amount: Decimal
+    vat_percent: Decimal | None
+    gross_revenue: Decimal
+    the_rest: Decimal
+    discount: Decimal
+    payment_type: int | None
+    order_type: int | None
+    role_type: int | None
+    owner_id: int | None
+    owner_name: str | None
+    items: tuple[CrmOrderItem, ...] = ()
+
+
+@dataclass(frozen=True, slots=True)
+class CrmDepartment:
+    id: int
+    name: str
+
+
+@dataclass(frozen=True, slots=True)
+class CrmSharedRevenue:
+    """A share of one payment credited to one person of a CRM department
+    (doctors, TVV, KTV, nurses) - no id on the CRM, read by payment day."""
+
+    payment_date: date
+    department_id: int
+    order_code: str | None
+    customer_code: str | None
+    customer_name: str | None
+    services: str | None
+    payment_amount: Decimal
+    payment_type: int | None
+    employee_id: int | None
+    employee_name: str | None
+    share_type: int | None
+    shared_revenue: Decimal
+    branch_name: str | None
+
+
+@dataclass(frozen=True, slots=True)
+class CrmTour:
+    """One công tua: one person's part (primary or support) in one treatment."""
+
+    performed_at: datetime
+    order_code: str | None
+    customer_code: str | None
+    customer_name: str | None
+    service_name: str | None
+    treatment_type: int | None
+    employee_id: int | None
+    employee_name: str | None
+    work_type: str | None
+    procedure_name: str | None
+    branch_name: str | None
+    note: str | None
 
 
 class CrmClient(Protocol):
@@ -73,6 +178,16 @@ class CrmClient(Protocol):
     async def branches(self) -> list[CrmBranch]: ...
 
     async def payments(self, since: date, until: date) -> list[CrmPayment]: ...
+
+    async def orders(self, since: date, until: date, *, unpaid: bool = False) -> list[CrmOrder]: ...
+
+    async def share_departments(self) -> list[CrmDepartment]: ...
+
+    async def shared_revenues(
+        self, since: date, until: date, department_id: int
+    ) -> list[CrmSharedRevenue]: ...
+
+    async def tours(self, since: date, until: date) -> list[CrmTour]: ...
 
     async def aclose(self) -> None: ...
 
@@ -88,13 +203,42 @@ def _id_of(value: Any) -> int | None:
     return _int(value.get("id")) if isinstance(value, dict) else None
 
 
-def parse_payment(raw: dict[str, Any]) -> CrmPayment:
+def _name_of(value: Any) -> str | None:
+    if not isinstance(value, dict):
+        return None
+    return _text(value.get("name"), 200)
+
+
+def _text(value: Any, size: int) -> str | None:
+    text = str(value or "").strip()
+    return text[:size] or None
+
+
+def _money(value: Any, what: str) -> Decimal:
     try:
-        price = Decimal(str(raw.get("price") or 0))
+        return Decimal(str(value if value not in (None, "") else 0))
     except InvalidOperation as error:
-        raise CrmError(f"Khoản thanh toán {raw.get('id')} có số tiền lạ.") from error
+        raise CrmError(f"{what} có số tiền lạ.") from error
+
+
+def _moment(value: Any) -> datetime:
+    """``Y-m-d H:i:s`` in Vietnam time, kept naive (the CRM's own clock)."""
+    text = str(value or "").strip()
+    try:
+        return datetime.fromisoformat(text[:19])
+    except ValueError as error:
+        raise CrmError(f"CRM trả thời điểm lạ ({text[:30]}).") from error
+
+
+def _value_of(value: Any) -> Any:
+    return value.get("value") if isinstance(value, dict) else value
+
+
+def parse_payment(raw: dict[str, Any]) -> CrmPayment:
+    price = _money(raw.get("price"), f"Khoản thanh toán {raw.get('id')}")
     marketing = raw.get("marketing") if isinstance(raw.get("marketing"), dict) else None
     customer: dict[str, Any] = raw["customer"] if isinstance(raw.get("customer"), dict) else {}
+    order: dict[str, Any] = raw["order"] if isinstance(raw.get("order"), dict) else {}
     upsale = customer.get("is_upsale")
     return CrmPayment(
         id=int(raw["id"]),
@@ -108,6 +252,91 @@ def parse_payment(raw: dict[str, Any]) -> CrmPayment:
         is_upsale=bool(upsale) if upsale is not None else None,
         source_id=_id_of(raw.get("customer_source")),
         customer_code=str(customer.get("account_code") or "").strip()[:40] or None,
+        telesales_id=_id_of(raw.get("telesales")),
+        telesales_name=_name_of(raw.get("telesales")),
+        cskh_id=_id_of(raw.get("cskh")),
+        cskh_name=_name_of(raw.get("cskh")),
+        carepage_id=_id_of(raw.get("carepage")),
+        carepage_name=_name_of(raw.get("carepage")),
+        owner_id=_id_of(order.get("owner")),
+        owner_name=_name_of(order.get("owner")),
+        order_code=_text(order.get("code"), 40),
+        customer_name=_text(customer.get("full_name"), 200),
+    )
+
+
+def parse_order(raw: dict[str, Any]) -> CrmOrder:
+    what = f"Đơn {raw.get('code') or raw.get('id')}"
+    customer: dict[str, Any] = raw["customer"] if isinstance(raw.get("customer"), dict) else {}
+    items = tuple(
+        CrmOrderItem(
+            service_id=_int(item.get("service_id")),
+            service_name=_text(item.get("service_name"), 300),
+            quantity=_money(item.get("quantity"), what),
+            total_price=_money(item.get("total_price"), what),
+        )
+        for item in raw.get("items") or []
+        if isinstance(item, dict)
+    )
+    percent = raw.get("vat_percent")
+    return CrmOrder(
+        id=int(raw["id"]),
+        code=_text(raw.get("code"), 40),
+        created_at=_moment(raw.get("created_at")),
+        branch_id=_id_of(raw.get("branch")),
+        customer_id=_int(customer.get("id")),
+        customer_code=_text(customer.get("account_code"), 40),
+        customer_name=_text(customer.get("full_name"), 200),
+        source_id=_id_of(customer.get("source")),
+        all_total=_money(raw.get("all_total"), what),
+        amount_before_vat=_money(raw.get("amount_before_vat"), what),
+        vat_amount=_money(raw.get("vat_amount"), what),
+        vat_percent=_money(percent, what) if percent not in (None, "") else None,
+        gross_revenue=_money(raw.get("gross_revenue"), what),
+        the_rest=_money(raw.get("the_rest"), what),
+        discount=_money(raw.get("discount"), what),
+        payment_type=_int(raw.get("payment_type")),
+        order_type=_int(raw.get("order_type")),
+        role_type=_int(raw.get("role_type")),
+        owner_id=_id_of(raw.get("owner")),
+        owner_name=_name_of(raw.get("owner")),
+        items=items,
+    )
+
+
+def parse_shared_revenue(raw: dict[str, Any], department_id: int) -> CrmSharedRevenue:
+    what = f"Doanh thu chia đơn {raw.get('order_code')}"
+    return CrmSharedRevenue(
+        payment_date=date.fromisoformat(str(raw["payment_date"])[:10]),
+        department_id=department_id,
+        order_code=_text(raw.get("order_code"), 40),
+        customer_code=_text(raw.get("customer_account_code"), 40),
+        customer_name=_text(raw.get("customer_name"), 200),
+        services=_text(raw.get("services"), 1000),
+        payment_amount=_money(raw.get("payment_amount"), what),
+        payment_type=_int(_value_of(raw.get("payment_type"))),
+        employee_id=_id_of(raw.get("employee")),
+        employee_name=_name_of(raw.get("employee")),
+        share_type=_int(_value_of(raw.get("share_type"))),
+        shared_revenue=_money(raw.get("shared_revenue"), what),
+        branch_name=_text(raw.get("branch_name"), 200),
+    )
+
+
+def parse_tour(raw: dict[str, Any]) -> CrmTour:
+    return CrmTour(
+        performed_at=_moment(raw.get("performed_at")),
+        order_code=_text(raw.get("order_code"), 40),
+        customer_code=_text(raw.get("customer_account_code"), 40),
+        customer_name=_text(raw.get("customer_name"), 200),
+        service_name=_text(raw.get("service_name"), 300),
+        treatment_type=_int(_value_of(raw.get("treatment_type"))),
+        employee_id=_id_of(raw.get("employee")),
+        employee_name=_name_of(raw.get("employee")),
+        work_type=_text(_value_of(raw.get("work_type")), 20),
+        procedure_name=_text(raw.get("procedure_name"), 300),
+        branch_name=_text(raw.get("branch_name"), 200),
+        note=_text(raw.get("note"), 500),
     )
 
 
@@ -185,30 +414,69 @@ class HttpCrmClient:
         body = await self._get("/raw-data/filters/orders", {})
         data = body.get("data") if isinstance(body.get("data"), dict) else {}
         return [
-            CrmBranch(int(row["value"]), str(row.get("label") or row["value"]))
+            CrmBranch(
+                int(row["value"]),
+                str(row.get("label") or row["value"]),
+                _int(row.get("location_id")),
+            )
             for row in (data or {}).get("branches") or []
             if isinstance(row, dict) and row.get("value") is not None
         ]
 
-    async def payments(self, since: date, until: date) -> list[CrmPayment]:
-        rows: list[CrmPayment] = []
+    async def _pages(self, path: str, params: dict[str, Any], what: str) -> list[dict[str, Any]]:
+        """Every row of a listing, page by page, oldest id first."""
+        rows: list[dict[str, Any]] = []
         page = 1
         while page <= MAX_PAGES:
-            body = await self._get(
-                "/raw-data/order-payments",
-                {
-                    "start_date": since.isoformat(),
-                    "end_date": until.isoformat(),
-                    "per_page": PER_PAGE,
-                    "page": page,
-                },
-            )
-            rows += [parse_payment(raw) for raw in body.get("data") or [] if isinstance(raw, dict)]
+            body = await self._get(path, {**params, "per_page": PER_PAGE, "page": page})
+            rows += [raw for raw in body.get("data") or [] if isinstance(raw, dict)]
             meta = body.get("meta") or {}
             if page >= int(meta.get("last_page") or 1):
                 return rows
             page += 1
-        raise CrmError("CRM trả quá nhiều trang thanh toán.")
+        raise CrmError(f"CRM trả quá nhiều trang {what}.")
+
+    @staticmethod
+    def _span(since: date, until: date) -> dict[str, Any]:
+        return {"start_date": since.isoformat(), "end_date": until.isoformat()}
+
+    async def payments(self, since: date, until: date) -> list[CrmPayment]:
+        rows = await self._pages(
+            "/raw-data/order-payments",
+            {**self._span(since, until), "sort": "id", "direction": "asc"},
+            "thanh toán",
+        )
+        return [parse_payment(raw) for raw in rows]
+
+    async def orders(self, since: date, until: date, *, unpaid: bool = False) -> list[CrmOrder]:
+        params: dict[str, Any] = {**self._span(since, until), "sort": "id", "direction": "asc"}
+        if unpaid:
+            params["payment_status"] = "unpaid"
+        rows = await self._pages("/raw-data/orders", params, "đơn hàng")
+        return [parse_order(raw) for raw in rows]
+
+    async def share_departments(self) -> list[CrmDepartment]:
+        body = await self._get("/raw-data/filters/shared-revenues", {"limit": 1})
+        data = body.get("data") if isinstance(body.get("data"), dict) else {}
+        return [
+            CrmDepartment(int(row["value"]), str(row.get("label") or row["value"]))
+            for row in (data or {}).get("departments") or []
+            if isinstance(row, dict) and row.get("value") is not None
+        ]
+
+    async def shared_revenues(
+        self, since: date, until: date, department_id: int
+    ) -> list[CrmSharedRevenue]:
+        rows = await self._pages(
+            "/raw-data/shared-revenues",
+            {**self._span(since, until), "department_id": department_id},
+            "doanh thu chia",
+        )
+        return [parse_shared_revenue(raw, department_id) for raw in rows]
+
+    async def tours(self, since: date, until: date) -> list[CrmTour]:
+        rows = await self._pages("/raw-data/tour-history", self._span(since, until), "công tua")
+        return [parse_tour(raw) for raw in rows]
 
 
 @dataclass
@@ -218,8 +486,20 @@ class FakeCrmClient:
     users: list[CrmMarketingUser] = field(default_factory=list)
     rows: list[CrmPayment] = field(default_factory=list)
     branch_list: list[CrmBranch] = field(default_factory=list)
+    order_list: list[CrmOrder] = field(default_factory=list)
+    departments: list[CrmDepartment] = field(default_factory=list)
+    shares: list[CrmSharedRevenue] = field(default_factory=list)
+    tour_list: list[CrmTour] = field(default_factory=list)
     error: CrmError | None = None
+    #: A refusal for one dataset only ("orders", "shares", "tours").
+    errors: dict[str, CrmError] = field(default_factory=dict)
     calls: list[tuple[str, date | None, date | None]] = field(default_factory=list)
+
+    def _fail(self, name: str) -> None:
+        if self.error:
+            raise self.error
+        if name in self.errors:
+            raise self.errors[name]
 
     async def marketing_users(self) -> list[CrmMarketingUser]:
         self.calls.append(("users", None, None))
@@ -239,6 +519,36 @@ class FakeCrmClient:
             raise self.error
         return [row for row in self.rows if since <= row.day <= until]
 
+    async def orders(self, since: date, until: date, *, unpaid: bool = False) -> list[CrmOrder]:
+        self.calls.append(("unpaid" if unpaid else "orders", since, until))
+        self._fail("orders")
+        return [
+            row
+            for row in self.order_list
+            if since <= row.created_at.date() <= until and (not unpaid or row.the_rest > 0)
+        ]
+
+    async def share_departments(self) -> list[CrmDepartment]:
+        self.calls.append(("departments", None, None))
+        self._fail("shares")
+        return list(self.departments)
+
+    async def shared_revenues(
+        self, since: date, until: date, department_id: int
+    ) -> list[CrmSharedRevenue]:
+        self.calls.append((f"shares:{department_id}", since, until))
+        self._fail("shares")
+        return [
+            row
+            for row in self.shares
+            if row.department_id == department_id and since <= row.payment_date <= until
+        ]
+
+    async def tours(self, since: date, until: date) -> list[CrmTour]:
+        self.calls.append(("tours", since, until))
+        self._fail("tours")
+        return [row for row in self.tour_list if since <= row.performed_at.date() <= until]
+
     async def aclose(self) -> None:
         return None
 
@@ -246,10 +556,18 @@ class FakeCrmClient:
 __all__ = [
     "CrmBranch",
     "CrmClient",
+    "CrmDepartment",
     "CrmError",
     "CrmMarketingUser",
+    "CrmOrder",
+    "CrmOrderItem",
     "CrmPayment",
+    "CrmSharedRevenue",
+    "CrmTour",
     "FakeCrmClient",
     "HttpCrmClient",
+    "parse_order",
     "parse_payment",
+    "parse_shared_revenue",
+    "parse_tour",
 ]

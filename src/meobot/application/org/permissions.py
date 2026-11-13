@@ -37,6 +37,7 @@ from meobot.application.org.access import (
     load_personal_grants,
     widest,
 )
+from meobot.application.org.developing import hidden_modules
 from meobot.application.org.seats import builtin_order_grants
 from meobot.application.pr_capability_service import PrCapabilityGrant, PrCapabilityService
 from meobot.core.errors import AuthorizationError, NotFoundError, ValidationError
@@ -148,7 +149,11 @@ class PersonalPermissionService:
         for grant in await self._pr.approval_grants_for(subject):
             gates.setdefault(grant.capability, []).append(grant)
         modules: list[ModuleOverview] = []
+        # A module still being built is the OWNER's alone (13/11).
+        hidden = await hidden_modules(self._session, actor.role)
         for spec in MODULES.values():
+            if spec.module in hidden:
+                continue
             rows: list[EffectiveRow] = []
             for key in spec.permission_keys():
                 # The seats' grants as they stand before any override, then
@@ -263,7 +268,7 @@ class PersonalPermissionService:
     ) -> UserPermission:
         user = await self._user(user_id)
         await self._may_edit(actor, user)
-        if module not in MODULES:
+        if module not in MODULES or module in await hidden_modules(self._session, actor.role):
             raise PermissionValidationError(
                 "Không có module này.",
                 details={"reason": "permission_module_invalid", "field": "module"},
@@ -344,7 +349,7 @@ class PersonalPermissionService:
         Returns the personal rows left."""
         user = await self._user(user_id)
         await self._may_edit(actor, user)
-        if module not in MODULES:
+        if module not in MODULES or module in await hidden_modules(self._session, actor.role):
             raise PermissionValidationError(
                 "Không có module này.",
                 details={"reason": "permission_module_invalid", "field": "module"},

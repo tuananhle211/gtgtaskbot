@@ -600,6 +600,20 @@ class AuditAction(StrEnum):
     CSKH_ZALO_ACCOUNT_LOGOUT = "cskh.zalo.account.logout"
     CSKH_ZALO_LINKED = "cskh.zalo.linked"
 
+    # Tài chính (0105).
+    FINANCE_BRANCH_UPDATED = "finance.branch.updated"
+    FINANCE_STAFF_UPDATED = "finance.staff.updated"
+    FINANCE_SETTINGS_UPDATED = "finance.settings.updated"
+    FINANCE_SYNC_REQUESTED = "finance.sync.requested"
+    FINANCE_FEES_UPDATED = "finance.fees.updated"
+    FINANCE_ROLE_UPDATED = "finance.role.updated"
+    FINANCE_CODE_UPDATED = "finance.code.updated"
+    FINANCE_REQUEST_ACTION = "finance.request.action"
+    FINANCE_BUDGET_UPDATED = "finance.budget.updated"
+    FINANCE_MISA_IMPORTED = "finance.misa.imported"
+    #: "Tính năng đang phát triển" (13/11): the OWNER hid / released a module.
+    DEVELOPING_MODULES_UPDATED = "system.developing_modules.updated"
+
     # Resources ("Quản lý tài nguyên", 0065).
     RESOURCE_CREATED = "resource.created"
     RESOURCE_UPDATED = "resource.updated"

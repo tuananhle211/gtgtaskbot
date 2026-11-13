@@ -12,6 +12,7 @@ import uuid
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, Response, status
+from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from meobot.api.deps import CurrentActorDep, RequestIdDep, get_session
@@ -22,10 +23,17 @@ from meobot.api.schemas.permissions import (
     PersonOverviewResponse,
 )
 from meobot.application.audit_service import AuditService
+from meobot.application.org.developing import (
+    DEVELOPABLE,
+    DevelopingForbiddenError,
+    developing_modules,
+    set_developing,
+)
 from meobot.application.org.permissions import (
     PermissionValidationError,
     PersonalPermissionService,
 )
+from meobot.domain.identity.models import Role
 
 router = APIRouter(prefix="/api/permissions", tags=["permissions"])
 
@@ -37,6 +45,53 @@ def get_permissions(
 
 
 ServiceDep = Annotated[PersonalPermissionService, Depends(get_permissions)]
+SessionDep = Annotated[AsyncSession, Depends(get_session)]
+
+
+class DevelopingModule(BaseModel):
+    module: str
+    label: str
+    developing: bool
+
+
+class DevelopingModulesResponse(BaseModel):
+    modules: list[DevelopingModule]
+
+
+class DevelopingModulesRequest(BaseModel):
+    """The modules that should be hidden from all but the OWNER."""
+
+    modules: list[str] = Field(default_factory=list, max_length=20)
+
+
+async def _developing(session: AsyncSession) -> DevelopingModulesResponse:
+    current = await developing_modules(session)
+    return DevelopingModulesResponse(
+        modules=[
+            DevelopingModule(module=module, label=label, developing=module in current)
+            for module, label in DEVELOPABLE.items()
+        ]
+    )
+
+
+@router.get("/developing-modules", response_model=DevelopingModulesResponse)
+async def developing(actor: CurrentActorDep, session: SessionDep) -> DevelopingModulesResponse:
+    """ "Tính năng đang phát triển" (13/11): the OWNER's switch. 403
+    ``developing_forbidden`` for anybody else."""
+    if actor.role is not Role.OWNER:
+        raise DevelopingForbiddenError()
+    return await _developing(session)
+
+
+@router.put("/developing-modules", response_model=DevelopingModulesResponse)
+async def set_developing_modules(
+    body: DevelopingModulesRequest,
+    actor: CurrentActorDep,
+    request_id: RequestIdDep,
+    session: SessionDep,
+) -> DevelopingModulesResponse:
+    await set_developing(session, actor=actor, request_id=request_id, modules=body.modules)
+    return await _developing(session)
 
 
 @router.get("/people/{user_id}", response_model=PersonOverviewResponse)

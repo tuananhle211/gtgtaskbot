@@ -5,8 +5,10 @@
 * ``ads.sync_charges`` - 08:00: billing charges over the last five days (and
   the whole previous month on the 1st-3rd).
 
-* ``ads.sync_crm_revenue`` - every hour from 07:10 to 23:10: thực thu from the
-  CRM (0083), this month so far (from the 1st of last month on the 1st-5th).
+* ``ads.sync_crm_revenue`` - the ONE CRM run for Phòng Ads and Tài chính
+  (user 13/11/2026): 0h, 5h, 12h, 18h Vietnam (was hourly), this month so far
+  (from the 1st of last month on the 1st-5th); the 5h run also re-reads the
+  year's orders still owed (``debts``). See :mod:`meobot.application.crm.sync`.
 
 All take an explicit ``since`` / ``until`` (``YYYY-MM-DD``) for "Kéo lại
 khoảng ngày", and return ``{"status": ..., "message": ...}`` so the job monitor
@@ -22,12 +24,12 @@ limit than the default 9 minutes - still under the monitor's 15-minute
 from __future__ import annotations
 
 import uuid
-from datetime import date
+from datetime import date, datetime
 from typing import Any
 
 from celery import shared_task
 
-from meobot.application.ads.crm_service import AdsCrmSyncService, CrmSyncReport, crm_window
+from meobot.application.ads.crm_service import CrmSyncReport, crm_window
 from meobot.application.ads.sync_service import (
     AdsSyncService,
     SyncReport,
@@ -35,6 +37,8 @@ from meobot.application.ads.sync_service import (
     spend_window,
     vn_today,
 )
+from meobot.application.crm.sync import VN, CrmRunReport, CrmSyncService
+from meobot.application.finance.debts import FinanceDebtNotifier
 from meobot.core.logging import get_logger
 from meobot.integrations.crm.client import HttpCrmClient
 from meobot.integrations.meta_ads.client import GraphMetaAdsClient
@@ -106,23 +110,46 @@ async def _sync(
     return result
 
 
+#: The Vietnam hour whose run also re-reads the year's orders still owed.
+DEBTS_HOUR = 5
+
+
 @shared_task(name="ads.sync_crm_revenue")
-def sync_crm_revenue(since: str | None = None, until: str | None = None) -> dict[str, Any]:
-    start, end = _days(since, until, crm_window(vn_today()))
-    return run_async(lambda context: _sync_crm(context, start, end))
+def sync_crm_revenue(
+    since: str | None = None, until: str | None = None, debts: bool | None = None
+) -> dict[str, Any]:
+    """``debts`` unset = the 5h run does it (the beat's 05:00 Vietnam)."""
+    today = vn_today()
+    start, end = _days(since, until, crm_window(today))
+    if debts is None:
+        debts = since is None and datetime.now(VN).hour == DEBTS_HOUR
+    reread = debts
+    return run_async(lambda context: _sync_crm(context, start, end, today, reread))
 
 
-async def _sync_crm(context: TaskContext, since: date, until: date) -> dict[str, Any]:
+async def _sync_crm(
+    context: TaskContext, since: date, until: date, today: date, debts: bool
+) -> dict[str, Any]:
     key = context.settings.crm_api_key
     if key is None or not key.get_secret_value().strip():
-        report = CrmSyncReport(since, until, configured=False)
+        report = CrmRunReport(CrmSyncReport(since, until, configured=False))
     else:
         client = HttpCrmClient(context.settings.crm_api_base_url, key.get_secret_value())
         try:
             async with context.database.transaction() as session:
-                report = await AdsCrmSyncService(session, client).sync(since, until)
+                report = await CrmSyncService(session, client).run(
+                    since, until, today=today, debts=debts
+                )
         finally:
             await client.aclose()
+        if debts and report.status == "SUCCESS":
+            # The day's công nợ to the people set (Tài chính đợt 2); a failure
+            # here never fails the sync that was saved.
+            try:
+                async with context.database.transaction() as session:
+                    await FinanceDebtNotifier(session, context.settings).send(today)
+            except Exception:  # logged; the data is kept
+                logger.exception("finance_debts_digest_failed")
     result = report.as_task_result()
     logger.info("ads_crm_synced", extra={"ads_sync": result})
     return result

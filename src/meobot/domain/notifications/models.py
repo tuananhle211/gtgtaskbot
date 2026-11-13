@@ -270,6 +270,16 @@ class NotificationEvent(StrEnum):
     HR_ABSENCE_STEP_APPROVED = "hr_absence_step_approved"
     #: Withdrawn or cancelled by HCNS (12/11): to everybody it concerned.
     HR_ABSENCE_CANCELLED = "hr_absence_cancelled"
+    # --- Tài chính (đợt 2) ----------------------------------------------------
+    #: The day's công nợ past the milestones, after the 5h CRM run: to the
+    #: people set on "Cấu hình > Công nợ".
+    FINANCE_DEBTS_DIGEST = "finance_debts_digest"
+    #: A hồ sơ chi reached a step the recipient acts on (đợt 3).
+    FINANCE_REQUEST_AWAITING = "finance_request_awaiting"
+    #: A hồ sơ chi moved on / ended: to the requester.
+    FINANCE_REQUEST_UPDATED = "finance_request_updated"
+    #: The 8:00 summary of what waits (F8) and papers still missing (F5).
+    FINANCE_REQUEST_REMINDER = "finance_request_reminder"
     #: A Guest's held-back first question, answered after approval.
     GUEST_REPLY = "guest_reply"
     #: One firing of a user-defined reminder.

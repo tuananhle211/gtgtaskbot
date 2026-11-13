@@ -102,6 +102,8 @@ const nextConfig = {
       { source: "/api/departments", destination: `${target}/api/departments` },
       { source: "/api/legal-entities", destination: `${target}/api/legal-entities` },
       { source: "/api/hr/:path*", destination: `${target}/api/hr/:path*` },
+      // Tài chính (0105).
+      { source: "/api/finance/:path*", destination: `${target}/api/finance/:path*` },
       {
         source: "/api/legal-entities/:path*",
         destination: `${target}/api/legal-entities/:path*`,

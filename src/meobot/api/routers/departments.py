@@ -27,9 +27,13 @@ from meobot.api.schemas.departments import (
 )
 from meobot.application.audit_service import AuditService
 from meobot.application.org.departments import DepartmentService
+from meobot.application.org.developing import hidden_modules
 from meobot.domain.org.models import MODULE_ORDER
 
 router = APIRouter(prefix="/api/departments", tags=["departments"])
+
+
+SessionDep = Annotated[AsyncSession, Depends(get_session)]
 
 
 def get_departments(session: Annotated[AsyncSession, Depends(get_session)]) -> DepartmentService:
@@ -48,9 +52,12 @@ async def list_departments(actor: CurrentActorDep, service: ServiceDep) -> Depar
 
 
 @router.get("/catalog", response_model=CatalogResponse)
-async def catalog(actor: CurrentActorDep, service: ServiceDep) -> CatalogResponse:
+async def catalog(
+    actor: CurrentActorDep, service: ServiceDep, session: SessionDep
+) -> CatalogResponse:
     await service.departments(actor=actor)  # the same readers
-    return CatalogResponse.build()
+    # A module still being built is left out for all but the OWNER (13/11).
+    return CatalogResponse.build(await hidden_modules(session, actor.role))
 
 
 @router.post("", response_model=DepartmentResponse, status_code=status.HTTP_201_CREATED)

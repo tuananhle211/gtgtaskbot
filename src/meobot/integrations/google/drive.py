@@ -24,6 +24,7 @@ Drive has no human owner and cannot be recovered by the team.
 
 from __future__ import annotations
 
+import json
 from dataclasses import dataclass, field
 from typing import Any, Protocol, runtime_checkable
 
@@ -587,6 +588,45 @@ class GoogleDriveClient:
             json_body={"type": "user", "role": role, "emailAddress": email},
             file_id=file_id,
         )
+
+    # --- Binary files (Tài chính đợt 3: chứng từ, M2) ----------------------
+    async def upload_bytes(self, parent_id: str, name: str, mime: str, data: bytes) -> str:
+        """Upload one file into ``parent_id`` (multipart); returns its id.
+        The file inherits the folder's sharing - keep the folder private."""
+        token = await self._credentials.token()
+        client = self._ensure_client()
+        boundary = "meobot-finance-upload"
+        meta = json.dumps({"name": name, "parents": [parent_id]}).encode()
+        body = (
+            f"--{boundary}\r\nContent-Type: application/json; charset=UTF-8\r\n\r\n".encode()
+            + meta
+            + f"\r\n--{boundary}\r\nContent-Type: {mime}\r\n\r\n".encode()
+            + data
+            + f"\r\n--{boundary}--".encode()
+        )
+        response = await client.post(
+            "https://www.googleapis.com/upload/drive/v3/files",
+            params={"uploadType": "multipart", "supportsAllDrives": "true", "fields": "id"},
+            content=body,
+            headers={
+                "Authorization": f"Bearer {token}",
+                "Content-Type": f"multipart/related; boundary={boundary}",
+            },
+        )
+        payload = self._handle(response, operation="upload_bytes", file_id=parent_id)
+        return str(payload["id"])
+
+    async def download_bytes(self, file_id: str) -> bytes:
+        token = await self._credentials.token()
+        client = self._ensure_client()
+        response = await client.get(
+            f"{API_BASE}/files/{file_id}",
+            params={"alt": "media", "supportsAllDrives": "true"},
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        if response.status_code != httpx.codes.OK:
+            self._handle(response, operation="download_bytes", file_id=file_id)
+        return response.content
 
     # --- Plumbing ---------------------------------------------------------
     def _corpora_params(self) -> dict[str, str]:

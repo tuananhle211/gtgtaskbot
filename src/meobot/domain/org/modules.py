@@ -59,6 +59,14 @@ from meobot.domain.cskh.permissions import (
     cskh_allowed_scopes,
     default_cskh_grants,
 )
+from meobot.domain.finance.permissions import (
+    FINANCE_OWNER_ONLY,
+    FINANCE_PERMISSION_LABELS,
+    MODULE_FINANCE,
+    FinancePermission,
+    default_finance_grants,
+    finance_allowed_scopes,
+)
 from meobot.domain.hr.profiles import (
     HR_OWN_MEANING,
     HR_OWNER_ONLY,
@@ -289,6 +297,16 @@ MODULES: Mapping[str, ModuleSpec] = MappingProxyType(
             scopes=hr_allowed_scopes,
             defaults=default_hr_grants,
             owner_only=HR_OWNER_ONLY,
+        ),
+        MODULE_FINANCE: ModuleSpec(
+            module=MODULE_FINANCE,
+            label="Tài chính",
+            permissions=FinancePermission,
+            labels=FINANCE_PERMISSION_LABELS,
+            own_meaning=MappingProxyType({}),
+            scopes=finance_allowed_scopes,
+            defaults=default_finance_grants,
+            owner_only=FINANCE_OWNER_ONLY,
         ),
         MODULE_ASSISTANT: ModuleSpec(
             module=MODULE_ASSISTANT,

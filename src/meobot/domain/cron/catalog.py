@@ -31,6 +31,7 @@ GROUP_PR = "PR"
 GROUP_GOOGLE = "Google Sheets / Drive"
 GROUP_ADS = "Phòng Ads"
 GROUP_CSKH = "Chăm sóc khách hàng"
+GROUP_FINANCE = "Tài chính"
 
 JOB_LABELS: dict[str, JobLabel] = {
     "system.periodic_heartbeat": JobLabel(
@@ -110,11 +111,17 @@ JOB_LABELS: dict[str, JobLabel] = {
         notify_department="ADS",
     ),
     "ads.sync_crm_revenue": JobLabel(
-        "Đồng bộ doanh thu CRM",
+        "Đồng bộ CRM (Phòng Ads + Tài chính)",
         GROUP_ADS,
-        "Thực thu theo tài khoản marketing từ CRM aicrmtech.vn (mỗi giờ, 07:10-23:10).",
+        "Một lần gọi CRM aicrmtech.vn cho cả hai: thanh toán, đơn hàng, doanh thu chia, "
+        "công tua (0h, 5h, 12h, 18h; 5h đọc lại công nợ cũ).",
         notify=True,
         notify_department="ADS",
+    ),
+    "finance.reminders": JobLabel(
+        "Nhắc hồ sơ chi",
+        GROUP_FINANCE,
+        "08:00: tóm tắt hồ sơ chi chờ từng người duyệt, hồ sơ đã chi còn thiếu chứng từ.",
     ),
     "cskh.poll_pancake": JobLabel(
         "Đọc tin page (Pancake)",

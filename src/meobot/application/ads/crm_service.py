@@ -59,7 +59,13 @@ from meobot.domain.ads.crm import (
 from meobot.domain.ads.models import REVENUE_SOURCE_LABELS, RevenueSource
 from meobot.domain.audit.models import AuditAction, AuditResult
 from meobot.domain.identity.models import Actor
-from meobot.integrations.crm.client import CrmClient, CrmError
+from meobot.integrations.crm.client import (
+    CrmBranch,
+    CrmClient,
+    CrmError,
+    CrmMarketingUser,
+    CrmPayment,
+)
 
 #: The import's file limit.
 MAX_IMPORT_BYTES = 5 * 1024 * 1024
@@ -163,27 +169,46 @@ class AdsCrmSyncService:
         self._client = client
 
     async def sync(self, since: date, until: date) -> CrmSyncReport:
-        report = CrmSyncReport(since, until)
-        coverage, _ = await load_coverage(self._session)
-        now = utcnow()
+        """Read the CRM and keep Phòng Ads' part (the unified run reads once and
+        calls :meth:`apply` itself - :mod:`meobot.application.crm.sync`)."""
         try:
             users = await self._client.marketing_users()
             branches = await self._client.branches()
             payments = await self._client.payments(since, until)
         except CrmError as error:
-            report.error = error.message
-            await _save_coverage(
-                self._session,
-                Coverage(
-                    coverage.synced_from,
-                    coverage.synced_to,
-                    now,
-                    report.status,
-                    report.message,
-                    coverage.branches,
-                ),
-            )
-            return report
+            return await self.failed(since, until, error.message)
+        return await self.apply(since, until, users, branches, payments)
+
+    async def failed(self, since: date, until: date, message: str) -> CrmSyncReport:
+        """Note a run the CRM refused: the synced range stays as it was."""
+        report = CrmSyncReport(since, until, error=message)
+        coverage, _ = await load_coverage(self._session)
+        await _save_coverage(
+            self._session,
+            Coverage(
+                coverage.synced_from,
+                coverage.synced_to,
+                utcnow(),
+                report.status,
+                report.message,
+                coverage.branches,
+            ),
+        )
+        return report
+
+    async def apply(
+        self,
+        since: date,
+        until: date,
+        users: list[CrmMarketingUser],
+        branches: list[CrmBranch],
+        payments: list[CrmPayment],
+    ) -> CrmSyncReport:
+        """Keep what was read: the marketing accounts, the days' payments
+        (replacing the stored ones) and the synced range."""
+        report = CrmSyncReport(since, until)
+        coverage, _ = await load_coverage(self._session)
+        now = utcnow()
         accounts = {a.crm_id: a for a in await self._session.scalars(select(AdsCrmAccount))}
         for user in users:
             account = accounts.get(user.id)
@@ -229,6 +254,12 @@ class AdsCrmSyncService:
                 is_upsale=payment.is_upsale,
                 source_id=payment.source_id,
                 customer_code=payment.customer_code,
+                telesales_id=payment.telesales_id,
+                cskh_id=payment.cskh_id,
+                carepage_id=payment.carepage_id,
+                owner_id=payment.owner_id,
+                order_code=payment.order_code,
+                customer_name=payment.customer_name,
                 synced_at=now,
             )
             for payment in {payment.id: payment for payment in payments}.values()

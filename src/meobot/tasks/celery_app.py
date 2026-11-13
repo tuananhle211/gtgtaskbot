@@ -69,6 +69,7 @@ celery_app = Celery(
         "meobot.tasks.cron_monitor",
         "meobot.tasks.perf_monitor",
         "meobot.tasks.ads",
+        "meobot.tasks.finance",
         "meobot.tasks.cskh",
     ],
 )
@@ -113,6 +114,7 @@ celery_app.conf.update(
         "cron.*": {"queue": QUEUE_DEFAULT},
         # Phòng Ads' Meta / CRM syncs run for minutes: their own queue and worker.
         "ads.*": {"queue": QUEUE_SYNC},
+        "finance.*": {"queue": QUEUE_DEFAULT},
         # Hộp chat CSKH (0102) talks to Pancake / POS Cake.
         "cskh.*": {"queue": QUEUE_INTEGRATIONS},
         "notifications.*": {"queue": QUEUE_NOTIFICATIONS},
@@ -323,11 +325,19 @@ celery_app.conf.update(
             "schedule": crontab(hour="1", minute="5"),
             "options": {"queue": QUEUE_SYNC, "expires": 3 * 3600},
         },
-        # Thực thu from the CRM (0083): every hour at :10, 07:10-23:10 Vietnam
-        # (00-16 UTC). A month is ~3 pages of 500: far below 60 calls a minute.
+        # Tài chính (đợt 3): 08:00 Vietnam = 01:00 UTC - what waits on each
+        # approver, and paid requests still missing papers.
+        "finance-reminders": {
+            "task": "finance.reminders",
+            "schedule": crontab(hour="1", minute="0"),
+            "options": {"queue": QUEUE_DEFAULT, "expires": 3 * 3600},
+        },
+        # The ONE CRM run for Phòng Ads + Tài chính (user 13/11/2026, was hourly
+        # for Ads alone): 0h, 5h, 12h, 18h Vietnam = 17, 22, 05, 11 UTC. The 5h
+        # run also re-reads the year's orders still owed (``tasks.ads``).
         "ads-sync-crm-revenue": {
             "task": "ads.sync_crm_revenue",
-            "schedule": crontab(hour="0-16", minute="10"),
+            "schedule": crontab(hour="5,11,17,22", minute="0"),
             "options": {"queue": QUEUE_SYNC, "expires": 3000},
         },
     },

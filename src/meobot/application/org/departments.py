@@ -38,6 +38,7 @@ from sqlalchemy import exists, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from meobot.application.audit_service import AuditService
+from meobot.application.org.developing import hidden_modules
 from meobot.application.org.seats import load_grants, load_seats
 from meobot.core.errors import AuthorizationError, NotFoundError, ValidationError
 from meobot.core.time import utcnow
@@ -980,6 +981,8 @@ class DepartmentService:
         """``position -> permission -> scope`` (``NONE`` included)."""
         await self._may_read(actor, department_id)
         await self.department(department_id)
+        if module in await hidden_modules(self._session, actor.role):
+            self._module("")  # a module still being built: as if it did not exist
         spec = self._module(module)
         table = await load_grants(self._session, module, [department_id])
         return {

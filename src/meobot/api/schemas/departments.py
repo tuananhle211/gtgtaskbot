@@ -170,8 +170,12 @@ class CatalogResponse(BaseModel):
     scope_labels: dict[str, str]
 
     @classmethod
-    def build(cls) -> CatalogResponse:
-        modules = [ModuleEntry.build(spec) for spec in MODULES.values() if spec.department_cells]
+    def build(cls, hidden: frozenset[str] = frozenset()) -> CatalogResponse:
+        modules = [
+            ModuleEntry.build(spec)
+            for spec in MODULES.values()
+            if spec.department_cells and spec.module not in hidden
+        ]
         order = next(entry for entry in modules if entry.module == MODULE_ORDER)
         return cls(
             module=order.module,

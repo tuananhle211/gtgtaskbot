@@ -88,6 +88,7 @@ type NavIcon =
   | "agents"
   | "cskh"
   | "hr"
+  | "finance"
   | "account";
 
 /** The screen every unit shares besides the order boards. */
@@ -266,6 +267,52 @@ function performanceBranch(me: UnitsMe | undefined): NavGroup {
  * (`hr.lists`), "Duyệt hồ sơ" + "Danh mục" for HCNS (`hr.edit`, the badge =
  * change requests waiting).
  */
+/**
+ * "Tài chính" (0105): Doanh thu (FINANCE REVENUE) and Cấu hình (REVENUE or
+ * SETTINGS; only SETTINGS edits).
+ */
+function financeBranch(me: UnitsMe | undefined): NavGroup | null {
+  const finance = me?.finance;
+  if (!finance || !(finance.revenue || finance.settings || finance.requests)) return null;
+  const sees = (flag: boolean | undefined) => Boolean(flag);
+  return {
+    key: "finance",
+    label: "Tài chính",
+    icon: "finance",
+    children: [
+      ...(finance.requests
+        ? [
+            {
+              href: "/finance/requests",
+              label: "Hồ sơ chi",
+              icon: "request" as NavIcon,
+              badge: finance.awaiting || undefined,
+            },
+          ]
+        : []),
+      ...(finance.revenue
+        ? [
+            { href: "/finance/revenue", label: "Doanh thu", icon: "report" as NavIcon },
+            { href: "/finance/ledger", label: "Bảng kê", icon: "lookup" as NavIcon },
+            { href: "/finance/debts", label: "Công nợ", icon: "request" as NavIcon },
+          ]
+        : []),
+      ...(sees(finance.budget) || sees(finance.report) || sees(finance.view_requests)
+        ? [{ href: "/finance/budgets", label: "Ngân sách", icon: "performance" as NavIcon }]
+        : []),
+      ...(sees(finance.report)
+        ? [{ href: "/finance/pnl", label: "Thu - chi", icon: "report" as NavIcon }]
+        : []),
+      ...(sees(finance.misa) || sees(finance.report)
+        ? [{ href: "/finance/misa", label: "Đối soát MISA", icon: "import" as NavIcon }]
+        : []),
+      ...(finance.revenue || finance.settings || sees(finance.codes)
+        ? [{ href: "/finance/settings", label: "Cấu hình", icon: "settings" as NavIcon }]
+        : []),
+    ],
+  };
+}
+
 function hrBranch(me: UnitsMe | undefined): NavGroup | null {
   if (!me) return null;
   const hr = me.hr;
@@ -466,6 +513,7 @@ export function navFor(me: UnitsMe | undefined, sessionRole?: string): NavEntry[
   const resources = resourcesBranch(me);
   const ads = adsBranch(me, sessionRole);
   const hr = hrBranch(me);
+  const finance = financeBranch(me);
   const cskh = cskhBranch(me);
   // "Bảng order" follows the order module's permissions (an ORD seat or grant
   // gives the ADS entry), like every other branch; it stays while `me` loads.
@@ -481,6 +529,7 @@ export function navFor(me: UnitsMe | undefined, sessionRole?: string): NavEntry[
     ...(ads ? [ads] : []),
     ...(pr ? [prBranch(me)] : []),
     ...(hr ? [hr] : []),
+    ...(finance ? [finance] : []),
     ...(me?.agents?.chat ? [AGENTS_NAV] : []),
     ...(cskh ? [cskh] : []),
     ...(resources ? [resources] : []),
@@ -683,6 +732,14 @@ function Icon({ name }: { name: NavIcon }) {
         <path d="M3 10v4a1 1 0 0 0 1 1h3l6 4V5L7 9H4a1 1 0 0 0-1 1z" />
         <path d="M17 9a4 4 0 0 1 0 6" />
         <path d="M20 6.5a8 8 0 0 1 0 11" />
+      </>
+    ),
+    finance: (
+      <>
+        <rect x="3" y="6" width="18" height="13" rx="2" />
+        <path d="M3 10h18" />
+        <path d="M16 14.5h2" />
+        <path d="M7 3.5h10" />
       </>
     ),
     hr: (

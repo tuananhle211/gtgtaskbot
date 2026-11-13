@@ -23,13 +23,23 @@ import { api, type UnitsMe } from "@/lib/api";
  * **Hiệu năng** (`/admin/performance`, OWNER / ADMIN) - how fast the API answers
  *   and how long background tasks wait (plan docs/ops/SCALING_PLAN.md D).
  *
+ * **Đang phát triển** (`/admin/developing`, OWNER only, 13/11) - modules still
+ *   being built, hidden from everybody but the OWNER (Tài chính).
+ *
  * "Tác vụ định kỳ" and "Kết nối BM" live in the Phòng Ads menu (27/10).
  *
  * The PR team's own "Thành viên & Phân quyền (PR)" stays in the PR menu, untouched.
  * Who sees which tab is a convenience; every route and write is checked again
  * on the server.
  */
-export type AdminTabKey = "departments" | "accounts" | "settings" | "ai" | "agents" | "performance";
+export type AdminTabKey =
+  | "departments"
+  | "accounts"
+  | "settings"
+  | "ai"
+  | "agents"
+  | "performance"
+  | "developing";
 
 export const ADMIN_TABS: ReadonlyArray<{ key: AdminTabKey; href: string; label: string }> = [
   { key: "departments", href: "/admin/departments", label: "Phòng ban" },
@@ -40,6 +50,8 @@ export const ADMIN_TABS: ReadonlyArray<{ key: AdminTabKey; href: string; label: 
   { key: "agents", href: "/admin/agents", label: "Đội agent" },
   // Hiệu năng (0103, plan docs/ops/SCALING_PLAN.md D): OWNER / ADMIN.
   { key: "performance", href: "/admin/performance", label: "Hiệu năng" },
+  // Tính năng đang phát triển (13/11): OWNER only.
+  { key: "developing", href: "/admin/developing", label: "Đang phát triển" },
 ];
 
 /** Whether this person heads at least one department (a seat with position HEAD). */
@@ -61,6 +73,7 @@ export function adminTabsFor(
     ai: sessionRole === "OWNER",
     agents: Boolean(me?.agents?.manage),
     performance: manages,
+    developing: sessionRole === "OWNER",
   };
   return ADMIN_TABS.filter((tab) => shown[tab.key]);
 }

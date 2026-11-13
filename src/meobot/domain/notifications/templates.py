@@ -753,6 +753,25 @@ TEMPLATES: dict[str, MessageTemplate] = {
             optional=("note",),
             renderer=_order_update,
         ),
+        # --- Tài chính (đợt 2) -------------------------------------------
+        # MANAGEMENT_ONLY: company figures; private chats of the people set.
+        MessageTemplate(
+            key="finance.debts",
+            version=1,
+            classification=PrivacyClassification.MANAGEMENT_ONLY,
+            required=("heading", "title", "code", "body", "link"),
+            optional=("note",),
+            renderer=_order_update,
+        ),
+        # PERSONAL_PRIVATE: a person's spending request; private chats only.
+        MessageTemplate(
+            key="finance.request",
+            version=1,
+            classification=PrivacyClassification.PERSONAL_PRIVATE,
+            required=("heading", "title", "code", "body", "link"),
+            optional=("note",),
+            renderer=_order_update,
+        ),
         # --- Account (0046) ---------------------------------------------
         # A credential: only ever the owner's private chat, and the outbox
         # blanks it once the row is settled.

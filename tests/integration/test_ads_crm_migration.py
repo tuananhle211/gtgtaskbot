@@ -37,7 +37,19 @@ pytestmark = [
 SETTINGS_KWARGS = {"_env_file": None, "web_cookie_secure": False}
 TABLES = ("'ads_crm_accounts'", "'ads_crm_payments'")
 USER = uuid.uuid4()
-LATER = ("hotline_kind", "former", "one_owner", "customer_code")
+#: 0084's / 0086's / 0105's columns and check.
+LATER = (
+    "hotline_kind",
+    "former",
+    "one_owner",
+    "customer_code",
+    "telesales_id",
+    "cskh_id",
+    "carepage_id",
+    "owner_id",
+    "order_code",
+    "customer_name",
+)
 
 
 @pytest_asyncio.fixture(scope="module", loop_scope="module")

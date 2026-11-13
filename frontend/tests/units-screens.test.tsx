@@ -660,6 +660,7 @@ describe("the ORD settings page", () => {
         "/admin/settings",
         "/admin/ai",
         "/admin/performance",
+        "/admin/developing",
       ]),
     );
     expect(within(tabs).getByRole("link", { name: "Thiết lập ORD" })).toHaveAttribute(

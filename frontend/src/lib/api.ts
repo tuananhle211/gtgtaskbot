@@ -3508,6 +3508,21 @@ export interface UnitsMe {
     unread: number;
     zalo_unread: number;
   } | null;
+  /** "Tài chính" (0105): Doanh thu, customer names, Cấu hình. Older API: absent. */
+  finance?: {
+    revenue: boolean;
+    customers: boolean;
+    settings: boolean;
+    fees?: boolean;
+    /** Đợt 3: file hồ sơ chi; `awaiting` = the badge. */
+    requests?: boolean;
+    awaiting?: number;
+    view_requests?: boolean;
+    codes?: boolean;
+    budget?: boolean;
+    misa?: boolean;
+    report?: boolean;
+  } | null;
   /** "Nhân sự" (0096): what the nav shows; `pending` = change requests waiting (HCNS). */
   hr?: {
     lists: boolean;

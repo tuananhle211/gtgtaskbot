@@ -92,8 +92,10 @@ def test_01_rules() -> None:
         77,
     )
     assert parsed.is_upsale is True and parsed.source_id == 3
-    # Nothing personal is kept.
-    assert "phone" not in repr(parsed) and "Khách" not in repr(parsed)
+    # The customer's name is kept for Tài chính (user 12/11 R8); a phone never.
+    assert parsed.customer_name == "Khách" and parsed.order_code == "DH1"
+    assert not any("phone" in name for name in parsed.__slots__)  # type: ignore[attr-defined]
+    assert "'09'" not in repr(parsed)
 
 
 async def test_02_the_http_client_sends_the_key_in_a_header_only() -> None:

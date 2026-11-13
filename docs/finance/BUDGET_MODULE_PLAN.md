@@ -450,3 +450,35 @@ Thứ tự đề xuất: lớp Doanh thu trước (không phụ thuộc quy trì
 
 **File MISA mẫu (12/11):** user gửi `F01_dnn_bang_can_doi_tai_khoan.xlsx` = mẫu F01-DNN "Bảng cân đối tài khoản" (chế độ TT133), 1 sheet, dòng 1 tiêu đề, dòng 2 "Tháng MM năm YYYY", dòng 3-4 tiêu đề 2 tầng (Số hiệu TK, Tên TK, Số dư đầu kỳ Nợ/Có, Phát sinh trong kỳ Nợ/Có, Số dư cuối kỳ Nợ/Có), mỗi dòng 1 tài khoản (cấp 3-5 chữ số, cha + con cùng có), dòng cuối "Cộng". **Không có tên pháp nhân** trong file (chọn khi nhập). Đủ cho đối chiếu **tổng tháng** theo pháp nhân: thu (511, trừ 5114 giảm giá) vs doanh thu CRM; chi (632, 642 = 6421/6422/6425, 811) vs chi đã thực hiện trên APM. **Không đủ** cho đối chiếu từng khoản, theo phòng ban / mã chi, hay tách chi phí quảng cáo (B6) -> cần thêm "Sổ chi tiết tài khoản" / "Sổ nhật ký chung" (có số chứng từ, diễn giải, đối tượng, khoản mục chi phí) nếu muốn.
 - **Chốt 12/11: chỉ đối chiếu tổng tháng** bằng file F01-DNN (mỗi pháp nhân một file / tháng, pháp nhân chọn khi nhập). Không đối chiếu từng khoản. B6 đổi: chi phí quảng cáo chỉ dùng số trên APM (không lấy từ MISA).
+
+## 17. Đợt 1 đã làm (13/11/2026, migration 0105)
+
+User 13/11: "Chạy module tài chính đi" + gộp lấy doanh thu Ads và Tài chính vào **một lần gọi CRM**, Ads giảm tần suất như Tài chính.
+
+- **Một lần đồng bộ** (job `ads.sync_crm_revenue`, 0h / 5h / 12h / 18h): thanh toán (Ads + Tài chính), đơn hàng, doanh thu chia (từng phòng CRM), công tua; lần 5h đọc lại đơn còn nợ trong 1 năm. Phần nào CRM từ chối thì các phần khác vẫn lưu, job báo lỗi để chạy lại.
+- **Doanh thu** (`/finance/revenue`): thực thu (gồm VAT) / sau VAT, doanh số, doanh thu (= doanh số - VAT), còn nợ; theo pháp nhân, cơ sở, chi nhánh CRM, đội Marketing, người (telesale, MKT, CSKH, carepage, người lên đơn), chia doanh thu, công tua; so với tháng trước (tháng đang chạy: cùng kỳ).
+- **Cấu hình** (`/finance/settings`): chi nhánh CRM -> pháp nhân + cơ sở, nhân viên CRM -> tài khoản APM, thuế suất VAT (mặc định + theo pháp nhân), đồng bộ ngay.
+- **Quyền** module `FINANCE`: REVENUE / CUSTOMERS / SETTINGS; seed Phòng Kế toán (KT), VPTCKT, BOD.
+
+Còn lại (đợt sau): 4 khoản phí (R4), báo cáo công nợ + mốc cấu hình (R10), KPI theo cơ sở / đội (R7), xuất Excel BCLT (R11), chi tiêu / ngân sách / tuyến duyệt (F, P, B, M), nhập F01-DNN MISA đối chiếu tổng tháng (M4).
+
+## 18. Đợt 2 đã làm (13/11/2026, migration 0106) - hoàn thiện Doanh thu
+
+- **Bảng kê** (`/finance/ledger`) theo bố cục BCLT + Tổng hợp của file "KÉO DỮ LIỆU KẾ TOÁN": mỗi dòng = một đơn trong một ngày (Đơn mới / TTCN), tiền theo phương thức, hoàn tiền, VAT, 4 khoản phí, thực thu sau VAT & phí, sale / MKT / carepage, NV bán + bác sĩ được chia; tab Tổng hợp theo ngày với % KPI về; **Xuất Excel** (sheet BCLT + Tổng hợp).
+- **4 khoản phí** (R4): tự tính (phí quẹt = tiền theo phương thức x %; giá cost = số lượng x giá cost dịch vụ) + kế toán **sửa tay từng dòng** (quyền mới `FEES`).
+- **Công nợ** (`/finance/debts`, R10): đơn còn nợ theo tuổi nợ, mốc cấu hình được (mặc định 30/45/60), người nhận cảnh báo cấu hình được; mỗi sáng sau lần đồng bộ 5h gửi tóm tắt (web + Telegram).
+- **KPI doanh thu** (R7): nhập trên APM theo tháng cho toàn công ty / từng cơ sở / từng đội; màn Doanh thu hiện % KPI về.
+- Cấu hình thêm tab: Phí & giá cost, KPI doanh thu, Công nợ.
+
+Còn lại: lõi chi tiêu & ngân sách (F, P, B, M), nhập F01-DNN MISA đối chiếu tổng tháng (M4), nhập giá cost / ngân sách từ Excel.
+
+## 19. Đợt 3 đã làm (13/11/2026, migration 0107) - chi tiêu, ngân sách, duyệt chi, MISA
+
+- **Mã chi & tuyến duyệt** lấy đúng từ Sổ tay (tab "Mã ngân sách" + "Phân quyền"): 104 mã, mỗi mã có duyệt mua sắm, bộ phận thực hiện mua sắm, duyệt thanh toán, người chi tiền, 8 loại chứng từ. Sửa trên APM có lịch sử (F1). Mã Sổ tay để trống (CO.05.*, CO.06.03.08, CO.DP) phải cấu hình trước khi dùng (F4); Phí ngân hàng không cần duyệt.
+- **Vai trò tài chính** gán theo người (P1/P2): CFO thay "Phòng Tài chính" (P3), Kế toán trưởng, PTGĐ/CEO, 8 loại kế toán, Quỹ cơ sở (theo cơ sở), Thủ quỹ VP, HCMS / lái xe / Ban thư ký; điều kiện pháp nhân / cơ sở + người duyệt thay (F7). Trưởng phòng, GĐ khối lấy theo sơ đồ tổ chức.
+- **Hồ sơ chi**: ai cũng lập được (P6 B); đề nghị → duyệt mua sắm → mua sắm & nghiệm thu (F3) → duyệt thanh toán → chi tiền kèm ảnh UNC/phiếu chi (M1); người lập trùng người duyệt thì chuyển cấp trên (F6); ngưỡng thêm CEO tuỳ chọn, mặc định tắt (F2); thiếu chứng từ vẫn chi, hạn bổ sung 7 ngày (F5); nhắc 8h sáng + quá 24 giờ (F8); không OTP (M5); in A4 từ trình duyệt (M3); chứng từ lên Google Drive khi cấu hình thư mục, chưa cấu hình thì lưu trên APM (M2).
+- **Ngân sách** theo pháp nhân × phòng ban × mã chi × tháng (B1), phòng con cộng vào phòng cha (B2), file Excel mẫu + nhập (B4), đã thực hiện: mua sắm khi nghiệm thu, khoản khác khi chi (B5).
+- **Đối soát MISA** (M4): nhập F01-DNN theo pháp nhân / tháng, so doanh thu (511 - 5114) với CRM, chi phí (632 + 642 + 811) với hồ sơ chi đã thực hiện. File thật tháng 10 đọc được (68 dòng tài khoản).
+- **Thu - chi**: thu sau VAT & phí - chi đã thực hiện, so ngân sách, theo pháp nhân và phòng ban.
+
+Chưa làm: B7 (bước "Duyệt chi" của Đề xuất tài nguyên chuyển sang Tài chính - Tài nguyên vẫn chạy như cũ), tạm ứng / thanh toán nhiều đợt, AI gợi ý.

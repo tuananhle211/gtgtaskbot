@@ -366,7 +366,8 @@ class AdsCrmAccount(Base):
 
 class AdsCrmPayment(Base):
     """One payment read from the CRM (0083): thực thu on the day it was paid.
-    Only what the revenue needs - never the customer's name or phone."""
+    Since 0105 also what Tài chính needs (the people, the order, the customer's
+    name - never their phone); Phòng Ads' screens never show the name."""
 
     __tablename__ = ADS_CRM_PAYMENTS
     __table_args__ = (Index("ix_ads_crm_payments_day_marketing", "payment_date", "marketing_id"),)
@@ -383,9 +384,17 @@ class AdsCrmPayment(Base):
     order_id: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
     is_upsale: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
     source_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
-    #: The customer's CRM code (``KH…``, 0086) for "Báo cáo ngày"'s reconciling;
-    #: never their name or phone.
+    #: The customer's CRM code (``KH…``, 0086) for "Báo cáo ngày"'s reconciling.
     customer_code: Mapped[str | None] = mapped_column(String(40), nullable=True)
+    # --- for Tài chính (0105): read in the same run, never shown by Phòng Ads.
+    #: The people on the customer's file when read, and the order's owner.
+    telesales_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    cskh_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    carepage_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    owner_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    order_code: Mapped[str | None] = mapped_column(String(40), nullable=True)
+    #: The customer's name (Tài chính only, user 12/11 R8); never a phone.
+    customer_name: Mapped[str | None] = mapped_column(String(200), nullable=True)
     synced_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=utcnow, server_default=func.now(), nullable=False
     )

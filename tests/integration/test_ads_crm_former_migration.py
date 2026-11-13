@@ -36,8 +36,16 @@ pytestmark = [
 
 SETTINGS_KWARGS = {"_env_file": None, "web_cookie_secure": False}
 TABLES = ("'ads_crm_accounts'", "'ads_crm_payments'")
-#: 0086's column comes later.
-LATER = ("customer_code",)
+#: 0086's and 0105's columns come later.
+LATER = (
+    "customer_code",
+    "telesales_id",
+    "cskh_id",
+    "carepage_id",
+    "owner_id",
+    "order_code",
+    "customer_name",
+)
 USER = uuid.uuid4()
 
 

@@ -21,7 +21,8 @@ import { formatDate, formatDateTime } from "@/lib/datetime";
  * SG", their HN ones "Doanh số HN"); an account can instead feed a ◆ source,
  * or count for nobody. The region comes from the account name ("HN …", "SG
  * …" / "HCM …") and can be changed. "Nhập từ file Excel" reads the "Gắn mã"
- * workbook; "Đồng bộ ngay" reads the CRM again (it runs every hour anyway).
+ * workbook; "Đồng bộ ngay" reads the CRM again (it runs at 0h, 5h, 12h, 18h
+ * anyway - one run for Phòng Ads and Tài chính since 13/11).
  * A Trưởng phòng ADS, the OWNER / an ADMIN.
  */
 export default function AdsCrmPage() {
@@ -95,7 +96,7 @@ function Status({ data }: { data: AdsCrmOverview }) {
           </p>
         ) : null}
         <p className="text-xs text-[var(--text-muted)]">
-          Tự đồng bộ mỗi giờ (07:10 – 23:10). Trong khoảng đã lấy, người / nguồn
+          Tự đồng bộ lúc 0h, 5h, 12h, 18h (một lần gọi CRM chung với Tài chính). Trong khoảng đã lấy, người / nguồn
           có tài khoản CRM dùng số CRM; ô nhập tay của họ bị khoá.
         </p>
       </div>

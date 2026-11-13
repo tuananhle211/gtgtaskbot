@@ -85,6 +85,10 @@ WEB_TITLES: Mapping[NotificationEvent, str] = MappingProxyType(
         NotificationEvent.HR_ABSENCE_SUBMITTED: "Có đơn từ mới",
         NotificationEvent.HR_ABSENCE_STEP_APPROVED: "Đơn từ đã qua một bước duyệt",
         NotificationEvent.HR_ABSENCE_CANCELLED: "Đơn từ đã huỷ",
+        NotificationEvent.FINANCE_DEBTS_DIGEST: "Công nợ quá hạn",
+        NotificationEvent.FINANCE_REQUEST_AWAITING: "Có hồ sơ chi chờ bạn",
+        NotificationEvent.FINANCE_REQUEST_UPDATED: "Hồ sơ chi của bạn có cập nhật",
+        NotificationEvent.FINANCE_REQUEST_REMINDER: "Nhắc hồ sơ chi",
     }
 )
 

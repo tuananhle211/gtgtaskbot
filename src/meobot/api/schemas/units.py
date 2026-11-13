@@ -259,6 +259,25 @@ class CskhMenuResponse(BaseModel):
     zalo_unread: int = 0
 
 
+class FinanceMenuResponse(BaseModel):
+    """ "Tài chính" (0105): ``revenue`` = Doanh thu, ``customers`` = customer
+    names on its lines, ``settings`` = Cấu hình (CRM branches / people, VAT,
+    "Đồng bộ ngay")."""
+
+    revenue: bool = False
+    customers: bool = False
+    settings: bool = False
+    fees: bool = False
+    #: Đợt 3: file hồ sơ chi; the badge = what waits on the caller.
+    requests: bool = False
+    awaiting: int = 0
+    view_requests: bool = False
+    codes: bool = False
+    budget: bool = False
+    misa: bool = False
+    report: bool = False
+
+
 class AgentsAccessResponse(BaseModel):
     """ "Đội agent" (0091): ``chat`` = at least one agent to talk to (the nav
     item); ``manage`` = the OWNER's "Đội agent" admin tab."""
@@ -318,6 +337,7 @@ class UnitMeResponse(BaseModel):
     agents: AgentsAccessResponse = AgentsAccessResponse()
     cskh: CskhMenuResponse = CskhMenuResponse()
     hr: HrMenuResponse = HrMenuResponse()
+    finance: FinanceMenuResponse = FinanceMenuResponse()
     #: Ghim menu (2026-11-12): branch keys this person pinned, in order.
     nav_pins: list[str] = []
 
