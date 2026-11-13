@@ -192,6 +192,57 @@ describe("Tài chính", () => {
     await waitFor(() => expect(sent(stub, "POST", "/api/finance/sync")).toHaveLength(1));
     expect(await screen.findByRole("status")).toHaveTextContent("Đã gửi yêu cầu đồng bộ");
   });
+
+  it("locks a CRM marketing account to Phòng Ads' link", async () => {
+    stubFetch([
+      { match: "/api/finance/access", body: ACCESS },
+      { match: "/api/finance/codes", body: { codes: [], can_edit: false } },
+      { match: "/api/finance/spend/catalog", body: CATALOG },
+      { match: "/api/finance/people", body: [{ id: "u2", name: "Kế toán viên", member_code: null }] },
+      {
+        match: "/api/finance/staff",
+        body: {
+          rows: [
+            {
+              id: 10,
+              name: "HN - MKT A",
+              roles: ["marketing"],
+              department_name: null,
+              user_id: "u1",
+              user_name: "Marketer A",
+              from_ads: true,
+              ads_label: "Gắn bên Phòng Ads",
+            },
+            {
+              id: 20,
+              name: "Sale B",
+              roles: ["telesales"],
+              department_name: null,
+              user_id: null,
+              user_name: null,
+              from_ads: false,
+              ads_label: null,
+            },
+          ],
+          total: 2,
+          unmapped: 1,
+          page_size: 100,
+          can_edit: true,
+        },
+      },
+    ]);
+    renderWithQuery(<SettingsPage />);
+    await userEvent.click(await screen.findByRole("tab", { name: "Nhân viên CRM" }));
+    const locked = await screen.findByTestId("staff-from-ads");
+    expect(locked).toHaveTextContent("Marketer A");
+    expect(locked).toHaveTextContent("Gắn bên Phòng Ads");
+    expect(within(locked).getByRole("link", { name: /Quản trị › Tài khoản CRM/ })).toHaveAttribute(
+      "href",
+      "/admin/crm",
+    );
+    expect(screen.queryByLabelText("Tài khoản APM của HN - MKT A")).not.toBeInTheDocument();
+    expect(screen.getByLabelText("Tài khoản APM của Sale B")).toBeInTheDocument();
+  });
 });
 
 describe("Tính năng đang phát triển", () => {

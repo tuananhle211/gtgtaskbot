@@ -20,6 +20,10 @@ import { api, type UnitsMe } from "@/lib/api";
  * * **Kết nối AI** (`/admin/ai`, OWNER only) - the AI services the app calls
  *   (ChatGPT, Gemini, DeepSeek, 9router...) and which serves which purpose.
  *
+ * **Tài khoản CRM** (`/admin/crm`, 13/11, was Phòng Ads › Tài khoản CRM) -
+ *   each CRM marketing account -> its APM person, for Phòng Ads and Tài
+ *   chính alike. Who may edit Phòng Ads' revenue (`ads.edit_revenue`).
+ *
  * **Hiệu năng** (`/admin/performance`, OWNER / ADMIN) - how fast the API answers
  *   and how long background tasks wait (plan docs/ops/SCALING_PLAN.md D).
  *
@@ -35,6 +39,7 @@ import { api, type UnitsMe } from "@/lib/api";
 export type AdminTabKey =
   | "departments"
   | "accounts"
+  | "crm"
   | "settings"
   | "ai"
   | "agents"
@@ -44,6 +49,9 @@ export type AdminTabKey =
 export const ADMIN_TABS: ReadonlyArray<{ key: AdminTabKey; href: string; label: string }> = [
   { key: "departments", href: "/admin/departments", label: "Phòng ban" },
   { key: "accounts", href: "/admin/accounts", label: "Quản lý tài khoản" },
+  // Tài khoản CRM (13/11, moved from Phòng Ads): one link CRM marketing
+  // account -> APM person for Phòng Ads and Tài chính; `ads.edit_revenue`.
+  { key: "crm", href: "/admin/crm", label: "Tài khoản CRM" },
   { key: "settings", href: "/admin/settings", label: "Thiết lập ORD" },
   { key: "ai", href: "/admin/ai", label: "Kết nối AI" },
   // Đội agent (0091): who may chat with which Hermes agent (OWNER).
@@ -69,6 +77,7 @@ export function adminTabsFor(
   const shown: Record<AdminTabKey, boolean> = {
     departments: manages,
     accounts: manages || headsDepartments(me),
+    crm: Boolean(me?.ads?.edit_revenue),
     settings: ordSettings,
     ai: sessionRole === "OWNER",
     agents: Boolean(me?.agents?.manage),

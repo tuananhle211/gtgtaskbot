@@ -12,10 +12,11 @@ from decimal import Decimal
 from sqlalchemy import select
 
 from meobot.api.routers.finance import get_task_sender
+from meobot.application.crm.staff_link import mirror_ads_accounts
 from meobot.application.crm.sync import CrmSyncService
 from meobot.application.finance.revenue import FinanceRevenueService
 from meobot.application.org.departments import ensure_default_departments, seat_person
-from meobot.db.models.ads import AdsCrmPayment
+from meobot.db.models.ads import AdsCrmAccount, AdsCrmPayment
 from meobot.db.models.department import Department, DepartmentPermission
 from meobot.db.models.finance import (
     CrmBranchRecord,
@@ -691,3 +692,51 @@ async def test_07_one_order_with_everybody_on_it(world: World) -> None:
     assert new["seller_check"] == -1_080_000 and new["doctor_check"] == 300_000 - 1_080_000
     # No card rule set yet: the sheet's own 2% of card payments (none here).
     assert new["fees"]["card_fee"] == 0
+
+
+async def test_08_crm_marketing_links_follow_phong_ads(world: World) -> None:
+    """User 13/11: a CRM marketing account linked on Phòng Ads is linked the
+    same way on Tài chính, by itself - edit, Excel import and sync alike - and
+    Tài chính cannot set it differently."""
+    head, member, _ = await _finance_people(world)
+    await CrmSyncService(world.session, crm()).run(D1, D2, today=TODAY)
+    staff = await world.session.get(CrmStaffRecord, 10)
+    assert staff is not None and staff.user_id is None and "marketing" in staff.roles
+
+    world.act_as(world.owner)
+    linked = world.client.patch("/api/ads/crm/accounts/10", json={"user_id": str(member.id)})
+    assert linked.status_code == 200, linked.json()
+    await world.session.refresh(staff)
+    assert staff.user_id == member.id
+
+    world.act_as(head)
+    rows = {row["id"]: row for row in world.client.get("/api/finance/staff").json()["rows"]}
+    assert rows[10]["from_ads"] is True and rows[10]["user_name"] == "Kế toán viên"
+    assert rows[10]["ads_label"] == "Gắn bên Phòng Ads"
+    assert rows[20]["from_ads"] is False and rows[20]["ads_label"] is None
+    refused = world.client.patch("/api/finance/staff/10", json={"user_id": str(head.id)})
+    assert refused.status_code == 422
+    assert refused.json()["error"]["details"]["reason"] == "crm_staff_from_ads"
+
+    # A ◆ source drops the person on both sides and is no "chưa gắn" for Tài chính.
+    world.act_as(world.owner)
+    world.client.patch("/api/ads/crm/accounts/10", json={"source": "SEEDING"})
+    await world.session.refresh(staff)
+    assert staff.user_id is None
+    world.act_as(head)
+    loose = world.client.get("/api/finance/staff?unmapped=true").json()
+    assert 10 not in {row["id"] for row in loose["rows"]}
+
+    # An Ads account Tài chính never saw gets its row.
+    world.session.add(AdsCrmAccount(crm_id=4242, name="HN - MKT MỚI", user_id=head.id))
+    await world.session.flush()
+    assert await mirror_ads_accounts(world.session, [4242]) == 1
+    created = await world.session.get(CrmStaffRecord, 4242)
+    assert created is not None and created.user_id == head.id and created.roles == ["marketing"]
+
+    # A later sync keeps the links (a hand edit on crm_staff is put back).
+    created.user_id = None
+    await world.session.flush()
+    await CrmSyncService(world.session, crm()).run(D1, D2, today=TODAY)
+    await world.session.refresh(created)
+    assert created.user_id == head.id

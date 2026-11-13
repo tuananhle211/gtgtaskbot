@@ -278,6 +278,11 @@ class StaffResponse(BaseModel):
     department_name: str | None
     user_id: uuid.UUID | None
     user_name: str | None
+    #: A CRM marketing account Phòng Ads holds: its link is copied from there
+    #: and cannot be changed here.
+    from_ads: bool = False
+    #: "Gắn bên Phòng Ads" / "Chưa gắn bên Phòng Ads" / "Nguồn ◆ …" / "Nhân viên đã nghỉ …".
+    ads_label: str | None = None
 
 
 class StaffPageResponse(BaseModel):
@@ -298,8 +303,10 @@ class StaffPageResponse(BaseModel):
                     department_name=row.department_name,
                     user_id=row.user_id,
                     user_name=user_name,
+                    from_ads=link is not None,
+                    ads_label=link.label if link is not None else None,
                 )
-                for row, user_name in page.rows
+                for row, user_name, link in page.rows
             ],
             total=page.total,
             unmapped=page.unmapped,

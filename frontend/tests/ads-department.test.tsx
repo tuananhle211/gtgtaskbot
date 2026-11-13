@@ -152,6 +152,15 @@ describe("who sees Phòng Ads", () => {
       "/admin/ads",
     );
   });
+
+  it("puts Tài khoản CRM under Quản trị for whoever edits the revenue (13/11)", () => {
+    const head = me({ view: true, view_all: true, edit_revenue: true });
+    expect(hrefs(navFor(head, "EMPLOYEE"))).not.toContain("/ads/crm");
+    expect(hrefs(navFor(head, "EMPLOYEE"))).toContain("/admin");
+    expect(adminTabsFor(head, "EMPLOYEE").map((tab) => tab.href)).toEqual(["/admin/crm"]);
+    const marketer = me({ view: true, view_all: false, edit_revenue: false });
+    expect(adminTabsFor(marketer, "EMPLOYEE")).toEqual([]);
+  });
 });
 
 const connection = (over: Record<string, unknown> = {}) => ({

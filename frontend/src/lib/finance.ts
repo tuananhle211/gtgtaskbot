@@ -104,6 +104,9 @@ export type CrmStaff = {
   department_name: string | null;
   user_id: string | null;
   user_name: string | null;
+  /** A CRM marketing account Phòng Ads holds: linked there, read-only here. */
+  from_ads?: boolean;
+  ads_label?: string | null;
 };
 export type StaffPage = {
   rows: CrmStaff[];

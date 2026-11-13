@@ -6,14 +6,14 @@
 import { describe, expect, it, vi } from "vitest";
 import { screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import AdsCrmPage from "@/app/ads/crm/page";
+import AdsCrmPage from "@/app/admin/crm/page";
 import AdsRevenuePage from "@/app/ads/revenue/page";
 import type { AdsCrmAccount, AdsCrmOverview } from "@/lib/api";
 import { renderWithQuery, stubFetch } from "./helpers";
 
 vi.mock("next/navigation", () => ({
   useParams: () => ({}),
-  usePathname: () => "/ads/crm",
+  usePathname: () => "/admin/crm",
   useSearchParams: () => new URLSearchParams(),
   useRouter: () => ({ replace: () => undefined, push: () => undefined }),
 }));

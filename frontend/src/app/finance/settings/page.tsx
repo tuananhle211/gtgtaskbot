@@ -5,12 +5,14 @@
  * - "Chi nhánh CRM": each CRM branch -> its pháp nhân and APM cơ sở (a new
  *   CRM branch appears by itself, "Chưa gắn"); changing it moves the old
  *   months too (no effective date);
- * - "Nhân viên CRM": each CRM person -> the APM account they are;
+ * - "Nhân viên CRM": each CRM person -> the APM account they are; a CRM
+ *   marketing account Phòng Ads holds follows its link there (locked here);
  * - "Thuế VAT": the rate used when a payment's order is not known;
  * - "Đồng bộ CRM": the one run shared with Phòng Ads, and "Đồng bộ ngay".
  * Editing needs FINANCE SETTINGS; others read.
  */
 
+import Link from "next/link";
 import { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { ConfirmButton } from "@/components/confirm";
@@ -199,7 +201,17 @@ function StaffRow({
         </div>
       </td>
       <td className="min-w-56">
-        {canEdit ? (
+        {row.from_ads ? (
+          <div data-testid="staff-from-ads">
+            {row.user_name ?? <span className="text-[var(--text-muted)]">Chưa gắn</span>}
+            <span className="mt-1 flex flex-wrap items-center gap-2 text-xs text-[var(--text-muted)]">
+              <Pill tone={row.user_id ? "good" : "warn"}>{row.ads_label ?? "Phòng Ads"}</Pill>
+              <Link href="/admin/crm" className="underline">
+                Sửa ở Quản trị › Tài khoản CRM
+              </Link>
+            </span>
+          </div>
+        ) : canEdit ? (
           <div className="flex items-center gap-2">
             <Select
               aria-label={`Tài khoản APM của ${row.name}`}
@@ -257,7 +269,8 @@ function StaffTab({ canEdit }: { canEdit: boolean }) {
     <div className="space-y-3">
       <p className="text-sm text-[var(--text-muted)]">
         Mọi người CRM từng xuất hiện trên khoản thu, doanh thu chia hay công tua. Gắn với tài khoản
-        APM để báo cáo theo người ghi đúng nhân viên.
+        APM để báo cáo theo người ghi đúng nhân viên. Tài khoản CRM marketing lấy đúng cách gắn bên
+        Phòng Ads (tự cập nhật khi Phòng Ads sửa), nên chỉ sửa được ở Quản trị › Tài khoản CRM.
       </p>
       <div className="flex flex-wrap items-end gap-3">
         <label className="block min-w-60 flex-1 text-xs font-medium text-[var(--text-muted)]">

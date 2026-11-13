@@ -43,6 +43,7 @@ from meobot.application.ads.crm_revenue import (
 )
 from meobot.application.ads.revenue_service import AdsRevenueForbiddenError
 from meobot.application.audit_service import AuditService
+from meobot.application.crm.staff_link import mirror_ads_accounts
 from meobot.core.errors import NotFoundError, ValidationError
 from meobot.core.time import utcnow
 from meobot.db.models.ads import AdsCrmAccount, AdsCrmPayment
@@ -285,6 +286,8 @@ class AdsCrmSyncService:
                 or coverage.branches,
             ),
         )
+        # Tài chính's CRM people follow Phòng Ads' links (13/11).
+        await mirror_ads_accounts(self._session)
         await self._session.flush()
         return report
 
@@ -481,6 +484,7 @@ class AdsCrmService:
         account.updated_by_user_id = actor.user_id
         account.updated_at = utcnow()
         await self._session.flush()
+        await mirror_ads_accounts(self._session, [crm_id])
         await self._audit.record_action(
             request_id=request_id,
             actor=actor,
@@ -677,6 +681,7 @@ class AdsCrmService:
                 account.updated_at = now
                 result.changed += 1
         await self._session.flush()
+        await mirror_ads_accounts(self._session, [row[0] for row in planned])
         await self._audit.record_action(
             request_id=request_id,
             actor=actor,

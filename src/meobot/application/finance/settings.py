@@ -4,7 +4,9 @@
   (user 12/11: "Chi nhánh bên CRM sẽ gắn với các pháp nhân bên apm. Có màn
   config"); a new CRM branch shows "Chưa gắn" until set. No effective date
   (R2 A): changing it moves the old months too;
-* each CRM person -> the APM account they are (R5 B: by hand);
+* each CRM person -> the APM account they are (R5 B: by hand) - except the
+  CRM marketing accounts Phòng Ads holds: those follow Phòng Ads' link
+  (``application/crm/staff_link.py``, 13/11) and are locked here;
 * the VAT rate used when a payment's order is not known: a default and one
   per pháp nhân (R3: "có mục config").
 
@@ -24,9 +26,11 @@ from sqlalchemy import func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from meobot.application.audit_service import AuditService
+from meobot.application.crm.staff_link import AdsLink, ads_links
 from meobot.application.finance.access import FinanceAccess
 from meobot.application.finance.revenue import FINANCE_SETTINGS_KEY
 from meobot.core.time import utcnow
+from meobot.db.models.ads import AdsCrmAccount
 from meobot.db.models.finance import (
     CrmBranchRecord,
     CrmOrderRecord,
@@ -51,7 +55,8 @@ STAFF_PAGE = 100
 
 @dataclass(frozen=True, slots=True)
 class StaffPage:
-    rows: list[tuple[CrmStaffRecord, str | None]]
+    #: (person, APM name, how Phòng Ads holds the id - None = not an Ads account)
+    rows: list[tuple[CrmStaffRecord, str | None, AdsLink | None]]
     total: int
     unmapped: int
 
@@ -142,13 +147,21 @@ class FinanceSettingsService:
                     func.cast(CrmStaffRecord.id, String_()).ilike(f"%{text}%"),
                 )
             )
+        # A ◆ source / former marketer in Phòng Ads is no person on purpose:
+        # nothing left to map.
+        not_a_person = select(AdsCrmAccount.crm_id).where(
+            or_(AdsCrmAccount.source.is_not(None), AdsCrmAccount.former.is_(True))
+        )
+        loose = (CrmStaffRecord.user_id.is_(None), CrmStaffRecord.id.not_in(not_a_person))
         if unmapped:
-            statement = statement.where(CrmStaffRecord.user_id.is_(None))
+            statement = statement.where(*loose)
         total = int(
             await self._session.scalar(select(func.count()).select_from(statement.subquery())) or 0
         )
         missing = int(
-            await self._session.scalar(select(func.count()).where(CrmStaffRecord.user_id.is_(None)))
+            await self._session.scalar(
+                select(func.count()).select_from(CrmStaffRecord).where(*loose)
+            )
             or 0
         )
         rows = (
@@ -166,8 +179,12 @@ class FinanceSettingsService:
                 )
             )
         }
+        links = await ads_links(self._session, [row.id for row in rows])
         return StaffPage(
-            rows=[(row, names.get(row.user_id) if row.user_id else None) for row in rows],
+            rows=[
+                (row, names.get(row.user_id) if row.user_id else None, links.get(row.id))
+                for row in rows
+            ],
             total=total,
             unmapped=missing,
         )
@@ -197,6 +214,13 @@ class FinanceSettingsService:
         row = await self._session.get(CrmStaffRecord, crm_id)
         if row is None:
             raise FinanceNotFoundError("finance_staff_not_found", "Không tìm thấy nhân viên CRM.")
+        if await self._session.get(AdsCrmAccount, crm_id) is not None:
+            raise FinanceInvalidError(
+                "crm_staff_from_ads",
+                "Tài khoản CRM marketing này gắn ở Quản trị > Tài khoản CRM (dùng chung "
+                "cho Phòng Ads và Tài chính). Sửa ở đó để hai bên luôn giống nhau.",
+                field="user_id",
+            )
         if user_id is not None:
             user = await self._session.get(User, user_id)
             if user is None or user.deleted_at is not None:

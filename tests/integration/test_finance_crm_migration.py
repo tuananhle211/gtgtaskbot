@@ -215,3 +215,50 @@ async def test_03_spend_tables_codes_grants(dsn: str, database: Database) -> Non
         assert await connection.scalar(text("SELECT to_regclass('finance_requests')")) is None
     await database.engine.dispose()
     await upgrade_to(dsn, "0107")
+
+
+async def test_04_crm_staff_follow_phong_ads(dsn: str, database: Database) -> None:
+    """0108: every Phòng Ads CRM account gives its link to ``crm_staff`` -
+    a missing row is created (role marketing), a different link replaced."""
+    await upgrade_to(dsn, "0107")
+    marketer, other = uuid.uuid4(), uuid.uuid4()
+    async with database.engine.begin() as connection:
+        for user_id, name in ((marketer, "MKT A"), (other, "Người khác")):
+            await connection.execute(
+                text(
+                    "INSERT INTO users (id, full_name, role, status, active, created_at, "
+                    "updated_at) VALUES (:id, :name, 'EMPLOYEE', 'ACTIVE', true, now(), now())"
+                ),
+                {"id": user_id, "name": name},
+            )
+        await connection.execute(
+            text(
+                "INSERT INTO ads_crm_accounts (crm_id, name, active, in_directory, user_id, "
+                "former, synced_at) VALUES (10, 'HN - MKT A', true, true, :u, false, now()), "
+                "(11, 'Hotline FB', true, true, NULL, false, now())"
+            ),
+            {"u": marketer},
+        )
+        await connection.execute(
+            text(
+                "INSERT INTO crm_staff (id, name, roles, user_id, seen_at) VALUES "
+                "(11, 'Hotline FB', '[\"telesales\"]', :o, now()), "
+                "(20, 'Sale B', '[\"telesales\"]', :o, now())"
+            ),
+            {"o": other},
+        )
+    await database.engine.dispose()
+    await upgrade_to(dsn, "0108")
+    async with database.engine.begin() as connection:
+        rows = {
+            row.id: (row.user_id, sorted(row.roles))
+            for row in (
+                await connection.execute(text("SELECT id, user_id, roles FROM crm_staff"))
+            ).all()
+        }
+    assert rows == {
+        10: (marketer, ["marketing"]),
+        11: (None, ["marketing", "telesales"]),
+        20: (other, ["telesales"]),
+    }
+    await database.engine.dispose()
