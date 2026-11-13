@@ -23,6 +23,17 @@ from meobot.db.base import Base
 from meobot.db.session import Database
 from tests.integration.test_dispatch_migrations import TEST_DATABASE_URL, downgrade_to, upgrade_to
 
+#: finance_fees columns added later (0109, the "BCLT new" marks).
+LATER_FEE_COLUMNS = ("status2", "customer", "status", "upsale", "category")
+
+
+def _later(item: object) -> bool:
+    text_ = repr(item)
+    return "'finance_fees'" in text_ and any(
+        f"Column('{name}'" in text_ for name in LATER_FEE_COLUMNS
+    )
+
+
 pytestmark = [
     pytest.mark.integration,
     pytest.mark.asyncio(loop_scope="module"),
@@ -148,6 +159,7 @@ async def test_02_fees_costs_kpi(dsn: str, database: Database) -> None:
                 f"'{table}'" in repr(item)
                 for table in ("finance_fees", "finance_service_costs", "finance_kpis")
             )
+            and not _later(item)
         ]
 
     async with database.engine.begin() as connection:
@@ -184,7 +196,9 @@ async def test_03_spend_tables_codes_grants(dsn: str, database: Database) -> Non
             opts={"compare_type": True, "compare_server_default": True},
         )
         return [
-            item for item in compare_metadata(context, Base.metadata) if "finance_" in repr(item)
+            item
+            for item in compare_metadata(context, Base.metadata)
+            if "finance_" in repr(item) and not _later(item)
         ]
 
     async with database.engine.begin() as connection:
@@ -262,3 +276,40 @@ async def test_04_crm_staff_follow_phong_ads(dsn: str, database: Database) -> No
         20: (other, ["telesales"]),
     }
     await database.engine.dispose()
+
+
+async def test_05_ledger_marks(dsn: str, database: Database) -> None:
+    """0109: the five "BCLT new" marks on finance_fees match the model; a
+    downgrade drops them."""
+    await upgrade_to(dsn, "0109")
+
+    def _diff(connection: object) -> list[object]:
+        from alembic.autogenerate import compare_metadata
+        from alembic.migration import MigrationContext
+
+        context = MigrationContext.configure(
+            connection,  # type: ignore[arg-type]
+            opts={"compare_type": True, "compare_server_default": True},
+        )
+        return [
+            item
+            for item in compare_metadata(context, Base.metadata)
+            if "'finance_fees'" in repr(item)
+        ]
+
+    async with database.engine.begin() as connection:
+        assert await connection.run_sync(_diff) == []
+    await database.engine.dispose()
+    await downgrade_to(dsn, "0108")
+    async with database.engine.begin() as connection:
+        names = (
+            await connection.scalars(
+                text(
+                    "SELECT column_name FROM information_schema.columns "
+                    "WHERE table_name = 'finance_fees'"
+                )
+            )
+        ).all()
+    assert not set(LATER_FEE_COLUMNS) & set(names)
+    await database.engine.dispose()
+    await upgrade_to(dsn, "0109")

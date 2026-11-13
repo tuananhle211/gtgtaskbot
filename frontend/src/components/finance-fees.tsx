@@ -1,13 +1,25 @@
 "use client";
 
-/** "Sửa phí" of one BCLT row (Tài chính đợt 2), shared by Bảng kê and the order page. */
+/**
+ * "Sửa phí" of one BCLT row (Tài chính đợt 2), shared by Bảng kê and the order
+ * page. With `marks` (the "BCLT new" pick-lists of sheet "GHI CHÚ") it also
+ * picks Tình trạng 2 / Mới / Tình trạng / Up / Phân loại; "Theo gợi ý" = APM's.
+ */
 
 import { useState } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { ConfirmButton } from "@/components/confirm";
 import { Modal, ModalBody, ModalFooter } from "@/components/modal";
-import { SecondaryButton } from "@/components/pr";
-import { FEE_LABELS, financeApi, money, type FeeKey, type LedgerRow } from "@/lib/finance";
+import { SecondaryButton, Select } from "@/components/pr";
+import {
+  FEE_LABELS,
+  financeApi,
+  money,
+  type FeeKey,
+  type LedgerRow,
+  type MarkChoice,
+  type MarkKey,
+} from "@/lib/finance";
 
 const FEE_KEYS: FeeKey[] = ["card_fee", "referral_fee", "car_fee", "cost"];
 const field =
@@ -17,7 +29,15 @@ function dayLabel(day: string): string {
   return `${day.slice(8, 10)}/${day.slice(5, 7)}`;
 }
 
-export function FeeDialog({ row, onClose }: { row: LedgerRow; onClose: () => void }) {
+export function FeeDialog({
+  row,
+  onClose,
+  marks = [],
+}: {
+  row: LedgerRow;
+  onClose: () => void;
+  marks?: MarkChoice[];
+}) {
   const queryClient = useQueryClient();
   const [values, setValues] = useState<Record<FeeKey, string>>(() =>
     Object.fromEntries(
@@ -25,6 +45,11 @@ export function FeeDialog({ row, onClose }: { row: LedgerRow; onClose: () => voi
     ) as Record<FeeKey, string>,
   );
   const [note, setNote] = useState(row.note ?? "");
+  const [picks, setPicks] = useState<Partial<Record<MarkKey, string>>>(() =>
+    Object.fromEntries(
+      marks.map((mark) => [mark.key, row.picked?.includes(mark.key) ? (row.marks?.[mark.key] ?? "") : ""]),
+    ),
+  );
   const save = useMutation({
     mutationFn: () =>
       financeApi.setFees({
@@ -32,6 +57,7 @@ export function FeeDialog({ row, onClose }: { row: LedgerRow; onClose: () => voi
         day: row.day,
         ...Object.fromEntries(FEE_KEYS.map((key) => [key, values[key].trim() || null])),
         note: note.trim() || null,
+        ...Object.fromEntries(marks.map((mark) => [mark.key, picks[mark.key] || null])),
       }),
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: ["finance"] });
@@ -39,8 +65,39 @@ export function FeeDialog({ row, onClose }: { row: LedgerRow; onClose: () => voi
     },
   });
   return (
-    <Modal open onClose={onClose} title={`Sửa phí ${row.order_code ?? ""} · ${dayLabel(row.day)}`} busy={save.isPending}>
+    <Modal
+      open
+      onClose={onClose}
+      title={`${marks.length ? "Sửa dòng" : "Sửa phí"} ${row.order_code ?? ""} · ${dayLabel(row.day)}`}
+      busy={save.isPending}
+    >
       <ModalBody className="space-y-3">
+        {marks.length ? (
+          <fieldset className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+            <legend className="mb-2 text-sm font-semibold">Phân loại dòng (như BCLT new)</legend>
+            {marks.map((mark) => {
+              const suggested = row.picked?.includes(mark.key) ? null : (row.marks?.[mark.key] ?? null);
+              return (
+                <label key={mark.key} className="block text-xs font-medium text-[var(--text-muted)]">
+                  {mark.label}
+                  <Select
+                    aria-label={mark.label}
+                    value={picks[mark.key] ?? ""}
+                    onChange={(event) => setPicks({ ...picks, [mark.key]: event.target.value })}
+                    className="mt-1 w-full"
+                  >
+                    <option value="">{suggested ? `Theo gợi ý (${suggested})` : "Để trống"}</option>
+                    {mark.choices.map((choice) => (
+                      <option key={choice} value={choice}>
+                        {choice}
+                      </option>
+                    ))}
+                  </Select>
+                </label>
+              );
+            })}
+          </fieldset>
+        ) : null}
         <p className="text-sm text-[var(--text-muted)]">
           Để trống = dùng số tự tính (phí quẹt theo % phương thức, giá cost theo bảng dịch vụ).
         </p>
@@ -67,7 +124,7 @@ export function FeeDialog({ row, onClose }: { row: LedgerRow; onClose: () => voi
         </SecondaryButton>
         <ConfirmButton
           spec={{
-            title: `Lưu phí của ${row.order_code ?? "đơn"} ngày ${dayLabel(row.day)}?`,
+            title: `Lưu ${marks.length ? "dòng" : "phí"} của ${row.order_code ?? "đơn"} ngày ${dayLabel(row.day)}?`,
             description: "Thực thu sau phí của dòng, ngày và tháng tính lại theo số mới.",
             confirmLabel: "Lưu",
           }}
@@ -76,7 +133,7 @@ export function FeeDialog({ row, onClose }: { row: LedgerRow; onClose: () => voi
           error={save.error}
           tone="primary"
         >
-          Lưu phí
+          {marks.length ? "Lưu dòng" : "Lưu phí"}
         </ConfirmButton>
       </ModalFooter>
     </Modal>

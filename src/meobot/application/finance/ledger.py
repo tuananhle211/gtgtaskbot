@@ -35,7 +35,7 @@ from typing import Any
 from openpyxl import Workbook
 from openpyxl.styles import Alignment, Font, PatternFill
 from openpyxl.utils import get_column_letter
-from sqlalchemy import or_, select
+from sqlalchemy import func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from meobot.application.audit_service import AuditService
@@ -69,6 +69,7 @@ from meobot.domain.finance.crm import (
     whole,
 )
 from meobot.domain.finance.errors import FinanceInvalidError, FinanceNotFoundError
+from meobot.domain.finance.ledger_marks import MARK_KEYS, MARK_SPECS, category_of, mark_value
 from meobot.domain.identity.models import Actor
 
 #: The longest span the screen asks for at once.
@@ -121,8 +122,33 @@ class LedgerRow:
     sale: str | None = None
     marketing: str | None = None
     carepage: str | None = None
-    #: The order's services ("DIỄN GIẢI").
+    #: The order's services ("DIỄN GIẢI"), names only (search).
     services: str | None = None
+    #: The order's services one by one with their own price ("BCLT new").
+    items: list[tuple[str, Decimal]] = field(default_factory=list)
+    #: Every doctor share line: (name, share kind label, amount).
+    doctor_shares: list[tuple[str, str, Decimal]] = field(default_factory=list)
+    #: A payment of the row the CRM marks as upsale.
+    upsale: bool = False
+    #: "BCLT new" marks: what APM suggests and what Kế toán picked.
+    suggested: dict[str, str | None] = field(default_factory=dict)
+    picked: dict[str, str | None] = field(default_factory=dict)
+
+    @property
+    def marks(self) -> dict[str, str | None]:
+        """Each mark as shown: Kế toán's pick, else the suggestion."""
+        return {key: self.picked.get(key) or self.suggested.get(key) for key in MARK_KEYS}
+
+    @property
+    def received(self) -> Decimal:
+        """BCLT new "THỰC THU" = trả góp + thẻ + nhà xe + CK + tiền mặt
+        (refunds apart)."""
+        return self.collected - self.refunds
+
+    @property
+    def charges(self) -> Decimal:
+        """BCLT new "TỔNG HỢP PHÍ" = hoàn tiền + the four fees."""
+        return -self.refunds + self.fees.total
 
     @property
     def net(self) -> Decimal:
@@ -312,6 +338,7 @@ class FinanceLedgerService:
                 owed=Decimal(order.the_rest),
                 owed_days=(today - order.created_on).days if order.the_rest > 0 else None,
                 services=_services(order),
+                items=_items(order),
             )
         staff_ids: set[int] = set()
         people: dict[tuple[int | None, date, int], tuple[int | None, int | None, int | None]] = {}
@@ -326,17 +353,21 @@ class FinanceLedgerService:
                     kind="TTCN",
                     order_code=payment.order_code or (paid_order.code if paid_order else None),
                     product=bool(paid_order and paid_order.role_type == PRODUCT_ROLE),
-                    customer_code=payment.customer_code,
+                    customer_code=payment.customer_code
+                    or (paid_order.customer_code if paid_order else None),
                     customer_name=payment.customer_name,
                     branch=branches.get(payment.branch_id)
                     if payment.branch_id is not None
                     else None,
                     services=_services(paid_order) if paid_order else None,
+                    items=_items(paid_order) if paid_order else [],
                 )
             if row.customer_name is None:
                 row.customer_name = payment.customer_name
             if not counted(payment.payment_type):
                 continue
+            if payment.is_upsale:
+                row.upsale = True
             price = Decimal(payment.price)
             row.collected += price
             if payment.payment_type == REFUND:
@@ -406,6 +437,7 @@ class FinanceLedgerService:
             amount = Decimal(share.shared_revenue)
             if share.department_id == DOCTOR_DEPARTMENT:
                 kind = share.share_type or 0
+                row.doctor_shares.append((who, SHARE_TYPE_LABELS.get(kind, "Bác sĩ"), amount))
                 before = row.doctors.get(kind)
                 row.doctors[kind] = (
                     who if before is None else f"{before[0]}, {who}",
@@ -434,6 +466,10 @@ class FinanceLedgerService:
                 else:
                     setattr(row.fees, name_, getattr(row.auto, name_))
             row.note = fee.note if fee is not None else None
+            row.picked = {
+                key: (getattr(fee, key) if fee is not None else None) for key in MARK_KEYS
+            }
+        await self._suggest(rows.values())
 
         ordered = sorted(
             rows.values(),
@@ -448,6 +484,48 @@ class FinanceLedgerService:
             days=self._days(since, until, ordered, kpi_month),
             kpi_month=kpi_month,
         )
+
+    async def _suggest(self, rows: Iterable[LedgerRow]) -> None:
+        """What APM reads off the CRM for the marks: "Mới" = Cũ when the
+        customer had an order or a payment before the row's day (APM holds
+        the CRM from 10/2026 on, so earlier customers look new), "Up" = Up
+        when the CRM marks a payment upsale, "Phân loại" = V3 / V1 from the
+        services' codes. Tình trạng / Tình trạng 2 are never guessed."""
+        rows = list(rows)
+        codes = {row.customer_code for row in rows if row.customer_code}
+        first: dict[str, date] = {}
+        if codes:
+            for code, day in (
+                await self._session.execute(
+                    select(CrmOrderRecord.customer_code, func.min(CrmOrderRecord.created_on))
+                    .where(CrmOrderRecord.customer_code.in_(codes))
+                    .group_by(CrmOrderRecord.customer_code)
+                )
+            ).all():
+                if code and day:
+                    first[code] = day
+            for code, day in (
+                await self._session.execute(
+                    select(AdsCrmPayment.customer_code, func.min(AdsCrmPayment.payment_date))
+                    .where(AdsCrmPayment.customer_code.in_(codes))
+                    .group_by(AdsCrmPayment.customer_code)
+                )
+            ).all():
+                if code and day and (code not in first or day < first[code]):
+                    first[code] = day
+        for row in rows:
+            seen = first.get(row.customer_code or "")
+            row.suggested = {
+                "customer": (
+                    None
+                    if not row.customer_code
+                    else "Cũ"
+                    if row.kind != "NEW" or (seen is not None and seen < row.day)
+                    else "Mới"
+                ),
+                "upsale": "Up" if row.upsale else None,
+                "category": None if row.product else category_of([n for n, _ in row.items]),
+            }
 
     @staticmethod
     def _days(
@@ -502,7 +580,9 @@ class FinanceLedgerService:
             )
         row = await self._session.get(FinanceFee, (order_id, day))
         before: dict[str, object] = (
-            {name: str(getattr(row, name)) for name in FEE_FIELDS} if row is not None else {}
+            {name: str(getattr(row, name)) for name in (*FEE_FIELDS, *MARK_KEYS)}
+            if row is not None
+            else {}
         )
         if row is None:
             row = FinanceFee(order_id=order_id, day=day)
@@ -511,13 +591,24 @@ class FinanceLedgerService:
             if name == "note":
                 row.note = (str(given).strip()[:500] or None) if given is not None else None
                 continue
+            if name in MARK_SPECS:
+                try:
+                    setattr(row, name, mark_value(name, given))
+                except ValueError as error:
+                    raise FinanceInvalidError(
+                        "mark_invalid",
+                        f"{MARK_SPECS[name].label}: chọn một trong "
+                        f"{', '.join(MARK_SPECS[name].choices)}.",
+                        field=name,
+                    ) from error
+                continue
             if name not in FEE_FIELDS:
                 raise FinanceInvalidError("fee_field_invalid", f"Không có khoản phí {name!r}.")
             setattr(row, name, _amount(given, name))
         row.updated_by_user_id = actor.user_id
         row.updated_at = utcnow()
         kept: FinanceFee | None = row
-        if all(getattr(row, name) is None for name in FEE_FIELDS) and not row.note:
+        if all(getattr(row, name) is None for name in (*FEE_FIELDS, *MARK_KEYS)) and not row.note:
             await self._session.delete(row)
             kept = None
         await self._session.flush()
@@ -530,7 +621,9 @@ class FinanceLedgerService:
             entity_id=f"{order_id}:{day.isoformat()}",
             before_data=before,
             after_data=(
-                {name: str(getattr(kept, name)) for name in FEE_FIELDS} if kept is not None else {}
+                {name: str(getattr(kept, name)) for name in (*FEE_FIELDS, *MARK_KEYS)}
+                if kept is not None
+                else {}
             ),
         )
         return kept
@@ -761,6 +854,22 @@ def _services(order: CrmOrderRecord) -> str | None:
     return ", ".join(names) or None
 
 
+def _items(order: CrmOrderRecord) -> list[tuple[str, Decimal]]:
+    """The services one by one with their own price (CRM ``total_price``)."""
+    lines: list[tuple[str, Decimal]] = []
+    for item in order.items or []:
+        name = str(item.get("service_name") or "Dịch vụ")
+        quantity = _qty(item.get("quantity"))
+        if quantity not in ("", "0", "1"):
+            name = f"{name} x {quantity}"
+        try:
+            price = Decimal(str(item.get("total_price") or 0))
+        except ArithmeticError:
+            price = Decimal(0)
+        lines.append((name, price))
+    return lines
+
+
 def _qty(value: object) -> str:
     try:
         number = Decimal(str(value))
@@ -792,43 +901,48 @@ def check_span(since: date, until: date) -> None:
 # --- the workbook (BCLT + Tổng hợp) -----------------------------------------------------
 
 BCLT_HEADERS: tuple[str, ...] = (
-    "NGÀY",
+    "Tình trạng 2",
+    "MỚI",
+    "TÌNH TRẠNG",
+    "Up",
     "PHÂN LOẠI",
-    "Mã ĐH",
+    "Số Hóa đơn",
     "SP/DV",
+    "NGÀY",
     "TÊN KH",
     "MÃ KH",
-    "CHI NHÁNH",
     "DIỄN GIẢI",
     "DOANH SỐ",
     "THỰC THU",
     "NỢ",
-    *(PAYMENT_TYPE_LABELS[method] for method in METHOD_ORDER),
+    "Trả góp",
+    "Thẻ",
+    "NHÀ XE THU HỘ",
+    "Chuyển khoản",
+    "Tiền mặt",
     "Hoàn tiền",
-    "VAT",
-    *FEE_FIELDS.values(),
+    "PHÍ QUẸT",
+    "HH GIỚI THIỆU",
+    "CP XE",
+    "VIỆN PHÍ. GIÁ COST",
     "TỔNG HỢP PHÍ",
-    "Thực thu sau VAT & phí",
-    "CHECK DOANH THU TVV.KTV.Y TÁ",
-    "CHECK DT BS",
-    "NV BÁN 1",
-    "DT 1",
-    "NV BÁN 2",
-    "DT 2",
-    "NV BÁN 3",
-    "DT 3",
-    *(
-        part
-        for kind in (2, 1, 3, 4)
-        for part in (SHARE_TYPE_LABELS[kind], f"DT {SHARE_TYPE_LABELS[kind].lower()}")
-    ),
+    "Thực thu sau phí",
+    "NV bán",
+    "Doanh thu",
+    "Bác sỹ",
+    "Doanh thu",
     "SALE (NGƯỜI PHỤ TRÁCH)",
     "MKT (NGUỒN)",
-    "CAREPAGE",
-    "Ghi chú",
-    "Công nợ (số ngày)",
-    "Công nợ quá 45 ngày",
+    "CHAT PAGE (NGƯỜI TẠO)",
+    "Công nợ Quá 45 ngày",
+    # APM's own, after the sheet's columns
+    "CHI NHÁNH",
+    "LOẠI DÒNG",
+    "VAT",
+    "GHI CHÚ",
 )
+#: Where "BCLT new" starts its money (DOANH SỐ), 1-based.
+_FIRST_MONEY = len(MARK_SPECS) + 7
 SUMMARY_LINES: tuple[str, ...] = (
     "Doanh số",
     "Còn nợ",
@@ -850,6 +964,74 @@ def _money(value: Decimal) -> int:
     return int(whole(value))
 
 
+def services_text(row: LedgerRow) -> str:
+    """ "DIỄN GIẢI" of BCLT new: one service a line, each with its own price."""
+    return "\n".join(f"{name}: {_money(price):,}".replace(",", ".") for name, price in row.items)
+
+
+def doctor_label(name: str, kind: str) -> str:
+    short = kind.removeprefix("Bác sĩ").strip()
+    return f"{name} ({short})" if short else name
+
+
+def bclt_lines(row: LedgerRow, *, names: bool) -> list[list[object]]:
+    """One BCLT row in the "BCLT new" layout: the first line carries the
+    money and the first NV bán / Bác sỹ; every other person shared on the
+    order that day gets a line of its own holding only them (the order code
+    and the day repeated, nothing to add twice)."""
+    marks = row.marks
+    sellers = row.sellers
+    doctors = row.doctor_shares
+    count = max(len(sellers), len(doctors), 1)
+    lines: list[list[object]] = []
+    for index in range(count):
+        seller = sellers[index] if index < len(sellers) else None
+        doctor = doctors[index] if index < len(doctors) else None
+        people: list[object] = [
+            seller[0] if seller else None,
+            _money(seller[1]) if seller else None,
+            doctor_label(doctor[0], doctor[1]) if doctor else None,
+            _money(doctor[2]) if doctor else None,
+        ]
+        if index:
+            blank: list[object] = [None] * len(BCLT_HEADERS)
+            blank[len(MARK_SPECS)] = row.order_code or ""
+            blank[len(MARK_SPECS) + 2] = row.day
+            people_at = len(MARK_SPECS) + 21
+            blank[people_at : people_at + 4] = people
+            lines.append(blank)
+            continue
+        lines.append(
+            [
+                *(marks.get(key) or "" for key in MARK_SPECS),
+                row.order_code or "",
+                "SP" if row.product else "DV",
+                row.day,
+                (row.customer_name or "") if names else "",
+                row.customer_code or "",
+                services_text(row),
+                _money(row.sales),
+                _money(row.received),
+                _money(row.owed),
+                *(_money(row.methods.get(method, Decimal(0))) for method in METHOD_ORDER),
+                _money(-row.refunds),
+                *(_money(getattr(row.fees, name)) for name in FEE_FIELDS),
+                _money(row.charges),
+                _money(row.net),
+                *people,
+                row.sale or "",
+                row.marketing or "",
+                row.carepage or "",
+                "QUÁ" if row.owed and (row.owed_days or 0) > 45 else "",
+                row.branch or "",
+                "Đơn mới" if row.kind == "NEW" else "TTCN",
+                _money(row.vat),
+                row.note or "",
+            ]
+        )
+    return lines
+
+
 def ledger_workbook(ledger: Ledger, *, names: bool) -> bytes:
     """The BCLT + Tổng hợp workbook. ``names`` = the customer's name column
     (FINANCE CUSTOMERS), else blank. Synchronous: call it in a thread."""
@@ -864,56 +1046,21 @@ def ledger_workbook(ledger: Ledger, *, names: bool) -> bytes:
         cell.font, cell.fill = _HEAD, _FILL
         cell.alignment = Alignment(wrap_text=True, vertical="center")
     for row in ledger.rows:
-        sellers = (row.sellers + [("", Decimal(0))] * 3)[:3]
-        doctors = [row.doctors.get(kind, ("", Decimal(0))) for kind in (2, 1, 3, 4)]
-        sheet.append(
-            [
-                row.day,
-                "Đơn mới" if row.kind == "NEW" else "TTCN",
-                row.order_code or "",
-                "SP" if row.product else "DV",
-                (row.customer_name or "") if names else "",
-                row.customer_code or "",
-                row.branch or "",
-                row.services or "",
-                _money(row.sales),
-                _money(row.collected),
-                _money(row.owed),
-                *(_money(row.methods.get(method, Decimal(0))) for method in METHOD_ORDER),
-                _money(row.refunds),
-                _money(row.vat),
-                *(_money(getattr(row.fees, name)) for name in FEE_FIELDS),
-                _money(row.fees.total),
-                _money(row.net),
-                _money(row.seller_check),
-                _money(row.doctor_check) if row.doctor_check is not None else None,
-                *(
-                    value
-                    for who, amount in sellers
-                    for value in (who, _money(amount) if who else None)
-                ),
-                *(
-                    value
-                    for who, amount in doctors
-                    for value in (who, _money(amount) if who else None)
-                ),
-                row.sale or "",
-                row.marketing or "",
-                row.carepage or "",
-                row.note or "",
-                row.owed_days if row.owed_days is not None else None,
-                "QUÁ" if row.owed and (row.owed_days or 0) > 45 else "",
-            ]
-        )
+        for line in bclt_lines(row, names=names):
+            sheet.append(line)
+    wrap = Alignment(wrap_text=True, vertical="top")
+    services_column = len(MARK_SPECS) + 6
     for index in range(2, sheet.max_row + 1):
-        sheet.cell(index, 1).number_format = "dd/mm/yyyy"
-        for column in range(9, len(BCLT_HEADERS) + 1):
+        sheet.cell(index, len(MARK_SPECS) + 3).number_format = "dd/mm/yyyy"
+        sheet.cell(index, services_column).alignment = wrap
+        for column in range(_FIRST_MONEY, len(BCLT_HEADERS) + 1):
             cell = sheet.cell(index, column)
             if isinstance(cell.value, int):
                 cell.number_format = "#,##0"
-    sheet.freeze_panes = "D2"
+    sheet.freeze_panes = sheet.cell(2, len(MARK_SPECS) + 2).coordinate
     for column in range(1, len(BCLT_HEADERS) + 1):
         sheet.column_dimensions[get_column_letter(column)].width = 16
+    sheet.column_dimensions[get_column_letter(services_column)].width = 40
 
     summary = book.create_sheet("Tổng hợp")
     summary.append(["", "TỔNG", *(day.day for day in ledger.days)])
@@ -988,7 +1135,9 @@ __all__ = [
     "FinanceLedgerService",
     "Ledger",
     "LedgerRow",
+    "bclt_lines",
     "check_span",
+    "doctor_label",
     "flatten",
     "ledger_workbook",
 ]

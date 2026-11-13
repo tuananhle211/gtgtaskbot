@@ -373,6 +373,23 @@ class PersonAmount(BaseModel):
     amount: int
 
 
+class ServiceLine(BaseModel):
+    name: str
+    price: int
+
+
+class DoctorLine(BaseModel):
+    name: str
+    kind: str
+    amount: int
+
+
+class MarkChoiceResponse(BaseModel):
+    key: str
+    label: str
+    choices: list[str]
+
+
 class LedgerRowResponse(BaseModel):
     order_id: int | None
     day: date
@@ -405,6 +422,15 @@ class LedgerRowResponse(BaseModel):
     #: BCLT's checks: DT 1+2+3 - thực thu; DT bác sĩ - thực thu (null for products).
     seller_check: int = 0
     doctor_check: int | None = None
+    #: "BCLT new" (13/11): services one by one with their price, every doctor
+    #: line, THỰC THU without refunds, TỔNG HỢP PHÍ = hoàn tiền + 4 phí.
+    items: list[ServiceLine] = []
+    doctor_lines: list[DoctorLine] = []
+    received: int = 0
+    charges: int = 0
+    #: The five marks as shown (pick else suggestion) and which were picked.
+    marks: dict[str, str | None] = {}
+    picked: list[str] = []
 
 
 class DaySummaryResponse(BaseModel):
@@ -430,6 +456,8 @@ class LedgerResponse(BaseModel):
     kpi_month: int | None
     methods: dict[str, str]
     can_edit_fees: bool
+    #: The pick-lists of the five "BCLT new" marks (sheet "GHI CHÚ").
+    marks: list[MarkChoiceResponse] = []
 
 
 class FeeUpdateRequest(BaseModel):
@@ -442,6 +470,12 @@ class FeeUpdateRequest(BaseModel):
     car_fee: str | None = Field(default=None, max_length=20)
     cost: str | None = Field(default=None, max_length=20)
     note: str | None = Field(default=None, max_length=500)
+    #: "BCLT new" marks: one of the sheet's list, null / "" = APM's suggestion.
+    status2: str | None = Field(default=None, max_length=40)
+    customer: str | None = Field(default=None, max_length=40)
+    status: str | None = Field(default=None, max_length=40)
+    upsale: str | None = Field(default=None, max_length=40)
+    category: str | None = Field(default=None, max_length=40)
 
 
 class DebtLineResponse(BaseModel):

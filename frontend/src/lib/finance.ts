@@ -181,7 +181,19 @@ export type LedgerRow = {
   /** BCLT checks: DT NV bán 1+2+3 - thực thu; DT bác sĩ - thực thu (null for SP). */
   seller_check?: number;
   doctor_check?: number | null;
+  /** "BCLT new" (13/11): the services one by one with their own price. */
+  items?: { name: string; price: number }[];
+  /** Every doctor share line (one "Bác sỹ" column, one person a line). */
+  doctor_lines?: { name: string; kind: string; amount: number }[];
+  /** THỰC THU = the five methods (refunds apart); TỔNG HỢP PHÍ = hoàn tiền + 4 phí. */
+  received?: number;
+  charges?: number;
+  /** The five marks as shown (Kế toán's pick, else APM's suggestion) and the picked keys. */
+  marks?: Partial<Record<MarkKey, string | null>>;
+  picked?: MarkKey[];
 };
+export type MarkKey = "status2" | "customer" | "status" | "upsale" | "category";
+export type MarkChoice = { key: MarkKey; label: string; choices: string[] };
 export type LedgerDay = {
   day: string;
   sales: number;
@@ -204,6 +216,8 @@ export type Ledger = {
   kpi_month: number | null;
   methods: Record<string, string>;
   can_edit_fees: boolean;
+  /** The pick-lists of the "BCLT new" marks (sheet "GHI CHÚ"). */
+  marks?: MarkChoice[];
 };
 export type CrmPerson = { crm_id: number | null; name: string; user_name: string | null };
 export type OrderDetail = {
@@ -326,7 +340,11 @@ export const financeApi = {
   order: (code: string) =>
     http.get<OrderDetail>(`/api/finance/ledger/orders/${encodeURIComponent(code)}`),
   ledgerExportUrl: (month: string) => `/api/finance/ledger.xlsx${query({ month })}`,
-  setFees: (body: { order_id: number; day: string } & Partial<Record<FeeKey, string | null>> & { note?: string | null }) =>
+  setFees: (
+    body: { order_id: number; day: string } & Partial<Record<FeeKey | MarkKey, string | null>> & {
+        note?: string | null;
+      },
+  ) =>
     http.patch<LedgerRow | null>("/api/finance/fees", body),
   debts: (params: { min_bucket?: number; q?: string }) =>
     http.get<DebtReport>(`/api/finance/debts${query(params)}`),

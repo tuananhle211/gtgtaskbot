@@ -302,11 +302,23 @@ describe("Tài chính đợt 2", () => {
         typed: [],
         note: null,
         net: 2029274,
-        sellers: [{ name: "KTV Bình", amount: 100000 }],
+        sellers: [
+          { name: "KTV Bình", amount: 100000 },
+          { name: "Y tá Dung", amount: 50000 },
+        ],
         doctors: {},
+        doctor_lines: [{ name: "BS An", kind: "Bác sĩ tiêm", amount: 300000 }],
         sale: "Sale B",
         marketing: "HN - MKT A",
         carepage: null,
+        items: [
+          { name: "HAMLV3", price: 2000000 },
+          { name: "CCAV3", price: 1240000 },
+        ],
+        received: 2240000,
+        charges: 44800,
+        marks: { status2: null, customer: "Mới", status: null, upsale: "Up", category: "V3" },
+        picked: [],
       },
     ],
     days: [
@@ -328,9 +340,20 @@ describe("Tài chính đợt 2", () => {
     kpi_month: 31000000,
     methods: { "5": "Trả góp", "2": "Thẻ", "6": "Nhà xe thu hộ", "4": "Chuyển khoản", "1": "Tiền mặt" },
     can_edit_fees: true,
+    marks: [
+      { key: "status2", label: "Tình trạng 2", choices: ["Đã lên đơn PM", "Đã đăng ảnh", "Đã làm cả 2"] },
+      { key: "customer", label: "Mới", choices: ["Mới", "Cũ"] },
+      {
+        key: "status",
+        label: "Tình trạng",
+        choices: ["đã Cọc TT", "đã Cọc TN", "Cọc CS TN", "Cọc onl TN", "TTCNTT", "TTCNTN"],
+      },
+      { key: "upsale", label: "Up", choices: ["Up", "Sale", "GT"] },
+      { key: "category", label: "Phân loại", choices: ["V1", "V3", "Da", "CSCB", "Tiêm", "DV #"] },
+    ],
   };
 
-  it("lists the bảng kê and types a fee over the automatic one", async () => {
+  it("lists the bảng kê like BCLT new and types a fee and a mark over the suggestions", async () => {
     const { default: LedgerPage } = await import("@/app/finance/ledger/page");
     const stub = stubFetch([
       { match: "/api/finance/access", body: { ...ACCESS, fees: true } },
@@ -340,16 +363,27 @@ describe("Tài chính đợt 2", () => {
     renderWithQuery(<LedgerPage />);
     const row = await screen.findByTestId("ledger-row");
     expect(row).toHaveTextContent("DH101");
-    expect(row).toHaveTextContent("Đơn mới");
     expect(row).toHaveTextContent("44.800 ₫");
+    // Diễn giải: one service a line with its own price.
+    expect(within(row).getByTestId("ledger-services")).toHaveTextContent("HAMLV32.000.000 ₫CCAV31.240.000 ₫");
+    // APM's suggestions, in italics until picked.
+    expect(within(row).getByText("V3")).toHaveAttribute("title", expect.stringContaining("APM gợi ý"));
+    // One NV bán + one Bác sỹ per line: the second seller on a line of its own.
+    expect(row).toHaveTextContent("KTV Bình");
+    expect(row).toHaveTextContent("BS An (tiêm)");
+    const sub = screen.getByTestId("ledger-subrow");
+    expect(sub).toHaveTextContent("Y tá Dung");
+    expect(sub).toHaveTextContent("50.000 ₫");
+    expect(sub).not.toHaveTextContent("2.240.000");
     expect(screen.getByRole("link", { name: "Xuất Excel" })).toHaveAttribute(
       "href",
       "/api/finance/ledger.xlsx?month=2026-10",
     );
-    await userEvent.click(within(row).getByRole("button", { name: "Sửa phí DH101 ngày 21/10" }));
+    await userEvent.click(within(row).getByRole("button", { name: "Sửa dòng DH101 ngày 21/10" }));
     const dialog = await screen.findByRole("dialog");
     await userEvent.type(within(dialog).getByLabelText(/Viện phí \/ giá cost/), "500000");
-    await userEvent.click(within(dialog).getByRole("button", { name: "Lưu phí" }));
+    await userEvent.selectOptions(within(dialog).getByLabelText("Tình trạng"), "TTCNTN");
+    await userEvent.click(within(dialog).getByRole("button", { name: "Lưu dòng" }));
     await userEvent.click(await screen.findByRole("button", { name: "Lưu" }));
     await waitFor(() =>
       expect(sent(stub, "PATCH", "/api/finance/fees")[0]?.body).toEqual({
@@ -360,6 +394,11 @@ describe("Tài chính đợt 2", () => {
         car_fee: null,
         cost: "500000",
         note: null,
+        status2: null,
+        customer: null,
+        status: "TTCNTN",
+        upsale: null,
+        category: null,
       }),
     );
     await userEvent.click(screen.getByRole("tab", { name: "Tổng hợp theo ngày" }));

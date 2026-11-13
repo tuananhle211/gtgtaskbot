@@ -36,6 +36,7 @@ from meobot.integrations.crm.client import (
     CrmError,
     CrmMarketingUser,
     CrmOrder,
+    CrmOrderItem,
     CrmPayment,
     CrmSharedRevenue,
     CrmTour,
@@ -617,7 +618,7 @@ async def test_06_the_ledger_fees_debts_kpi_and_the_workbook(world: World) -> No
     assert export.status_code == 200
     book = load_workbook(io.BytesIO(export.content))
     assert book.sheetnames == ["BCLT", "Tổng hợp"]
-    assert book["BCLT"]["C1"].value == "Mã ĐH" and book["BCLT"].max_row == len(rows) + 1
+    assert book["BCLT"]["F1"].value == "Số Hóa đơn" and book["BCLT"].max_row == len(rows) + 1
     assert book["Tổng hợp"]["A2"].value == "Doanh số"
 
     # Công nợ: order 101 owes 1.000.000; 60 days later it passed 45 (default 30/45/60).
@@ -740,3 +741,129 @@ async def test_08_crm_marketing_links_follow_phong_ads(world: World) -> None:
     await CrmSyncService(world.session, crm()).run(D1, D2, today=TODAY)
     await world.session.refresh(created)
     assert created.user_id == head.id
+
+
+async def test_09_the_bclt_new_layout(world: World) -> None:
+    """User 13/11 "chỉnh lại form như BCLT new": the services one by one with
+    their own price, one NV bán + one Bác sỹ column with every other person
+    on a line of their own, and the five marks of the sheet ("GHI CHÚ" lists)
+    suggested by APM and picked by Kế toán."""
+    import dataclasses
+    import io
+
+    from openpyxl import load_workbook
+
+    client = crm()
+    first = client.order_list[0]
+    client.order_list[0] = dataclasses.replace(
+        first,
+        items=(
+            CrmOrderItem(1, "HAMLV3", Decimal(0), Decimal(700_000)),
+            CrmOrderItem(2, "CCAV3", Decimal(0), Decimal(380_000)),
+        ),
+    )
+    # The same customer back the next day: an old customer.
+    client.order_list.append(
+        dataclasses.replace(_order(102, D2, 500_000, 37_037, 500_000), customer_code="KH100")
+    )
+    client.rows[0] = dataclasses.replace(client.rows[0], is_upsale=True)
+    client.shares += [
+        CrmSharedRevenue(
+            D1, 6, "DH100", "KH100", "Khách", "Tiêm", Decimal(1_080_000), 4, 801,
+            "KTV Cường", 0, Decimal(500_000), "HN1",
+        ),
+        CrmSharedRevenue(
+            D1, 6, "DH100", "KH100", "Khách", "Tiêm", Decimal(1_080_000), 4, 802,
+            "Y tá Dung", 0, Decimal(580_000), "HN1",
+        ),
+        CrmSharedRevenue(
+            D1, 10, "DH100", "KH100", "Khách", "Tiêm", Decimal(1_080_000), 4, 701,
+            "BS Bảo", 2, Decimal(100_000), "HN1",
+        ),
+    ]  # fmt: skip
+    head, member, _stranger = await _finance_people(world)
+    kt = await world.session.scalar(select(Department).where(Department.code == "KT"))
+    assert kt is not None
+    world.session.add(
+        DepartmentPermission(
+            department_id=kt.id,
+            position=Position.MEMBER,
+            module="FINANCE",
+            permission="FEES",
+            scope="ALL",
+        )
+    )
+    await world.session.flush()
+    await CrmSyncService(world.session, client).run(D1, D2, today=TODAY)
+    world.act_as(head)
+    body = world.client.get(f"/api/finance/ledger?since={D1}&until={D2}").json()
+    assert [mark["key"] for mark in body["marks"]] == [
+        "status2",
+        "customer",
+        "status",
+        "upsale",
+        "category",
+    ]
+    rows = {(row["order_code"], row["day"]): row for row in body["rows"]}
+    new = rows[("DH100", D1.isoformat())]
+    assert new["items"] == [
+        {"name": "HAMLV3", "price": 700_000},
+        {"name": "CCAV3", "price": 380_000},
+    ]
+    assert [line["name"] for line in new["doctor_lines"]] == ["BS An", "BS Bảo"]
+    assert new["marks"] == {
+        "status2": None,
+        "customer": "Mới",
+        "status": None,
+        "upsale": "Up",
+        "category": "V3",
+    }
+    assert new["picked"] == []
+    assert rows[("DH100", D2.isoformat())]["marks"]["customer"] == "Cũ"  # TTCN
+    assert rows[("DH102", D2.isoformat())]["marks"]["customer"] == "Cũ"
+    assert rows[("DH101", D2.isoformat())]["marks"]["customer"] == "Mới"
+    # THỰC THU leaves the refund to TỔNG HỢP PHÍ (the sheet's U + V..Y).
+    ttcn = rows[("DH100", D2.isoformat())]
+    assert ttcn["received"] == ttcn["collected"] + 108_000
+    assert ttcn["charges"] == 108_000 + ttcn["fees"]["total"]
+
+    # Kế toán picks from the sheet's lists; anything else is refused.
+    world.act_as(member)
+    picked = world.client.patch(
+        "/api/finance/fees",
+        json={"order_id": 100, "day": D1.isoformat(), "status": "ttcntn", "customer": "Cũ"},
+    )
+    assert picked.status_code == 200, picked.json()
+    assert picked.json()["marks"]["status"] == "TTCNTN"
+    assert picked.json()["marks"]["customer"] == "Cũ"
+    assert sorted(picked.json()["picked"]) == ["customer", "status"]
+    wrong = world.client.patch(
+        "/api/finance/fees", json={"order_id": 100, "day": D1.isoformat(), "upsale": "X"}
+    )
+    assert wrong.status_code == 422
+    assert wrong.json()["error"]["details"]["reason"] == "mark_invalid"
+    back = world.client.patch(
+        "/api/finance/fees",
+        json={"order_id": 100, "day": D1.isoformat(), "status": None, "customer": ""},
+    )
+    assert back.json()["marks"]["customer"] == "Mới" and back.json()["picked"] == []
+
+    # The workbook: BCLT new's columns; the order with 2 NV bán / 2 bác sĩ
+    # takes two lines, money on the first only.
+    export = world.client.get("/api/finance/ledger.xlsx?month=2026-10")
+    sheet = load_workbook(io.BytesIO(export.content))["BCLT"]
+    header = [cell.value for cell in sheet[1]]
+    assert header[:6] == ["Tình trạng 2", "MỚI", "TÌNH TRẠNG", "Up", "PHÂN LOẠI", "Số Hóa đơn"]
+    lines = [
+        [cell.value for cell in line]
+        for line in sheet.iter_rows(min_row=2)
+        if line[5].value == "DH100"
+    ]
+    at = {name: header.index(name) for name in ("DIỄN GIẢI", "THỰC THU", "NV bán", "Bác sỹ")}
+    same_day = [line for line in lines if line[7].date() == D1]
+    assert len(same_day) == 2
+    assert same_day[0][at["DIỄN GIẢI"]] == "HAMLV3: 700.000\nCCAV3: 380.000"
+    assert same_day[0][at["Bác sỹ"]] == "BS An (tiêm)"
+    assert same_day[1][at["Bác sỹ"]] == "BS Bảo (phẫu)"
+    assert [line[at["NV bán"]] for line in same_day] == ["KTV Cường", "Y tá Dung"]
+    assert same_day[1][at["THỰC THU"]] is None and same_day[0][at["THỰC THU"]] == 1_080_000

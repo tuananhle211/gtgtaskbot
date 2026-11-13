@@ -224,6 +224,13 @@ class FinanceFee(Base):
     car_fee: Mapped[Decimal | None] = mapped_column(_MONEY, nullable=True)
     cost: Mapped[Decimal | None] = mapped_column(_MONEY, nullable=True)
     note: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    #: The marks of "BCLT new" picked by Kế toán (0109; lists in
+    #: ``domain/finance/ledger_marks.py``); ``None`` = APM's suggestion.
+    status2: Mapped[str | None] = mapped_column(String(40), nullable=True)
+    customer: Mapped[str | None] = mapped_column(String(40), nullable=True)
+    status: Mapped[str | None] = mapped_column(String(40), nullable=True)
+    upsale: Mapped[str | None] = mapped_column(String(40), nullable=True)
+    category: Mapped[str | None] = mapped_column(String(40), nullable=True)
     updated_by_user_id: Mapped[uuid.UUID | None] = mapped_column(
         ForeignKey(f"{USERS_TABLE}.id", ondelete="SET NULL"), nullable=True
     )

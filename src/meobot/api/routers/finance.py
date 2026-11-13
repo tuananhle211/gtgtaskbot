@@ -36,6 +36,7 @@ from meobot.api.schemas.finance import (
     DebtReportResponse,
     DebtSettingsRequest,
     DebtSettingsResponse,
+    DoctorLine,
     FeeRulesRequest,
     FeeRulesResponse,
     FeesResponse,
@@ -45,6 +46,7 @@ from meobot.api.schemas.finance import (
     KpiResponse,
     LedgerResponse,
     LedgerRowResponse,
+    MarkChoiceResponse,
     MonthRevenueResponse,
     OrderDetailResponse,
     OrderItemResponse,
@@ -57,6 +59,7 @@ from meobot.api.schemas.finance import (
     PersonResponse,
     ServiceCostRequest,
     ServiceCostResponse,
+    ServiceLine,
     StaffPageResponse,
     StaffResponse,
     StaffUpdateRequest,
@@ -106,6 +109,7 @@ from meobot.domain.finance.crm import (
     whole,
 )
 from meobot.domain.finance.errors import FinanceForbiddenError, FinanceInvalidError
+from meobot.domain.finance.ledger_marks import MARKS
 from meobot.domain.org.models import BRANCHES
 
 router = APIRouter(prefix="/api/finance", tags=["finance"])
@@ -383,6 +387,15 @@ def _row(row: LedgerRow, names: bool) -> LedgerRowResponse:
         services=row.services,
         seller_check=int(whole(row.seller_check)),
         doctor_check=int(whole(row.doctor_check)) if row.doctor_check is not None else None,
+        items=[ServiceLine(name=name, price=int(whole(price))) for name, price in row.items],
+        doctor_lines=[
+            DoctorLine(name=who, kind=kind, amount=int(whole(amount)))
+            for who, kind, amount in row.doctor_shares
+        ],
+        received=int(whole(row.received)),
+        charges=int(whole(row.charges)),
+        marks=row.marks,
+        picked=sorted(key for key, value in row.picked.items() if value),
     )
 
 
@@ -422,6 +435,10 @@ async def ledger(
         kpi_month=int(whole(built.kpi_month)) if built.kpi_month is not None else None,
         methods={str(method): PAYMENT_TYPE_LABELS[method] for method in METHOD_ORDER},
         can_edit_fees=access.fees,
+        marks=[
+            MarkChoiceResponse(key=spec.key, label=spec.label, choices=list(spec.choices))
+            for spec in MARKS
+        ],
     )
 
 
