@@ -393,6 +393,11 @@ class LedgerRowResponse(BaseModel):
     sale: str | None
     marketing: str | None
     carepage: str | None
+    #: "DIỄN GIẢI": the order's services.
+    services: str | None = None
+    #: BCLT's checks: DT 1+2+3 - thực thu; DT bác sĩ - thực thu (null for products).
+    seller_check: int = 0
+    doctor_check: int | None = None
 
 
 class DaySummaryResponse(BaseModel):
@@ -506,3 +511,84 @@ class KpiResponse(BaseModel):
 class KpiRequest(BaseModel):
     month: str = Field(pattern=r"^\d{4}-\d{2}$")
     entries: dict[str, str | None]
+
+
+class PersonResponse(BaseModel):
+    crm_id: int | None
+    name: str
+    user_name: str | None
+
+
+class OrderItemResponse(BaseModel):
+    service_id: int | None
+    service_name: str | None
+    quantity: str
+    total_price: int
+
+
+class OrderPaymentResponse(BaseModel):
+    id: int
+    day: date
+    amount: int
+    method: str
+    counted: bool
+    branch: str | None
+    sale: PersonResponse | None
+    marketing: PersonResponse | None
+    cskh: PersonResponse | None
+    carepage: PersonResponse | None
+
+
+class OrderShareResponse(BaseModel):
+    day: date
+    person: PersonResponse
+    department: str
+    kind: str
+    doctor: bool
+    payment_amount: int
+    shared: int
+    payment_type: str
+
+
+class OrderTourResponse(BaseModel):
+    at: str
+    person: PersonResponse
+    work_type: str
+    treatment: str
+    service: str | None
+    procedure: str | None
+    note: str | None
+
+
+class OrderRoleResponse(BaseModel):
+    key: str
+    label: str
+    person: PersonResponse
+    amount: int | None
+    day: date | None
+
+
+class OrderDetailResponse(BaseModel):
+    code: str
+    created_on: date | None
+    customer_code: str | None
+    customer_name: str | None
+    branch: str | None
+    entity: str | None
+    owner: PersonResponse | None
+    order_type: str | None
+    role_type: str | None
+    all_total: int | None
+    amount_before_vat: int | None
+    vat_amount: int | None
+    vat_percent: str | None
+    gross_revenue: int | None
+    the_rest: int | None
+    discount: int | None
+    items: list[OrderItemResponse]
+    payments: list[OrderPaymentResponse]
+    shares: list[OrderShareResponse]
+    tours: list[OrderTourResponse]
+    rows: list[LedgerRowResponse]
+    roles: list[OrderRoleResponse]
+    can_edit_fees: bool

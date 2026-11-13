@@ -46,8 +46,15 @@ from meobot.api.schemas.finance import (
     LedgerResponse,
     LedgerRowResponse,
     MonthRevenueResponse,
+    OrderDetailResponse,
+    OrderItemResponse,
+    OrderPaymentResponse,
+    OrderRoleResponse,
+    OrderShareResponse,
+    OrderTourResponse,
     PersonAmount,
     PersonChoiceResponse,
+    PersonResponse,
     ServiceCostRequest,
     ServiceCostResponse,
     StaffPageResponse,
@@ -79,6 +86,7 @@ from meobot.application.finance.ledger import (
     Fees,
     FinanceLedgerService,
     LedgerRow,
+    Person,
     check_span,
     ledger_workbook,
 )
@@ -90,7 +98,13 @@ from meobot.db.models.system_setting import SystemSetting
 from meobot.domain.ads.models import MAX_SYNC_DAYS
 from meobot.domain.audit.models import AuditAction, AuditResult
 from meobot.domain.cron.models import RUNNING_STALE_SECONDS, CronTrigger
-from meobot.domain.finance.crm import FEE_METHODS, PAYMENT_TYPE_LABELS, SHARE_TYPE_LABELS, whole
+from meobot.domain.finance.crm import (
+    FEE_METHODS,
+    ORDER_TYPE_LABELS,
+    PAYMENT_TYPE_LABELS,
+    SHARE_TYPE_LABELS,
+    whole,
+)
 from meobot.domain.finance.errors import FinanceForbiddenError, FinanceInvalidError
 from meobot.domain.org.models import BRANCHES
 
@@ -366,6 +380,9 @@ def _row(row: LedgerRow, names: bool) -> LedgerRowResponse:
         sale=row.sale,
         marketing=row.marketing,
         carepage=row.carepage,
+        services=row.services,
+        seller_check=int(whole(row.seller_check)),
+        doctor_check=int(whole(row.doctor_check)) if row.doctor_check is not None else None,
     )
 
 
@@ -404,6 +421,108 @@ async def ledger(
         days=[_day(day) for day in built.days],
         kpi_month=int(whole(built.kpi_month)) if built.kpi_month is not None else None,
         methods={str(method): PAYMENT_TYPE_LABELS[method] for method in METHOD_ORDER},
+        can_edit_fees=access.fees,
+    )
+
+
+def _person(value: Person | None) -> PersonResponse | None:
+    if value is None:
+        return None
+    return PersonResponse(crm_id=value.crm_id, name=value.name, user_name=value.user_name)
+
+
+@router.get("/ledger/orders/{code}", response_model=OrderDetailResponse)
+async def ledger_order(code: str, session: SessionDep, access: AccessDep) -> OrderDetailResponse:
+    """One order: its lines, payments, the revenue shared to each person and
+    role, the công tua, and its BCLT row of each day."""
+    access.require_revenue()
+    detail = await FinanceLedgerService(session).order(code.strip()[:40], today=vn_today())
+    order = detail.order
+
+    def money_or_none(value: object) -> int | None:
+        return int(whole(Decimal(str(value)))) if value is not None else None
+
+    return OrderDetailResponse(
+        code=detail.code,
+        created_on=order.created_on if order else None,
+        customer_code=detail.customer_code,
+        customer_name=detail.customer_name if access.customers else None,
+        branch=detail.branch,
+        entity=detail.entity,
+        owner=_person(detail.owner),
+        order_type=ORDER_TYPE_LABELS.get(order.order_type or 0)
+        if order and order.order_type is not None
+        else None,
+        role_type={1: "Dịch vụ", 2: "Sản phẩm", 3: "Combo"}.get(order.role_type or 0)
+        if order
+        else None,
+        all_total=money_or_none(order.all_total) if order else None,
+        amount_before_vat=money_or_none(order.amount_before_vat) if order else None,
+        vat_amount=money_or_none(order.vat_amount) if order else None,
+        vat_percent=str(order.vat_percent) if order and order.vat_percent is not None else None,
+        gross_revenue=money_or_none(order.gross_revenue) if order else None,
+        the_rest=money_or_none(order.the_rest) if order else None,
+        discount=money_or_none(order.discount) if order else None,
+        items=[
+            OrderItemResponse(
+                service_id=item.get("service_id"),
+                service_name=item.get("service_name"),
+                quantity=str(item.get("quantity") or ""),
+                total_price=int(whole(Decimal(str(item.get("total_price") or 0)))),
+            )
+            for item in (order.items if order else [])
+        ],
+        payments=[
+            OrderPaymentResponse(
+                id=line.id,
+                day=line.day,
+                amount=int(whole(line.amount)),
+                method=line.method,
+                counted=line.counted,
+                branch=line.branch,
+                sale=_person(line.sale),
+                marketing=_person(line.marketing),
+                cskh=_person(line.cskh),
+                carepage=_person(line.carepage),
+            )
+            for line in detail.payments
+        ],
+        shares=[
+            OrderShareResponse(
+                day=line.day,
+                person=_person(line.person),
+                department=line.department,
+                kind=line.kind,
+                doctor=line.doctor,
+                payment_amount=int(whole(line.payment_amount)),
+                shared=int(whole(line.shared)),
+                payment_type=line.payment_type,
+            )
+            for line in detail.shares
+        ],
+        tours=[
+            OrderTourResponse(
+                at=line.at.isoformat(),
+                person=_person(line.person),
+                work_type=line.work_type,
+                treatment=line.treatment,
+                service=line.service,
+                procedure=line.procedure,
+                note=line.note,
+            )
+            for line in detail.tours
+        ],
+        rows=[_row(row, access.customers) for row in detail.rows],
+        roles=[
+            OrderRoleResponse(
+                key=line.key,
+                label=line.label,
+                person=_person(line.person),
+                amount=int(whole(line.amount)) if line.amount is not None else None,
+                day=line.day,
+            )
+            for line in detail.roles
+        ],
         can_edit_fees=access.fees,
     )
 

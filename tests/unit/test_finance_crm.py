@@ -438,7 +438,6 @@ async def test_04_the_month_and_its_settings(world: World) -> None:
         "customers": True,
         "settings": False,
         "fees": False,
-        "codes": False,
     }
 
 
@@ -652,3 +651,43 @@ async def test_06_the_ledger_fees_debts_kpi_and_the_workbook(world: World) -> No
         )
     ).all()
     assert len(inbox) == 1 and "quá 45 ngày: 1 đơn (1.000.000 ₫)" in inbox[0]
+
+
+async def test_07_one_order_with_everybody_on_it(world: World) -> None:
+    """User 13/11: a BCLT order opens on who plays which role on it and what
+    revenue each was credited (the accounting sheet's NV bán 1-3, Bác sĩ phẫu /
+    tiêm / khác, Sale / MKT / Chat page, công tua), with the BCLT checks."""
+    head, _member, stranger = await _finance_people(world)
+    await CrmSyncService(world.session, crm()).run(D1, D2, today=TODAY)
+    world.act_as(stranger)
+    assert world.client.get("/api/finance/ledger/orders/DH100").status_code == 403
+    world.act_as(head)
+    assert world.client.get("/api/finance/ledger/orders/NOPE").status_code == 404
+    detail = world.client.get("/api/finance/ledger/orders/DH100")
+    assert detail.status_code == 200, detail.json()
+    body = detail.json()
+    assert body["all_total"] == 1_080_000 and body["vat_amount"] == 80_000
+    assert body["customer_name"] == "Khách 100" and body["owner"]["name"] == "Người lên đơn"
+    assert [payment["method"] for payment in body["payments"]] == [
+        "Chuyển khoản",
+        "Điểm",
+        "Hoàn tiền",
+    ]
+    roles = {(role["label"], role["person"]["name"]) for role in body["roles"]}
+    assert ("Sale (người phụ trách)", "Sale B") in roles
+    assert ("MKT (nguồn)", "HN - MKT A") in roles
+    assert ("CSKH", "CSKH C") in roles
+    assert ("Bác sĩ tiêm", "BS An") in roles
+    assert ("KTV làm tua (Công chính)", "KTV Bình") in roles
+    assert ("KTV làm tua (Hỗ trợ)", "KTV Cường") in roles
+    share = body["shares"][0]
+    assert (share["kind"], share["shared"], share["doctor"]) == ("Bác sĩ tiêm", 300_000, True)
+    assert [(row["day"], row["kind"]) for row in body["rows"]] == [
+        ("2026-10-20", "NEW"),
+        ("2026-10-21", "TTCN"),
+    ]
+    new = body["rows"][0]
+    # BCLT checks: shares to TVV/KTV/y tá - thực thu; doctors - thực thu.
+    assert new["seller_check"] == -1_080_000 and new["doctor_check"] == 300_000 - 1_080_000
+    # No card rule set yet: the sheet's own 2% of card payments (none here).
+    assert new["fees"]["card_fee"] == 0

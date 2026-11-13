@@ -43,6 +43,8 @@ from meobot.domain.finance.errors import FinanceInvalidError, FinanceNotFoundErr
 from meobot.domain.identity.models import Actor
 from meobot.domain.org.models import BRANCHES
 
+#: The BCLT sheet's PHÍ QUẸT when "CP QUẸT THẺ" has nothing: Thẻ x 2%.
+DEFAULT_CARD_FEE: dict[int, Decimal] = {2: Decimal(2)}
 #: A page of the CRM people list.
 STAFF_PAGE = 100
 
@@ -346,8 +348,12 @@ class FinanceSettingsService:
         )
 
     async def fee_rules(self) -> dict[int, Decimal]:
-        """Payment method -> card / instalment / collection fee (%)."""
-        raw = (await self._value()).get("card_fee_pct") or {}
+        """Payment method -> card / instalment / collection fee (%). Until set,
+        the accounting sheet's own rule: 2% of what was paid by card."""
+        value = await self._value()
+        if "card_fee_pct" not in value:
+            return dict(DEFAULT_CARD_FEE)
+        raw = value.get("card_fee_pct") or {}
         return {int(key): Decimal(str(rate)) for key, rate in raw.items()}
 
     async def set_fee_rules(

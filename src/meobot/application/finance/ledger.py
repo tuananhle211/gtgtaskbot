@@ -28,14 +28,14 @@ from __future__ import annotations
 import uuid
 from collections.abc import Iterable, Sequence
 from dataclasses import dataclass, field
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta
 from decimal import Decimal
 from typing import Any
 
 from openpyxl import Workbook
 from openpyxl.styles import Alignment, Font, PatternFill
 from openpyxl.utils import get_column_letter
-from sqlalchemy import select
+from sqlalchemy import or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from meobot.application.audit_service import AuditService
@@ -50,20 +50,25 @@ from meobot.db.models.finance import (
     CrmOrderRecord,
     CrmShareRecord,
     CrmStaffRecord,
+    CrmTourRecord,
     FinanceFee,
     FinanceServiceCost,
 )
+from meobot.db.models.legal_entity import LegalEntity
+from meobot.db.models.user import User
 from meobot.domain.audit.models import AuditAction, AuditResult
 from meobot.domain.finance.crm import (
     FEE_FIELDS,
     PAYMENT_TYPE_LABELS,
     SHARE_TYPE_LABELS,
+    TREATMENT_TYPE_LABELS,
+    WORK_TYPE_LABELS,
     counted,
     order_vat_percent,
     vat_inside,
     whole,
 )
-from meobot.domain.finance.errors import FinanceInvalidError
+from meobot.domain.finance.errors import FinanceInvalidError, FinanceNotFoundError
 from meobot.domain.identity.models import Actor
 
 #: The longest span the screen asks for at once.
@@ -116,11 +121,25 @@ class LedgerRow:
     sale: str | None = None
     marketing: str | None = None
     carepage: str | None = None
+    #: The order's services ("DIỄN GIẢI").
+    services: str | None = None
 
     @property
     def net(self) -> Decimal:
         """Thực thu sau VAT & phí."""
         return self.collected - self.vat - self.fees.total
+
+    @property
+    def seller_check(self) -> Decimal:
+        """BCLT "CHECK DOANH THU TVV.KTV.Y TÁ" = DT 1 + DT 2 + DT 3 - thực thu."""
+        return sum((amount for _who, amount in self.sellers), Decimal(0)) - self.collected
+
+    @property
+    def doctor_check(self) -> Decimal | None:
+        """BCLT "CHECK DT BS" = DT phẫu + tiêm + khác - thực thu (services only)."""
+        if self.product:
+            return None
+        return sum((amount for _who, amount in self.doctors.values()), Decimal(0)) - self.collected
 
 
 @dataclass(slots=True)
@@ -144,6 +163,78 @@ class DaySummary:
     @property
     def net(self) -> Decimal:
         return self.collected - self.vat - self.fees
+
+
+@dataclass(frozen=True, slots=True)
+class Person:
+    crm_id: int | None
+    name: str
+    user_name: str | None
+
+
+@dataclass(frozen=True, slots=True)
+class RoleLine:
+    """One role someone plays on an order (BCLT: Sale, MKT, Chat page, NV bán
+    1-3, Bác sĩ phẫu / tiêm / khác, KTV)."""
+
+    key: str
+    label: str
+    person: Person
+    amount: Decimal | None
+    day: date | None
+
+
+@dataclass(frozen=True, slots=True)
+class PaymentDetail:
+    id: int
+    day: date
+    amount: Decimal
+    method: str
+    counted: bool
+    branch: str | None
+    sale: Person | None
+    marketing: Person | None
+    cskh: Person | None
+    carepage: Person | None
+
+
+@dataclass(frozen=True, slots=True)
+class ShareDetail:
+    day: date
+    person: Person
+    department: str
+    kind: str
+    doctor: bool
+    payment_amount: Decimal
+    shared: Decimal
+    payment_type: str
+
+
+@dataclass(frozen=True, slots=True)
+class TourDetail:
+    at: datetime
+    person: Person
+    work_type: str
+    treatment: str
+    service: str | None
+    procedure: str | None
+    note: str | None
+
+
+@dataclass(slots=True)
+class OrderDetail:
+    code: str
+    order: CrmOrderRecord | None
+    customer_code: str | None
+    customer_name: str | None
+    branch: str | None
+    entity: str | None
+    owner: Person | None
+    payments: list[PaymentDetail]
+    shares: list[ShareDetail]
+    tours: list[TourDetail]
+    rows: list[LedgerRow]
+    roles: list[RoleLine]
 
 
 @dataclass(slots=True)
@@ -220,6 +311,7 @@ class FinanceLedgerService:
                 sales=Decimal(order.all_total),
                 owed=Decimal(order.the_rest),
                 owed_days=(today - order.created_on).days if order.the_rest > 0 else None,
+                services=_services(order),
             )
         staff_ids: set[int] = set()
         people: dict[tuple[int | None, date, int], tuple[int | None, int | None, int | None]] = {}
@@ -239,6 +331,7 @@ class FinanceLedgerService:
                     branch=branches.get(payment.branch_id)
                     if payment.branch_id is not None
                     else None,
+                    services=_services(paid_order) if paid_order else None,
                 )
             if row.customer_name is None:
                 row.customer_name = payment.customer_name
@@ -442,9 +535,238 @@ class FinanceLedgerService:
         )
         return kept
 
+    async def order(self, code: str, *, today: date) -> OrderDetail:
+        """Everything about one CRM order: its lines, every payment and who is
+        on the customer's file, the revenue shared to each person (TVV / KTV /
+        y tá, doctors by kind), the công tua, and its BCLT row of each day."""
+        order = await self._session.scalar(
+            select(CrmOrderRecord).where(CrmOrderRecord.code == code)
+        )
+        payments = list(
+            (
+                await self._session.scalars(
+                    select(AdsCrmPayment)
+                    .where(
+                        or_(
+                            AdsCrmPayment.order_code == code,
+                            AdsCrmPayment.order_id == (order.id if order else -1),
+                        )
+                    )
+                    .order_by(AdsCrmPayment.payment_date, AdsCrmPayment.id)
+                )
+            ).all()
+        )
+        if order is None and not payments:
+            raise FinanceNotFoundError("finance_order_not_found", "Không tìm thấy đơn hàng này.")
+        shares = list(
+            (
+                await self._session.scalars(
+                    select(CrmShareRecord)
+                    .where(CrmShareRecord.order_code == code)
+                    .order_by(CrmShareRecord.payment_date, CrmShareRecord.id)
+                )
+            ).all()
+        )
+        tours = list(
+            (
+                await self._session.scalars(
+                    select(CrmTourRecord)
+                    .where(CrmTourRecord.order_code == code)
+                    .order_by(CrmTourRecord.performed_at)
+                )
+            ).all()
+        )
+        ids = {
+            crm_id
+            for payment in payments
+            for crm_id in (
+                payment.telesales_id,
+                payment.marketing_id,
+                payment.cskh_id,
+                payment.carepage_id,
+                payment.owner_id,
+            )
+            if crm_id is not None
+        }
+        ids |= {row.employee_id for row in shares if row.employee_id is not None}
+        ids |= {row.employee_id for row in tours if row.employee_id is not None}
+        if order is not None and order.owner_id is not None:
+            ids.add(order.owner_id)
+        staff = {
+            row.id: row
+            for row in await self._session.scalars(
+                select(CrmStaffRecord).where(CrmStaffRecord.id.in_(ids or {-1}))
+            )
+        }
+        departments = {
+            row.department_id: row.department_name
+            for row in await self._session.scalars(
+                select(CrmStaffRecord).where(CrmStaffRecord.department_id.is_not(None))
+            )
+            if row.department_id is not None and row.department_name
+        }
+        users = {
+            user.id: user.full_name or ""
+            for user in await self._session.scalars(
+                select(User).where(
+                    User.id.in_(
+                        {row.user_id for row in staff.values() if row.user_id} or {uuid.uuid4()}
+                    )
+                )
+            )
+        }
+
+        def person(crm_id: int | None) -> Person | None:
+            if crm_id is None:
+                return None
+            row = staff.get(crm_id)
+            return Person(
+                crm_id=crm_id,
+                name=row.name if row else f"CRM {crm_id}",
+                user_name=users.get(row.user_id) if row and row.user_id else None,
+            )
+
+        branches = {row.id: row for row in await self._session.scalars(select(CrmBranchRecord))}
+        branch_id = order.branch_id if order else (payments[0].branch_id if payments else None)
+        branch = branches.get(branch_id) if branch_id is not None else None
+        entity = (
+            await self._session.get(LegalEntity, branch.legal_entity_id)
+            if branch and branch.legal_entity_id
+            else None
+        )
+        days = sorted(
+            {payment.payment_date for payment in payments}
+            | ({order.created_on} if order else set())
+        )
+        rows: list[LedgerRow] = []
+        for day in days:
+            built = await self.build(day, day, today=today)
+            rows += [
+                row
+                for row in built.rows
+                if row.order_code == code or (order is not None and row.order_id == order.id)
+            ]
+        roles: list[RoleLine] = []
+        owner = person(order.owner_id) if order else None
+        if owner:
+            roles.append(RoleLine("owner", "Người lên đơn", owner, None, None))
+        for key, label, attribute in (
+            ("telesales", "Sale (người phụ trách)", "telesales_id"),
+            ("marketing", "MKT (nguồn)", "marketing_id"),
+            ("cskh", "CSKH", "cskh_id"),
+            ("carepage", "Chat page / Carepage", "carepage_id"),
+        ):
+            seen: set[int] = set()
+            for payment in payments:
+                crm_id = getattr(payment, attribute)
+                if crm_id is None or crm_id in seen:
+                    continue
+                seen.add(crm_id)
+                found = person(crm_id)
+                assert found is not None
+                roles.append(RoleLine(key, label, found, None, None))
+        share_lines: list[ShareDetail] = []
+        for row in shares:
+            found = person(row.employee_id) or Person(None, "Không rõ", None)
+            doctor = row.department_id == DOCTOR_DEPARTMENT
+            department = departments.get(row.department_id) or (
+                "Bác sĩ" if doctor else f"Phòng CRM {row.department_id}"
+            )
+            kind = (
+                SHARE_TYPE_LABELS.get(row.share_type or 0, "Bác sĩ")
+                if doctor
+                else f"NV bán ({department})"
+            )
+            share_lines.append(
+                ShareDetail(
+                    day=row.payment_date,
+                    person=found,
+                    department=department,
+                    kind=kind,
+                    doctor=doctor,
+                    payment_amount=Decimal(row.payment_amount),
+                    shared=Decimal(row.shared_revenue),
+                    payment_type=PAYMENT_TYPE_LABELS.get(row.payment_type or 0, ""),
+                )
+            )
+            roles.append(
+                RoleLine("share", kind, found, Decimal(row.shared_revenue), row.payment_date)
+            )
+        tour_lines = [
+            TourDetail(
+                at=row.performed_at,
+                person=person(row.employee_id) or Person(None, "Không rõ", None),
+                work_type=WORK_TYPE_LABELS.get(row.work_type or "", row.work_type or ""),
+                treatment=TREATMENT_TYPE_LABELS.get(row.treatment_type or 0, ""),
+                service=row.service_name,
+                procedure=row.procedure_name,
+                note=row.note,
+            )
+            for row in tours
+        ]
+        for line in tour_lines:
+            roles.append(
+                RoleLine(
+                    "tour", f"KTV làm tua ({line.work_type})", line.person, None, line.at.date()
+                )
+            )
+        payment_lines = [
+            PaymentDetail(
+                id=payment.id,
+                day=payment.payment_date,
+                amount=Decimal(payment.price),
+                method=PAYMENT_TYPE_LABELS.get(payment.payment_type, str(payment.payment_type)),
+                counted=counted(payment.payment_type),
+                branch=branches[payment.branch_id].name if payment.branch_id in branches else None,
+                sale=person(payment.telesales_id),
+                marketing=person(payment.marketing_id),
+                cskh=person(payment.cskh_id),
+                carepage=person(payment.carepage_id),
+            )
+            for payment in payments
+        ]
+        return OrderDetail(
+            code=code,
+            order=order,
+            customer_code=(order.customer_code if order else None)
+            or next((p.customer_code for p in payments if p.customer_code), None),
+            customer_name=(order.customer_name if order else None)
+            or next((p.customer_name for p in payments if p.customer_name), None),
+            branch=branch.name if branch else None,
+            entity=f"{entity.code} - {entity.name}" if entity else None,
+            owner=owner,
+            payments=payment_lines,
+            shares=share_lines,
+            tours=tour_lines,
+            rows=rows,
+            roles=roles,
+        )
+
     async def fees_total(self, since: date, until: date, *, today: date) -> Decimal:
         ledger = await self.build(since, until, today=today)
         return sum((row.fees.total for row in ledger.rows), Decimal(0))
+
+
+def _services(order: CrmOrderRecord) -> str | None:
+    names = [
+        f"{item.get('service_name') or 'Dịch vụ'}"
+        + (
+            f" x {_qty(item.get('quantity'))}"
+            # the CRM sends 0 when nobody typed a quantity (seen 13/11)
+            if _qty(item.get("quantity")) not in ("", "0", "1")
+            else ""
+        )
+        for item in order.items or []
+    ]
+    return ", ".join(names) or None
+
+
+def _qty(value: object) -> str:
+    try:
+        number = Decimal(str(value))
+    except ArithmeticError:
+        return ""
+    return f"{number.normalize():f}"
 
 
 def _amount(value: object, field: str) -> Decimal | None:
@@ -477,6 +799,7 @@ BCLT_HEADERS: tuple[str, ...] = (
     "TÊN KH",
     "MÃ KH",
     "CHI NHÁNH",
+    "DIỄN GIẢI",
     "DOANH SỐ",
     "THỰC THU",
     "NỢ",
@@ -486,6 +809,8 @@ BCLT_HEADERS: tuple[str, ...] = (
     *FEE_FIELDS.values(),
     "TỔNG HỢP PHÍ",
     "Thực thu sau VAT & phí",
+    "CHECK DOANH THU TVV.KTV.Y TÁ",
+    "CHECK DT BS",
     "NV BÁN 1",
     "DT 1",
     "NV BÁN 2",
@@ -502,6 +827,7 @@ BCLT_HEADERS: tuple[str, ...] = (
     "CAREPAGE",
     "Ghi chú",
     "Công nợ (số ngày)",
+    "Công nợ quá 45 ngày",
 )
 SUMMARY_LINES: tuple[str, ...] = (
     "Doanh số",
@@ -549,6 +875,7 @@ def ledger_workbook(ledger: Ledger, *, names: bool) -> bytes:
                 (row.customer_name or "") if names else "",
                 row.customer_code or "",
                 row.branch or "",
+                row.services or "",
                 _money(row.sales),
                 _money(row.collected),
                 _money(row.owed),
@@ -558,6 +885,8 @@ def ledger_workbook(ledger: Ledger, *, names: bool) -> bytes:
                 *(_money(getattr(row.fees, name)) for name in FEE_FIELDS),
                 _money(row.fees.total),
                 _money(row.net),
+                _money(row.seller_check),
+                _money(row.doctor_check) if row.doctor_check is not None else None,
                 *(
                     value
                     for who, amount in sellers
@@ -573,11 +902,12 @@ def ledger_workbook(ledger: Ledger, *, names: bool) -> bytes:
                 row.carepage or "",
                 row.note or "",
                 row.owed_days if row.owed_days is not None else None,
+                "QUÁ" if row.owed and (row.owed_days or 0) > 45 else "",
             ]
         )
     for index in range(2, sheet.max_row + 1):
         sheet.cell(index, 1).number_format = "dd/mm/yyyy"
-        for column in range(8, len(BCLT_HEADERS) + 1):
+        for column in range(9, len(BCLT_HEADERS) + 1):
             cell = sheet.cell(index, column)
             if isinstance(cell.value, int):
                 cell.number_format = "#,##0"

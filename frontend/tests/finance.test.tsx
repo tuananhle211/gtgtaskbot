@@ -483,3 +483,129 @@ describe("Tài chính đợt 3: hồ sơ chi", () => {
     });
   });
 });
+
+describe("Bảng kê: một đơn hàng", () => {
+  it("opens on every role with the revenue it was credited, and the BCLT checks", async () => {
+    const { default: OrderPage } = await import("@/app/finance/ledger/orders/[code]/page");
+    const { act } = await import("@testing-library/react");
+    const person = (name: string, user: string | null = null) => ({ crm_id: 1, name, user_name: user });
+    stubFetch([
+      {
+        match: "/api/finance/ledger/orders/DH100",
+        body: {
+          code: "DH100",
+          created_on: "2026-10-20",
+          customer_code: "KH100",
+          customer_name: "Khách 100",
+          branch: "HN1",
+          entity: "APEXMED - Apexmed",
+          owner: person("Người lên đơn"),
+          order_type: "Đơn thường",
+          role_type: "Dịch vụ",
+          all_total: 1080000,
+          amount_before_vat: 1000000,
+          vat_amount: 80000,
+          vat_percent: "8.00",
+          gross_revenue: 1080000,
+          the_rest: 0,
+          discount: 0,
+          items: [{ service_id: 8, service_name: "Tiêm", quantity: "1", total_price: 1080000 }],
+          payments: [
+            {
+              id: 1,
+              day: "2026-10-20",
+              amount: 1080000,
+              method: "Chuyển khoản",
+              counted: true,
+              branch: "HN1",
+              sale: person("Sale B", "Lê Thu Hà"),
+              marketing: person("HN - MKT A"),
+              cskh: person("CSKH C"),
+              carepage: null,
+            },
+          ],
+          shares: [
+            {
+              day: "2026-10-20",
+              person: person("BS An"),
+              department: "Bác Sĩ",
+              kind: "Bác sĩ tiêm",
+              doctor: true,
+              payment_amount: 1080000,
+              shared: 1080000,
+              payment_type: "Chuyển khoản",
+            },
+          ],
+          tours: [
+            {
+              at: "2026-10-20T02:00:00Z",
+              person: person("KTV Bình"),
+              work_type: "Công chính",
+              treatment: "Trừ liệu trình",
+              service: "Tiêm",
+              procedure: null,
+              note: null,
+            },
+          ],
+          rows: [
+            {
+              ...LEDGER_ROW,
+            },
+          ],
+          roles: [
+            { key: "owner", label: "Người lên đơn", person: person("Người lên đơn"), amount: null, day: null },
+            { key: "telesales", label: "Sale (người phụ trách)", person: person("Sale B", "Lê Thu Hà"), amount: null, day: null },
+            { key: "share", label: "Bác sĩ tiêm", person: person("BS An"), amount: 1080000, day: "2026-10-20" },
+            { key: "tour", label: "KTV làm tua (Công chính)", person: person("KTV Bình"), amount: null, day: "2026-10-20" },
+          ],
+          can_edit_fees: false,
+        },
+      },
+    ]);
+    await act(async () => {
+      renderWithQuery(<OrderPage params={Promise.resolve({ code: "DH100" })} />);
+    });
+    const roles = await screen.findAllByTestId("order-role");
+    expect(roles.map((row) => row.textContent)).toEqual([
+      expect.stringContaining("Người lên đơn"),
+      expect.stringContaining("Sale B"),
+      expect.stringContaining("1.080.000 ₫"),
+      expect.stringContaining("KTV Bình"),
+    ]);
+    expect(roles[1]).toHaveTextContent("APM: Lê Thu Hà");
+    expect(screen.getByTestId("order-day")).toHaveTextContent("Khớp");
+    expect(screen.getByTestId("order-share")).toHaveTextContent("Bác sĩ tiêm");
+    expect(screen.getByTestId("order-tour")).toHaveTextContent("Công chính");
+  });
+});
+
+const LEDGER_ROW = {
+  order_id: 100,
+  day: "2026-10-20",
+  kind: "NEW",
+  order_code: "DH100",
+  product: false,
+  customer_code: "KH100",
+  customer_name: "Khách 100",
+  branch: "HN1",
+  sales: 1080000,
+  owed: 0,
+  owed_days: null,
+  collected: 1080000,
+  methods: { "4": 1080000 },
+  refunds: 0,
+  vat: 80000,
+  fees: { card_fee: 0, referral_fee: 0, car_fee: 0, cost: 0, total: 0 },
+  auto: { card_fee: 0, referral_fee: 0, car_fee: 0, cost: 0, total: 0 },
+  typed: [],
+  note: null,
+  net: 1000000,
+  sellers: [],
+  doctors: { "Bác sĩ tiêm": { name: "BS An", amount: 1080000 } },
+  sale: "Sale B",
+  marketing: "HN - MKT A",
+  carepage: null,
+  services: "Tiêm",
+  seller_check: -1080000,
+  doctor_check: 0,
+};

@@ -173,6 +173,11 @@ export type LedgerRow = {
   sale: string | null;
   marketing: string | null;
   carepage: string | null;
+  /** "DIỄN GIẢI": the order's services. */
+  services?: string | null;
+  /** BCLT checks: DT NV bán 1+2+3 - thực thu; DT bác sĩ - thực thu (null for SP). */
+  seller_check?: number;
+  doctor_check?: number | null;
 };
 export type LedgerDay = {
   day: string;
@@ -195,6 +200,60 @@ export type Ledger = {
   days: LedgerDay[];
   kpi_month: number | null;
   methods: Record<string, string>;
+  can_edit_fees: boolean;
+};
+export type CrmPerson = { crm_id: number | null; name: string; user_name: string | null };
+export type OrderDetail = {
+  code: string;
+  created_on: string | null;
+  customer_code: string | null;
+  customer_name: string | null;
+  branch: string | null;
+  entity: string | null;
+  owner: CrmPerson | null;
+  order_type: string | null;
+  role_type: string | null;
+  all_total: number | null;
+  amount_before_vat: number | null;
+  vat_amount: number | null;
+  vat_percent: string | null;
+  gross_revenue: number | null;
+  the_rest: number | null;
+  discount: number | null;
+  items: { service_id: number | null; service_name: string | null; quantity: string; total_price: number }[];
+  payments: {
+    id: number;
+    day: string;
+    amount: number;
+    method: string;
+    counted: boolean;
+    branch: string | null;
+    sale: CrmPerson | null;
+    marketing: CrmPerson | null;
+    cskh: CrmPerson | null;
+    carepage: CrmPerson | null;
+  }[];
+  shares: {
+    day: string;
+    person: CrmPerson;
+    department: string;
+    kind: string;
+    doctor: boolean;
+    payment_amount: number;
+    shared: number;
+    payment_type: string;
+  }[];
+  tours: {
+    at: string;
+    person: CrmPerson;
+    work_type: string;
+    treatment: string;
+    service: string | null;
+    procedure: string | null;
+    note: string | null;
+  }[];
+  rows: LedgerRow[];
+  roles: { key: string; label: string; person: CrmPerson; amount: number | null; day: string | null }[];
   can_edit_fees: boolean;
 };
 export type DebtLine = {
@@ -261,6 +320,8 @@ export const financeApi = {
   syncStatus: () => http.get<SyncStatus>("/api/finance/sync"),
   ledger: (since: string, until: string) =>
     http.get<Ledger>(`/api/finance/ledger${query({ since, until })}`),
+  order: (code: string) =>
+    http.get<OrderDetail>(`/api/finance/ledger/orders/${encodeURIComponent(code)}`),
   ledgerExportUrl: (month: string) => `/api/finance/ledger.xlsx${query({ month })}`,
   setFees: (body: { order_id: number; day: string } & Partial<Record<FeeKey, string | null>> & { note?: string | null }) =>
     http.patch<LedgerRow | null>("/api/finance/fees", body),
