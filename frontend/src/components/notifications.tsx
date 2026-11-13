@@ -67,7 +67,7 @@ export function notificationHref(item: AppNotification): string | null {
     return `/tasks/${item.target_id}`;
   }
   // 0077: a failed scheduled job opens the monitor screen.
-  if (item.target_kind === "cron_job") return "/ads/jobs";
+  if (item.target_kind === "cron_job") return "/admin/cron";
   // 0070: a resource request opens its ticket.
   if (item.target_kind === "resource_request" && item.target_id) {
     return `/resources/requests/${item.target_id}`;

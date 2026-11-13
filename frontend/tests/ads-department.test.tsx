@@ -139,8 +139,10 @@ describe("who sees Phòng Ads", () => {
       manage_connections: true,
     });
     expect(hrefs(navFor(owner, "OWNER"))).toEqual(
-      expect.arrayContaining(["/ads/connections", "/ads/jobs"]),
+      expect.arrayContaining(["/ads/connections"]),
     );
+    // "Tác vụ định kỳ" went back to Quản trị (13/11).
+    expect(hrefs(navFor(owner, "OWNER"))).not.toContain("/ads/jobs");
     const admin = me({
       view: true,
       view_all: true,

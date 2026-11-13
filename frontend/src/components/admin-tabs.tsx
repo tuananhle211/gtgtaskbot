@@ -30,7 +30,10 @@ import { api, type UnitsMe } from "@/lib/api";
  * **Đang phát triển** (`/admin/developing`, OWNER only, 13/11) - modules still
  *   being built, hidden from everybody but the OWNER (Tài chính).
  *
- * "Tác vụ định kỳ" and "Kết nối BM" live in the Phòng Ads menu (27/10).
+ * **Tác vụ định kỳ** (`/admin/cron`, OWNER / ADMIN; 13/11 back from the Phòng
+ *   Ads menu, `/ads/jobs` redirects) - every scheduled job, its runs, "Chạy lại".
+ *
+ * "Kết nối BM" lives in the Phòng Ads menu (27/10).
  *
  * The PR team's own "Thành viên & Phân quyền (PR)" stays in the PR menu, untouched.
  * Who sees which tab is a convenience; every route and write is checked again
@@ -44,6 +47,7 @@ export type AdminTabKey =
   | "ai"
   | "agents"
   | "performance"
+  | "cron"
   | "developing";
 
 export const ADMIN_TABS: ReadonlyArray<{ key: AdminTabKey; href: string; label: string }> = [
@@ -58,6 +62,8 @@ export const ADMIN_TABS: ReadonlyArray<{ key: AdminTabKey; href: string; label: 
   { key: "agents", href: "/admin/agents", label: "Đội agent" },
   // Hiệu năng (0103, plan docs/ops/SCALING_PLAN.md D): OWNER / ADMIN.
   { key: "performance", href: "/admin/performance", label: "Hiệu năng" },
+  // Tác vụ định kỳ (0077; back from Phòng Ads 13/11): OWNER / ADMIN.
+  { key: "cron", href: "/admin/cron", label: "Tác vụ định kỳ" },
   // Tính năng đang phát triển (13/11): OWNER only.
   { key: "developing", href: "/admin/developing", label: "Đang phát triển" },
 ];
@@ -82,6 +88,7 @@ export function adminTabsFor(
     ai: sessionRole === "OWNER",
     agents: Boolean(me?.agents?.manage),
     performance: manages,
+    cron: manages,
     developing: sessionRole === "OWNER",
   };
   return ADMIN_TABS.filter((tab) => shown[tab.key]);

@@ -6,7 +6,7 @@
 import { describe, expect, it, vi } from "vitest";
 import { screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import CronPage from "@/app/ads/jobs/page";
+import CronPage from "@/app/admin/cron/page";
 import { adminTabsFor } from "@/components/admin-tabs";
 import { navFor } from "@/components/shell";
 import { notificationHref } from "@/components/notifications";
@@ -15,7 +15,7 @@ import { renderWithQuery, SESSION, stubFetch } from "./helpers";
 
 vi.mock("next/navigation", () => ({
   useParams: () => ({}),
-  usePathname: () => "/ads/jobs",
+  usePathname: () => "/admin/cron",
   useSearchParams: () => new URLSearchParams(),
   useRouter: () => ({ replace: () => undefined, push: () => undefined }),
 }));
@@ -127,7 +127,7 @@ function open(
 }
 
 describe("the Tác vụ định kỳ tab", () => {
-  it("sits in the Phòng Ads menu for the OWNER and an ADMIN, not in Quản trị", () => {
+  it("is a Quản trị tab for the OWNER and an ADMIN, no longer in the Phòng Ads menu", () => {
     const me = {
       units: [],
       can_admin: [],
@@ -145,12 +145,12 @@ describe("the Tác vụ định kỳ tab", () => {
           ? entry.children.map((child) => child.href)
           : [entry.href],
       );
-    expect(hrefs("OWNER")).toContain("/ads/jobs");
-    expect(hrefs("ADMIN")).toContain("/ads/jobs");
-    expect(hrefs("EMPLOYEE")).not.toContain("/ads/jobs");
-    expect(adminTabsFor(me, "OWNER").map((tab) => tab.href)).not.toContain(
-      "/admin/cron",
-    );
+    expect(hrefs("OWNER")).not.toContain("/ads/jobs");
+    expect(hrefs("ADMIN")).not.toContain("/ads/jobs");
+    const tabs = (role: string) => adminTabsFor(me, role).map((tab) => tab.href);
+    expect(tabs("OWNER")).toContain("/admin/cron");
+    expect(tabs("ADMIN")).toContain("/admin/cron");
+    expect(tabs("EMPLOYEE")).not.toContain("/admin/cron");
   });
 
   it("a job alert in the bell opens the screen", () => {
@@ -158,7 +158,7 @@ describe("the Tác vụ định kỳ tab", () => {
       target_kind: "cron_job",
       target_id: "i-1",
     } as unknown as AppNotification;
-    expect(notificationHref(alert)).toBe("/ads/jobs");
+    expect(notificationHref(alert)).toBe("/admin/cron");
   });
 });
 

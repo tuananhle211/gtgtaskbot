@@ -361,11 +361,10 @@ function hrBranch(me: UnitsMe | undefined): NavGroup | null {
  * department and the OWNER / ADMIN (`ads.view` on `/api/units/me`), "Hiệu
  * suất Marketing" (`view_all`), "Nhập doanh thu" / "KPI" / "Ngân sách tuần" (`edit_revenue`; "Tài khoản CRM" moved to Quản trị 13/11); its
  * settings sit in the same branch (27/10): "Kết nối BM" for the OWNER
- * (`ads.manage_connections`), "Tác vụ định kỳ" for the OWNER / ADMIN.
+ * (`ads.manage_connections`). "Tác vụ định kỳ" went back to Quản trị (13/11).
  */
-function adsBranch(me: UnitsMe | undefined, sessionRole?: string): NavGroup | null {
+function adsBranch(me: UnitsMe | undefined): NavGroup | null {
   if (!me?.ads?.view) return null;
-  const manages = sessionRole === "OWNER" || sessionRole === "ADMIN";
   return {
     key: "ads",
     label: "Phòng Ads",
@@ -383,7 +382,6 @@ function adsBranch(me: UnitsMe | undefined, sessionRole?: string): NavGroup | nu
       ...(me.ads.manage_connections
         ? [{ href: "/ads/connections", label: "Kết nối BM", icon: "settings" as NavIcon }]
         : []),
-      ...(manages ? [{ href: "/ads/jobs", label: "Tác vụ định kỳ", icon: "timeline" as NavIcon }] : []),
     ],
   };
 }
@@ -510,7 +508,7 @@ export function navFor(me: UnitsMe | undefined, sessionRole?: string): NavEntry[
   const effort = seesOrdEffort(me, sessionRole);
   const library = libraryBranch(me);
   const resources = resourcesBranch(me);
-  const ads = adsBranch(me, sessionRole);
+  const ads = adsBranch(me);
   const hr = hrBranch(me);
   const finance = financeBranch(me);
   const cskh = cskhBranch(me);

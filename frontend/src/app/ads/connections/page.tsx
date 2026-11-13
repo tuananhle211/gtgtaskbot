@@ -20,7 +20,7 @@ import { formatShortDateTime } from "@/lib/datetime";
  *
  * The schedule pulls yesterday's spend at 08:00 and again at 23:00, and the
  * charges at 08:05; "Đồng bộ ngay" / "Kéo lại khoảng ngày" queue the same job
- * now. Every run shows in Quản trị › Tác vụ định kỳ.
+ * now. Every run shows in Quản trị › Tác vụ định kỳ (`/admin/cron`).
  */
 export default function AdsConnectionsPage() {
   const list = useQuery({
@@ -91,8 +91,8 @@ function Workspace({ data }: { data: AdsConnections }) {
         Token lấy ở Business Settings › Người dùng › Người dùng hệ thống (System
         User) › Tạo token, chọn quyền ads_read và business_management. Kết quả
         mỗi lượt đồng bộ xem ở{" "}
-        <Link href="/ads/jobs" className="text-[var(--accent)] underline">
-          Tác vụ định kỳ
+        <Link href="/admin/cron" className="text-[var(--accent)] underline">
+          Quản trị › Tác vụ định kỳ
         </Link>
         .
       </p>

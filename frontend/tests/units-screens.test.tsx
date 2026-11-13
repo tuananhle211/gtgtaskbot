@@ -660,6 +660,7 @@ describe("the ORD settings page", () => {
         "/admin/settings",
         "/admin/ai",
         "/admin/performance",
+        "/admin/cron",
         "/admin/developing",
       ]),
     );
