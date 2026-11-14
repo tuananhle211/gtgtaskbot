@@ -340,6 +340,10 @@ export const financeApi = {
   order: (code: string) =>
     http.get<OrderDetail>(`/api/finance/ledger/orders/${encodeURIComponent(code)}`),
   ledgerExportUrl: (month: string) => `/api/finance/ledger.xlsx${query({ month })}`,
+  /** The Bảng kê columns I hide (14/11; my own, kept on the server). */
+  ledgerColumns: () => http.get<{ hidden: string[] }>("/api/finance/ledger/columns"),
+  setLedgerColumns: (hidden: string[]) =>
+    http.put<{ hidden: string[] }>("/api/finance/ledger/columns", { hidden }),
   setFees: (
     body: { order_id: number; day: string } & Partial<Record<FeeKey | MarkKey, string | null>> & {
         note?: string | null;

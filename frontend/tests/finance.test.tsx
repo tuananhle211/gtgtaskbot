@@ -405,6 +405,32 @@ describe("Tài chính đợt 2", () => {
     expect(await screen.findByTestId("summary-row")).toHaveTextContent("7,2%");
   });
 
+  it("switches columns on and off per person, saved on the server", async () => {
+    const { default: LedgerPage } = await import("@/app/finance/ledger/page");
+    const stub = stubFetch([
+      { match: "/api/finance/access", body: { ...ACCESS, fees: true } },
+      { match: "/api/finance/ledger/columns", method: "PUT", body: { hidden: ["seller"] } },
+      { match: "/api/finance/ledger/columns", body: { hidden: ["customer_name", "seller"] } },
+      { match: "/api/finance/ledger?since=2026-10-01&until=2026-10-31", body: LEDGER },
+    ]);
+    renderWithQuery(<LedgerPage />);
+    const row = await screen.findByTestId("ledger-row");
+    // My saved choice: no customer name, no NV bán, so no sub-line for the second seller.
+    await waitFor(() => expect(row).not.toHaveTextContent("Khách 101"));
+    expect(row).not.toHaveTextContent("KTV Bình");
+    expect(row).toHaveTextContent("BS An (tiêm)");
+    expect(screen.queryByTestId("ledger-subrow")).not.toBeInTheDocument();
+    await userEvent.click(screen.getByRole("button", { name: "Cột hiển thị (ẩn 2)" }));
+    const dialog = await screen.findByRole("dialog");
+    expect(within(dialog).getByLabelText("Tên KH")).not.toBeChecked();
+    expect(within(dialog).getByLabelText("Mã KH")).toBeChecked();
+    await userEvent.click(within(dialog).getByLabelText("Tên KH"));
+    await waitFor(() =>
+      expect(sent(stub, "PUT", "/api/finance/ledger/columns")[0]?.body).toEqual({ hidden: ["seller"] }),
+    );
+    expect(await screen.findByTestId("ledger-row")).toHaveTextContent("Khách 101");
+  });
+
   it("shows công nợ by age bucket", async () => {
     const { default: DebtsPage } = await import("@/app/finance/debts/page");
     stubFetch([

@@ -867,3 +867,32 @@ async def test_09_the_bclt_new_layout(world: World) -> None:
     assert same_day[1][at["Bác sỹ"]] == "BS Bảo (phẫu)"
     assert [line[at["NV bán"]] for line in same_day] == ["KTV Cường", "Y tá Dung"]
     assert same_day[1][at["THỰC THU"]] is None and same_day[0][at["THỰC THU"]] == 1_080_000
+
+
+async def test_10_each_person_hides_their_own_ledger_columns(world: World) -> None:
+    """User 14/11: the Bảng kê's columns are switched on / off; each person's
+    choice is kept on the server (every device), nobody else's changes."""
+    head, member, stranger = await _finance_people(world)
+    world.act_as(stranger)
+    assert world.client.get("/api/finance/ledger/columns").status_code == 403
+    world.act_as(head)
+    assert world.client.get("/api/finance/ledger/columns").json() == {"hidden": []}
+    saved = world.client.put(
+        "/api/finance/ledger/columns",
+        json={"hidden": ["customer_name", "fee:cost", "customer_name"]},
+    )
+    assert saved.status_code == 200, saved.json()
+    assert saved.json() == {"hidden": ["customer_name", "fee:cost"]}
+    assert world.client.get("/api/finance/ledger/columns").json()["hidden"] == [
+        "customer_name",
+        "fee:cost",
+    ]
+    wrong = world.client.put("/api/finance/ledger/columns", json={"hidden": ["Tên KH"]})
+    assert wrong.status_code == 422
+    assert wrong.json()["error"]["details"]["reason"] == "ledger_columns_invalid"
+    world.act_as(member)
+    assert world.client.get("/api/finance/ledger/columns").json() == {"hidden": []}
+    world.act_as(head)
+    assert world.client.put("/api/finance/ledger/columns", json={"hidden": []}).json() == {
+        "hidden": []
+    }

@@ -10,14 +10,17 @@
  * the five marks first (APM's suggestion in italics until Kế toán picks),
  * "Diễn giải" one service a line with its price, one NV bán + one Bác sỹ
  * column with every other person on a line of their own below the order.
+ * Since 14/11 "Cột hiển thị" switches columns on / off per person (kept on
+ * the server, `/api/finance/ledger/columns`); the order code always shows.
  */
 
 import { useRouter, useSearchParams } from "next/navigation";
-import { Suspense, useMemo, useState } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { Suspense, useMemo, useState, type ReactNode } from "react";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { FeeDialog } from "@/components/finance-fees";
+import { Modal, ModalBody, ModalFooter } from "@/components/modal";
 import { PageHeader, SecondaryButton, Select } from "@/components/pr";
-import { Empty, ErrorBox, Loading, Pill } from "@/components/states";
+import { Empty, ErrorBox, Loading, NoticeBox, Pill } from "@/components/states";
 import { monthOf, shiftMonth } from "@/lib/hr-attendance";
 import {
   FEE_LABELS,
@@ -31,6 +34,7 @@ import {
 } from "@/lib/finance";
 
 const FEE_KEYS: FeeKey[] = ["card_fee", "referral_fee", "car_fee", "cost"];
+const METHOD_ORDER = ["5", "2", "6", "4", "1"];
 const field =
   "min-h-11 w-full rounded-lg border border-[var(--border)] bg-[var(--surface)] px-3 text-[var(--text)]";
 
@@ -78,11 +82,263 @@ function amount(value: number | undefined): string {
   return value ? money(value) : "";
 }
 
+type Column = {
+  /** The switch: columns sharing a key (a name + its amount) go on / off together. */
+  key: string;
+  group: string;
+  label: string;
+  /** The picker's name when the header alone says too little. */
+  pick?: string;
+  numeric?: boolean;
+  wrap?: boolean;
+  title?: string;
+  cell: (row: LedgerRow) => ReactNode;
+  /** A per-person column: what a sub-line (2nd, 3rd person…) shows. */
+  person?: (row: LedgerRow, index: number) => ReactNode;
+};
+
+function sellerAt(row: LedgerRow, index: number) {
+  return row.sellers[index];
+}
+
+function doctorAt(row: LedgerRow, index: number) {
+  return doctorLines(row)[index];
+}
+
+/** The table's columns in the sheet "BCLT new"'s order. */
+function ledgerColumns(data: Ledger): Column[] {
+  const marks = data.marks ?? [];
+  // A JS object puts number-like keys in number order; the sheet's is
+  // Trả góp, Thẻ, Nhà xe, CK, Tiền mặt (backend METHOD_ORDER).
+  const methods = [
+    ...METHOD_ORDER.filter((key) => key in data.methods),
+    ...Object.keys(data.methods).filter((key) => !METHOD_ORDER.includes(key)),
+  ].map((key) => [key, data.methods[key]] as const);
+  return [
+    ...marks.map(
+      (mark): Column => ({
+        key: `mark:${mark.key}`,
+        group: "Phân loại dòng",
+        label: mark.label,
+        cell: (row) => <MarkCell row={row} mark={mark.key} />,
+      }),
+    ),
+    { key: "product", group: "Đơn & khách", label: "SP/DV", cell: (row) => (row.product ? "SP" : "DV") },
+    { key: "day", group: "Đơn & khách", label: "Ngày", cell: (row) => dayLabel(row.day) },
+    { key: "customer_name", group: "Đơn & khách", label: "Tên KH", cell: (row) => row.customer_name ?? "" },
+    { key: "customer_code", group: "Đơn & khách", label: "Mã KH", cell: (row) => row.customer_code ?? "" },
+    {
+      key: "services",
+      group: "Đơn & khách",
+      label: "Diễn giải",
+      wrap: true,
+      cell: (row) =>
+        row.items?.length ? (
+          <ul className="min-w-64 space-y-0.5" data-testid="ledger-services">
+            {row.items.map((item, at) => (
+              <li key={at} className="flex justify-between gap-3">
+                <span>{item.name}</span>
+                <span className="tabular-nums text-[var(--text-muted)]">{money(item.price)}</span>
+              </li>
+            ))}
+          </ul>
+        ) : (
+          (row.services ?? "")
+        ),
+    },
+    { key: "sales", group: "Tiền", label: "Doanh số", numeric: true, cell: (row) => amount(row.sales) },
+    {
+      key: "received",
+      group: "Tiền",
+      label: "Thực thu",
+      numeric: true,
+      cell: (row) => money(row.received ?? row.collected - row.refunds),
+    },
+    { key: "owed", group: "Tiền", label: "Nợ", numeric: true, cell: (row) => amount(row.owed) },
+    ...methods.map(
+      ([method, label]): Column => ({
+        key: `method:${method}`,
+        group: "Phương thức thanh toán",
+        label,
+        numeric: true,
+        cell: (row) => amount(row.methods[method]),
+      }),
+    ),
+    { key: "refunds", group: "Phí", label: "Hoàn tiền", numeric: true, cell: (row) => amount(-row.refunds) },
+    ...FEE_KEYS.map(
+      (fee): Column => ({
+        key: `fee:${fee}`,
+        group: "Phí",
+        label: FEE_LABELS[fee],
+        numeric: true,
+        cell: (row) =>
+          row.typed.includes(fee) ? (
+            <span className="font-semibold text-[var(--accent)]">{amount(row.fees[fee])}</span>
+          ) : (
+            amount(row.fees[fee])
+          ),
+      }),
+    ),
+    {
+      key: "charges",
+      group: "Phí",
+      label: "Tổng hợp phí",
+      title: "= Hoàn tiền + 4 khoản phí",
+      numeric: true,
+      cell: (row) => money(row.charges ?? row.fees.total - row.refunds),
+    },
+    {
+      key: "net",
+      group: "Tiền",
+      label: "Thực thu sau phí",
+      title: "= Thực thu - VAT - Tổng hợp phí",
+      numeric: true,
+      cell: (row) => <span className="font-medium">{money(row.net)}</span>,
+    },
+    {
+      key: "seller",
+      group: "Chia doanh thu",
+      label: "NV bán",
+      pick: "NV bán + doanh thu",
+      cell: (row) => sellerAt(row, 0)?.name ?? "",
+      person: (row, index) => sellerAt(row, index)?.name ?? "",
+    },
+    {
+      key: "seller",
+      group: "Chia doanh thu",
+      label: "Doanh thu",
+      numeric: true,
+      cell: (row) => (sellerAt(row, 0) ? money(sellerAt(row, 0)!.amount) : ""),
+      person: (row, index) => (sellerAt(row, index) ? money(sellerAt(row, index)!.amount) : ""),
+    },
+    {
+      key: "doctor",
+      group: "Chia doanh thu",
+      label: "Bác sỹ",
+      pick: "Bác sỹ + doanh thu",
+      cell: (row) => (doctorAt(row, 0) ? doctorName(doctorAt(row, 0)!) : ""),
+      person: (row, index) => (doctorAt(row, index) ? doctorName(doctorAt(row, index)!) : ""),
+    },
+    {
+      key: "doctor",
+      group: "Chia doanh thu",
+      label: "Doanh thu",
+      numeric: true,
+      cell: (row) => (doctorAt(row, 0) ? money(doctorAt(row, 0)!.amount) : ""),
+      person: (row, index) => (doctorAt(row, index) ? money(doctorAt(row, index)!.amount) : ""),
+    },
+    { key: "sale", group: "Người phụ trách", label: "Sale (người phụ trách)", cell: (row) => row.sale ?? "" },
+    { key: "marketing", group: "Người phụ trách", label: "MKT (nguồn)", cell: (row) => row.marketing ?? "" },
+    { key: "carepage", group: "Người phụ trách", label: "Chat page (người tạo)", cell: (row) => row.carepage ?? "" },
+    {
+      key: "overdue",
+      group: "Khác",
+      label: "Công nợ quá 45 ngày",
+      cell: (row) =>
+        row.owed && (row.owed_days ?? 0) > 45 ? (
+          <span className="text-[var(--bad)]">QUÁ ({row.owed_days} ngày)</span>
+        ) : (
+          ""
+        ),
+    },
+    { key: "branch", group: "Khác", label: "Chi nhánh", cell: (row) => row.branch ?? "" },
+  ];
+}
+
+/** The picker's switches: one per key, in table order, grouped. */
+function switchesOf(columns: Column[]): { group: string; items: { key: string; label: string }[] }[] {
+  const groups: { group: string; items: { key: string; label: string }[] }[] = [];
+  const seen = new Set<string>();
+  for (const column of columns) {
+    if (seen.has(column.key)) continue;
+    seen.add(column.key);
+    let group = groups.find((item) => item.group === column.group);
+    if (!group) groups.push((group = { group: column.group, items: [] }));
+    group.items.push({ key: column.key, label: column.pick ?? column.label });
+  }
+  return groups;
+}
+
+const LEDGER_COLUMNS_KEY = ["finance", "ledger-columns"] as const;
+
+/**
+ * "Cột hiển thị" (14/11): which columns I see. Saved on the server at each
+ * tick (my own, every device; like the menu pins: no confirmation, the
+ * screen changes at once and goes back if the save fails). The Excel export
+ * keeps every column.
+ */
+function ColumnsDialog({
+  columns,
+  hidden,
+  onClose,
+}: {
+  columns: Column[];
+  hidden: string[];
+  onClose: () => void;
+}) {
+  const queryClient = useQueryClient();
+  const [error, setError] = useState<unknown>(null);
+  const groups = switchesOf(columns);
+  const keys = groups.flatMap((group) => group.items.map((item) => item.key));
+  const save = (next: string[]) => {
+    const before = queryClient.getQueryData(LEDGER_COLUMNS_KEY);
+    queryClient.setQueryData(LEDGER_COLUMNS_KEY, { hidden: next });
+    setError(null);
+    financeApi.setLedgerColumns(next).catch((failure: unknown) => {
+      queryClient.setQueryData(LEDGER_COLUMNS_KEY, before);
+      setError(failure);
+    });
+  };
+  const toggle = (key: string, shown: boolean) =>
+    save(shown ? hidden.filter((item) => item !== key) : [...hidden, key]);
+  const shownCount = keys.filter((key) => !hidden.includes(key)).length;
+  return (
+    <Modal open onClose={onClose} title="Cột hiển thị" description={`Đang hiện ${shownCount}/${keys.length} cột. Mã đơn luôn hiện; file Excel vẫn đủ cột.`}>
+      <ModalBody className="space-y-4">
+        {error ? <NoticeBox error={error} /> : null}
+        <div className="flex flex-wrap gap-2">
+          <SecondaryButton type="button" onClick={() => save([])}>
+            Hiện tất cả
+          </SecondaryButton>
+          <SecondaryButton type="button" onClick={() => save(keys)}>
+            Ẩn tất cả
+          </SecondaryButton>
+        </div>
+        {groups.map((group) => (
+          <fieldset key={group.group} className="space-y-1">
+            <legend className="brand-eyebrow mb-1">{group.group}</legend>
+            <div className="grid grid-cols-1 gap-x-4 sm:grid-cols-2">
+              {group.items.map((item) => (
+                <label key={item.key} className="flex min-h-10 items-center gap-2 text-sm">
+                  <input
+                    type="checkbox"
+                    checked={!hidden.includes(item.key)}
+                    onChange={(event) => toggle(item.key, event.target.checked)}
+                  />
+                  {item.label}
+                </label>
+              ))}
+            </div>
+          </fieldset>
+        ))}
+      </ModalBody>
+      <ModalFooter>
+        <SecondaryButton type="button" onClick={onClose}>
+          Xong
+        </SecondaryButton>
+      </ModalFooter>
+    </Modal>
+  );
+}
+
 function RowsTable({ data, canEdit }: { data: Ledger; canEdit: boolean }) {
   const router = useRouter();
   const [day, setDay] = useState("");
   const [q, setQ] = useState("");
   const [editing, setEditing] = useState<LedgerRow | null>(null);
+  const [picking, setPicking] = useState(false);
+  const prefs = useQuery({ queryKey: LEDGER_COLUMNS_KEY, queryFn: financeApi.ledgerColumns, retry: false });
+  const hidden = prefs.data?.hidden ?? [];
   const rows = useMemo(() => {
     const text = fold(q.trim());
     return data.rows.filter(
@@ -103,21 +359,37 @@ function RowsTable({ data, canEdit }: { data: Ledger; canEdit: boolean }) {
             .some((value) => fold(String(value)).includes(text))),
     );
   }, [data.rows, day, q]);
+  const columns = useMemo(() => ledgerColumns(data), [data]);
+  const shown = columns.filter((column) => !hidden.includes(column.key));
+  // "BCLT new": the five marks come before Số Hóa đơn.
+  const lead = shown.filter((column) => column.key.startsWith("mark:"));
+  const rest = shown.filter((column) => !column.key.startsWith("mark:"));
+  const marks = data.marks ?? [];
+  // Extra lines only for the people whose columns are shown.
+  const sellersShown = !hidden.includes("seller");
+  const doctorsShown = !hidden.includes("doctor");
   const lines = useMemo(
     () =>
       rows.flatMap((row) => {
-        const count = Math.max(row.sellers.length, doctorLines(row).length, 1);
+        const count = Math.max(
+          sellersShown ? row.sellers.length : 0,
+          doctorsShown ? doctorLines(row).length : 0,
+          1,
+        );
         return Array.from({ length: count }, (_, index): Line => ({ row, index }));
       }),
-    [rows],
+    [rows, sellersShown, doctorsShown],
   );
-  const methods = Object.entries(data.methods);
-  const marks = data.marks ?? [];
   const open = (row: LedgerRow) => {
     if (row.order_code) router.push(`/finance/ledger/orders/${encodeURIComponent(row.order_code)}`);
   };
   const sticky = "sticky left-0 z-10 bg-[var(--surface)]";
-  const num = "text-right tabular-nums";
+  const hiddenCount = switchesOf(columns).reduce(
+    (sum, group) => sum + group.items.filter((item) => hidden.includes(item.key)).length,
+    0,
+  );
+  const cellClass = (column: Column) =>
+    `${column.numeric ? "text-right tabular-nums" : ""} ${column.wrap ? "" : "whitespace-nowrap"}`;
   return (
     <div className="space-y-3">
       <div className="flex flex-wrap items-end gap-3">
@@ -136,88 +408,55 @@ function RowsTable({ data, canEdit }: { data: Ledger; canEdit: boolean }) {
           Tìm mã đơn / mã khách / tên / dịch vụ / nhân viên
           <input value={q} onChange={(event) => setQ(event.target.value)} className={`mt-1 ${field}`} />
         </label>
+        <SecondaryButton type="button" onClick={() => setPicking(true)}>
+          Cột hiển thị{hiddenCount ? ` (ẩn ${hiddenCount})` : ""}
+        </SecondaryButton>
         <span className="pb-3 text-sm text-[var(--text-muted)]">
-          {rows.length} dòng · bấm một đơn để xem chia doanh thu · chữ nghiêng = APM gợi ý
+          {rows.length} dòng · bấm một đơn để xem chia doanh thu{marks.length ? " · chữ nghiêng = APM gợi ý" : ""}
         </span>
       </div>
       {rows.length ? (
         <div className="panel table-scroll-x">
-          <table className="table-dense min-w-[200rem]">
+          <table className="table-dense min-w-full">
             <thead>
               <tr className="whitespace-nowrap">
-                {marks.map((mark) => (
-                  <th key={mark.key}>{mark.label}</th>
+                {lead.map((column) => (
+                  <th key={column.key}>{column.label}</th>
                 ))}
                 <th className={sticky}>Số Hóa đơn</th>
-                <th>SP/DV</th>
-                <th>Ngày</th>
-                <th>Tên KH</th>
-                <th>Mã KH</th>
-                <th>Diễn giải</th>
-                <th className="text-right">Doanh số</th>
-                <th className="text-right">Thực thu</th>
-                <th className="text-right">Nợ</th>
-                {methods.map(([key, label]) => (
-                  <th key={key} className="text-right">
-                    {label}
+                {rest.map((column, at) => (
+                  <th key={`${column.key}-${at}`} className={column.numeric ? "text-right" : ""} title={column.title}>
+                    {column.label}
                   </th>
                 ))}
-                <th className="text-right">Hoàn tiền</th>
-                {FEE_KEYS.map((key) => (
-                  <th key={key} className="text-right">
-                    {FEE_LABELS[key]}
-                  </th>
-                ))}
-                <th className="text-right" title="= Hoàn tiền + 4 khoản phí">
-                  Tổng hợp phí
-                </th>
-                <th className="text-right" title="= Thực thu - VAT - Tổng hợp phí">
-                  Thực thu sau phí
-                </th>
-                <th>NV bán</th>
-                <th className="text-right">Doanh thu</th>
-                <th>Bác sỹ</th>
-                <th className="text-right">Doanh thu</th>
-                <th>Sale (người phụ trách)</th>
-                <th>MKT (nguồn)</th>
-                <th>Chat page (người tạo)</th>
-                <th>Công nợ quá 45 ngày</th>
-                <th>Chi nhánh</th>
                 {canEdit ? <th /> : null}
               </tr>
             </thead>
             <tbody>
               {lines.map(({ row, index }) => {
-                const seller = row.sellers[index];
-                const doctor = doctorLines(row)[index];
-                const people = (
-                  <>
-                    <td className="whitespace-nowrap">{seller?.name ?? ""}</td>
-                    <td className={num}>{seller ? money(seller.amount) : ""}</td>
-                    <td className="whitespace-nowrap">{doctor ? doctorName(doctor) : ""}</td>
-                    <td className={num}>{doctor ? money(doctor.amount) : ""}</td>
-                  </>
-                );
                 const key = `${row.order_id ?? row.order_code}-${row.day}-${row.kind}`;
                 const clickable = row.order_code ? "cursor-pointer hover:bg-[var(--surface-muted)]" : "";
                 if (index > 0) {
                   return (
                     <tr key={`${key}-${index}`} data-testid="ledger-subrow" onClick={() => open(row)} className={clickable}>
-                      {marks.map((mark) => (
-                        <td key={mark.key} />
+                      {lead.map((column) => (
+                        <td key={column.key} />
                       ))}
-                      <td className={`${sticky} text-xs text-[var(--text-muted)]`}>↳ {row.order_code ?? ""}</td>
-                      <td colSpan={5 + 3 + methods.length + 1 + FEE_KEYS.length + 2} />
-                      {people}
-                      <td colSpan={5 + (canEdit ? 1 : 0)} />
+                      <td className={`${sticky} whitespace-nowrap text-xs text-[var(--text-muted)]`}>↳ {row.order_code ?? ""}</td>
+                      {rest.map((column, at) => (
+                        <td key={`${column.key}-${at}`} className={cellClass(column)}>
+                          {column.person ? column.person(row, index) : null}
+                        </td>
+                      ))}
+                      {canEdit ? <td /> : null}
                     </tr>
                   );
                 }
                 return (
                   <tr key={key} data-testid="ledger-row" onClick={() => open(row)} className={`${clickable} align-top`}>
-                    {marks.map((mark) => (
-                      <td key={mark.key} className="whitespace-nowrap">
-                        <MarkCell row={row} mark={mark.key} />
+                    {lead.map((column) => (
+                      <td key={column.key} className={cellClass(column)}>
+                        {column.cell(row)}
                       </td>
                     ))}
                     <td className={`${sticky} whitespace-nowrap font-medium text-[var(--accent)]`}>
@@ -228,48 +467,11 @@ function RowsTable({ data, canEdit }: { data: Ledger; canEdit: boolean }) {
                         </span>
                       ) : null}
                     </td>
-                    <td>{row.product ? "SP" : "DV"}</td>
-                    <td className="whitespace-nowrap">{dayLabel(row.day)}</td>
-                    <td className="whitespace-nowrap">{row.customer_name ?? ""}</td>
-                    <td className="whitespace-nowrap">{row.customer_code ?? ""}</td>
-                    <td className="min-w-64">
-                      {row.items?.length ? (
-                        <ul className="space-y-0.5" data-testid="ledger-services">
-                          {row.items.map((item, at) => (
-                            <li key={at} className="flex justify-between gap-3">
-                              <span>{item.name}</span>
-                              <span className="tabular-nums text-[var(--text-muted)]">{money(item.price)}</span>
-                            </li>
-                          ))}
-                        </ul>
-                      ) : (
-                        (row.services ?? "")
-                      )}
-                    </td>
-                    <td className={num}>{amount(row.sales)}</td>
-                    <td className={num}>{money(row.received ?? row.collected - row.refunds)}</td>
-                    <td className={num}>{amount(row.owed)}</td>
-                    {methods.map(([method]) => (
-                      <td key={method} className={num}>
-                        {amount(row.methods[method])}
+                    {rest.map((column, at) => (
+                      <td key={`${column.key}-${at}`} className={cellClass(column)}>
+                        {column.cell(row)}
                       </td>
                     ))}
-                    <td className={num}>{amount(-row.refunds)}</td>
-                    {FEE_KEYS.map((fee) => (
-                      <td key={fee} className={`${num} ${row.typed.includes(fee) ? "font-semibold text-[var(--accent)]" : ""}`}>
-                        {amount(row.fees[fee])}
-                      </td>
-                    ))}
-                    <td className={num}>{money(row.charges ?? row.fees.total - row.refunds)}</td>
-                    <td className={`${num} font-medium`}>{money(row.net)}</td>
-                    {people}
-                    <td className="whitespace-nowrap">{row.sale ?? ""}</td>
-                    <td className="whitespace-nowrap">{row.marketing ?? ""}</td>
-                    <td className="whitespace-nowrap">{row.carepage ?? ""}</td>
-                    <td className="whitespace-nowrap text-[var(--bad)]">
-                      {row.owed && (row.owed_days ?? 0) > 45 ? `QUÁ (${row.owed_days} ngày)` : ""}
-                    </td>
-                    <td className="whitespace-nowrap">{row.branch ?? ""}</td>
                     {canEdit ? (
                       <td>
                         {row.order_id !== null ? (
@@ -297,6 +499,7 @@ function RowsTable({ data, canEdit }: { data: Ledger; canEdit: boolean }) {
         <Empty message="Không có dòng nào." />
       )}
       {editing ? <FeeDialog row={editing} marks={marks} onClose={() => setEditing(null)} /> : null}
+      {picking ? <ColumnsDialog columns={columns} hidden={hidden} onClose={() => setPicking(false)} /> : null}
     </div>
   );
 }

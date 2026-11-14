@@ -167,7 +167,7 @@ class SeedingPhone(Base, UUIDPrimaryKeyMixin):
         CheckConstraint(f"status IN {DECISION_STATES}", name="status_known"),
     )
 
-    #: Normalised: digits only, starting with 0.
+    #: Normalised: a Vietnamese number as digits starting with 0, a foreign one as ``+``/digits.
     phone: Mapped[str] = mapped_column(String(20), nullable=False)
     submitted_by_user_id: Mapped[uuid.UUID] = _user()
     submitted_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)

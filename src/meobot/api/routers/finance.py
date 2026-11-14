@@ -44,6 +44,8 @@ from meobot.api.schemas.finance import (
     FinanceAccessResponse,
     KpiRequest,
     KpiResponse,
+    LedgerColumnsBody,
+    LedgerColumnsResponse,
     LedgerResponse,
     LedgerRowResponse,
     MarkChoiceResponse,
@@ -93,6 +95,7 @@ from meobot.application.finance.ledger import (
     check_span,
     ledger_workbook,
 )
+from meobot.application.finance.ledger_columns import read_hidden, save_hidden
 from meobot.application.finance.revenue import TEAM_LABELS, FinanceRevenueService, month_span
 from meobot.application.finance.settings import STAFF_PAGE, FinanceSettingsService
 from meobot.core.time import ensure_utc, utcnow
@@ -414,6 +417,25 @@ def _day(day: DaySummary) -> DaySummaryResponse:
         net=int(whole(day.net)),
         kpi=int(whole(day.kpi)) if day.kpi is not None else None,
     )
+
+
+@router.get("/ledger/columns", response_model=LedgerColumnsResponse)
+async def ledger_columns(
+    session: SessionDep, access: AccessDep, actor: CurrentActorDep
+) -> LedgerColumnsResponse:
+    """The Bảng kê columns I hide (14/11; my own choice, every device)."""
+    access.require_revenue()
+    return LedgerColumnsResponse(hidden=await read_hidden(session, actor.user_id))
+
+
+@router.put("/ledger/columns", response_model=LedgerColumnsResponse)
+async def set_ledger_columns(
+    body: LedgerColumnsBody, session: SessionDep, access: AccessDep, actor: CurrentActorDep
+) -> LedgerColumnsResponse:
+    """Save which Bảng kê columns I hide (422 ``ledger_columns_invalid``)."""
+    access.require_revenue()
+    assert actor.user_id is not None
+    return LedgerColumnsResponse(hidden=await save_hidden(session, actor.user_id, body.hidden))
 
 
 @router.get("/ledger", response_model=LedgerResponse)

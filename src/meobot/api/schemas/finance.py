@@ -460,6 +460,15 @@ class LedgerResponse(BaseModel):
     marks: list[MarkChoiceResponse] = []
 
 
+class LedgerColumnsBody(BaseModel):
+    #: The column keys this person hides ([] = every column shown).
+    hidden: list[str] = Field(default_factory=list, max_length=200)
+
+
+class LedgerColumnsResponse(BaseModel):
+    hidden: list[str]
+
+
 class FeeUpdateRequest(BaseModel):
     """Only the keys sent change; ``null`` / "" = back to the automatic value."""
 

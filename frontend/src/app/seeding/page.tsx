@@ -301,7 +301,7 @@ function PhonesTab() {
           value={text}
           onChange={(event) => setText(event.target.value)}
           rows={10}
-          placeholder={"Mỗi số một dòng, ví dụ:\n0912 345 678\n+84 987 654 321"}
+          placeholder={"Mỗi số một dòng, nhận cả số nước ngoài, ví dụ:\n0912 345 678\n+84 987 654 321\n+1 415 555 2671"}
           aria-label="Số điện thoại, mỗi số một dòng"
           className="w-full rounded-lg border border-[var(--border)] bg-[var(--surface)] px-3 py-2 font-mono text-sm"
         />
