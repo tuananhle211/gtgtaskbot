@@ -61,3 +61,7 @@ docker-compose.override.yml
 
 # Playwright MCP snapshots/screenshots
 .playwright-mcp/
+
+# --- Claude Code: personal settings + owner marker (see CONTRIBUTING.md)
+.claude/settings.local.json
+.claude/*.local

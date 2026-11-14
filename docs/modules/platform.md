@@ -127,7 +127,7 @@ flowchart TD
     3. `pg_dump -Fc` vào `~/db-backups/before-deploy-<ngày-giờ>.dump`; production giữ 5 bản `before-deploy-*` mới nhất, dev giữ 10 bản `*.dump` mới nhất;
     4. `docker compose ... run --rm api alembic upgrade head` bằng image mới;
     5. `docker compose --profile web --profile tunnel up -d`.
-32. **Workflow không chạy test, lint, typecheck nào.** Phải tự chạy trước khi push (lệnh: [09_LOCAL_DEVELOPMENT_SETUP.md](../handover/09_LOCAL_DEVELOPMENT_SETUP.md)). Không push khi chưa được giao (quy tắc cứng trong `CLAUDE.md`).
+32. **Workflow deploy không chạy test, lint, typecheck nào.** Cổng chất lượng nằm ở `.github/workflows/ci.yml`, chạy trên PR vào `dev`/`master` (3 job: `Docs + migration rules` = `scripts/check_changes.py --docs-only`; `Backend (ruff, mypy, pytest)` với Postgres 17 + Redis 7; `Frontend (tsc, vitest)`). Nó chỉ chặn được khi `master`/`dev` được bảo vệ trên GitHub (bắt buộc PR + 3 check) - push thẳng vẫn deploy không qua CI. Không push khi chưa được giao (quy tắc cứng trong `CLAUDE.md`).
 33. Profile `tunnel` trên server bật cả `cloudflared` (cần `CLOUDFLARE_TUNNEL_TOKEN`) và `agent-tunnel` ([agents.md](agents.md)).
 
 ### Test đọc mã nguồn
@@ -139,7 +139,13 @@ flowchart TD
     - `frontend/tests/security.test.ts`: cấm `hasPermission` / `canApprove` / `ROLE_RANK` trong frontend.
     - Mã chi tiết PR đọc qua `readPrContentDetailSource()` trong `frontend/tests/helpers.tsx`.
     - `tests/unit/test_event_loop_guard.py` (quy tắc 18); `tests/unit/test_web_security.py::test_41` (đường HTTP duy nhất phát link đăng nhập là route OWNER, có audit).
-35. Lỗi có sẵn, bỏ qua: `frontend/tests/security.test.ts` #37 (`x-forwarded-proto`); 2 test trong `tests/unit/test_provider_compatibility.py` chập chờn khi chạy cả bộ; `tests/unit/test_streams.py::test_03` (trưởng phòng PR được gắn vào PR từ 0067, test vẫn đòi 403).
+35. Lỗi có sẵn: danh sách chính xác ở `.github/known-failures.txt` (mã `<classname> :: <name>` của báo cáo JUnit). `scripts/junit_gate.py` chỉ cho qua đúng các lỗi đó, báo lỗi **mới**, và báo khi một lỗi trong danh sách đã xanh (phải xoá dòng). Gồm `frontend/tests/security.test.ts` #37 (`x-forwarded-proto`), các test menu trong `design-ban`/`design-library`/`token-deadline` và "Hệ số điểm" trong `performance-reports` (đỏ trên master 14/11/2026); backend 12 unit (test quét mã nguồn / so schema, `test_streams::test_03`) và 98 integration (fixture PR dùng vai trò trước 0066, cổng mã task PR, test migration so revision của mình với model hôm nay); 2 test trong `tests/unit/test_provider_compatibility.py` chập chờn khi chạy cả bộ.
+
+### Quy trình thay đổi và rào chắn cho Claude Code
+
+36. `scripts/check_changes.py` là định nghĩa "xong" của một thay đổi: từ file đổi (so với `HEAD`, thêm `--base <ref>` cho commit của nhánh) → module qua `MODULE_MAP` (cùng bảng với `CLAUDE.md`) → ruff + format + mypy + pytest trên test mà doc module liệt kê, test vừa đổi và `ALWAYS_BACKEND_TESTS`; frontend đổi → tsc + toàn bộ vitest; mọi bộ test đi qua `junit_gate.py`. Luật docs: module có code đổi mà `docs/modules/<module>.md` không đổi → FAILED, trừ khi `--docs-ok "<lý do>"` (trên CI: dòng `docs-ok: <lý do>` trong mô tả PR). Migration mới: không trùng số, `CLAUDE.md` phải ghi đúng `Migration head`. Xanh hết → ghi dấu vân tay code vào `.git/apm-check.stamp`.
+37. `.claude/settings.json` (commit chung) đặt model `opus` + effort `high` cho Opus 5.5 và hai hook. `.claude/hooks/guard.py` (PreToolUse): ai cũng bị chặn đọc/in `.env`/`secrets/`/`handover/` gốc, `docker compose config` không `--quiet`, in env trong container, `git push`. Máy không có `.claude/owner.local` (dev mới): chặn commit trên `master`/`dev`/`main`; hỏi người trước khi sửa file trong `RED_ZONES` và trước lệnh trong `ASK_COMMANDS` (`ssh`, `rm -rf`, `reset --hard`, `alembic downgrade`, xoá volume…); nhắc khi sửa test có sẵn. `.claude/hooks/stop_check.py` (Stop): dev mới không kết thúc lượt được khi code đổi chưa khớp dấu vân tay; chỉ chặn một lần mỗi lượt (`stop_hook_active`).
+38. Skill `.claude/skills/apm-change` là quy trình model phải theo (đọc doc → phân loại Xanh/Vàng/Đỏ, dừng xin duyệt → hỏi thay vì đoán → test trước → docs → `check_changes.py` → agent `.claude/agents/apm-reviewer.md` → báo cáo theo mẫu). Hướng dẫn cho người: `CONTRIBUTING.md`. `owner.local` chỉ là dấu hiệu, không phải bảo mật: việc chặn thật nằm ở branch protection trên GitHub.
 
 ## Phân quyền
 
@@ -210,3 +216,4 @@ Model ORM: `db/models/cron.py`, `db/models/perf_stat.py`.
 - 2026-11-11 (0103): Chịu tải đợt 1 (thread offload, `worker-sync`, giới hạn bộ nhớ, sao lưu ngày, đo hiệu năng); font tự host; bố cục điện thoại; dòng phụ "Quản trị vận hành".
 - 2026-11-12: Tối ưu route nóng, `request_memo`; "Phòng Marketing" (trước là "Phòng Media") + ghim menu.
 - 2026-11-13: "Tác vụ định kỳ" quay lại Quản trị; "Tài khoản CRM" thành tab Quản trị.
+- 2026-11-14: Quy trình cho dev mới: CI trên PR (`ci.yml`), `check_changes.py` + `junit_gate.py` + `known-failures.txt`, hook Claude Code (`guard.py`, `stop_check.py`), skill `apm-change`, agent `apm-reviewer`, `CONTRIBUTING.md`.

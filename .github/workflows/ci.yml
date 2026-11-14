@@ -1,0 +1,105 @@
+name: CI
+
+# Quality gate for pull requests into dev / master. deploy.yml (push = deploy) runs
+# no tests: protect master and dev in GitHub so a PR can only merge when this is green
+# (CONTRIBUTING.md, "Thiết lập GitHub cho chủ dự án").
+#
+# Tests already red on master when the gate was added are listed in
+# .github/known-failures.txt; scripts/junit_gate.py fails only on NEW failures.
+
+on:
+  pull_request:
+    branches: [dev, master]
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  rules:
+    name: Docs + migration rules
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Docs updated for every touched module, one migration head
+        env:
+          # A PR whose behaviour change needs no doc can say why in its body:
+          # a line "docs-ok: <reason>".
+          PR_BODY: ${{ github.event.pull_request.body }}
+        run: |
+          reason=$(printf '%s\n' "$PR_BODY" | sed -n 's/^docs-ok:[[:space:]]*//p' | head -n1)
+          if [ -n "$reason" ]; then
+            python3 scripts/check_changes.py --docs-only --base "origin/${{ github.base_ref || 'dev' }}" --docs-ok "$reason"
+          else
+            python3 scripts/check_changes.py --docs-only --base "origin/${{ github.base_ref || 'dev' }}"
+          fi
+
+  backend:
+    name: Backend (ruff, mypy, pytest)
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    services:
+      postgres:
+        image: postgres:17-alpine
+        env:
+          POSTGRES_USER: meobot
+          POSTGRES_PASSWORD: test
+          POSTGRES_DB: meobot_test
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U meobot" --health-interval 5s
+          --health-timeout 5s --health-retries 10
+      redis:
+        image: redis:7-alpine
+        ports: ["6379:6379"]
+    env:
+      MEOBOT_TEST_DATABASE_URL: postgresql+asyncpg://meobot:test@localhost:5432/meobot_test
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+      - run: uv python install 3.12
+      - run: uv sync --frozen
+      - run: uv run ruff check src tests
+      - run: uv run ruff format --check src tests
+      - run: uv run mypy src
+      - name: pytest (full suite)
+        run: |
+          uv run pytest -o addopts="--strict-markers --strict-config" -q \
+            --junitxml=pytest-report.xml || true
+      - name: No new test failures
+        run: python3 scripts/junit_gate.py pytest-report.xml
+
+  frontend:
+    name: Frontend (tsc, vitest)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - run: npm ci
+      - run: npm run typecheck
+      - name: vitest (full suite)
+        run: |
+          npx vitest run --reporter=default --reporter=junit \
+            --outputFile.junit=vitest-report.xml || true
+      - name: No new test failures
+        working-directory: .
+        run: python3 scripts/junit_gate.py frontend/vitest-report.xml

@@ -5,6 +5,9 @@ Phiên bản hiện tại: **0.6.0a3.post1**.
 Hệ thống quản lý nội dung và sản xuất video cho phòng PR, kèm bot Telegram
 và giao diện web, cùng mang tên TasksBot (trước đây là MeoBot / MeoChat).
 
+> **Lập trình viên mới: đọc [CONTRIBUTING.md](CONTRIBUTING.md) trước** (quy trình, nhánh, PR,
+> rào chắn Claude Code), rồi [docs/modules/README.md](docs/modules/README.md).
+
 ## Kiến trúc
 
 - Backend: FastAPI / SQLAlchemy / PostgreSQL / Redis / Celery

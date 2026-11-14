@@ -11,6 +11,11 @@ Product name on screen: **APM Management** (package stays `meobot`; bot + `/term
 - Local-only work: Docker stack at http://127.0.0.1:8811 (web), 127.0.0.1:8810 (api), Postgres on localhost:5432.
 - **Keep the docs current**: a change to a module's behaviour updates its `docs/modules/<module>.md` in the same change - the rule in "Quy tắc nghiệp vụ hiện hành" (current behaviour only, with `path:function` + error code) and one line in "Mốc thay đổi" (migration + date + what). Do not grow this file with module detail; add a line here only for a cross-module rule.
 
+## How to work — every code change, whoever drives
+- **Load the skill `apm-change` before editing anything in `src/`, `frontend/`, `alembic/`, `tests/`.** It is the process: read the module doc → classify risk Xanh/Vàng/Đỏ and **stop for approval** on Vàng/Đỏ → ask instead of guessing a business rule → test first → update the module doc → `python3 scripts/check_changes.py` must print `ALL GREEN` → independent review by the `apm-reviewer` agent → hand-over report in the skill's format. Never say "xong" with a step skipped without saying which.
+- Guardrails run as hooks (`.claude/settings.json`, `.claude/hooks/`): reading/printing secrets and `git push` are denied for everyone. Without the owner marker `.claude/owner.local` (gitignored, only on the owner's machine): commits on `master`/`dev`/`main` are denied, edits in red zones (frozen PR code, migrations, permissions, flush hooks, deploy/CI, dependencies, `.claude/`, this file) and destructive/remote commands ask a human, and a turn cannot end while changed code has not passed `check_changes.py`.
+- Branches: `feat/<x>` or `fix/<x>` from `origin/dev` → PR into `dev` (template `.github/pull_request_template.md`, CI `.github/workflows/ci.yml`) → the owner merges → `dev` → `master`. Tests red on master before the gate: `.github/known-failures.txt` - only NEW failures fail; never add a line to pass. Human guide: `CONTRIBUTING.md`.
+
 ## Where things live — read the module doc before touching a module
 Index + glossary: [`docs/modules/README.md`](docs/modules/README.md). Older core (PR workflow, Telegram, outbox, KPI M2/M6): `docs/handover/` (code map `07_CODEBASE_MAP.md`, local setup `09_LOCAL_DEVELOPMENT_SETUP.md`). Plans in `docs/<area>/*_PLAN.md` are design-time and may be stale; the module docs and the code win.
 
@@ -49,6 +54,9 @@ Migration head: **0109** (`alembic/versions/0109_finance_ledger_marks.py`). Each
 
 ## Commands
 ```bash
+# definition of done for a change (maps changed files -> module docs + tests, see the script)
+python3 scripts/check_changes.py [--base origin/dev] [--full] [--docs-ok "why no doc change"]
+
 # backend (pyproject sets -q, so override addopts to get a summary)
 MEOBOT_TEST_DATABASE_URL=postgresql+asyncpg://meotest:test@localhost:5432/meobot_test \
   uv run pytest -o addopts="--strict-markers --strict-config" tests/unit/test_order_commands.py
@@ -68,7 +76,7 @@ Visual check of a UI change: `docker compose build web && up -d web`, then `.cla
 
 ## Known gotchas
 - **Prod network**: ufw denies everything but SSH; Docker-published ports skip ufw, so every `ports:` entry must be `127.0.0.1:`. The site is reached only through the Cloudflare tunnel. Details: `platform.md`.
-- Pre-existing failures to ignore: `frontend/tests/security.test.ts` #37 (x-forwarded-proto); `tests/unit/test_provider_compatibility.py` 2 tests flaky only in full runs; `tests/unit/test_streams.py::test_03` (expects 403 where a PR head may now tag).
+- Pre-existing failures: the exact list is `.github/known-failures.txt` (`scripts/junit_gate.py` ignores only those). Notable: `frontend/tests/security.test.ts` #37 (x-forwarded-proto); nav tests in `design-ban`/`design-library`/`token-deadline` and `performance-reports` "Hệ số điểm" (red on master 14/11/2026); `tests/unit/test_provider_compatibility.py` 2 tests flaky only in full runs.
 - Several frontend tests **scan source files** (`confirmation.test.tsx` #173, `ux.test.tsx` nav hrefs, `shell-layouts.test.ts` treats every folder under `src/app/` as a route; PR detail code via `readPrContentDetailSource()` in `frontend/tests/helpers.tsx`). Moving code between files means updating those tests.
 - Work/KPI tests rely on the `frozen_work_clock` fixture (`tests/unit/work_clock.py`, pinned 2026-09-15 04:00 UTC).
 - Append-only tables use Python `default=utcnow` (ordering ties with DB `now()`).
